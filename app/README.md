@@ -1,5 +1,6 @@
-# tt-studio backend app
+# TT-Studio Application
 
+Manage your LLM inference server containers.
 
 ## Deployment 
 
@@ -33,9 +34,14 @@ docker container prune
 
 ## Development
 
-Run the backend server interactively:
+Run the backend and frontend server interactively:
 ```bash
-docker compose run --service-ports tt_studio_backend bash
+docker compose up
+```
+
+To force rebuilding the Docker images:
+```bash
+docker compose up --build
 ```
 
 The local files in `./api` are mounted to `/api` within the container for development. You can add breakpoints in the code, it will rebuild and deploy the Django server automatically.

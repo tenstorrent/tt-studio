@@ -32,7 +32,6 @@ To correct forward traffic to/from the remote server so that you can use the fro
 ```bash
 # port forward frontend and backend ports to
 ssh -L 3000:localhost:3000 <username>@<remote_server>
-ssh -L 8000:localhost:8000 <username>@<remote_server>
 ```
 
 ## Run local for development
@@ -45,7 +44,7 @@ To develop locally without running ML models you can keep commented out the foll
     #   - /dev/tenstorrent:/dev/tenstorrent
 ```
 
-For local development use the echo model that implementats flask inference API server but merely repeats the prompt.
+For local development use the echo model that implementats flask inference API server but merely repeats the prompt. On first run you will need to build that Docker image, see [models/dummy_echo_model/README.md](models/dummy_echo_model/README.md).
 
 # Documentation
 

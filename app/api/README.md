@@ -137,6 +137,7 @@ RuntimeError: You called this URL via POST, but the URL doesn't end in a slash a
 
 ```bash
 sudo cp -r path/to/my_weights tt-studio/tt_studio_persistent_volume/volume_${MODEL_ID}/model_weights/my_weights
+sudo chown -R user:1000 volume_${MODEL_ID}
 ```
 
 The environment variables MODEL_WEIGHTS_ID and MODEL_WEIGHTS_PATH are then set accordingly by the backend when Custom Weights -> `my_weights` are selected for deployment. The containerized model implementation will use MODEL_WEIGHTS_ID for tracking and MODEL_WEIGHTS_PATH for loading the weights. This is typically done using the inference_config object to enhance programability.
@@ -149,28 +150,37 @@ docker build -t ghcr.io/tenstorrent/tt-studio/api:v0.0.0 .
 
 ## Docker run
 
+Using docker-compose.yml is recommended for development, but `docker run` can be useful sometimes, here is an example:
 ```bash
 cd app
 source .env
-docker run -it --rm \
-    --env-file ./app/.env \
-    --network llm_studio_network \
-    -p 8000:8000 \
-    -v ./api:/api \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME} \
-    ghcr.io/tenstorrent/tt-studio/api:v0.0.0 bash
+docker run \
+  --user user \
+  --rm \
+  --cap-add ALL \
+  --detach \
+  --env JWT_SECRET=test-secret-123 \
+  --env CACHE_ROOT=/home/user/cache_root \
+  --env HF_HOME=/home/user/cache_root/huggingface \
+  --volume ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME} \
+  --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
+  --volume <your-path>/tt-studio/models/tt-metal-falcon-7b/src:/home/user/tt-metal-falcon-7b/src:rw \
+  --shm-size 32G \
+  --device /dev/tenstorrent/0:/dev/tenstorrent/0 \
+  --publish 8001:7000 \
+  --network llm_studio_network \
+  --name tt-metal-falcon-7b_p8001 \
+  --hostname tt-metal-falcon-7b_p8001 \
+  ghcr.io/tenstorrent/tt-studio/tt-metal-falcon-7b:v0.0.13 sleep infinity
 ```
 
+## Development Notes
+
+Gunicorn is used for production but does not allow for easily adding breakpoints because it is multithreaded, use the development server for PDB breakpoint debugging.
 ```bash
 ./manage.py runserver 0.0.0.0:8000
 # run with --noreload to stop auto reload
 ```
-
-```bash
-curl 0.0.0.0:8000/list-models/
-```
-See Trouble shooting section if this does not work.
 
 # Testing
 
