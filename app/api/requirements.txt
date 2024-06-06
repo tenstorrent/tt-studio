@@ -1,0 +1,9 @@
+Django==5.0.4
+docker==7.0.0
+djangorestframework==3.14.0
+django-cors-headers
+requests==2.31.0
+pyjwt==2.7.0
+gunicorn
+# dev
+pytest
