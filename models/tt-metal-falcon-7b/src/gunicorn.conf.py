@@ -8,7 +8,7 @@ workers = 1
 bind = f"0.0.0.0:{inference_config.backend_server_port}"
 reload = False
 worker_class = "gthread"
-threads = 96
+threads = 32
 timeout = 120
 
 # set log files

@@ -32,6 +32,7 @@ if not os.environ.get("MOCK_MODEL"):
     )
     from transformers.generation.utils import top_k_top_p_filtering
 
+from model_weights_handler import get_model_weights_and_tt_cache_paths
 from inference_config import inference_config
 from inference_logger import get_logger
 
@@ -161,7 +162,6 @@ class PrefillDecodeBackend:
         self.verbose = verbose  # enable conditional debug logging
         # new init:
         self.model_version = model_version
-        # self.device = device
         self.batch_size = batch_size
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
@@ -206,15 +206,10 @@ class PrefillDecodeBackend:
                 print(f"timedelta: {name}: {timedelta} seconds")
                 logger.info(f"timedelta: {name}: {timedelta} seconds")
 
-    def model_location_generator(self, model_version, model_subdir=""):
-        model_cache_path = Path(self.cache_root) / "tt-metal-models" / model_version
-        model_cache_path.mkdir(parents=True, exist_ok=True)
-        return model_cache_path
-
-    def get_tt_cache_path(self, model_version, model_subdir="", default_dir=""):
-        tt_cache_path = Path(self.cache_root) / "tt-metal-cache" / model_version
-        tt_cache_path.mkdir(parents=True, exist_ok=True)
-        return tt_cache_path
+    # NOTE: model_location_generator() and get_tt_cache_path() are removed in favour
+    # of using setting weights from tt-studio backend using environment vars:
+    # - MODEL_WEIGHTS_ID
+    # - MODEL_WEIGHTS_PATH
 
     def teardown(self):
         logger.info("teardown ...")
@@ -223,43 +218,49 @@ class PrefillDecodeBackend:
 
     def teardown_tt_metal_device(self):
         logger.info("teardown_tt_metal_device ...")
-        ttl.device.CloseDevice(self.device)
-        ttl.device.DeallocateBuffers(self.device)
-        ttl.program_cache.disable_and_clear()
+        for device in self.devices:
+            device.disable_and_clear_program_cache()
+        for device in self.devices:
+            ttl.device.DumpDeviceProfiler(device, True)
+            ttl.device.DeallocateBuffers(device)
+        ttl.device.CloseDevices(self.devices_dict)
 
     def init_tt_metal_device(self):
         logger.info("init_tt_metal_device ...")
-        # TODO: can this be determined?
-        # if not, use environment var
-        device_id = int(os.getenv("DEVICE_ID", 0))
-        logger.info(f"using DEVICE_ID={device_id}")
-        device = ttl.device.CreateDevice(device_id)
-        ttl.device.SetDefaultDevice(device)
-        self.device = ttl.device.GetDefaultDevice()
+        num_devices = ttl.device.GetNumAvailableDevices()
+        devices = ttl.device.CreateDevices([i for i in range(num_devices)])
+        self.devices_dict = devices
+        all_devices = [devices[i] for i in range(num_devices)]
+        assert len(all_devices) == 1, "Model implementation for 1 WH device only."
+        self.device = all_devices[0]
+        # for compatability
+        self.devices = [self.device]
+        for dev in self.devices:
+            dev.enable_program_cache()
+        disable_persistent_kernel_cache()
+        disable_compilation_reports()
+    
 
     def init_tt_metal(self):
         logger.info("init_tt_metal ...")
         self.init_tt_metal_device()
-        ttl.program_cache.disable_and_clear()
-        ttl.program_cache.enable()
-        disable_persistent_kernel_cache()
-        disable_compilation_reports()
 
         torch.manual_seed(0)
 
-        tt_cache_path = self.get_tt_cache_path(self.model_version)
-
         configuration = FalconConfig(**model_config_entries)
+        # set weights from tt-studio backend using
+        # MODEL_WEIGHTS_ID
+        # MODEL_WEIGHTS_PATH
+        weights_path, tt_cache_path = get_model_weights_and_tt_cache_paths()
 
         # State dict is needed for embeddings
         logger.info("Loading weights...")
         profiler.start(f"loading_weights")
         if len(os.listdir(tt_cache_path)) < 260:
             logger.info("Weights not found on machine; downloading weights...")
-            model_cache = self.model_location_generator(self.model_version)
             # use cache_dir arg
             hugging_face_reference_model = FalconForCausalLM.from_pretrained(
-                self.model_version, low_cpu_mem_usage=True, cache_dir=model_cache
+                self.model_version, low_cpu_mem_usage=True, cache_dir=weights_path
             )
             hugging_face_reference_model.eval()
             state_dict = hugging_face_reference_model.state_dict()
@@ -563,7 +564,7 @@ class PrefillDecodeBackend:
             # udpate cur time
             self.time_last_status = time.time()
 
-    def run_generate(self, prompt_q, output_q, status_q):
+    def run_generate(self, prompt_q, output_q, status_q, loop_forever=True):
         """
         Continuously pop prompt from prompt_q and push generated tokens to output_q
         while running decode. Automatically swap users from prompt_q
@@ -571,7 +572,7 @@ class PrefillDecodeBackend:
         output_q: {'user_id1': 'generated_1', 'user_id3': 'generated_1', 'user_id1': 'generated_2'...}
         """
         logger.info("starting run_generate ...")
-        while True:
+        while loop_forever:
             if self.verbose:
                 logger.debug(f"run_generate step: {self.num_steps}")
             self.pick_prompts(prompt_q)  # we update to self.users
@@ -616,7 +617,7 @@ def batch_top_pk_logits_efficient(
     return torch.concat(out_tokens)
 
 
-def run_backend(prompt_q, output_q, status_q, verbose=True):
+def run_backend(prompt_q, output_q, status_q, verbose=True, loop_forever=True):
     logger.info("starting run_backend ...")
     with torch.no_grad():
         backend = PrefillDecodeBackend(
@@ -629,7 +630,7 @@ def run_backend(prompt_q, output_q, status_q, verbose=True):
         )
         try:
             # run generate
-            backend.run_generate(prompt_q, output_q, status_q)
+            backend.run_generate(prompt_q, output_q, status_q, loop_forever)
         except Exception as e:
             logger.error(e)
             # Capture the stack trace

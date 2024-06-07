@@ -5,7 +5,7 @@ from pathlib import Path
 
 from inference_config import inference_config
 from inference_logger import get_logger
-
+from model_weights_handler import get_model_weights_and_tt_cache_paths
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -54,6 +54,7 @@ class DummyEchoBackend:
         self.cache_root = Path(cache_root)
         if not self.cache_root.exists():
             self.cache_root.mkdir(parents=True, exist_ok=True)
+        weights_path, tt_cache_path = get_model_weights_and_tt_cache_paths()
 
     def teardown(self):
         pass
@@ -136,7 +137,10 @@ class DummyEchoBackend:
             logger.warning(f"WARNING: Duplicate user ids: {user_ids}")
    
     def decode(self):
+        # simulate TPS of a real LLM
         chars_per_token = 3
+        tokens_per_second = 12.0
+        time.sleep(1.0/tokens_per_second)
         for idx, user in enumerate(self.users):
             if user is None:
                 continue
