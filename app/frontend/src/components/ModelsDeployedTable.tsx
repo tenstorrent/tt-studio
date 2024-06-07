@@ -15,6 +15,9 @@ import { useTheme } from "../providers/ThemeProvider";
 import CustomToaster, { customToast } from "./CustomToaster";
 import { Spinner } from "./ui/spinner";
 import { useNavigate } from "react-router-dom";
+import CopyableText from "./CopyableText";
+import StatusBadge from "./StatusBadge";
+import HealthBadge from "./HealthBadge";
 
 const dockerAPIURL = "/docker-api/";
 const statusURl = `${dockerAPIURL}status/`;
@@ -24,11 +27,9 @@ interface PortBinding {
   HostIp: string;
   HostPort: string;
 }
-
 interface Network {
   DNSNames: string[];
 }
-
 interface ContainerData {
   name: string;
   status: string;
@@ -39,11 +40,11 @@ interface ContainerData {
   port_bindings: { [key: string]: PortBinding[] };
   networks: { [key: string]: Network };
 }
-
 interface Model {
   id: string;
   image: string;
   status: string;
+  health: string;
   ports: string;
   name: string;
 }
@@ -69,7 +70,6 @@ export function ModelsDeployedTable() {
 
       const models: Model[] = Object.keys(data).map((key) => {
         const container = data[key];
-        const portBindingKey = Object.keys(container.port_bindings)[0];
         const portMapping = Object.keys(container.port_bindings)
           .map(
             (port) =>
@@ -80,10 +80,21 @@ export function ModelsDeployedTable() {
         return {
           id: key,
           image: container.image_name,
-          status: `${container.status} (health: ${container.health})`,
+          status: container.status,
+          health: container.health,
           ports: portMapping,
           name: container.name,
         };
+      });
+
+      // Manually add a model with a "bad" status
+      models.push({
+        id: "badModel",
+        image: "bad/image:latest",
+        status: "stopped",
+        health: "unhealthy",
+        ports: "127.0.0.1:8080->80/tcp",
+        name: "Bad Model",
       });
 
       setModelsDeployed(models);
@@ -120,7 +131,6 @@ export function ModelsDeployedTable() {
         }
 
         setFadingModels((prev) => [...prev, modelId]);
-        // customToast.success(`Model ID: ${truncatedModelId} has been deleted.`);
       } catch (error) {
         if (axios.isAxiosError(error)) {
           console.error("Error stopping the container:", error.response?.data);
@@ -162,7 +172,7 @@ export function ModelsDeployedTable() {
     console.log("Opening Chat UI for model");
     customToast.success(`Chat UI for model ${modelID} opened.`);
 
-    navigate("/chat-ui", { state: { containerID: modelID } }); // Navigate to '/chat-ui' with state
+    navigate("/chat-ui", { state: { containerID: modelID } });
 
     console.log("Navigated to chat-ui page");
   };
@@ -194,6 +204,7 @@ export function ModelsDeployedTable() {
             <TableHead className="text-left">Container ID</TableHead>
             <TableHead className="text-left">Image</TableHead>
             <TableHead className="text-left">Status</TableHead>
+            <TableHead className="text-left">Health</TableHead>
             <TableHead className="text-left">Ports</TableHead>
             <TableHead className="text-left">Names</TableHead>
             <TableHead className="text-left">Manage</TableHead>
@@ -211,11 +222,22 @@ export function ModelsDeployedTable() {
                   : ""
               }`}
             >
-              <TableCell className="text-left">{model.id}</TableCell>
+              <TableCell className="text-left">
+                <CopyableText text={model.id} />
+              </TableCell>
               <TableCell className="text-left">{model.image}</TableCell>
-              <TableCell className="text-left">{model.status}</TableCell>
-              <TableCell className="text-left">{model.ports}</TableCell>
-              <TableCell className="text-left">{model.name}</TableCell>
+              <TableCell className="text-left">
+                <StatusBadge status={model.status} />
+              </TableCell>
+              <TableCell className="text-left">
+                <HealthBadge health={model.health} />
+              </TableCell>
+              <TableCell className="text-left">
+                <CopyableText text={model.ports} />
+              </TableCell>
+              <TableCell className="text-left">
+                <CopyableText text={model.name} />
+              </TableCell>
               <TableCell className="text-left">
                 <div className="flex gap-2">
                   {fadingModels.includes(model.id) ? (
