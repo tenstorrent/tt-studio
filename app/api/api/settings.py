@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-x30gxlkf$@3q56o1r)n+hoc7*27_z+8k6=!h#=iw$2sdfbn*&v"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-default")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -86,22 +86,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "api.wsgi.application"
 
-# REST_FRAMEWORK = {
-#     'DEFAULT_RENDERER_CLASSES': (
-#         'rest_framework.renderers.JSONRenderer',  # JSON responses by default
-#         'rest_framework.renderers.BrowsableAPIRenderer',  # Allows browsing API via web
-#     ),
-# }
-
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
-
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
 
 # local memory thread-safe default
 # the LOCATION for locmem.LocMemCache cache backend is just a name for tracking

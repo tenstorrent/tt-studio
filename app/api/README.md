@@ -1,6 +1,6 @@
 # API Backend
 
-$api_host: on the host this will be `0.0.0.0:8000`, on the Docker bridge network (within containers), this is `
+$api_host: on the host default is `0.0.0.0:8000`, on the Docker bridge network (within containers) this is is proxied through the frontend app which is defaulted to localhost:3000`.
 
 ### GET $api_host/docker/get_containers
 

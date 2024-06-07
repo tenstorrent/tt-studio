@@ -162,7 +162,6 @@ class PrefillDecodeBackend:
         self.verbose = verbose  # enable conditional debug logging
         # new init:
         self.model_version = model_version
-        # self.device = device
         self.batch_size = batch_size
         self.num_layers = num_layers
         self.max_seq_len = max_seq_len
@@ -207,15 +206,10 @@ class PrefillDecodeBackend:
                 print(f"timedelta: {name}: {timedelta} seconds")
                 logger.info(f"timedelta: {name}: {timedelta} seconds")
 
-    # def model_location_generator(self, model_version, model_subdir=""):
-    #     model_cache_path = Path(self.cache_root) / "model_weights" / model_version
-    #     model_cache_path.mkdir(parents=True, exist_ok=True)
-    #     return model_cache_path
-
-    # def get_tt_cache_path(self, model_version, model_subdir="", default_dir=""):
-    #     tt_cache_path = Path(self.cache_root) / "tt-metal-cache" / model_version
-    #     tt_cache_path.mkdir(parents=True, exist_ok=True)
-    #     return tt_cache_path
+    # NOTE: model_location_generator() and get_tt_cache_path() are removed in favour
+    # of using setting weights from tt-studio backend using environment vars:
+    # - MODEL_WEIGHTS_ID
+    # - MODEL_WEIGHTS_PATH
 
     def teardown(self):
         logger.info("teardown ...")
@@ -253,8 +247,6 @@ class PrefillDecodeBackend:
 
         torch.manual_seed(0)
 
-        # tt_cache_path = self.get_tt_cache_path(self.model_version)
-
         configuration = FalconConfig(**model_config_entries)
         # set weights from tt-studio backend using
         # MODEL_WEIGHTS_ID
@@ -266,7 +258,6 @@ class PrefillDecodeBackend:
         profiler.start(f"loading_weights")
         if len(os.listdir(tt_cache_path)) < 260:
             logger.info("Weights not found on machine; downloading weights...")
-            # model_cache = self.model_location_generator(self.model_version)
             # use cache_dir arg
             hugging_face_reference_model = FalconForCausalLM.from_pretrained(
                 self.model_version, low_cpu_mem_usage=True, cache_dir=weights_path
