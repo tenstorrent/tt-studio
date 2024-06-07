@@ -43,7 +43,7 @@ export default function NavBar() {
             <img
               src={logo}
               alt="Tenstorrent Logo"
-              className="w-10 h-10 sm:w-14 sm:h-14 rounded-full shadow-inner transform transition duration-300 hover:scale-110"
+              className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
             />
             <h4
               className={`hidden sm:block text-lg sm:text-2xl font-medium ${textColor} ml-3 bold font-roboto`}
