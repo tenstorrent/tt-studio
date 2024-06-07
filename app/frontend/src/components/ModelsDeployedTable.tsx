@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
 import { Card } from "./ui/card";
 import {
   Table,
@@ -18,28 +17,13 @@ import { useNavigate } from "react-router-dom";
 import CopyableText from "./CopyableText";
 import StatusBadge from "./StatusBadge";
 import HealthBadge from "./HealthBadge";
+import {
+  fetchModels,
+  deleteModel,
+  handleRedeploy,
+  handleChatUI,
+} from "../api/modelsDeployedApis";
 
-const dockerAPIURL = "/docker-api/";
-const statusURl = `${dockerAPIURL}status/`;
-const stopModelsURL = `${dockerAPIURL}stop/`;
-
-interface PortBinding {
-  HostIp: string;
-  HostPort: string;
-}
-interface Network {
-  DNSNames: string[];
-}
-interface ContainerData {
-  name: string;
-  status: string;
-  health: string;
-  create: string;
-  image_id: string;
-  image_name: string;
-  port_bindings: { [key: string]: PortBinding[] };
-  networks: { [key: string]: Network };
-}
 interface Model {
   id: string;
   image: string;
@@ -60,121 +44,41 @@ export function ModelsDeployedTable() {
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
   const { theme } = useTheme();
 
-  const fetchModels = async () => {
-    try {
-      const response = await axios.get<{ [key: string]: ContainerData }>(
-        statusURl
-      );
-      const data = response.data;
-      console.log("Data fetched for tables:", data);
-
-      const models: Model[] = Object.keys(data).map((key) => {
-        const container = data[key];
-        const portMapping = Object.keys(container.port_bindings)
-          .map(
-            (port) =>
-              `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`
-          )
-          .join(", ");
-
-        return {
-          id: key,
-          image: container.image_name,
-          status: container.status,
-          health: container.health,
-          ports: portMapping,
-          name: container.name,
-        };
-      });
-
-      // Manually add a model with a "bad" status
-      models.push({
-        id: "badModel",
-        image: "bad/image:latest",
-        status: "stopped",
-        health: "unhealthy",
-        ports: "127.0.0.1:8080->80/tcp",
-        name: "Bad Model",
-      });
-
-      setModelsDeployed(models);
-    } catch (error) {
-      console.error("Error fetching models:", error);
-      customToast.error("Failed to fetch models.");
-    }
-  };
-
   useEffect(() => {
-    fetchModels();
+    const loadModels = async () => {
+      try {
+        const models = await fetchModels();
+        setModelsDeployed(models);
+      } catch (error) {
+        console.error("Error fetching models:", error);
+        customToast.error("Failed to fetch models.");
+      }
+    };
+
+    loadModels();
   }, []);
 
   const handleDelete = async (modelId: string) => {
     console.log(`Delete button clicked for model ID: ${modelId}`);
     const truncatedModelId = modelId.substring(0, 4);
 
-    const deleteModel = async () => {
+    const deleteModelAsync = async () => {
       setLoadingModels((prev) => [...prev, modelId]);
       try {
-        const payload = JSON.stringify({ container_id: modelId });
-        console.log("Payload:", payload);
-
-        const response = await axios.post(stopModelsURL, payload, {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-        console.log("Response:", response);
-
-        if (response.data.status !== "success") {
-          customToast.error("Failed to stop the container");
-          throw new Error("Failed to stop the container");
-        }
-
+        await deleteModel(modelId);
         setFadingModels((prev) => [...prev, modelId]);
       } catch (error) {
-        if (axios.isAxiosError(error)) {
-          console.error("Error stopping the container:", error.response?.data);
-          customToast.error(
-            `Failed to delete Model ID: ${truncatedModelId} - ${
-              error.response?.data.message || error.message
-            }`
-          );
-        } else if (error instanceof Error) {
-          console.error("Error stopping the container:", error.message);
-          customToast.error(
-            `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`
-          );
-        } else {
-          console.error("Unknown error stopping the container", error);
-          customToast.error(
-            `Failed to delete Model ID: ${truncatedModelId} - Unknown error`
-          );
-        }
+        console.error("Error stopping the container:", error);
       } finally {
         setLoadingModels((prev) => prev.filter((id) => id !== modelId));
       }
     };
 
-    customToast.promise(deleteModel(), {
+    customToast.promise(deleteModelAsync(), {
       loading: `Attempting to delete Model ID: ${truncatedModelId}...`,
       success: `Model ID: ${truncatedModelId} has been deleted.`,
       error: `Failed to delete Model ID: ${truncatedModelId}.`,
     });
-  };
-
-  const handleRedeploy = (modelName: string) => {
-    console.log(`Redeploy button clicked for model: ${modelName}`);
-    customToast.success(`Model ${modelName} has been redeployed.`);
-  };
-
-  const handleChatUI = (modelID: string) => {
-    console.log(`ChatUI button clicked for model: ${modelID}`);
-    console.log("Opening Chat UI for model");
-    customToast.success(`Chat UI for model ${modelID} opened.`);
-
-    navigate("/chat-ui", { state: { containerID: modelID } });
-
-    console.log("Navigated to chat-ui page");
   };
 
   useEffect(() => {
@@ -277,7 +181,7 @@ export function ModelsDeployedTable() {
                         </Button>
                       )}
                       <Button
-                        onClick={() => handleChatUI(model.id)}
+                        onClick={() => handleChatUI(model.id, navigate)}
                         className={`${
                           theme === "dark"
                             ? "bg-blue-500 hover:bg-blue-400 text-white"
