@@ -14,9 +14,6 @@ import { Button } from "./ui/button";
 import { useTheme } from "../providers/ThemeProvider";
 import CustomToaster, { customToast } from "./CustomToaster";
 import { Spinner } from "./ui/spinner";
-import CodeBlocks from "./CodeBlocks";
-import { Copy } from "lucide-react";
-// import { useNavigate } from 'react-router-dom';
 import { useNavigate } from "react-router-dom";
 
 const dockerAPIURL = "/docker-api/";
@@ -49,7 +46,6 @@ interface Model {
   status: string;
   ports: string;
   name: string;
-  command: string;
 }
 
 const initialModelsDeployed: Model[] = [];
@@ -87,9 +83,6 @@ export function ModelsDeployedTable() {
           status: `${container.status} (health: ${container.health})`,
           ports: portMapping,
           name: container.name,
-          command: portBindingKey
-            ? `curl "http://localhost:${container.port_bindings[portBindingKey][0].HostPort}/inference/${container.name}"`
-            : "",
         };
       });
 
@@ -174,11 +167,6 @@ export function ModelsDeployedTable() {
     console.log("Navigated to chat-ui page");
   };
 
-  const handleCopy = (command: string) => {
-    navigator.clipboard.writeText(command);
-    customToast.success("Command copied to clipboard.");
-  };
-
   useEffect(() => {
     const timer = setTimeout(() => {
       setModelsDeployed((prevModels) =>
@@ -208,7 +196,6 @@ export function ModelsDeployedTable() {
             <TableHead className="text-left">Status</TableHead>
             <TableHead className="text-left">Ports</TableHead>
             <TableHead className="text-left">Names</TableHead>
-            <TableHead className="text-left">Command</TableHead>
             <TableHead className="text-left">Manage</TableHead>
           </TableRow>
         </TableHeader>
@@ -229,23 +216,6 @@ export function ModelsDeployedTable() {
               <TableCell className="text-left">{model.status}</TableCell>
               <TableCell className="text-left">{model.ports}</TableCell>
               <TableCell className="text-left">{model.name}</TableCell>
-              <TableCell className="text-left">
-                <div className="flex items-center gap-2">
-                  <CodeBlocks
-                    code={model.command}
-                    language="bash"
-                    showLineNumbers={false}
-                  />
-                  <Copy
-                    className={`cursor-pointer ${
-                      theme === "dark"
-                        ? "text-gray-400 hover:text-green-300"
-                        : "text-gray-400 hover:text-green-700"
-                    }`}
-                    onClick={() => handleCopy(model.command)}
-                  />
-                </div>
-              </TableCell>
               <TableCell className="text-left">
                 <div className="flex gap-2">
                   {fadingModels.includes(model.id) ? (
