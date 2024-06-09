@@ -12,7 +12,7 @@ const ModelsDeployed = () => {
             "radial-gradient(ellipse at center, transparent 20%, black 100%)",
         }}
       ></div>
-      <div className="flex flex-col h-screen w-full md:px-20 pt-8 overflow-hidden">
+      <div className="flex flex-col h-screen w-full md:px-20 pt-8 pb-28 overflow-hidden">
         <ModelsDeployedTable />
       </div>
     </div>
