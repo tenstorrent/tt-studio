@@ -23,7 +23,7 @@ import {
   FormMessage,
 } from "./ui/form";
 import { Step, Stepper, useStepper } from "./ui/stepper";
-import UploadDialog from "./UploadDialog";
+// import UploadDialog from "./UploadDialog";
 import CustomToaster, { customToast } from "./CustomToaster";
 
 const dockerAPIURL = "/docker-api/";
@@ -107,7 +107,7 @@ export default function StepperDemo() {
     );
   };
 
-  const handleDeploy = async () => {
+  const handleDeploy = async (): Promise<boolean> => {
     const model_id = selectedModel || "0";
     const weights_id =
       selectedWeight === "Default Weights"
@@ -128,9 +128,11 @@ export default function StepperDemo() {
       });
       console.log("Deployment response:", response);
       customToast.success("Model deployment started!");
+      return true; 
     } catch (error) {
       console.error("Error during deployment:", error);
       customToast.error("Deployment failed!");
+      return false; 
     }
   };
 
@@ -163,14 +165,10 @@ export default function StepperDemo() {
                 return (
                   <Step key={stepProps.label} {...stepProps}>
                     <div className="py-8 px-16">
-                      {/* <Card> */}
                       <WeightForm
                         selectedModel={selectedModel}
                         setCustomWeight={setCustomWeight}
                       />
-                      {/* <UploadDialog /> */}
-                      {/* </Card>
-                      // <UploadDialog /> */}
                     </div>
                   </Step>
                 );
@@ -228,6 +226,7 @@ function FirstStepForm({
   const { nextStep } = useStepper();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
+  const [hasValidationError, setHasValidationError] = useState(false);
 
   useEffect(() => {
     console.log("fetching models", getModelsUrl);
@@ -261,6 +260,7 @@ function FirstStepForm({
         nextStep();
       } else {
         customToast.error("Model not found!; Ran into error :(");
+        setHasValidationError(true);
       }
     } finally {
       setIsSubmitting(false);
@@ -284,9 +284,17 @@ function FirstStepForm({
               <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white ">
                 Models
               </FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select
+                onValueChange={(value) => {
+                  field.onChange(value);
+                  setHasValidationError(false);
+                }}
+                defaultValue={field.value}
+              >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger
+                    className={hasValidationError ? "border-red-500" : ""}
+                  >
                     <SelectValue placeholder="Select a model" />
                   </SelectTrigger>
                 </FormControl>
@@ -317,7 +325,7 @@ const SecondFormSchema = z.object({
 });
 
 function SecondStepForm({
-  selectedModel,
+  // selectedModel,
   setSelectedWeight,
   addCustomStep,
   addFineTuneStep,
@@ -328,6 +336,8 @@ function SecondStepForm({
 }) {
   const { nextStep } = useStepper();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasValidationError, setHasValidationError] = useState(false);
+
   const form = useForm<z.infer<typeof SecondFormSchema>>({
     resolver: zodResolver(SecondFormSchema),
     defaultValues: {
@@ -345,6 +355,7 @@ function SecondStepForm({
         nextStep();
       } else {
         customToast.error("Weight not found!");
+        setHasValidationError(true);
       }
     } finally {
       setIsSubmitting(false);
@@ -371,6 +382,7 @@ function SecondStepForm({
               <Select
                 onValueChange={(value) => {
                   field.onChange(value);
+                  setHasValidationError(false);
                   removeDynamicSteps();
                   if (value === "Custom Weight") {
                     addCustomStep();
@@ -381,7 +393,9 @@ function SecondStepForm({
                 defaultValue={field.value}
               >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger
+                    className={hasValidationError ? "border-red-500" : ""}
+                  >
                     <SelectValue placeholder="Select a weight" />
                   </SelectTrigger>
                 </FormControl>
@@ -419,6 +433,7 @@ function WeightForm({
   const { nextStep } = useStepper();
   const [weights, setWeights] = useState<Weight[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasValidationError, setHasValidationError] = useState(false);
 
   useEffect(() => {
     if (selectedModel) {
@@ -462,6 +477,7 @@ function WeightForm({
         nextStep();
       } else {
         customToast.error("Weight not found!");
+        setHasValidationError(true);
       }
     } finally {
       setIsSubmitting(false);
@@ -485,9 +501,17 @@ function WeightForm({
               <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
                 Weight
               </FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select
+                onValueChange={(value) => {
+                  field.onChange(value);
+                  setHasValidationError(false);
+                }}
+                defaultValue={field.value}
+              >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger
+                    className={hasValidationError ? "border-red-500" : ""}
+                  >
                     <SelectValue placeholder="Select a weight" />
                   </SelectTrigger>
                 </FormControl>
@@ -513,7 +537,6 @@ function WeightForm({
   );
 }
 
-// StepperFormActions Component
 function StepperFormActions({
   form,
   removeDynamicSteps,
@@ -584,22 +607,20 @@ function StepperFormActions({
 }
 
 function DeployModelStep({
-  selectedModel,
-  selectedWeight,
-  customWeight,
   handleDeploy,
 }: {
   selectedModel: string | null;
   selectedWeight: string | null;
   customWeight: Weight | null;
-  handleDeploy: () => void;
+  handleDeploy: () => Promise<boolean>; 
 }) {
   const { nextStep } = useStepper();
 
   const onDeploy = async () => {
-    await handleDeploy();
-    console.log("ensure code reaches here");
-    nextStep();
+    const deploySuccess = await handleDeploy();
+    if (deploySuccess) {
+      nextStep();
+    }
   };
 
   return (
