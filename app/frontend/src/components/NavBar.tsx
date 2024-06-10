@@ -48,7 +48,7 @@ export default function NavBar() {
             <h4
               className={`hidden sm:block text-lg sm:text-2xl font-medium ${textColor} ml-3 bold font-roboto`}
             >
-              llm-studio v0.0
+              llm-studio
             </h4>
           </a>
           <NavigationMenu className="flex-grow px-28">
