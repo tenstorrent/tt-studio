@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
@@ -12,6 +12,7 @@ import {
   Angry,
   DollarSign,
   CircleArrowUp,
+  ChevronDown,
 } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
@@ -35,10 +36,32 @@ const ChatComponent: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [modelID, setModelID] = useState(location.state.containerID);
   const [isStreaming, setIsStreaming] = useState(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
 
   useEffect(() => {
     setModelID(location.state.containerID);
   }, [location.state.containerID]);
+
+  const scrollToBottom = () => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatHistory]);
+
+  const handleScroll = () => {
+    if (scrollAreaRef.current) {
+      const isAtBottom =
+        scrollAreaRef.current.scrollHeight - scrollAreaRef.current.scrollTop <=
+        scrollAreaRef.current.clientHeight + 1;
+      setIsScrollButtonVisible(!isAtBottom);
+    }
+  };
 
   const runInference = async (request: InferenceRequest) => {
     try {
@@ -58,6 +81,7 @@ const ChatComponent: React.FC = () => {
         ...prevHistory,
         { sender: "user", text: textInput },
       ]);
+      setTextInput("");
 
       let result = "";
       if (reader) {
@@ -85,6 +109,7 @@ const ChatComponent: React.FC = () => {
               ];
             }
           });
+          scrollToBottom(); // Ensure scroll to bottom while streaming
         }
       }
 
@@ -96,6 +121,8 @@ const ChatComponent: React.FC = () => {
   };
 
   const handleInference = () => {
+    if (textInput.trim() === "") return;
+
     const inferenceRequest: InferenceRequest = {
       deploy_id: modelID,
       text: textInput,
@@ -110,11 +137,18 @@ const ChatComponent: React.FC = () => {
         { sender: "assistant", text: "2024, that was a silly question." },
       ]);
       setTextInput("");
+      scrollToBottom(); // Ensure scroll to bottom after adding special response
       return;
     }
 
     runInference(inferenceRequest);
-    setTextInput("");
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleInference();
+    }
   };
 
   return (
@@ -169,37 +203,53 @@ const ChatComponent: React.FC = () => {
             </div>
           )}
           {chatHistory.length > 0 && (
-            <ScrollArea className="h-[calc(100vh-38rem)] overflow-auto p-4 border rounded">
-              <h3 className="font-bold mb-4">Chat Responses:</h3>
-              {chatHistory.map((message, index) => (
-                <div
-                  key={index}
-                  className={`flex ${
-                    message.sender === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
+            <div className="relative flex flex-col h-full">
+              <ScrollArea
+                className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded"
+                ref={scrollAreaRef}
+                onScroll={handleScroll}
+              >
+                <h3 className="font-bold mb-4">Chat Responses:</h3>
+                {chatHistory.map((message, index) => (
                   <div
-                    className={`flex items-center text-left p-2 rounded-lg mb-2 ${
-                      message.sender === "user"
-                        ? "bg-green-600 text-white"
-                        : "bg-gray-700 text-gray-300"
+                    key={index}
+                    className={`flex ${
+                      message.sender === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
-                    {message.sender === "user" ? (
-                      <User className="h-6 w-6 mr-2 text-left" />
-                    ) : (
-                      <Bot className="h-6 w-6 mr-2 text-left" />
-                    )}
-                    {message.text}
+                    <div
+                      className={`flex items-center text-left p-2 rounded-lg mb-2 ${
+                        message.sender === "user"
+                          ? "bg-green-600 text-white"
+                          : "bg-gray-700 text-gray-300"
+                      }`}
+                    >
+                      {message.sender === "user" ? (
+                        <User className="h-6 w-6 mr-2 text-left" />
+                      ) : (
+                        <Bot className="h-6 w-6 mr-2 text-left" />
+                      )}
+                      {message.text}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </ScrollArea>
+                ))}
+                <div ref={bottomRef} />
+              </ScrollArea>
+              {isScrollButtonVisible && (
+                <Button
+                  className="fixed bottom-4 right-4 p-2 rounded-full bg-gray-700 text-white"
+                  onClick={scrollToBottom}
+                >
+                  <ChevronDown className="h-6 w-6" />
+                </Button>
+              )}
+            </div>
           )}
           <div className="flex items-center pt-4 relative">
             <Textarea
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
+              onKeyDown={handleKeyPress}
               placeholder="Enter text for inference"
               className="px-4 py-2 border rounded shadow-md w-full pr-12"
               disabled={isStreaming}
