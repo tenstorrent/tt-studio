@@ -24,6 +24,8 @@ import {
   handleChatUI,
 } from "../api/modelsDeployedApis";
 
+import { ScrollArea, ScrollBar } from "./ui/scroll-area";
+
 interface Model {
   id: string;
   image: string;
@@ -92,112 +94,130 @@ export function ModelsDeployedTable() {
 
   return (
     <Card
-      className={`bg-${theme === "dark" ? "zinc-900" : "white"} text-${
-        theme === "dark" ? "zinc-200" : "black"
-      }`}
+      className={
+        "" +
+        `${
+          theme === "dark"
+            ? " bg-zinc-900 text-zinc-200 rounded-lg border-2 border-red"
+            : " bg-white text-black border-gray-500 border-2 rounded-lg border-red"
+        }`
+      }
     >
-      <CustomToaster />
-      <Table className={`text-${theme === "dark" ? "zinc-200" : "black"}`}>
-        <TableCaption
-          className={`text-${theme === "dark" ? "zinc-400" : "gray-500"}`}
-        >
-          Models Deployed
-        </TableCaption>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="text-left">Container ID</TableHead>
-            <TableHead className="text-left">Image</TableHead>
-            <TableHead className="text-left">Status</TableHead>
-            <TableHead className="text-left">Health</TableHead>
-            <TableHead className="text-left">Ports</TableHead>
-            <TableHead className="text-left">Names</TableHead>
-            <TableHead className="text-left">Manage</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {modelsDeployed.map((model) => (
+      <ScrollArea className="whitespace-nowrap rounded-md border">
+        <CustomToaster />
+        <Table className="rounded-lg">
+          <TableCaption
+            className={`${
+              theme === "dark"
+                ? "text-zinc-400 rounded-lg"
+                : "text-gray-500 rounded-lg"
+            }`}
+          >
+            Models Deployed
+          </TableCaption>
+          <TableHeader>
             <TableRow
-              key={model.id}
-              className={`transition-colors duration-1000 ${
-                fadingModels.includes(model.id)
-                  ? theme === "dark"
-                    ? "bg-zinc-700 opacity-50"
-                    : "bg-zinc-200 opacity-50"
-                  : ""
+              className={`${
+                theme === "dark"
+                  ? "bg-zinc-900 rounded-lg"
+                  : "bg-zinc-200 rounded-lg"
               }`}
             >
-              <TableCell className="text-left">
-                <CopyableText text={model.id} />
-              </TableCell>
-              <TableCell className="text-left">{model.image}</TableCell>
-              <TableCell className="text-left">
-                <StatusBadge status={model.status} />
-              </TableCell>
-              <TableCell className="text-left">
-                <HealthBadge health={model.health} />
-              </TableCell>
-              <TableCell className="text-left">
-                <CopyableText text={model.ports} />
-              </TableCell>
-              <TableCell className="text-left">
-                <CopyableText text={model.name} />
-              </TableCell>
-              <TableCell className="text-left">
-                <div className="flex gap-2">
-                  {fadingModels.includes(model.id) ? (
-                    <Button
-                      onClick={() => handleRedeploy(model.image)}
-                      className={`${
-                        theme === "dark"
-                          ? "bg-zinc-700 hover:bg-zinc-600 text-white"
-                          : "bg-gray-300 hover:bg-gray-400 text-black"
-                      }`}
-                    >
-                      Redeploy
-                    </Button>
-                  ) : (
-                    <>
-                      {loadingModels.includes(model.id) ? (
-                        <Button
-                          disabled
-                          className={`${
-                            theme === "dark"
-                              ? "bg-red-700 hover:bg-red-600 text-white"
-                              : "bg-red-500 hover:bg-red-400 text-white"
-                          }`}
-                        >
-                          <Spinner />
-                        </Button>
-                      ) : (
-                        <Button
-                          onClick={() => handleDelete(model.id)}
-                          className={`${
-                            theme === "dark"
-                              ? "bg-red-700 hover:bg-red-600 text-white"
-                              : "bg-red-500 hover:bg-red-400 text-white"
-                          }`}
-                        >
-                          Delete
-                        </Button>
-                      )}
-                      <Button
-                        onClick={() => handleChatUI(model.id, navigate)}
-                        className={`${
-                          theme === "dark"
-                            ? "bg-blue-500 hover:bg-blue-400 text-white"
-                            : "bg-blue-500 hover:bg-blue-400 text-white"
-                        }`}
-                      >
-                        ChatUI
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </TableCell>
+              <TableHead className="text-left">Container ID</TableHead>
+              <TableHead className="text-left">Image</TableHead>
+              <TableHead className="text-left">Status</TableHead>
+              <TableHead className="text-left">Health</TableHead>
+              <TableHead className="text-left">Ports</TableHead>
+              <TableHead className="text-left">Names</TableHead>
+              <TableHead className="text-left">Manage</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {modelsDeployed.map((model) => (
+              <TableRow
+                key={model.id}
+                className={`transition-colors duration-1000 ${
+                  fadingModels.includes(model.id)
+                    ? theme === "dark"
+                      ? "bg-zinc-700 opacity-50"
+                      : "bg-zinc-200 opacity-50"
+                    : ""
+                } rounded-lg`}
+              >
+                <TableCell className="text-left">
+                  <CopyableText text={model.id} />
+                </TableCell>
+                <TableCell className="text-left">{model.image}</TableCell>
+                <TableCell className="text-left">
+                  <StatusBadge status={model.status} />
+                </TableCell>
+                <TableCell className="text-left">
+                  <HealthBadge health={model.health} />
+                </TableCell>
+                <TableCell className="text-left">
+                  <CopyableText text={model.ports} />
+                </TableCell>
+                <TableCell className="text-left">
+                  <CopyableText text={model.name} />
+                </TableCell>
+                <TableCell className="text-left">
+                  <div className="flex gap-2">
+                    {fadingModels.includes(model.id) ? (
+                      <Button
+                        onClick={() => handleRedeploy(model.image)}
+                        className={`${
+                          theme === "light"
+                            ? "bg-zinc-700 hover:bg-zinc-600 text-white"
+                            : "bg-gray-300 hover:bg-gray-400 text-black"
+                        } rounded-lg`}
+                      >
+                        Redeploy
+                      </Button>
+                    ) : (
+                      <>
+                        {loadingModels.includes(model.id) ? (
+                          <Button
+                            disabled
+                            className={`${
+                              theme === "dark"
+                                ? "bg-red-700 hover:bg-red-600 text-white"
+                                : "bg-red-500 hover:bg-red-400 text-white"
+                            } rounded-lg`}
+                          >
+                            <Spinner />
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => handleDelete(model.id)}
+                            className={`${
+                              theme === "dark"
+                                ? "bg-red-700 hover:bg-red-600 text-white"
+                                : "bg-red-500 hover:bg-red-400 text-black"
+                            } rounded-lg`}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                        <Button
+                          onClick={() => handleChatUI(model.id, navigate)}
+                          className={`${
+                            theme === "dark"
+                              ? "bg-blue-500 hover:bg-blue-400 text-white"
+                              : "bg-blue-500 hover:bg-blue-400 text-white"
+                          } rounded-lg`}
+                        >
+                          ChatUI
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
     </Card>
   );
 }
