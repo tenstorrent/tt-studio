@@ -417,7 +417,7 @@ def chat_inference_formatted():
         return error
 
     # output
-    return Response(get_chat_output(session_id), content_type="text/event-stream")
+    return Response(get_chat_output(session_id), content_type="text/event-stream; charset=utf-8")
 
 
 @app.route("/predictions/falcon7b", methods=["POST"])
@@ -433,7 +433,7 @@ def chat_inference():
         return error
 
     # output
-    return Response(get_output(session_id), content_type="text/event-stream")
+    return Response(get_output(session_id), content_type="text/event-stream; charset=utf-8")
 
 
 @app.route("/inference/falcon7b", methods=["POST"])
@@ -447,7 +447,7 @@ def inference():
     if error:
         return error
     # output
-    return Response(get_output(session_id), content_type="text/event-stream")
+    return Response(get_output(session_id), content_type="text/event-stream; charset=utf-8")
 
 
 @app.route("/")
