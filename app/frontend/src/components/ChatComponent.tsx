@@ -5,7 +5,6 @@ import { ScrollArea } from "./ui/scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
 import {
-  Bot,
   Smile,
   Sun,
   User,
@@ -166,36 +165,35 @@ const ChatComponent: React.FC = () => {
                 Start a conversation with LLM Studio Chat...
               </p>
               <div className="mt-4">
-                <p>Examples:</p>
                 <div className="flex space-x-4 mt-2">
                   <Card
-                    className="border border-gray-300 p-4 flex flex-col items-center cursor-pointer rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-700 transition duration-300"
+                    className="border border-gray-300 p-4 flex flex-col items-center cursor-pointer rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("Hello, how are you today?")}
                   >
-                    <Smile className="h-6 w-6 mb-2" />
+                    <Smile className="h-6 w-6 mb-2" color="#3b82f6" />
                     <span>Hello, how are you today?</span>
                   </Card>
                   <Card
-                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-800 dark:hover:bg-zinc-700 transition duration-300"
+                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("Can you tell me a joke?")}
                   >
-                    <Angry className="h-6 w-6 mb-2" />
+                    <Angry className="h-6 w-6 mb-2" color="#be123c" />
                     <span>Can you tell me a joke?</span>
                   </Card>
                   <Card
-                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-800 dark:hover:bg-zinc-700 transition duration-300"
+                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("What's the weather like?")}
                   >
-                    <Sun className="h-6 w-6 mb-2" />
+                    <Sun className="h-6 w-6 mb-2" color="#eab308" />
                     <span>What's the weather like?</span>
                   </Card>
                   <Card
-                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-800 dark:hover:bg-zinc-700 transition duration-500"
+                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-500"
                     onClick={() =>
                       setTextInput("When will Tenstorrent out sell Nvidia?")
                     }
                   >
-                    <DollarSign className="h-6 w-6 mb-2" />
+                    <DollarSign className="h-6 w-6 mb-2" color="#22c55e" />
                     <span>When will Tenstorrent out sell Nvidia?</span>
                   </Card>
                 </div>
@@ -205,16 +203,18 @@ const ChatComponent: React.FC = () => {
           {chatHistory.length > 0 && (
             <div className="relative flex flex-col h-full">
               <ScrollArea
-                className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded"
+                className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded-lg"
                 ref={scrollAreaRef}
                 onScroll={handleScroll}
               >
-                <h3 className="font-bold mb-4">Chat Responses:</h3>
+                <h3 className="text-gray-500 pt-2 mb-4">Chat Responses:</h3>
                 {chatHistory.map((message, index) => (
                   <div
                     key={index}
                     className={`flex ${
-                      message.sender === "user" ? "justify-end" : "justify-start"
+                      message.sender === "user"
+                        ? "justify-end"
+                        : "justify-start"
                     }`}
                   >
                     <div
@@ -225,9 +225,16 @@ const ChatComponent: React.FC = () => {
                       }`}
                     >
                       {message.sender === "user" ? (
-                        <User className="h-6 w-6 mr-2 text-left" />
+                        <User
+                          className="h-6 w-6 mr-2 text-left"
+                          color="white"
+                        />
                       ) : (
-                        <Bot className="h-6 w-6 mr-2 text-left" />
+                        <img
+                          src={logo}
+                          alt="Tenstorrent Logo"
+                          className="w-8 h-8 rounded-full mr-2"
+                        />
                       )}
                       {message.text}
                     </div>
@@ -251,7 +258,7 @@ const ChatComponent: React.FC = () => {
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder="Enter text for inference"
-              className="px-4 py-2 border rounded shadow-md w-full pr-12"
+              className="px-4 py-2 border rounded-lg shadow-md w-full pr-12"
               disabled={isStreaming}
               rows={4}
             />
