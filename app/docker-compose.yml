@@ -18,7 +18,7 @@ services:
     # dev server can be used for breakpoint debugging, does not support streaming
     # command: ./manage.py runserver 0.0.0.0:8000
     # gunicorn is used from production, supports streaming
-    command: gunicorn --workers 3 --bind 0.0.0.0:8000 api.wsgi:application
+    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --timeout 1200 api.wsgi:application
     stdin_open: true
     tty: true
     environment:
