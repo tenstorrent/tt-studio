@@ -60,16 +60,6 @@ export const fetchModels = async (): Promise<Model[]> => {
       };
     });
 
-    // Manually add a model with a "bad" status
-    models.push({
-      id: "badModel",
-      image: "bad/image:latest",
-      status: "stopped",
-      health: "unhealthy",
-      ports: "127.0.0.1:8080->80/tcp",
-      name: "Bad Model",
-    });
-
     return models;
   } catch (error) {
     console.error("Error fetching models:", error);
