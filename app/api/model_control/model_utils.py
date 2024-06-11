@@ -36,9 +36,11 @@ def stream_response_from_external_api(url, json_data):
     try:
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         with requests.post(
-            url, json=json_data, headers=headers, stream=True
+            url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
             response.raise_for_status()
+            logger.info(f"response.headers:={response.headers}")
+            logger.info(f"response.encoding:={response.encoding}")
             # only allow HTTP 1.1 chunked encoding
             assert response.headers.get("transfer-encoding") == "chunked"
             # Note: chunk_size=None must be passed or it will chunk single chars

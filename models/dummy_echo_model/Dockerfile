@@ -11,28 +11,14 @@ ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Los_Angeles
 
 RUN apt update && apt install -y \
-    ## TT-Metalium Backend Dependencies: https://github.com/tenstorrent-metal/tt-metal/blob/main/INSTALLING.md#installing-dependencies-on-ubuntu-before-accelerator-level
-    software-properties-common=0.99.9.12 \
-    build-essential=12.8ubuntu1.1 \
     python3.8-venv=3.8.10-0ubuntu1~20.04.9 \
-    libgoogle-glog-dev=0.4.0-1build1 \
-    libyaml-cpp-dev=0.6.2-4ubuntu1 \
-    libboost-all-dev=1.71.0.0ubuntu2 \
-    libsndfile1=1.0.28-7ubuntu0.2 \
-    libhwloc-dev \
     # build deps
     tzdata \
-    clang-6.0=1:6.0.1-14 \
     python-is-python3 \
     pciutils \
     python3-pip \
     git \
     git-lfs \
-    # tt-metal dev deps
-    pandoc \
-    libtbb-dev \
-    libcapstone-dev \
-    pkg-config \
     # user tools
     htop \
     nano \
