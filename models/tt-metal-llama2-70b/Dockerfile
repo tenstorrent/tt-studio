@@ -45,20 +45,9 @@ ENV SHELL=/bin/bash
 ENV TZ=America/Los_Angeles
 
 # Install Clang-17: Recommended to use Clang-17 as that's what is officially supported and tested on CI.
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod u+x llvm.sh && \
-    ./llvm.sh 17
-
-## add user
-ARG HOME_DIR=/home/user
-ARG APP_DIR=tt-metal-llama2-70b
-
-RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user && \
-    mkdir -p ${HOME_DIR} && \
-    chown -R user:user ${HOME_DIR}
-
-USER user
-WORKDIR ${HOME_DIR}
+RUN wget https://apt.llvm.org/llvm.sh \
+    && chmod u+x llvm.sh \
+    && ./llvm.sh 17
 
 ENV PATH=$PATH:${HOME_DIR}/.local/bin
 ENV ARCH_NAME=wormhole_b0
@@ -69,20 +58,25 @@ ENV CONFIG=Release
 RUN pip config set global.extra-index-url https://download.pytorch.org/whl/cpu
 
 ## build tt-metal
-RUN git clone --branch ${TT_METAL_TAG} --single-branch https://github.com/tenstorrent-metal/tt-metal.git --recurse-submodules && \
-    cd tt-metal && \
-    git submodule foreach 'git lfs fetch --all && git lfs pull' && \
-    bash ./create_venv.sh && \
-    cmake -B build -G Ninja && ninja -C build && \
-    bash -c "source python_env/bin/activate && ninja install -C build" && \
-    echo "source ${HOME_DIR}/tt-metal/python_env/bin/activate" >> ${HOME_DIR}/.bashrc
+RUN cd tt-metal \
+    && git submodule foreach 'git lfs fetch --all && git lfs pull' \
+    && bash ./create_venv.sh \
+    && cmake -B build -G Ninja && ninja -C build \
+    && bash -c "source python_env/bin/activate && ninja install -C build"
 
-# RUN git clone --branch ${TT_METAL_TAG} --single-branch https://github.com/tenstorrent-metal/tt-metal.git --recurse-submodules && \
-#     cd tt-metal && \
-#     git submodule foreach 'git lfs fetch --all && git lfs pull' && \
-#     bash -c "./create_venv.sh" && \
-#     sed -i 's/^cmake --build build --target tests/#&/' build_metal.sh && \
-#     CONFIG="Release" ./build_metal.sh
+## add user
+ARG HOME_DIR=/home/user
+ARG APP_DIR=tt-metal-llama2-70b
+
+RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
+    && mkdir -p ${HOME_DIR} \
+    && chown -R user:user ${HOME_DIR} \
+    && chown -R user:user /tt-metal
+
+USER user
+
+RUN echo "source /tt-metal/python_env/bin/activate" >> ${HOME_DIR}/.bashrc
+WORKDIR ${HOME_DIR}
 
 # install app requirements
 # WORKDIR "${HOME_DIR}/${APP_DIR}"
