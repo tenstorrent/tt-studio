@@ -146,6 +146,19 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/inference/falcon7b",
     ),
+    ModelImpl(
+        model_name="Llama2-70B-Chat",
+        model_id="id_tt-metal-llama2-70bv0.0.1",
+        image_name="tt-metal-llama2-70b",
+        image_tag="v0.0.1",
+        device_configurations={DeviceConfigurations.N300_2X4_MESH},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="128G",
+        service_port=7000,
+        service_route="/inference/llama2-70b",
+    ),
 ]
 
 
