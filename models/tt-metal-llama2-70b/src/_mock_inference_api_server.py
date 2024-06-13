@@ -2,7 +2,7 @@ import os
 from time import sleep
 from unittest.mock import Mock, patch
 
-from decode_backend_v1 import DecodeBackend
+from llama2_70b_backend import run_backend
 from inference_api_server import (
     app,
     get_backend_override_args,
@@ -16,44 +16,6 @@ with the actual model mocked out.
 
 This allows for rapid testing of the server and backend implementation.
 """
-
-
-def mock_decoder(self):
-    # mock with repeating previous token
-    tps = 3000  # simulate a given tokens per second per user
-    sleep(1 / tps)
-    output_tokens = self.input_ids[-1].unsqueeze(0)
-    # if user has hit max_length, send eos token
-    for idx, user in enumerate(self.users):
-        if user is not None:
-            output_tokens[0, idx] = self.tokenizer(
-                str(user.position_id % 10)
-            ).input_ids[0]
-            if (user.position_id - user.prompt_length + 1) >= user.max_tokens:
-                output_tokens[0, idx] = self.tokenizer.eos_token_id
-            elif (
-                (user.stop_sequence is not None)
-                and (user.position_id - user.prompt_length + 1) > 0
-                and (output_tokens[0, idx] == user.stop_sequence)
-            ):
-                output_tokens[0, idx] = self.tokenizer.eos_token_id
-    # update the new tokens generated to the input id
-    self.input_ids = output_tokens.view(1, self.max_users)
-
-
-def mock_load_model_and_tokenizer(self, args):
-    from transformers import AutoTokenizer
-
-    # # mock model
-    model = None
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(args.model, cache_dir=args.hf_cache)
-    return model, tokenizer
-
-
-def mock_post_init_pybudify(self, args):
-    pass
-
 
 backend_initialized = False
 api_log_dir = os.path.join(inference_config.log_cache, "api_logs")
@@ -70,20 +32,33 @@ def global_backend_init():
         backend_initialized = True
 
 
-@patch.object(DecodeBackend, "decode", new=mock_decoder)
-@patch.object(DecodeBackend, "_post_init_pybudify", new=mock_post_init_pybudify)
-@patch.object(
-    DecodeBackend, "load_model_and_tokenizer", new=mock_load_model_and_tokenizer
-)
+class MockModel:
+    def forward(self, tokens: torch.Tensor, start_pos: int, *args, **kwargs):
+        assert len(tokens.shape) == 2
+        # mock with repeating previous token
+        sleep(0.05)  # 20 TPS
+        # update the new tokens generated to the input id
+        logits = torch.randn([32, 1, 32000])
+        return logits
+
+def mock_init_model(self):
+    weights_path, tt_cache_path = get_model_weights_and_tt_cache_paths()
+    tokenizer_path = weights_path.joinpath("tokenizer.model")
+    # vocab_size = 32000
+    self.tokenizer = Tokenizer(model_path=tokenizer_path.as_posix())
+    self.model = MockModel()
+
+@patch.object(PrefillDecodeBackend, "init_model", new=mock_init_model)
+@patch.object(PrefillDecodeBackend, "teardown_tt_metal_device", new=Mock(return_value=None))
 def create_test_server():
     from flask_cors import CORS
 
     # CORS for swagger-ui local testing
-    CORS(
-        app,
-        supports_credentials=True,
-        resources={r"/predictions/*": {"origins": "http://localhost:8080"}},
-    )
+    # CORS(
+    #     app,
+    #     supports_credentials=True,
+    #     resources={r"/inference/*": {"origins": "http://localhost:8080"}},
+    # )
     global_backend_init()
     return app
 

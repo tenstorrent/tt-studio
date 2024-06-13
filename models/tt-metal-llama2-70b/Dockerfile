@@ -79,16 +79,15 @@ RUN echo "source /tt-metal/python_env/bin/activate" >> ${HOME_DIR}/.bashrc
 WORKDIR ${HOME_DIR}
 
 # install app requirements
-# WORKDIR "${HOME_DIR}/${APP_DIR}"
-CMD sleep infinity
-# COPY --chown=user:user "src" "${HOME_DIR}/${APP_DIR}/src"
-# COPY --chown=user:user "requirements.txt" "${HOME_DIR}/${APP_DIR}/requirements.txt"
-# RUN /bin/bash -c "source ${HOME_DIR}/tt-metal/python_env/bin/activate && pip install --default-timeout=240 --no-cache-dir -r requirements.txt" 
+WORKDIR "${HOME_DIR}/${APP_DIR}"
+COPY --chown=user:user "src" "${HOME_DIR}/${APP_DIR}/src"
+COPY --chown=user:user "requirements.txt" "${HOME_DIR}/${APP_DIR}/requirements.txt"
+RUN /bin/bash -c "source /tt-metal/python_env/bin/activate && pip install --default-timeout=240 --no-cache-dir -r requirements.txt" 
 
-# # run app via gunicorn
-# WORKDIR "${HOME_DIR}/${APP_DIR}/src"
-# CMD ["/bin/bash", "-c", "source /home/user/tt-metal/build/python_env/bin/activate && gunicorn --config gunicorn.conf.py"]
+# run app via gunicorn
+WORKDIR "${HOME_DIR}/${APP_DIR}/src"
+CMD ["/bin/bash", "-c", "source /tt-metal/python_env/bin/activate && gunicorn --config gunicorn.conf.py"]
 
-# # default port is 7000
-# ENV SERVICE_PORT=7000
-# HEALTHCHECK --retries=5 --start-period=1s CMD curl -f http://localhost:${SERVICE_PORT}/health || exit 1
+# default port is 7000
+ENV SERVICE_PORT=7000
+HEALTHCHECK --retries=5 --start-period=1s CMD curl -f http://localhost:${SERVICE_PORT}/health || exit 1

@@ -5,9 +5,14 @@ from time import sleep
 from unittest.mock import Mock, patch
 
 import torch
-from falcon_7b_backend import PrefillDecodeBackend, run_backend
+
 from inference_api_server import get_user_parameters
 from inference_logger import get_logger
+
+from model_weights_handler import get_model_weights_and_tt_cache_paths
+from tt_metal_impl.reference.llama.tokenizer import Tokenizer
+from llama2_70b_backend import PrefillDecodeBackend, run_backend
+
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -18,52 +23,25 @@ test_prompts_outputs = [
 ]
 
 
-def mock_decoder(self):
-    # mock with repeating previous token
-    sleep(0.1)  # 10 TPS
-    output_tokens = torch.zeros((self.max_users), dtype=torch.long)
-    # if user has hit max_length, send eos token
-    for idx, user in enumerate(self.users):
-        if user is not None:
-            if (user.position_id + 1 - user.prompt_length) >= user.max_tokens:
-                output_tokens[idx] = self.tokenizer.eos_token_id
-            elif (user.position_id + 1 - user.prompt_length) >= 0:
-                # done prefill, send output tokens
-                out_idx = user.position_id - user.prompt_length
-                out_tokens = self.tokenizer(test_prompts_outputs[idx][1]).input_ids
-                if len(out_tokens) <= out_idx:
-                    output_tokens[idx] = self.tokenizer.eos_token_id
-                else:
-                    output_tokens[idx] = out_tokens[out_idx]
-                if (user.stop_sequence is not None) and (
-                    output_tokens[idx] == user.stop_sequence
-                ):
-                    output_tokens[idx] = self.tokenizer.eos_token_id
-            else:
-                output_tokens[idx] = user.prompt_tokens.squeeze(0)[user.position_id + 1]
-            print(
-                f"mock_decoder: idx={idx}: {self.tokenizer.decode(output_tokens[idx])}"
-            )
+class MockModel:
+    def forward(self, tokens: torch.Tensor, start_pos: int, *args, **kwargs):
+        assert len(tokens.shape) == 2
+        # mock with repeating previous token
+        sleep(0.05)  # 20 TPS
+        # update the new tokens generated to the input id
+        logits = torch.randn([32, 1, 32000])
+        return logits
 
-    # update the new tokens generated to the input id
-    self.input_ids = output_tokens.view(1, self.max_users)
+def mock_init_model(self):
+    weights_path, tt_cache_path = get_model_weights_and_tt_cache_paths()
+    tokenizer_path = weights_path.joinpath("tokenizer.model")
+    # vocab_size = 32000
+    self.tokenizer = Tokenizer(model_path=tokenizer_path.as_posix())
+    self.model = MockModel()
 
-
-def mock_load_model_and_tokenizer(self, args):
-    from transformers import AutoTokenizer
-
-    # # mock model
-    model = None
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(args.model, cache_dir=args.hf_cache)
-    return model, tokenizer
-
-
-@patch.object(DecodeBackend, "decode", new=mock_decoder)
-@patch.object(
-    DecodeBackend, "load_model_and_tokenizer", new=mock_load_model_and_tokenizer
-)
-def test_falcon_7b_backend():
+@patch.object(PrefillDecodeBackend, "init_model", new=mock_init_model)
+@patch.object(PrefillDecodeBackend, "teardown_tt_metal_device", new=Mock(return_value=None))
+def test_llama2_70b_backend():
     prompt_q = queue.Queue()
     output_q = queue.Queue()
     status_q = queue.Queue()
@@ -72,9 +50,9 @@ def test_falcon_7b_backend():
     default_params, _ = get_user_parameters({"max_tokens": 64})
     prompt_q.put(("INIT_ID-1", "How do you get to Carnegie Hall?", default_params))
     prompt_q.put(("INIT_ID-2", "Another prompt", default_params))
-    run_backend(prompt_q, output_q, status_q, verbose=False, loop_forever=False)
+    run_backend(prompt_q, output_q, status_q, verbose=False, loop_once=True)
     logger.info("finished")
 
 
 if __name__ == "__main__":
-    test_falcon_7b_backend()
+    test_llama2_70b_backend()

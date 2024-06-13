@@ -16,7 +16,7 @@ from flask import Flask, Response, request, session, abort
 
 sys.path.append(os.getcwd())
 
-from falcon_7b_backend import run_backend
+from llama2_70b_backend import run_backend
 from inference_config import inference_config
 from inference_logger import get_logger
 
@@ -228,7 +228,7 @@ def get_user_parameters(data):
         "top_p": (0.9, float),
         "top_k": (10, int),
         "max_tokens": (128, int),
-        "stop_sequence": (None, str),
+        "stop_sequence": ("", str),
         "return_prompt": (False, bool),
     }
     error = None
@@ -404,7 +404,7 @@ def read_authorization(
         abort(HTTP_BAD_REQUEST, description=user_error_msg)
 
 
-@app.route("/chat/falcon7b", methods=["POST"])
+@app.route(f"/chat/{inference_config.inference_route_name}", methods=["POST"])
 def chat_inference_formatted():
     _ = read_authorization(request.headers)
     # user will get 400 on invalid input, with helpful status message
@@ -420,7 +420,7 @@ def chat_inference_formatted():
     return Response(get_chat_output(session_id), content_type="text/event-stream")
 
 
-@app.route("/predictions/falcon7b", methods=["POST"])
+@app.route(f"/predictions/{inference_config.inference_route_name}", methods=["POST"])
 def chat_inference():
     _ = read_authorization(request.headers)
     # user will get 400 on invalid input, with helpful status message
@@ -436,7 +436,7 @@ def chat_inference():
     return Response(get_output(session_id), content_type="text/event-stream")
 
 
-@app.route("/inference/falcon7b", methods=["POST"])
+@app.route(f"/inference/{inference_config.inference_route_name}", methods=["POST"])
 def inference():
     _ = read_authorization(request.headers)
     # user will get 400 on invalid input, with helpful status message

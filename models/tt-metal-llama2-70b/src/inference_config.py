@@ -28,12 +28,14 @@ InferenceConfig = namedtuple(
         "mock_model",
         "model_weights_id",
         "model_weights_path",
-        "falcon_config",
+        "n_devices",
+        "inference_route_name",
+        "model_config",
     ],
 )
 
-FalconConfig = namedtuple(
-    "FalconConfig",
+ModelConfig = namedtuple(
+    "ModelConfig",
     [
         "model_version",
         "batch_size",
@@ -71,11 +73,13 @@ inference_config = InferenceConfig(
     mock_model=MOCK_MODEL,
     model_weights_id=MODEL_WEIGHTS_ID,
     model_weights_path=MODEL_WEIGHTS_PATH,
-    falcon_config=FalconConfig(
-        model_version="tiiuae/falcon-7b-instruct",
+    n_devices=8,
+    inference_route_name="llama2-70b",
+    model_config=ModelConfig(
+        model_version="meta-llama/Llama-2-70b-chat",
         batch_size=32,
-        num_layers=32,
-        max_seq_len=1024,
+        num_layers=80,
+        max_seq_len=2048,
         default_top_p=0.9,
         default_top_k=40,
         default_temperature=1.0,
