@@ -17,6 +17,7 @@ from tt_metal_impl.tt.llama_generation import TtLlamaModelForGeneration
 from tt_metal_impl.tt.model_config import (
     get_model_config,
 )
+
 # from models.utility_functions import get_devices_for_t3000
 from tt_metal_impl.tt.llama_common import get_llama_path, load_llama_state_dict
 
@@ -44,7 +45,9 @@ def intialize_inputs(tokenizer, prompt_tokens, bsz, total_len):
     pad_id = tokenizer.pad_id
     tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device="cpu")
     for k, t in enumerate(prompt_tokens):
-        tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device="cpu").clone().detach()
+        tokens[k, : len(t)] = (
+            torch.tensor(t, dtype=torch.long, device="cpu").clone().detach()
+        )
     eos_reached = torch.tensor([False] * bsz, device="cpu")
     input_text_mask = tokens != pad_id  # use prefill token if that token is not masked
     return tokens, input_text_mask, eos_reached
@@ -52,7 +55,9 @@ def intialize_inputs(tokenizer, prompt_tokens, bsz, total_len):
 
 def prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token):
     # only replace token if prompt has already been generated
-    next_token = torch.where(input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token)
+    next_token = torch.where(
+        input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
+    )
     tokens[:, cur_pos] = next_token
 
     eos_reached = (~input_text_mask[:, cur_pos]) & (next_token == tokenizer.eos_id)
@@ -65,7 +70,9 @@ def get_t3k_device_mesh(num_devices_requested):
     if ttnn.get_num_devices() < 8:
         pytest.skip()
     device_ids = [0, 4, 5, 1, 2, 6, 7, 3]
-    device_mesh = ttnn.open_device_mesh(ttnn.DeviceGrid(1, num_devices_requested), device_ids[:num_devices_requested])
+    device_mesh = ttnn.open_device_mesh(
+        ttnn.DeviceGrid(1, num_devices_requested), device_ids[:num_devices_requested]
+    )
     logger.info(f"multidevice with {device_mesh.get_num_devices()} devices is created")
     return device_mesh
 
@@ -164,10 +171,14 @@ class UserInfo:
         # tokenize input here
         self.prompt_tokens = tokenizer.encode(prompt, bos=True, eos=False)
         # strip eos token from prompt
-        self.prompt_tokens = [tok for tok in self.prompt_tokens if tok != self.eos_token_id]
+        self.prompt_tokens = [
+            tok for tok in self.prompt_tokens if tok != self.eos_token_id
+        ]
         self.num_prefill_tokens = len(self.prompt_tokens)
         if params.get("stop_sequence"):
-            self.stop_sequence = tokenizer.encode(params.get("stop_sequence"), bos=False, eos=False)
+            self.stop_sequence = tokenizer.encode(
+                params.get("stop_sequence"), bos=False, eos=False
+            )
 
 
 class PrefillDecodeBackend:
@@ -250,23 +261,27 @@ class PrefillDecodeBackend:
         ttnn.close_device_mesh(device_mesh)
         del device_mesh
 
-
     def init_tt_metal_device(self, model_config_default):
         logger.info("init_tt_metal_device ...")
-        t3k_device_mesh = get_t3k_device_mesh(num_devices_requested=inference_config.n_devices)
+        t3k_device_mesh = get_t3k_device_mesh(
+            num_devices_requested=inference_config.n_devices
+        )
         for i in t3k_device_mesh.get_device_ids():
             device = t3k_device_mesh.get_device(i)
             device.enable_program_cache()
 
-        compute_grid_size = t3k_device_mesh.get_device(0).compute_with_storage_grid_size()
+        compute_grid_size = t3k_device_mesh.get_device(
+            0
+        ).compute_with_storage_grid_size()
         if (
-                compute_grid_size.x < model_config_default["MAX_GRID_SIZE"][0]
-                or compute_grid_size.y < model_config_default["MAX_GRID_SIZE"][1]
-            ):
-            logger.error(f"Requires grid size of at least {model_config_default['MAX_GRID_SIZE']} to run")
-        
+            compute_grid_size.x < model_config_default["MAX_GRID_SIZE"][0]
+            or compute_grid_size.y < model_config_default["MAX_GRID_SIZE"][1]
+        ):
+            logger.error(
+                f"Requires grid size of at least {model_config_default['MAX_GRID_SIZE']} to run"
+            )
+
         self.t3k_device_mesh = t3k_device_mesh
-        
 
     def init_model(self):
         # set up variables for model init
@@ -296,7 +311,7 @@ class PrefillDecodeBackend:
         t3k_device_mesh, ckpt_dir, tokenizer_path, cache_path = get_llama_path(
             t3k_device_mesh, model_config_default, n_devices, emulated=False
         )
-        
+
         # set unused vars to None to obviously break any code using them
         args = construct_arg(
             implementation="tt",
@@ -395,7 +410,10 @@ class PrefillDecodeBackend:
             for user_info in self.users
         ]
         tokens, input_text_mask, eos_reached = intialize_inputs(
-            tokenizer=self.tokenizer, prompt_tokens=input_prompts, bsz=self.batch_size, total_len=self.max_seq_len
+            tokenizer=self.tokenizer,
+            prompt_tokens=input_prompts,
+            bsz=self.batch_size,
+            total_len=self.max_seq_len,
         )
         # TODO: when prefill is separate change
         self.cur_pos = 1
@@ -406,10 +424,10 @@ class PrefillDecodeBackend:
         self.decode_ids = tokens[:, :1]
         self.num_users = len(self.get_users())
         # self.num_input_tokens = num_input_tokens
-    
+
     def prefill_via_decode(self):
         # the implementation uses decode
-        logger.info("Running prefill_via_decode ...")      
+        logger.info("Running prefill_via_decode ...")
 
     def prefill(self):
         logger.info("Running prefill ...")
@@ -424,7 +442,9 @@ class PrefillDecodeBackend:
         self.timer_start("decode_preprocessing")
         self.timer_stop("decode_preprocessing")
         self.timer_start("decode")
-        logits = self.model.forward(self.decode_ids, self.prev_pos, decode_only=self.decode_only)
+        logits = self.model.forward(
+            self.decode_ids, self.prev_pos, decode_only=self.decode_only
+        )
         self.timer_stop("decode")
         self.timer_start("token_selection")
         self.timer_start("batch_top_pk_logits_efficient")
@@ -436,12 +456,16 @@ class PrefillDecodeBackend:
         ).reshape(self.batch_size, 1)
         self.timer_stop("batch_top_pk_logits_efficient")
         self.decode_ids = next_tokens
-        for idx, (user_info, user_decode_id) in enumerate(zip(self.users, self.decode_ids)):
+        for idx, (user_info, user_decode_id) in enumerate(
+            zip(self.users, self.decode_ids)
+        ):
             if user_info is None:
                 continue
             if not user_info.prefill_complete:
                 # take next token for prefill
-                user_decode_id[0] = user_info.prompt_tokens[user_info.num_tokens_prefilled]
+                user_decode_id[0] = user_info.prompt_tokens[
+                    user_info.num_tokens_prefilled
+                ]
                 user_info.num_tokens_prefilled += 1
                 if user_info.num_tokens_prefilled >= user_info.num_prefill_tokens:
                     user_info.prefill_complete = True
@@ -488,10 +512,7 @@ class PrefillDecodeBackend:
             if self.users[i] is None:
                 continue
 
-            if (
-                token_id == self.users[i].eos_token_id
-                and self.users[i].decode_complete
-            ):
+            if token_id == self.users[i].eos_token_id and self.users[i].decode_complete:
                 self.reset_user_memory(i, self.users[i])
                 self.users[i] = None
                 if self.verbose:
@@ -508,8 +529,7 @@ class PrefillDecodeBackend:
                 self.reset_user_memory(i, self.users[i])
                 self.users[i] = None
             elif (
-                token_id != self.users[i].eos_token_id
-                and self.users[i].decode_complete
+                token_id != self.users[i].eos_token_id and self.users[i].decode_complete
             ):
                 logger.error(
                     f"user_id: {self.users[i].user_id} from index {i} did not have EOS token but decode_complete=True."

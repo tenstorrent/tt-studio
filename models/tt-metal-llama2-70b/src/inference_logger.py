@@ -7,7 +7,6 @@ from inference_config import inference_config
 datetime_prefix = datetime.now().strftime("%Y-%m-%d-%H_%M_%S")
 
 
-
 def get_logger(name, datetime_prefix=datetime_prefix):
     logging_dir = os.path.join(inference_config.log_cache, "python_logs")
     if not os.path.exists(logging_dir):

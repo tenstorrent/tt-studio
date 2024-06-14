@@ -41,6 +41,7 @@ class MockModel:
         logits = torch.randn([32, 1, 32000])
         return logits
 
+
 def mock_init_model(self):
     weights_path, tt_cache_path = get_model_weights_and_tt_cache_paths()
     tokenizer_path = weights_path.joinpath("tokenizer.model")
@@ -48,17 +49,12 @@ def mock_init_model(self):
     self.tokenizer = Tokenizer(model_path=tokenizer_path.as_posix())
     self.model = MockModel()
 
-@patch.object(PrefillDecodeBackend, "init_model", new=mock_init_model)
-@patch.object(PrefillDecodeBackend, "teardown_tt_metal_device", new=Mock(return_value=None))
-def create_test_server():
-    from flask_cors import CORS
 
-    # CORS for swagger-ui local testing
-    # CORS(
-    #     app,
-    #     supports_credentials=True,
-    #     resources={r"/inference/*": {"origins": "http://localhost:8080"}},
-    # )
+@patch.object(PrefillDecodeBackend, "init_model", new=mock_init_model)
+@patch.object(
+    PrefillDecodeBackend, "teardown_tt_metal_device", new=Mock(return_value=None)
+)
+def create_test_server():
     global_backend_init()
     return app
 
