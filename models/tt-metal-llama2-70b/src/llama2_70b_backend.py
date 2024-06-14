@@ -436,7 +436,7 @@ class PrefillDecodeBackend:
         ).reshape(self.batch_size, 1)
         self.timer_stop("batch_top_pk_logits_efficient")
         self.decode_ids = next_tokens
-        for user_info, user_decode_id in zip(self.users, self.decode_ids):
+        for idx, (user_info, user_decode_id) in enumerate(zip(self.users, self.decode_ids)):
             if user_info is None:
                 continue
             if not user_info.prefill_complete:
@@ -456,7 +456,7 @@ class PrefillDecodeBackend:
                 ):
                     user_info.decode_complete = True
             if user_info.decode_complete:
-                user_decode_id = user_info.eos_token_id
+                self.decode_ids[idx] = user_info.eos_token_id
 
         self.timer_stop("token_selection")
         self.cur_pos += 1
@@ -464,17 +464,21 @@ class PrefillDecodeBackend:
         self.timer_start("all_but_decode")
 
     def push_outputs(self, output_q):
-        for i, token_id in enumerate(self.decode_ids):  # bc input_ids is 1x32
-            if self.users[i] is None:
+        for user_info, user_decode_id in zip(self.users, self.decode_ids):
+            if user_info is None:
                 continue
-            elif self.users[i].num_tokens_generated < 1:
+            elif user_info.num_tokens_generated < 1:
                 # still prefilling via decode
                 continue
-            push_token_ids = [token_id.item()]
+            last_token = user_decode_id.item()
+            push_token_ids = [last_token]
             return_text = self.tokenizer.decode(push_token_ids)
-            output_q.put((self.users[i].user_id, return_text))
+            # send special EOS string to frontend
+            if (last_token == user_info.eos_token_id) or (user_info.decode_complete):
+                return_text += inference_config.end_of_sequence_str
+            output_q.put((user_info.user_id, return_text))
             if self.verbose:
-                logger.debug(f"user_id:{self.users[i].user_id}, {return_text}")
+                logger.debug(f"user_id:{user_info.user_id}, {return_text}")
 
     def reset_user_memory(self, user_idx, user):
         self.decode_ids[user_idx, 0] = 0

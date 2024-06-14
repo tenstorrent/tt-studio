@@ -30,6 +30,7 @@ InferenceConfig = namedtuple(
         "model_weights_path",
         "n_devices",
         "inference_route_name",
+        "end_of_sequence_str",
         "model_config",
     ],
 )
@@ -75,6 +76,7 @@ inference_config = InferenceConfig(
     model_weights_path=MODEL_WEIGHTS_PATH,
     n_devices=8,
     inference_route_name="llama2-70b",
+    end_of_sequence_str="<|endoftext|>",
     model_config=ModelConfig(
         model_version="meta-llama/Llama-2-70b-chat",
         batch_size=32,

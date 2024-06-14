@@ -2,7 +2,6 @@ import multiprocessing
 import os
 import queue
 import random
-import shutil
 import sys
 import threading
 import time
@@ -185,16 +184,20 @@ def preprocess_prompt(data):
 
 def safe_convert_type(data_dict, key, dest_type, default):
     error = None
-    value = data_dict.get(key, default)
-    converted_value = None
-    try:
-        converted_value = dest_type(value)
-    # pylint: disable=broad-except
-    except Exception as err:
-        logger.error(f"Error: safe_convert excepts: {err}")
-        status_phrase = f"Parameter: {key} is type={type(value)}, expected {dest_type}"
-        status_code = 400
-        error = ({"message": status_phrase}, status_code)
+    converted_value = default
+    if key in data_dict:
+        value = data_dict.get(key, default)
+        try:
+            converted_value = dest_type(value)
+        # pylint: disable=broad-except
+        except Exception as err:
+            logger.error(f"Error: safe_convert excepts: {err}")
+            status_phrase = (
+                f"Parameter: {key} is type={type(value)}, expected {dest_type}"
+            )
+            status_code = 400
+            error = ({"message": status_phrase}, status_code)
+
     return converted_value, error
 
 
@@ -306,7 +309,7 @@ def get_output(session_id):
             continue
 
         out_text = output_queue_map[session_id].get_nowait()
-        if out_text.endswith("<|endoftext|>"):
+        if out_text.endswith(inference_config.end_of_sequence_str):
             done_generation = True
             with context.conversations_lock:
                 del context.user_last_read[session_id]
