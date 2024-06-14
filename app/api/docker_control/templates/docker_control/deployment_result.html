@@ -1,0 +1,17 @@
+<!-- docker_control/templates/docker_control/deployment_result.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Deployment Result</title>
+</head>
+<body>
+    <h1>Deployment Result</h1>
+    <p>Status: {{ response.status }}</p>
+    {% if response.status == 'success' %}
+        <p>Container ID: {{ response.container_id }}</p>
+    {% else %}
+        <p>Error: {{ response.message }}</p>
+    {% endif %}
+    <a href="{% url 'start-container' %}">Deploy Another Image</a>
+</body>
+</html>

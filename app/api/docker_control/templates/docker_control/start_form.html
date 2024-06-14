@@ -1,0 +1,15 @@
+<!-- docker_control/templates/docker_control/start_form.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Start Docker Container</title>
+</head>
+<body>
+    <h1>Start a Docker Container</h1>
+    <form method="post" action="{% url 'start-container' %}">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Start Container</button>
+    </form>
+</body>
+</html>
