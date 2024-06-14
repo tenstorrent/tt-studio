@@ -514,11 +514,11 @@ class PrefillDecodeBackend:
 
             if token_id == self.users[i].eos_token_id and self.users[i].decode_complete:
                 self.reset_user_memory(i, self.users[i])
-                self.users[i] = None
                 if self.verbose:
                     logger.debug(
                         f"Evicted user_id: {self.users[i].user_id} from index {i} in user list"
                     )
+                self.users[i] = None
             elif (
                 token_id == self.users[i].eos_token_id
                 and not self.users[i].decode_complete
