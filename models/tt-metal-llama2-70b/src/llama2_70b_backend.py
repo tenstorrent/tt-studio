@@ -18,18 +18,7 @@ from tt_metal_impl.tt.model_config import (
     get_model_config,
 )
 
-# from models.utility_functions import get_devices_for_t3000
 from tt_metal_impl.tt.llama_common import get_llama_path, load_llama_state_dict
-
-# from tt_metal_impl.utility_functions import (
-#     disable_compilation_reports,
-#     disable_persistent_kernel_cache,
-#     enable_persistent_kernel_cache,
-#     profiler,
-#     torch2tt_tensor,
-#     tt2torch_tensor,
-#     nearest_32,
-# )
 from transformers.generation.utils import top_k_top_p_filtering
 
 from model_weights_handler import get_model_weights_and_tt_cache_paths
@@ -157,6 +146,8 @@ class UserInfo:
         self.prompt = prompt
         self.position_id = position_id
         self.num_tokens_generated = 0
+        self.generated_tokens = []
+        self.num_generated_chars = 0
         self.num_tokens_prefilled = 0
         self.stop_sequence = None
         self.generation_params = params
@@ -488,6 +479,8 @@ class PrefillDecodeBackend:
         self.timer_start("all_but_decode")
 
     def push_outputs(self, output_q):
+        # Sentencepiece tokenizer doesn't handle spaces per token, must decode full text
+        # then push new chars to output queue
         for user_info, user_decode_id in zip(self.users, self.decode_ids):
             if user_info is None:
                 continue
@@ -495,8 +488,10 @@ class PrefillDecodeBackend:
                 # still prefilling via decode
                 continue
             last_token = user_decode_id.item()
-            push_token_ids = [last_token]
-            return_text = self.tokenizer.decode(push_token_ids)
+            user_info.generated_tokens.append(last_token)
+            full_text = self.tokenizer.decode(user_info.generated_tokens)
+            return_text = full_text[user_info.num_generated_chars :]
+            user_info.num_generated_chars = len(full_text)
             # send special EOS string to frontend
             if (last_token == user_info.eos_token_id) or (user_info.decode_complete):
                 return_text += inference_config.end_of_sequence_str

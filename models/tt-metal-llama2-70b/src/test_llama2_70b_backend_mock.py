@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from time import sleep
 from unittest.mock import Mock, patch
+import logging
 
 import torch
 
@@ -22,12 +23,14 @@ test_prompts_outputs = [
     ("Another prompt.", "also test output"),
 ]
 
+backend_logger = logging.getLogger("llama2_70b_backend")
+backend_logger.setLevel(logging.DEBUG)
 
 class MockModel:
     def forward(self, tokens: torch.Tensor, start_pos: int, *args, **kwargs):
         assert len(tokens.shape) == 2
         # mock with repeating previous token
-        sleep(0.05)  # 20 TPS
+        sleep(1.0/32)  # 32 TPS
         # update the new tokens generated to the input id
         logits = torch.randn([32, 1, 32000])
         return logits
@@ -54,7 +57,7 @@ def test_llama2_70b_backend():
     default_params, _ = get_user_parameters({"max_tokens": 64})
     prompt_q.put(("INIT_ID-1", "How do you get to Carnegie Hall?", default_params))
     prompt_q.put(("INIT_ID-2", "Another prompt", default_params))
-    run_backend(prompt_q, output_q, status_q, verbose=False, loop_once=True)
+    run_backend(prompt_q, output_q, status_q, verbose=True, loop_once=True)
     logger.info("finished")
 
 
