@@ -12,10 +12,10 @@ import ttnn
 from ttnn import ShardTensorToMesh, ReplicateTensorToMesh, ConcatMeshToTensor, ListMeshToTensor
 
 
-from models.utility_functions import torch2tt_tensor, nearest_32, profiler
-from models.experimental.llama2_70b.tt.llama_decoder_optimized import TtLlamaDecoder_optimized
-from models.experimental.llama2_70b.tt.llama_embedding import TtLlamaEmbedding
-from models.experimental.llama2_70b.tt.llama_common import (
+from tt_metal_impl.utility_functions import torch2tt_tensor, nearest_32, profiler
+from tt_metal_impl.tt.llama_decoder_optimized import TtLlamaDecoder_optimized
+from tt_metal_impl.tt.llama_embedding import TtLlamaEmbedding
+from tt_metal_impl.tt.llama_common import (
     tt_all_gather_torch,
     freqs_to_rotation_matrix,
     get_weight_cache_path,

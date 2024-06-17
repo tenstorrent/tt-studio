@@ -6,20 +6,22 @@ import os
 import json
 import torch
 import torch.nn.functional as F
+
 import tt_lib
+import ttnn
 
 from time import time
 import pytest
 from loguru import logger
 
-from models.experimental.llama2_70b.reference.llama.llama import Llama
+from tt_metal_impl.reference.llama import Llama
 from transformers.generation.utils import top_k_top_p_filtering
-from models.experimental.llama2_70b.tt.llama_generation import TtLlamaModelForGeneration
-from models.experimental.llama2_70b.tt.model_config import (
+from tt_metal_impl.tt.llama_generation import TtLlamaModelForGeneration
+from tt_metal_impl.tt.model_config import (
     get_model_config,
 )
-from models.utility_functions import get_devices_for_t3000
-from models.experimental.llama2_70b.tt.llama_common import get_llama_path, load_llama_state_dict
+# from tt_metal_impl.utility_functions import get_devices_for_t3000
+from tt_metal_impl.tt.llama_common import get_llama_path, load_llama_state_dict
 
 
 def main(args):
@@ -39,7 +41,7 @@ def main(args):
 
         if args.output_at_end:
             with open(
-                "models/demos/t3000/llama2_70b/demo/data/demo_user_output.txt", "w"
+                "demo_user_output.txt", "w"
             ) as f:  # Open a file for writing
                 for i, text in enumerate(all_text):
                     f.write(f"User {i}: {text}\n")
@@ -243,7 +245,7 @@ class Args:
         max_seq_len=4096,
         # Generation args
         num_tokens=128,
-        prompts_file="models/demos/t3000/llama2_70b/demo/data/multi_prompt.json",
+        prompts_file="/home/user/tt-metal-llama2-70b/src/tt_metal_impl/demo/data/multi_prompt.json",
         output_at_end=True,
         top_p=1,
         top_k=1,
@@ -279,6 +281,25 @@ def construct_arg(**kwargs):
     return Args(**kwargs)
 
 
+def get_t3k_device_mesh(num_devices_requested):
+    assert ttnn.get_num_devices() == 8
+    device_ids = [0, 4, 5, 1, 2, 6, 7, 3]
+    t3k_device_mesh = ttnn.open_device_mesh(
+        ttnn.DeviceGrid(1, num_devices_requested), device_ids[:num_devices_requested]
+    )
+    logger.info(f"multidevice with {t3k_device_mesh.get_num_devices()} devices is created")   
+    return t3k_device_mesh
+
+
+def close_devices(device_mesh):
+    for device in device_mesh.get_devices():
+        ttl.device.DumpDeviceProfiler(device)
+        ttl.device.DeallocateBuffers(device)
+
+    ttnn.close_device_mesh(device_mesh)
+    del device_mesh
+
+
 @pytest.mark.timeout(240000)
 @pytest.mark.parametrize("decode_only", (True, False), ids=["decode_only", "prefill_decode"])
 @pytest.mark.parametrize("num_layers", (1, 2, 10, 80), ids=["1L", "2L", "10L", "80L"])
@@ -309,8 +330,8 @@ def construct_arg(**kwargs):
 @pytest.mark.parametrize(
     "num_tokens, prompts_file, output_at_end, top_p, top_k, temperature",
     [
-        (128, "models/demos/t3000/llama2_70b/demo/data/multi_prompt.json", True, 1, 1, 1.0),
-        (128, "models/demos/t3000/llama2_70b/demo/data/multi_prompt.json", True, 0.9, 10, 1.0),
+        (128, "/home/user/tt-metal-llama2-70b/src/tt_metal_impl/demo/data/multi_prompt.json", True, 1, 1, 1.0),
+        (128, "/home/user/tt-metal-llama2-70b/src/tt_metal_impl/demo/data/multi_prompt.json", True, 0.9, 10, 1.0),
     ],
     ids=["greedy", "sampling"],
 )
@@ -328,11 +349,11 @@ def test_LlamaModel_demo(
     temperature,
     # TT args
     # all_devices,
-    t3k_device_mesh,
     n_devices,
     emulated,
     decode_only,
 ):
+    t3k_device_mesh = get_t3k_device_mesh(num_devices_requested=n_devices)
     ## Get model config
     # devices = get_devices_for_t3000(all_devices, num_devices=n_devices if not emulated else 1)
     model_config_default = get_model_config("BFLOAT16-DRAM", num_devices=n_devices)
@@ -373,3 +394,5 @@ def test_LlamaModel_demo(
         decode_only=decode_only,
     )
     main(args)
+
+    close_devices(t3k_device_mesh)

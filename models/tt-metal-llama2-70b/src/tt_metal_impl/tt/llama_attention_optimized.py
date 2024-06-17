@@ -10,8 +10,8 @@ from torch import nn
 import ttnn.experimental as tt_lib
 import ttnn
 from ttnn import ShardTensorToMesh, ReplicateTensorToMesh, ConcatMeshToTensor, ListMeshToTensor
-from models.utility_functions import torch2tt_tensor, tt2torch_tensor, nearest_32
-from models.experimental.llama2_70b.tt.llama_common import (
+from tt_metal_impl.utility_functions import torch2tt_tensor, tt2torch_tensor, nearest_32
+from tt_metal_impl.tt.llama_common import (
     tt_all_gather_torch,
     generate_rot_emb,
     get_weight_cache_path,

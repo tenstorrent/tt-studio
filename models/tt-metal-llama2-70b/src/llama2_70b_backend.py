@@ -56,8 +56,7 @@ def prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token):
 
 
 def get_t3k_device_mesh(num_devices_requested):
-    if ttnn.get_num_devices() < 8:
-        pytest.skip()
+    assert ttnn.get_num_devices() == 8
     device_ids = [0, 4, 5, 1, 2, 6, 7, 3]
     device_mesh = ttnn.open_device_mesh(
         ttnn.DeviceGrid(1, num_devices_requested), device_ids[:num_devices_requested]
@@ -208,7 +207,7 @@ class PrefillDecodeBackend:
         #
         self.timestamps_start = {}
         self.timestamps_stop = {}
-        self.enable_profile_logging = False
+        self.enable_profile_logging = True
         #
         self.device = None
         self.cache_root = Path(cache_root)
@@ -430,8 +429,6 @@ class PrefillDecodeBackend:
         each user has a generation_pos
         """
         self.timer_stop("all_but_decode")
-        self.timer_start("decode_preprocessing")
-        self.timer_stop("decode_preprocessing")
         self.timer_start("decode")
         logits = self.model.forward(
             self.decode_ids, self.prev_pos, decode_only=self.decode_only
@@ -473,9 +470,9 @@ class PrefillDecodeBackend:
             if user_info.decode_complete:
                 self.decode_ids[idx] = user_info.eos_token_id
 
-        self.timer_stop("token_selection")
         self.cur_pos += 1
         self.prev_pos += 1
+        self.timer_stop("token_selection")
         self.timer_start("all_but_decode")
 
     def push_outputs(self, output_q):

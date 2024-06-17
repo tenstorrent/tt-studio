@@ -11,10 +11,10 @@ import torch
 from torch import nn
 import ttnn.experimental as tt_lib
 import ttnn
-from models.utility_functions import tt2torch_tensor, torch2tt_tensor
+from tt_metal_impl.utility_functions import tt2torch_tensor, torch2tt_tensor
 from loguru import logger
 from pathlib import Path
-from models.experimental.llama2_70b.reference.llama.llama.generation import (
+from tt_metal_impl.reference.llama.generation import (
     load_chunked_checkpoints,
     load_sharded_checkpoints,
 )

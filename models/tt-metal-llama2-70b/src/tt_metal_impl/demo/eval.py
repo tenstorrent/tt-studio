@@ -14,16 +14,16 @@ import datasets
 import pytest
 from loguru import logger
 
-from models.experimental.llama2_70b.reference.llama.llama import Llama
+from tt_metal_impl.reference.llama.llama import Llama
 from transformers import AutoModelForCausalLM, AutoTokenizer, logging
 from transformers.generation.utils import top_k_top_p_filtering
 from tqdm import tqdm
-from models.experimental.llama2_70b.demo.demo import run_decode, build_generator
-from models.experimental.llama2_70b.tt.model_config import (
+from tt_metal_impl.demo.demo import run_decode, build_generator
+from tt_metal_impl.tt.model_config import (
     get_model_config,
 )
-from models.utility_functions import get_devices_for_t3000
-from models.experimental.llama2_70b.tt.llama_common import get_llama_path
+from tt_metal_impl.utility_functions import get_devices_for_t3000
+from tt_metal_impl.tt.llama_common import get_llama_path
 
 
 def main(args):
@@ -178,7 +178,7 @@ class Args:
         max_seq_len=4096,
         # Generation args
         num_tokens=1,
-        prompts_file="models/demos/t3000/llama2_70b/demo/data/multi_prompt.json",
+        prompts_file="/home/user/tt-metal-llama2-70b/src/tt_metal_impl/demo/data/multi_prompt.json",
         output_at_end=True,
         top_p=1,
         top_k=1,

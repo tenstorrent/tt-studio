@@ -11,10 +11,10 @@ import ttnn
 from ttnn import ShardTensorToMesh, ReplicateTensorToMesh, ConcatMeshToTensor, ListMeshToTensor
 
 
-from models.utility_functions import torch2tt_tensor, pad_by_zero, tt2torch_tensor, nearest_32
-from models.experimental.llama2_70b.tt.llama_attention_optimized import TtLlamaAttention_optimized
-from models.experimental.llama2_70b.tt.llama_mlp_optimized import TtLlamaMLP_optimized
-from models.experimental.llama2_70b.tt.llama_common import (
+from tt_metal_impl.utility_functions import torch2tt_tensor, pad_by_zero, tt2torch_tensor, nearest_32
+from tt_metal_impl.tt.llama_attention_optimized import TtLlamaAttention_optimized
+from tt_metal_impl.tt.llama_mlp_optimized import TtLlamaMLP_optimized
+from tt_metal_impl.tt.llama_common import (
     tt_all_gather_torch,
     generate_rot_emb,
     get_weight_cache_path,

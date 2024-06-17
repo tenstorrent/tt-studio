@@ -8,8 +8,8 @@ import torch
 from torch import nn
 import ttnn.experimental as tt_lib
 import ttnn
-from models.utility_functions import torch2tt_tensor, tt2torch_tensor
-from models.experimental.llama2_70b.tt.llama_common import (
+from tt_metal_impl.utility_functions import torch2tt_tensor, tt2torch_tensor
+from tt_metal_impl.tt.llama_common import (
     tt_all_gather_torch,
     get_weight_cache_path,
     get_weight_cache_path_ttnn,

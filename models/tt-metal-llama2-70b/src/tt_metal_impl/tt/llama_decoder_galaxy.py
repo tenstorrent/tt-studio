@@ -7,10 +7,10 @@ import torch
 from torch import nn
 import tt_lib
 import ttnn
-from models.utility_functions import torch2tt_tensor, pad_by_zero, tt2torch_tensor, nearest_32
-from models.experimental.llama2_70b.tt.llama_attention_galaxy import TtLlamaAttention_galaxy
-from models.experimental.llama2_70b.tt.llama_mlp_galaxy import TtLlamaMLP_galaxy
-from models.experimental.llama2_70b.tt.llama_common import (
+from tt_metal_impl.utility_functions import torch2tt_tensor, pad_by_zero, tt2torch_tensor, nearest_32
+from tt_metal_impl.tt.llama_attention_galaxy import TtLlamaAttention_galaxy
+from tt_metal_impl.tt.llama_mlp_galaxy import TtLlamaMLP_galaxy
+from tt_metal_impl.tt.llama_common import (
     tt_all_gather_torch,
     generate_rot_emb,
     gather_rotary_emb,

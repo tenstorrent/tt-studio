@@ -11,6 +11,7 @@ __pycache__
 # Virtual Environment
 env
 .testvenv
+python_env
 
 # persistent storage volume
 tt_studio_persistent_volume
