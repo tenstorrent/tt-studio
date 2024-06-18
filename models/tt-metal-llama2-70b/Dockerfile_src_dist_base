@@ -42,7 +42,7 @@ RUN wget https://apt.llvm.org/llvm.sh \
 RUN pip config set global.extra-index-url https://download.pytorch.org/whl/cpu
 
 ## build tt-metal
-RUN cd tt-metal \
+RUN cd ${TT_METAL_HOME} \
     && git submodule foreach 'git lfs fetch --all && git lfs pull' \
     && bash ./create_venv.sh \
     && cmake -B build -G Ninja && ninja -C build \
@@ -50,33 +50,3 @@ RUN cd tt-metal \
 
 # for interactive useage use: docker exec -it <container id> bash
 CMD sleep infinity
-
-## add user
-# ARG HOME_DIR=/home/user
-# ARG APP_DIR=tt-metal-llama2-70b
-
-# RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
-#     && mkdir -p ${HOME_DIR} \
-#     && chown -R user:user ${HOME_DIR} \
-#     && chown -R user:user /tt-metal
-
-# USER user
-
-# ENV PYTHONPATH=${HOME_DIR}/${APP_DIR}/src:/tt-metal
-
-# RUN echo "source ${TT_METAL_HOME}/python_env/bin/activate" >> ${HOME_DIR}/.bashrc
-# WORKDIR ${HOME_DIR}
-
-# # install app requirements
-# WORKDIR "${HOME_DIR}/${APP_DIR}"
-# COPY --chown=user:user "src" "${HOME_DIR}/${APP_DIR}/src"
-# COPY --chown=user:user "requirements.txt" "${HOME_DIR}/${APP_DIR}/requirements.txt"
-# RUN /bin/bash -c "source ${TT_METAL_HOME}/python_env/bin/activate && pip install --default-timeout=240 --no-cache-dir -r requirements.txt" 
-
-# # run app via gunicorn
-# WORKDIR "${HOME_DIR}/${APP_DIR}/src"
-# CMD ["/bin/bash", "-c", "source ${TT_METAL_HOME}/python_env/bin/activate && gunicorn --config gunicorn.conf.py"]
-
-# # default port is 7000
-# ENV SERVICE_PORT=7000
-# HEALTHCHECK --retries=5 --start-period=300s CMD curl -f http://localhost:${SERVICE_PORT}/health || exit 1

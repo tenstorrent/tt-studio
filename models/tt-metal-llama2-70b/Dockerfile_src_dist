@@ -42,7 +42,7 @@ RUN wget https://apt.llvm.org/llvm.sh \
 RUN pip config set global.extra-index-url https://download.pytorch.org/whl/cpu
 
 ## build tt-metal
-RUN cd tt-metal \
+RUN cd ${TT_METAL_HOME} \
     && git submodule foreach 'git lfs fetch --all && git lfs pull' \
     && bash ./create_venv.sh \
     && cmake -B build -G Ninja && ninja -C build \
@@ -55,11 +55,11 @@ ARG APP_DIR=tt-metal-llama2-70b
 RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
     && mkdir -p ${HOME_DIR} \
     && chown -R user:user ${HOME_DIR} \
-    && chown -R user:user /tt-metal
+    && chown -R user:user ${TT_METAL_HOME}
 
 USER user
 
-ENV PYTHONPATH=${HOME_DIR}/${APP_DIR}/src:/tt-metal
+ENV PYTHONPATH=${HOME_DIR}/${APP_DIR}/src:${TT_METAL_HOME}
 
 RUN echo "source ${TT_METAL_HOME}/python_env/bin/activate" >> ${HOME_DIR}/.bashrc
 WORKDIR ${HOME_DIR}
