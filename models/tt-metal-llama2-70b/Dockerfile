@@ -14,7 +14,8 @@ ENV TZ=America/Los_Angeles
 ARG HOME_DIR=/home/user
 ARG APP_DIR=tt-metal-llama2-70b
 
-RUN apt-get update && apt-get install -y patchelf
+# RUN apt-get update && apt-get install -y patchelf libc++-17-dev libc++abi-17-dev
+RUN apt-get update && apt-get install -y software-properties-common=0.99.9.12 build-essential=12.8ubuntu1.1 python3.8-venv=3.8.10-0ubuntu1~20.04.9 libhwloc-dev graphviz patchelf libc++-17-dev libc++abi-17-dev
 
 RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
     && mkdir -p ${HOME_DIR} \
@@ -26,14 +27,18 @@ USER user
 WORKDIR "${HOME_DIR}/${APP_DIR}"
 
 # create app python venv
+# following https://github.com/tenstorrent/tt-metal/blob/c9997d9f467c24eb865ae6bffb66d488a2fef3ec/INSTALLING.md#option-2-from-wheel
 ENV PYTHON_ENV_NAME="python_env"
 ENV PYTHON_ENV_DIR="${HOME_DIR}/${APP_DIR}/${PYTHON_ENV_NAME}"
 RUN /bin/bash -c "wget https://github.com/tenstorrent/tt-metal/releases/download/v0.49.0/metal_libs-0.49.0+wormhole.b0-cp38-cp38-linux_x86_64.whl \
+&& wget https://raw.githubusercontent.com/tenstorrent/tt-metal/v0.49.0/tt_metal/python_env/requirements-dev.txt \
+&& sed -i '/..\/..\/docs\/requirements-docs.txt/d' requirements-dev.txt \
 && python3 -m venv ${PYTHON_ENV_NAME} \
 && source ${PYTHON_ENV_DIR}/bin/activate \
 && pip config set global.extra-index-url https://download.pytorch.org/whl/cpu \
 && pip install --upgrade pip setuptools wheel \
-&& pip install metal_libs-0.49.0+wormhole.b0-cp38-cp38-linux_x86_64.whl --default-timeout=240 --no-cache-dir"
+&& pip install metal_libs-0.49.0+wormhole.b0-cp38-cp38-linux_x86_64.whl --default-timeout=240 --no-cache-dir \
+&& pip install -r requirements-dev.txt --default-timeout=240 --no-cache-dir"
 
 COPY --chown=user:user "src" "${HOME_DIR}/${APP_DIR}/src"
 COPY --chown=user:user "requirements.txt" "${HOME_DIR}/${APP_DIR}/requirements.txt"

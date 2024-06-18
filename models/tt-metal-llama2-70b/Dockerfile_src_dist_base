@@ -48,32 +48,35 @@ RUN cd tt-metal \
     && cmake -B build -G Ninja && ninja -C build \
     && bash -c "source python_env/bin/activate && ninja install -C build"
 
+# for interactive useage use: docker exec -it <container id> bash
+CMD sleep infinity
+
 ## add user
-ARG HOME_DIR=/home/user
-ARG APP_DIR=tt-metal-llama2-70b
+# ARG HOME_DIR=/home/user
+# ARG APP_DIR=tt-metal-llama2-70b
 
-RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
-    && mkdir -p ${HOME_DIR} \
-    && chown -R user:user ${HOME_DIR} \
-    && chown -R user:user /tt-metal
+# RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
+#     && mkdir -p ${HOME_DIR} \
+#     && chown -R user:user ${HOME_DIR} \
+#     && chown -R user:user /tt-metal
 
-USER user
+# USER user
 
-ENV PYTHONPATH=${HOME_DIR}/${APP_DIR}/src:/tt-metal
+# ENV PYTHONPATH=${HOME_DIR}/${APP_DIR}/src:/tt-metal
 
-RUN echo "source ${TT_METAL_HOME}/python_env/bin/activate" >> ${HOME_DIR}/.bashrc
-WORKDIR ${HOME_DIR}
+# RUN echo "source ${TT_METAL_HOME}/python_env/bin/activate" >> ${HOME_DIR}/.bashrc
+# WORKDIR ${HOME_DIR}
 
-# install app requirements
-WORKDIR "${HOME_DIR}/${APP_DIR}"
-COPY --chown=user:user "src" "${HOME_DIR}/${APP_DIR}/src"
-COPY --chown=user:user "requirements.txt" "${HOME_DIR}/${APP_DIR}/requirements.txt"
-RUN /bin/bash -c "source ${TT_METAL_HOME}/python_env/bin/activate && pip install --default-timeout=240 --no-cache-dir -r requirements.txt" 
+# # install app requirements
+# WORKDIR "${HOME_DIR}/${APP_DIR}"
+# COPY --chown=user:user "src" "${HOME_DIR}/${APP_DIR}/src"
+# COPY --chown=user:user "requirements.txt" "${HOME_DIR}/${APP_DIR}/requirements.txt"
+# RUN /bin/bash -c "source ${TT_METAL_HOME}/python_env/bin/activate && pip install --default-timeout=240 --no-cache-dir -r requirements.txt" 
 
-# run app via gunicorn
-WORKDIR "${HOME_DIR}/${APP_DIR}/src"
-CMD ["/bin/bash", "-c", "source ${TT_METAL_HOME}/python_env/bin/activate && gunicorn --config gunicorn.conf.py"]
+# # run app via gunicorn
+# WORKDIR "${HOME_DIR}/${APP_DIR}/src"
+# CMD ["/bin/bash", "-c", "source ${TT_METAL_HOME}/python_env/bin/activate && gunicorn --config gunicorn.conf.py"]
 
-# default port is 7000
-ENV SERVICE_PORT=7000
-HEALTHCHECK --retries=5 --start-period=300s CMD curl -f http://localhost:${SERVICE_PORT}/health || exit 1
+# # default port is 7000
+# ENV SERVICE_PORT=7000
+# HEALTHCHECK --retries=5 --start-period=300s CMD curl -f http://localhost:${SERVICE_PORT}/health || exit 1
