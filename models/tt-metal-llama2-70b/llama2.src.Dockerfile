@@ -5,11 +5,9 @@ FROM ghcr.io/tenstorrent/tt-metal/tt-metalium/ubuntu-20.04-amd64:latest as tt-me
 # Build stage
 LABEL maintainer="Tom Stesco <tstesco@tenstorrent.com>"
 
-## add user
-ARG HOME_DIR=/home/user
 ARG DEBIAN_FRONTEND=noninteractive
 
-ENV TT_METAL_TAG=v0.50.0-rc3
+ENV TT_METAL_TAG=v0.49.0
 ENV SHELL=/bin/bash
 ENV TZ=America/Los_Angeles
 ENV TT_METAL_HOME=/tt-metal
@@ -50,6 +48,7 @@ RUN git clone --branch ${TT_METAL_TAG} --single-branch https://github.com/tensto
     && bash -c "source ${PYTHON_ENV_DIR}/bin/activate && ninja install -C build"
 
 # user setup
+ARG HOME_DIR=/home/user
 RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
     && mkdir -p ${HOME_DIR} \
     && chown -R user:user ${HOME_DIR} \
