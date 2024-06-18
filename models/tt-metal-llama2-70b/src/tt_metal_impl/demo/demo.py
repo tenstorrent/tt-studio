@@ -7,7 +7,7 @@ import json
 import torch
 import torch.nn.functional as F
 
-import tt_lib
+import tt_lib as ttl
 import ttnn
 
 from time import time
