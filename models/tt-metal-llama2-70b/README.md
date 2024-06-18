@@ -4,9 +4,9 @@
 
 ```bash
 # tt-metal wheel build
-docker build -t tt-metal-llama2-70b-whl:v0.0.6 .
+docker build -t tt-metal-llama2-70b-whl:v0.0.6 . -f llama2.whl.Dockerfile
 # tt-metal source build
-docker build -t tt-metal-llama2-70b-src:v0.0.2 . -f Dockerfile_src_dist
+docker build -t tt-metal-llama2-70b-src:v0.0.3 . -f llama2.src.Dockerfile
 # build with GHCR repo tag
 docker build -t ghcr.io/tenstorrent/tt-studio/tt-metal-llama2-70b:v0.0.5 .
 ```
@@ -33,7 +33,7 @@ docker run \
   --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama2-70bv0.0.2:/home/user/cache_root:rw \
   --shm-size 32G \
   --publish 7000:7000 \
-  tt-metal-llama2-70b-src:v0.0.2 sleep infinity
+  tt-metal-llama2-70b-src:v0.0.3 sleep infinity
   # --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama2-70b:/home/user/tt-metal-llama2-70b:rw \
 ```
 ## Docker run - wheel dist
