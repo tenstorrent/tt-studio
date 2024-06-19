@@ -31,7 +31,7 @@ ENV GITHUB_BRANCH=${GITHUB_BRANCH}
 
 # note: ./create_venv.sh uses PYTHON_ENV_DIR
 RUN git clone https://github.com/tenstorrent/tt-metal.git --depth 1 -b ${GITHUB_BRANCH} --recurse-submodules ${TT_METAL_HOME}
-RUN cd tt-metal \
+RUN cd ${TT_METAL_HOME} \
     && bash ./create_venv.sh \
     && bash -c "source ${PYTHON_ENV_DIR}/bin/activate && pip install -e . && pip install -e ttnn"
 
