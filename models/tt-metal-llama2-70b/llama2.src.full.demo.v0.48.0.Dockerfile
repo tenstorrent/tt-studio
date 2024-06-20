@@ -60,8 +60,8 @@ RUN pip config set global.extra-index-url https://download.pytorch.org/whl/cpu
 ## build tt-metal
 RUN cd tt-metal \
     && git submodule foreach 'git lfs fetch --all && git lfs pull' \
-    && bash ./create_venv.sh \
     && cmake -B build -G Ninja && ninja -C build \
+    && bash ./create_venv.sh \
     && bash -c "source python_env/bin/activate && ninja install -C build"
 
 ## add user
