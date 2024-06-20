@@ -66,6 +66,7 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)", ...fontFamily.sans],
+        mono: ["Roboto Mono", "monospace"],
       },
       keyframes: {
         "accordion-down": {
