@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import logo from "../assets/tt_logo.svg";
 import {
   NavigationMenu,
@@ -9,24 +9,22 @@ import {
 import { Home, BrainCog, BotMessageSquare } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
-import { useTheme } from "../providers/ThemeProvider";
 import { Separator } from "./ui/separator";
+import useCommonClasses from "../theme/commonThemeClasses";
 
 export default function NavBar() {
-  const { theme } = useTheme();
-  const [chatUIActive, setchatUIActive] = useState(false);
+  const { textColor, hoverTextColor, activeBorderColor, hoverBackgroundColor } =
+    useCommonClasses();
+  // const [isChatUIActive, setIsChatUIActive] = useState(false);
 
-  const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverTextColor =
-    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
-  const activeBorderColor =
-    theme === "dark" ? "border-zinc-400" : "border-black";
-  const hoverBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
+  const navLinkClass = useMemo(
+    () =>
+      `flex items-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
+    [textColor]
+  );
 
-  const navLinkClass = (isActive: boolean) =>
-    `flex items-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out ${
+  const getNavLinkClass = (isActive: boolean) =>
+    `${navLinkClass} ${
       isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor}`;
 
@@ -56,9 +54,9 @@ export default function NavBar() {
               <NavigationMenuItem>
                 <NavLink
                   to="/"
-                  className={({ isActive }) => navLinkClass(isActive)}
+                  className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <Home className={`mr-1 ${iconColor}`} />
+                  <Home className={`mr-1 ${textColor}`} />
                   <span className="hidden sm:inline">Home</span>
                 </NavLink>
               </NavigationMenuItem>
@@ -69,27 +67,23 @@ export default function NavBar() {
               <NavigationMenuItem>
                 <NavLink
                   to="/models-deployed"
-                  className={({ isActive }) => navLinkClass(isActive)}
+                  className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <BrainCog className={`mr-1 ${iconColor}`} />
+                  <BrainCog className={`mr-1 ${textColor}`} />
                   <span className="hidden sm:inline">Models Deployed</span>
                 </NavLink>
               </NavigationMenuItem>
-              {/* <Separator
-                className="h-6 w-px bg-zinc-400"
-                orientation="vertical"
-              /> */}
-              {chatUIActive ? (
+              {/* {isChatUIActive && (
                 <NavigationMenuItem>
                   <NavLink
                     to="/chat-ui"
-                    className={({ isActive }) => navLinkClass(isActive)}
+                    className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    <BotMessageSquare className={`mr-1 ${iconColor}`} />
+                    <BotMessageSquare className={`mr-1 ${textColor}`} />
                     <span className="hidden sm:inline">Chat UI</span>
                   </NavLink>
-                </NavigationMenuItem>
-              ) : null}
+                </NavigationMenuItem> */}
+              {/* )} */}
             </NavigationMenuList>
           </NavigationMenu>
         </div>
