@@ -1,7 +1,10 @@
 import React, { useState, forwardRef, useImperativeHandle } from "react";
 import { Link } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, CircleX } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
+import { AspectRatio } from "./ui/aspect-ratio";
+import imagePath from "../assets/tt_line_graphics_1.png";
+import { Button } from "./ui/button";
 
 const Sidebar = forwardRef((_, ref) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -15,22 +18,31 @@ const Sidebar = forwardRef((_, ref) => {
   }));
 
   return (
-    <div className="relative z-50">
+    <div className="relative z-10">
       <div
-        className={`fixed right-0 top-0 h-full flex flex-col bg-gray-800 text-white w-64 transform ${
+        className={`fixed rounded-md right-0 top-12 h-5/6 flex flex-col bg-stone-900 text-white w-64 transform ${
           isOpen ? "translate-x-0" : "translate-x-full"
         } transition-transform duration-300`}
       >
-        <div className="flex items-center justify-between p-4">
-          <h1 className="text-lg font-bold">Sidebar</h1>
-          <button onClick={toggleSidebar} className="text-white">
-            <X className="w-6 h-6" />
-          </button>
+        <div className="relative w-full">
+          <AspectRatio ratio={28 / 9} className="relative rounded-md">
+            <img
+              src={imagePath}
+              alt="Header Image"
+              className="w-full h-full object-cover rounded-md"
+            />
+          </AspectRatio>
+          <div className="absolute top-0 left-0 w-full h-full flex items-center justify-between p-4 bg-gradient-to-b from-black/50 to-transparent">
+            <h1 className="text-lg font-bold text-white">Help</h1>
+            <Button onClick={toggleSidebar}>
+              <CircleX className="w-6 h-6" />
+            </Button>
+          </div>
         </div>
-        <nav className="flex-grow px-4">
+        <nav className="flex-grow  p-10">
           <Card className="mb-4">
             <CardHeader>
-              <CardTitle>Navigation</CardTitle>
+              <CardTitle>Help Menu</CardTitle>
             </CardHeader>
             <CardContent>
               <Link
@@ -45,26 +57,21 @@ const Sidebar = forwardRef((_, ref) => {
               >
                 About
               </Link>
-              <Link
-                to="/contact"
-                className="block py-2 px-4 hover:bg-gray-700 rounded"
-              >
-                Contact
-              </Link>
             </CardContent>
           </Card>
         </nav>
       </div>
-      <div className="flex-grow">
-        <button
+      {/* <div className="flex-grow">
+        <Button
           onClick={toggleSidebar}
           className={`p-4 md:hidden fixed right-0 top-0 ${
             isOpen ? "hidden" : "block"
           }`}
         >
           <Menu className="w-6 h-6" />
-        </button>
-      </div>
+        
+        </Button>
+      </div> */}
     </div>
   );
 });
