@@ -1,21 +1,21 @@
+import { useMemo, useRef } from "react";
 import { NavLink } from "react-router-dom";
-import { useState, useMemo } from "react";
 import logo from "../assets/tt_logo.svg";
 import {
   NavigationMenu,
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, BrainCog, BotMessageSquare } from "lucide-react";
+import { Home, BrainCog } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
 import useCommonClasses from "../theme/commonThemeClasses";
+import Sidebar from "./SideBar";
 
 export default function NavBar() {
   const { textColor, hoverTextColor, activeBorderColor, hoverBackgroundColor } =
     useCommonClasses();
-  // const [isChatUIActive, setIsChatUIActive] = useState(false);
 
   const navLinkClass = useMemo(
     () =>
@@ -27,6 +27,14 @@ export default function NavBar() {
     `${navLinkClass} ${
       isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor}`;
+
+  const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
+
+  const handleToggleSidebar = () => {
+    if (sidebarRef.current) {
+      sidebarRef.current.toggleSidebar();
+    }
+  };
 
   return (
     <div className="relative w-full">
@@ -73,26 +81,16 @@ export default function NavBar() {
                   <span className="hidden sm:inline">Models Deployed</span>
                 </NavLink>
               </NavigationMenuItem>
-              {/* {isChatUIActive && (
-                <NavigationMenuItem>
-                  <NavLink
-                    to="/chat-ui"
-                    className={({ isActive }) => getNavLinkClass(isActive)}
-                  >
-                    <BotMessageSquare className={`mr-1 ${textColor}`} />
-                    <span className="hidden sm:inline">Chat UI</span>
-                  </NavLink>
-                </NavigationMenuItem> */}
-              {/* )} */}
             </NavigationMenuList>
           </NavigationMenu>
         </div>
         <div className="flex items-center space-x-2 sm:space-x-4">
           <ModeToggle />
           <Separator className="h-6 w-px bg-zinc-400" orientation="vertical" />
-          <HelpIcon />
+          <HelpIcon toggleSidebar={handleToggleSidebar} />
         </div>
       </div>
+      <Sidebar ref={sidebarRef} />
     </div>
   );
 }
