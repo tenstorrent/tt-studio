@@ -9,16 +9,16 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-stone-900 text-stone-50 hover:bg-stone-900/90 dark:bg-stone-700 dark:text-stone-50 dark:hover:bg-stone-600 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-800 dark:active:bg-stone-500",
+          "bg-stone-900 text-stone-300 hover:text-white hover:bg-stone-900/90 dark:bg-stone-700 dark:text-stone-300 dark:hover:text-white dark:hover:bg-stone-600 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-800 dark:active:bg-stone-500",
         destructive:
-          "bg-red-500 text-stone-50 hover:bg-red-500/90 dark:bg-red-700 dark:text-stone-50 dark:hover:bg-red-600 hover:shadow-[0px_3px] hover:shadow-red-400 dark:hover:shadow-black active:bg-red-400 dark:active:bg-red-500",
+          "bg-red-500 text-stone-300 hover:text-white hover:bg-red-500/90 dark:bg-red-700 dark:text-stone-300 dark:hover:text-white dark:hover:bg-red-600 hover:shadow-[0px_3px] hover:shadow-red-400 dark:hover:shadow-black active:bg-red-400 dark:active:bg-red-500",
         outline:
-          "border border-stone-200 bg-white hover:bg-stone-100 hover:text-stone-900 dark:border-stone-700 dark:bg-stone-800 dark:hover:bg-stone-700 dark:hover:text-stone-50 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-100 dark:active:bg-stone-700",
+          "border border-stone-200 bg-white text-stone-700 hover:text-white hover:bg-stone-100 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300 dark:hover:text-white dark:hover:bg-stone-700 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-100 dark:active:bg-stone-700",
         secondary:
-          "bg-stone-100 text-stone-900 hover:bg-stone-100/80 dark:bg-stone-700 dark:text-stone-50 dark:hover:bg-stone-600 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-200 dark:active:bg-stone-600",
+          "bg-stone-100 text-stone-700 hover:text-white hover:bg-stone-100/80 dark:bg-stone-700 dark:text-stone-300 dark:hover:text-white dark:hover:bg-stone-600 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-200 dark:active:bg-stone-600",
         ghost:
-          "hover:bg-stone-100 hover:text-stone-900 dark:hover:bg-stone-700 dark:hover:text-stone-50 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-200 dark:active:bg-stone-700",
-        link: "text-stone-900 underline-offset-4 hover:underline dark:text-stone-50",
+          "text-stone-700 hover:text-white hover:bg-stone-100 dark:text-stone-300 dark:hover:text-white dark:hover:bg-stone-700 hover:shadow-[0px_3px] hover:shadow-gray-400 dark:hover:shadow-black active:bg-stone-200 dark:active:bg-stone-700",
+        link: "text-stone-700 hover:text-white underline-offset-4 hover:underline dark:text-stone-300 dark:hover:text-white",
       },
       size: {
         default: "h-10 px-4 py-2",
