@@ -147,9 +147,11 @@ def respond_to_users():
 def status_func():
     global context
     time_last_keep_alive_input = time.time()
+    time_last_status_msg = time.time()
+    NON_RESPONSE_TIME_FOR_HANG = inference_config.keepalive_input_period_seconds * 5
     while True:
-        time.sleep(0.2)
-        # attempt to get backend status, skip if it is blocked waiting for input
+        time.sleep(0.5)
+        # read status queue from backend
         if not status_queue.empty():
             (
                 prompt_q_size,
@@ -159,8 +161,11 @@ def status_func():
             logger.info(f"num_decoding_users: {num_decoding_users}")
             logger.info(f"prompt_q_size: {prompt_q_size}")
             context.set_num_decoding_users(num_decoding_users)
+            time_last_status_msg = time.time()
+        # update vars
         time_since_response = time.time() - get_time_last_response()
         time_since_keep_live = time.time() - time_last_keep_alive_input
+        # send keep alive prompt
         if (
             time_since_response > inference_config.keepalive_input_period_seconds
             and time_since_keep_live > inference_config.keepalive_input_period_seconds
@@ -173,6 +178,9 @@ def status_func():
             logger.info(
                 f"keep alive: time_since_response={time_since_response}, time_since_keep_live={time_since_keep_live}"
             )
+        # check status
+        if time_since_response > NON_RESPONSE_TIME_FOR_HANG:
+            logger.error(f"Model backend is hanging. time_since_response:={time_since_response}, time_last_status_msg:={time_last_status_msg}")     
 
 
 def preprocess_prompt(data):
@@ -421,22 +429,6 @@ def chat_inference_formatted():
 
     # output
     return Response(get_chat_output(session_id), content_type="text/event-stream")
-
-
-@app.route(f"/predictions/{inference_config.inference_route_name}", methods=["POST"])
-def chat_inference():
-    _ = read_authorization(request.headers)
-    # user will get 400 on invalid input, with helpful status message
-    prompt, params, user_session_id, error = sanitize_request(request)
-    if error:
-        return error
-    preprocessed_prompt = chat_prompt_preprocessing(prompt)
-    session_id, error = handle_inference(preprocessed_prompt, params, user_session_id)
-    if error:
-        return error
-
-    # output
-    return Response(get_output(session_id), content_type="text/event-stream")
 
 
 @app.route(f"/inference/{inference_config.inference_route_name}", methods=["POST"])
