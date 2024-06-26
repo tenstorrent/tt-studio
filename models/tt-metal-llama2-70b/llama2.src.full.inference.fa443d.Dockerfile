@@ -40,12 +40,19 @@ RUN apt-get update && apt-get install -y \
     python3-dev=3.8.2-0ubuntu2 \
     # extra dev deps
     wget \
-    sudo \
     nano \
     acl \
     jq \
-    openssh-server \
     vim \
+    # user deps
+    htop \
+    screen \
+    tmux \
+    unzip \
+    zip \
+    curl \
+    iputils-ping \
+    rsync \
     && rm -rf /var/lib/apt/lists/*
 
 
