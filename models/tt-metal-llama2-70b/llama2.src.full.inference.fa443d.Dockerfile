@@ -78,6 +78,7 @@ RUN git clone https://github.com/tenstorrent-metal/tt-metal.git ${TT_METAL_HOME}
 
 # user setup
 ARG HOME_DIR=/home/user
+ARG APP_DIR=tt-metal-llama2-70b
 RUN useradd -u 1000 -s /bin/bash -d ${HOME_DIR} user \
     && mkdir -p ${HOME_DIR} \
     && chown -R user:user ${HOME_DIR} \
