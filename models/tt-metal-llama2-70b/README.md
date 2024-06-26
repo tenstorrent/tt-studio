@@ -3,12 +3,7 @@
 ## Docker build
 
 ```bash
-# tt-metal wheel build
-docker build -t tt-metal-llama2-70b-whl:v0.0.6 . -f llama2.whl.Dockerfile
-# tt-metal source build
-docker build -t tt-metal-llama2-70b-src:v0.0.3 . -f llama2.src.Dockerfile
-# build with GHCR repo tag
-docker build -t ghcr.io/tenstorrent/tt-studio/tt-metal-llama2-70b:v0.0.5 .
+docker build -t tt-metal-llama2-70b-src-full-inference:v0.0.1-tt-metal-fa443d . -f llama2.src.full.inference.fa443d.Dockerfile
 ```
 
 ## Docker run - source dist
@@ -33,7 +28,7 @@ docker run \
   --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama2-70bv0.0.2:/home/user/cache_root:rw \
   --shm-size 32G \
   --publish 7000:7000 \
-  tt-metal-llama2-70b-src:v0.0.3 sleep infinity
+  tt-metal-llama2-70b-src-full-inference:v0.0.1-tt-metal-fa443d sleep infinity
   # --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama2-70b:/home/user/tt-metal-llama2-70b:rw \
 ```
 ## Docker run - wheel dist
@@ -91,17 +86,13 @@ export WH_ARCH_YAML=wormhole_b0_80_arch_eth_dispatch.yaml
 
 ## CPU Governor performance setting
 
-Required to get maximum model performance. A ~5% reduction in perf without it on current (June 10th) implementation. This needs to be run on the host, outside of Docker conainer:
+Required to get maximum model performance. This needs to be run on the host, outside of Docker conainer:
 ```bash
-sudo apt-get update
-sudo apt-get install -y cpufrequtils
-sudo cpufreq-set -r -g performance
-# verify setting
-cpufreq-info
-# make persistent across reboots
-# Create or edit the file /etc/default/cpufrequtils and add the following line:
-vim /etc/default/cpufrequtils
-GOVERNOR="performance"
+sudo apt-get update && sudo apt-get install -y linux-tools-generic
+# enable perf mode
+sudo cpupower frequency-set -g performance
+# disable perf mode
+sudo cpupower frequency-set -g ondemand
 ```
 
 ## Test tt-metal perf
