@@ -207,7 +207,9 @@ class PrefillDecodeBackend:
         #
         self.timestamps_start = {}
         self.timestamps_stop = {}
-        self.enable_profile_logging = True
+        self.enable_profile_logging = False
+        self.batch_counter = 0
+        self.forward_counter = 0
         #
         self.device = None
         self.cache_root = Path(cache_root)
@@ -378,12 +380,16 @@ class PrefillDecodeBackend:
             return
 
         if self._get_num_of_users() == 0:
+            # no users generating currently
             while prompt_q.empty():
+                # wait for users
                 time.sleep(0.02)
+            # batch start delay
+            time.sleep(0.5)
             self._add_users_from_non_empty_queue(prompt_q)
-
         else:
             if prompt_q.empty():
+                # no users to add
                 return
             else:
                 self._add_users_from_non_empty_queue(prompt_q)
@@ -413,6 +419,8 @@ class PrefillDecodeBackend:
         self.tokens = tokens
         self.decode_ids = tokens[:, :1]
         self.num_users = len(self.get_users())
+        self.batch_counter += 1
+        logger.info(f"batch_counter:={self.batch_counter}, forward_counter:={self.forward_counter}")
         # self.num_input_tokens = num_input_tokens
 
     def prefill_via_decode(self):
@@ -428,6 +436,7 @@ class PrefillDecodeBackend:
         self.cur_pos is the batch level position
         each user has a generation_pos
         """
+        self.forward_counter += 1
         self.timer_stop("all_but_decode")
         self.timer_start("decode")
         logits = self.model.forward(
