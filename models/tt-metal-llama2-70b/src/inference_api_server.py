@@ -44,14 +44,14 @@ class Context:
         self.user_last_read = {}
         self.user_parameters = {}
         # Initialize the lock
-        self.conversations_lock = Lock()
+        self.context_lock = Lock()
 
     def get_num_decoding_users(self):
-        with self.conversations_lock:
+        with self.context_lock:
             return self.num_decoding_users
 
     def set_num_decoding_users(self, value):
-        with self.conversations_lock:
+        with self.context_lock:
             self.num_decoding_users = value
 
 
@@ -67,7 +67,11 @@ def initialize_decode_backend():
     global output_queue
     global status_queue
     global output_queue_map
+    global output_queue_map_lock
+
     output_queue_map = {}
+    output_queue_map_lock = threading.Lock()
+
     input_queue = multiprocessing.Queue()
     output_queue = multiprocessing.Queue()
     status_queue = multiprocessing.Queue()
@@ -90,7 +94,7 @@ def initialize_decode_backend():
     status_func_thread.start()
 
 
-def _reclaim_output_queues():
+def _garbage_collection():
     """reclaim resources for output queues for user_ids that are:
     1. not in self.users (have completed generation)
     2. are empty (have been read out by request handling thread)
@@ -99,18 +103,25 @@ def _reclaim_output_queues():
     """
     current_time = time.time()
 
-    active_user_ids = {
-        user_id
-        for user_id, last_read_time in context.user_last_read.items()
-        if current_time - last_read_time < inference_config.max_inactive_seconds
-    }
+    with context.context_lock:
+        active_user_ids = {
+            user_id
+            for user_id, last_read_time in context.user_last_read.items()
+            if current_time - last_read_time < inference_config.max_inactive_seconds
+        }
     marked_for_deletion = set()
-    for user_id, output_q in output_queue_map.items():
-        if user_id not in active_user_ids and output_q.empty():
-            marked_for_deletion.add(user_id)
+    with output_queue_map_lock:
+        for user_id, output_q in output_queue_map.items():
+            if user_id not in active_user_ids and output_q.empty():
+                marked_for_deletion.add(user_id)
 
     for user_id in marked_for_deletion:
-        del output_queue_map[user_id]
+        with output_queue_map_lock:
+            del output_queue_map[user_id]
+
+        if user_id in context.user_last_read.keys():
+            with context.context_lock:
+                del context.user_last_read[user_id]
 
 
 def _update_time_last_response():
@@ -133,15 +144,14 @@ def respond_to_users():
         _update_time_last_response()
         if response_session_id == INIT_ID:
             continue
-        if response_session_id not in output_queue_map:
-            output_queue_map[response_session_id] = queue.Queue()
-        output_queue_map[response_session_id].put(response)
+        with output_queue_map_lock:
+            if response_session_id not in output_queue_map:
+                output_queue_map[response_session_id] = queue.Queue()
+            output_queue_map[response_session_id].put(response)
         if inference_config.frontend_debug_mode:
             # Log response
             with open(f"{api_log_dir}/response_{response_session_id}.txt", "a") as f:
                 f.write(response)
-        # the outputs must be reclaimed
-        _reclaim_output_queues()
 
 
 def status_func():
@@ -150,7 +160,7 @@ def status_func():
     time_last_status_msg = time.time()
     NON_RESPONSE_TIME_FOR_HANG = inference_config.keepalive_input_period_seconds * 5
     while True:
-        time.sleep(0.5)
+        time.sleep(1.0)
         # read status queue from backend
         if not status_queue.empty():
             (
@@ -161,6 +171,7 @@ def status_func():
             logger.info(f"num_decoding_users: {num_decoding_users}")
             logger.info(f"prompt_q_size: {prompt_q_size}")
             context.set_num_decoding_users(num_decoding_users)
+            time_since_status_msg = time.time() - time_last_status_msg
             time_last_status_msg = time.time()
         # update vars
         time_since_response = time.time() - get_time_last_response()
@@ -180,7 +191,11 @@ def status_func():
             )
         # check status
         if time_since_response > NON_RESPONSE_TIME_FOR_HANG:
-            logger.error(f"Model backend is hanging. time_since_response:={time_since_response}, time_last_status_msg:={time_last_status_msg}")     
+            logger.error(
+                f"Model backend is hanging. time_since_response:={time_since_response}, time_since_status_msg:={time_since_status_msg}"
+            )
+        # Note: only this thread should perform garbage collection to avoid lock contention
+        _garbage_collection()
 
 
 def preprocess_prompt(data):
@@ -299,7 +314,7 @@ def get_output(session_id):
     while not done_generation:
         if session_id in output_queue_map and not started_generation:
             started_generation = True
-            with context.conversations_lock:
+            with context.context_lock:
                 context.user_last_read[session_id] = time.time()
         elif session_id not in output_queue_map and not started_generation:
             # waiting for start of generation
@@ -319,8 +334,6 @@ def get_output(session_id):
         out_text = output_queue_map[session_id].get_nowait()
         if out_text.endswith(inference_config.end_of_sequence_str):
             done_generation = True
-            with context.conversations_lock:
-                del context.user_last_read[session_id]
 
         if inference_config.frontend_debug_mode:
             with open(f"{api_log_dir}/user_{session_id}.txt", "a") as f:
