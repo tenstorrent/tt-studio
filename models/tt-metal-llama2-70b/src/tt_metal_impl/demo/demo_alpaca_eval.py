@@ -22,14 +22,19 @@ from models.experimental.llama2_70b.tt.llama_generation import TtLlamaModelForGe
 from models.experimental.llama2_70b.tt.model_config import (
     get_model_config,
 )
-from models.experimental.llama2_70b.tt.llama_common import get_llama_path, load_llama_state_dict
+from models.experimental.llama2_70b.tt.llama_common import (
+    get_llama_path,
+    load_llama_state_dict,
+)
 
 
 def main(args):
     # Set random reproducible seed
     torch.manual_seed(0)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_filename = f"models/experimental/llama2_70b/demo/data/demo_user_output_{timestamp}.txt"
+    output_filename = (
+        f"models/experimental/llama2_70b/demo/data/demo_user_output_{timestamp}.txt"
+    )
 
     generator = build_generator(args)
 
@@ -40,27 +45,39 @@ def main(args):
     # Run decode
     batch_outputs = []
     with torch.no_grad():
-        for batch_idx, (tokenized, prompts) in enumerate(zip(batch_tokenized, batch_prompts)):
+        for batch_idx, (tokenized, prompts) in enumerate(
+            zip(batch_tokenized, batch_prompts)
+        ):
             logger.info(f"starting batch: {batch_idx}, n_users:= {len(tokenized)}")
-            all_text = run_decode(args=args, model=model, tokenizer=tokenizer, prompt_tokens=tokenized, prompts=prompts)
+            all_text = run_decode(
+                args=args,
+                model=model,
+                tokenizer=tokenizer,
+                prompt_tokens=tokenized,
+                prompts=prompts,
+            )
             logger.info(f"finished batch: {batch_idx}.")
             batch_outputs.append(all_text)
             # write output after each batch
             if args.output_at_end:
                 with open(output_filename, "a") as f:
                     for i, (text, prompt) in enumerate(zip(all_text, prompts)):
-                        f.write(f"batch: {batch_idx} user: {i}\nprompt: {prompt}\noutput: {text}\n")
+                        f.write(
+                            f"batch: {batch_idx} user: {i}\nprompt: {prompt}\noutput: {text}\n"
+                        )
 
 
 def load_alpaca_eval(args, tokenizer, n_batches):
     bsz = args.max_batch_size
     n_samples = bsz * n_batches
-    alpaca_ds = load_dataset("tatsu-lab/alpaca_eval", "alpaca_eval", split=f"eval[:{n_samples}]")
+    alpaca_ds = load_dataset(
+        "tatsu-lab/alpaca_eval", "alpaca_eval", split=f"eval[:{n_samples}]"
+    )
     logger.info(f"loaded {len(alpaca_ds)} samples from tatsu-lab/alpaca_eval")
     batch_tokenized = []
     batch_prompts = []
     for batch_idx in range(0, len(alpaca_ds) // bsz):
-        batch = alpaca_ds[(batch_idx*bsz):((batch_idx*bsz) + bsz)]
+        batch = alpaca_ds[(batch_idx * bsz) : ((batch_idx * bsz) + bsz)]
         prompts = [batch["instruction"][i] for i in range(0, bsz)]
         tokenized = [tokenizer.encode(p, bos=True, eos=False) for p in prompts]
         batch_prompts.append(prompts)
@@ -99,7 +116,9 @@ def intialize_inputs(tokenizer, prompt_tokens, bsz, total_len):
     pad_id = tokenizer.pad_id
     tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device="cpu")
     for k, t in enumerate(prompt_tokens):
-        tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device="cpu").clone().detach()
+        tokens[k, : len(t)] = (
+            torch.tensor(t, dtype=torch.long, device="cpu").clone().detach()
+        )
     eos_reached = torch.tensor([False] * bsz, device="cpu")
     input_text_mask = tokens != pad_id  # use prefill token if that token is not masked
     return tokens, input_text_mask, eos_reached
@@ -107,7 +126,9 @@ def intialize_inputs(tokenizer, prompt_tokens, bsz, total_len):
 
 def prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token):
     # only replace token if prompt has already been generated
-    next_token = torch.where(input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token)
+    next_token = torch.where(
+        input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
+    )
     tokens[:, cur_pos] = next_token
 
     eos_reached = (~input_text_mask[:, cur_pos]) & (next_token == tokenizer.eos_id)
@@ -116,12 +137,22 @@ def prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token):
     return tokens, eos_reached, prev_pos
 
 
-def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=False, return_full_logits=False):
+def run_decode(
+    args,
+    model,
+    tokenizer,
+    prompt_tokens,
+    prompts,
+    return_logits=False,
+    return_full_logits=False,
+):
     """
     return_logits: return the logits for the last token
     return_full_logits: return the logits for all tokens
     """
-    assert not (return_logits and return_full_logits), "return_logits and return_full_logits cannot both be true"
+    assert not (
+        return_logits and return_full_logits
+    ), "return_logits and return_full_logits cannot both be true"
 
     # decode arguments
     bsz = args.max_batch_size
@@ -136,7 +167,9 @@ def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=Fal
     assert total_len <= model_args.max_seq_len
 
     # prepare inputs
-    tokens, input_text_mask, eos_reached = intialize_inputs(tokenizer, prompt_tokens, bsz, total_len)
+    tokens, input_text_mask, eos_reached = intialize_inputs(
+        tokenizer, prompt_tokens, bsz, total_len
+    )
     prev_pos = 0
 
     # some profiling and logging
@@ -158,7 +191,9 @@ def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=Fal
             )
         next_token = next_token.reshape(-1)
 
-        tokens, eos_reached, prev_pos = prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token)
+        tokens, eos_reached, prev_pos = prepare_next_input(
+            tokenizer, tokens, input_text_mask, cur_pos, next_token
+        )
 
         if all(eos_reached):
             break
@@ -200,14 +235,20 @@ def latency_printout(latencies, args, generated_len):
         latencies = latencies[warmup_batch:]
     mean_latency = sum(latencies) / len(latencies)
     tokens_per_second = 1 / mean_latency if mean_latency != 0 else 0
-    overall_tokens_per_second = overall_tokens / overall_time if overall_time != 0 else 0
+    overall_tokens_per_second = (
+        overall_tokens / overall_time if overall_time != 0 else 0
+    )
     tokens_per_second_per_user = overall_tokens_per_second / args.max_batch_size
 
     logger.info(
         f"Overall throughput: {1000 * overall_time / overall_tokens:.1f} ms @ {overall_tokens_per_second:.1f} tokens/s"
     )
-    logger.info(f"Tokens per second per user: {tokens_per_second_per_user:.1f} tokens/s/u")
-    logger.info(f"User latency: {1000 * mean_latency:.1f} ms @ {tokens_per_second:.1f} tokens/s")
+    logger.info(
+        f"Tokens per second per user: {tokens_per_second_per_user:.1f} tokens/s/u"
+    )
+    logger.info(
+        f"User latency: {1000 * mean_latency:.1f} ms @ {tokens_per_second:.1f} tokens/s"
+    )
 
 
 def get_all_text(tokenizer, tokens, prompt_tokens, max_gen_len):
@@ -293,7 +334,9 @@ def get_t3k_device_mesh(num_devices_requested):
     t3k_device_mesh = ttnn.open_device_mesh(
         ttnn.DeviceGrid(1, num_devices_requested), device_ids[:num_devices_requested]
     )
-    logger.info(f"multidevice with {t3k_device_mesh.get_num_devices()} devices is created")   
+    logger.info(
+        f"multidevice with {t3k_device_mesh.get_num_devices()} devices is created"
+    )
     return t3k_device_mesh
 
 
@@ -320,7 +363,9 @@ def test_load_alpaca_eval(args):
 
 
 @pytest.mark.timeout(240000)
-@pytest.mark.parametrize("decode_only", (True, False), ids=["decode_only", "prefill_decode"])
+@pytest.mark.parametrize(
+    "decode_only", (True, False), ids=["decode_only", "prefill_decode"]
+)
 @pytest.mark.parametrize("num_layers", (1, 2, 10, 80), ids=["1L", "2L", "10L", "80L"])
 @pytest.mark.parametrize(
     "implementation, skip_model_load, n_devices, emulated",
@@ -382,7 +427,9 @@ def test_LlamaModel_alpaca_eval(
         compute_grid_size.x < model_config_default["MAX_GRID_SIZE"][0]
         or compute_grid_size.y < model_config_default["MAX_GRID_SIZE"][1]
     ):
-        pytest.skip(f"Requires grid size of at least {model_config_default['MAX_GRID_SIZE']} to run")
+        pytest.skip(
+            f"Requires grid size of at least {model_config_default['MAX_GRID_SIZE']} to run"
+        )
 
     t3k_device_mesh, ckpt_dir, tokenizer_path, cache_path = get_llama_path(
         t3k_device_mesh, model_config_default, n_devices, emulated

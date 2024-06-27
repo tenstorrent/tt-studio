@@ -15,17 +15,25 @@ API_URL = f"{API_BASE_URL}/inference/{inference_config.inference_route_name}"
 HEALTH_URL = f"{API_BASE_URL}/health"
 
 headers = {"Authorization": os.environ.get("AUTHORIZATION")}
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 n_batches = 30
 n_samples = n_batches * 32
 # alpaca_eval contains 805 evaluation samples
-alpaca_ds = load_dataset("tatsu-lab/alpaca_eval", "alpaca_eval", split=f"eval[:{n_samples}]", trust_remote_code=True)
+alpaca_ds = load_dataset(
+    "tatsu-lab/alpaca_eval",
+    "alpaca_eval",
+    split=f"eval[:{n_samples}]",
+    trust_remote_code=True,
+)
 
 # Thread-safe data collection
 responses_lock = threading.Lock()
 responses = []
+
 
 def test_api_client_perf(alpaca_instruction, response_idx, print_streaming=False):
     # set API prompt and optional parameters
@@ -58,9 +66,16 @@ def test_api_client_perf(alpaca_instruction, response_idx, print_streaming=False
         # If not chunked, you can access the entire response body at once
         print("NOT CHUNKED!")
         print(response.text)
-    
+
     with responses_lock:
-        responses.append({"response_idx": response_idx, "instruction": alpaca_instruction, "output": full_text})
+        responses.append(
+            {
+                "response_idx": response_idx,
+                "instruction": alpaca_instruction,
+                "output": full_text,
+            }
+        )
+
 
 def test_api_call_threaded():
     batch_size = 32
@@ -70,11 +85,16 @@ def test_api_call_threaded():
     for _ in range(20):
         for batch_idx in range(0, len(alpaca_ds) // batch_size):
             threads = []
-            batch = alpaca_ds[(batch_idx*batch_size):(batch_idx*batch_size) + batch_size]
+            batch = alpaca_ds[
+                (batch_idx * batch_size) : (batch_idx * batch_size) + batch_size
+            ]
             logger.info(f"starting batch {batch_idx} ...")
             for i in range(0, batch_size):
                 response_idx = (batch_idx * batch_size) + i
-                thread = threading.Thread(target=test_api_client_perf, args=[batch["instruction"][i], response_idx, False])
+                thread = threading.Thread(
+                    target=test_api_client_perf,
+                    args=[batch["instruction"][i], response_idx, False],
+                )
                 threads.append(thread)
                 thread.start()
 
@@ -83,7 +103,7 @@ def test_api_call_threaded():
                 thread.join()
 
             logger.info(f"finished batch {batch_idx}.")
-            
+
             # Save the responses to a JSON file incrementally
             with responses_lock:
                 with open(json_filename, "a") as f:

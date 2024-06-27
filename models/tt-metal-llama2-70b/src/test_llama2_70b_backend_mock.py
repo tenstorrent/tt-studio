@@ -26,11 +26,12 @@ test_prompts_outputs = [
 backend_logger = logging.getLogger("llama2_70b_backend")
 backend_logger.setLevel(logging.DEBUG)
 
+
 class MockModel:
     def forward(self, tokens: torch.Tensor, start_pos: int, *args, **kwargs):
         assert len(tokens.shape) == 2
         # mock with repeating previous token
-        sleep(1.0/32)  # 32 TPS
+        sleep(1.0 / 32)  # 32 TPS
         # update the new tokens generated to the input id
         logits = torch.randn([32, 1, 32000])
         return logits
@@ -55,8 +56,12 @@ def test_llama2_70b_backend():
 
     # user_id, prompt, params
     default_params, _ = get_user_parameters({"max_tokens": 64})
-    prompt_q.put(("INIT_ID-1", "How do you get to Carnegie Hall?", default_params))
-    prompt_q.put(("INIT_ID-2", "Another prompt", default_params))
+    default_params["max_tokens"] = 64
+    for i in range(0, 32, 2):
+        prompt_q.put(
+            (f"INIT_ID-{i}", "How do you get to Carnegie Hall?", default_params)
+        )
+        prompt_q.put((f"INIT_ID-{i+1}", "Another prompt", default_params))
     run_backend(prompt_q, output_q, status_q, verbose=True, loop_once=True)
     logger.info("finished")
 

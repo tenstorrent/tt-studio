@@ -95,6 +95,18 @@ sudo cpupower frequency-set -g performance
 sudo cpupower frequency-set -g ondemand
 ```
 
+## Run Inference API Alpaca eval
+
+```bash
+cd /home/tt-admin/projects/tt-studio/models/tt-metal-llama2-70b
+export AUTHORIZATION="Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoidGVuc3RvcnJlbnQiLCJ0b2tlbl9pZCI6ImRlYnVnLXRlc3QifQ.LZeuFMVFzgxD91sDR79qlfDogPHUCG9lLopctYKYvnI"
+export CACHE_ROOT="test"  # just to mock
+source .venv/bin/activate
+python src/test_inference_api_alpaca_eval.py
+
+```
+
+
 ## Test tt-metal perf
 
 ```bash

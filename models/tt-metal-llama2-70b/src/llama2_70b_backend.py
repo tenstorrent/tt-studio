@@ -420,8 +420,10 @@ class PrefillDecodeBackend:
         self.decode_ids = tokens[:, :1]
         self.num_users = len(self.get_users())
         self.batch_counter += 1
-        logger.info(f"batch_counter:={self.batch_counter}, forward_counter:={self.forward_counter}")
-        # self.num_input_tokens = num_input_tokens
+        logger.info(
+            f"batch_counter:={self.batch_counter}, forward_counter:={self.forward_counter}"
+        )
+        # self.num_input_tokens =end num_input_tokens
 
     def prefill_via_decode(self):
         # the implementation uses decode

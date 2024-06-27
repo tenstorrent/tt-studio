@@ -14,6 +14,7 @@ HEALTH_URL = f"{API_BASE_URL}/health"
 headers = {"Authorization": os.environ.get("AUTHORIZATION")}
 logger = logging.getLogger(__name__)
 
+
 def test_api_client_perf(prompt_extra="", print_streaming=True):
     # set API prompt and optional parameters
     json_data = {
@@ -42,13 +43,14 @@ def test_api_client_perf(prompt_extra="", print_streaming=True):
             if print_streaming:
                 print(full_text)
         end_time = time.time()
-        tps = idx/(end_time - start_time)
+        tps = idx / (end_time - start_time)
         print(full_text)
         print(f"Client side tokens per second (TPS): {tps}")
     else:
         # If not chunked, you can access the entire response body at once
         print("NOT CHUNKED!")
         print(response.text)
+
 
 def test_api_call_threaded():
     threads = []
@@ -63,6 +65,7 @@ def test_api_call_threaded():
         thread.join()
 
     print("All threads have finished execution.")
+
 
 if __name__ == "__main__":
     test_api_call_threaded()

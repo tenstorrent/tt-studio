@@ -42,7 +42,7 @@ def test_valid_api_call(prompt_extra="", print_output=True):
                 print(f"chunk:{idx}")
                 print(chunk)
         end_time = time.time()
-        tps = idx/(end_time - start_time)
+        tps = idx / (end_time - start_time)
         print(f"Client side tokens per second (TPS): {tps}")
     else:
         # If not chunked, you can access the entire response body at once
