@@ -171,11 +171,11 @@ def status_func():
             logger.info(f"num_decoding_users: {num_decoding_users}")
             logger.info(f"prompt_q_size: {prompt_q_size}")
             context.set_num_decoding_users(num_decoding_users)
-            time_since_status_msg = time.time() - time_last_status_msg
             time_last_status_msg = time.time()
         # update vars
         time_since_response = time.time() - get_time_last_response()
         time_since_keep_live = time.time() - time_last_keep_alive_input
+        time_since_status_msg = time.time() - time_last_status_msg
         # send keep alive prompt
         if (
             time_since_response > inference_config.keepalive_input_period_seconds

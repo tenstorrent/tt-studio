@@ -9,7 +9,7 @@ bind = f"0.0.0.0:{inference_config.backend_server_port}"
 reload = False
 worker_class = "gthread"
 threads = 32
-timeout = 120
+timeout = 160
 
 # set log files
 if not pathlib.Path(inference_config.log_cache).exists():
