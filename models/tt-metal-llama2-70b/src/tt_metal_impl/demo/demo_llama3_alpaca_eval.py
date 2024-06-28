@@ -4,14 +4,17 @@
 
 import os
 import json
+from datetime import datetime
+from time import time
+
 import torch
 import torch.nn.functional as F
+from datasets import load_dataset
 
 import tt_lib
 import ttnn
 
 from time import time
-import pytest
 from loguru import logger
 
 from tt_metal_impl.reference.llama import Llama
@@ -29,50 +32,39 @@ from tt_metal_impl.tt.llama_common import (
 def main(args):
     # Set random reproducible seed
     torch.manual_seed(0)
-
-    # Load ground truth if available
-    if args.ground_truth:
-        if not os.path.exists(args.ground_truth):
-            logger.info(f"Ground truth file {args.ground_truth} does not exist.")
-            args.ground_truth = None
-        else:
-            ground_truth_outputs = json.load(open(args.ground_truth, "r"))
-
-            if len(ground_truth_outputs) == 0:
-                logger.info("Ground truth outputs are empty")
-                args.ground_truth = None
-            else:
-                logger.info(f"Loaded {len(ground_truth_outputs)} ground truth outputs")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_filename = (
+        f"demo_user_output_{timestamp}.txt"
+    )
 
     generator = build_generator(args)
 
     # Load the model and tokenizer
     model, tokenizer = generator.model, generator.tokenizer
 
-    tokenized, prompts = load_prompts_file(args, tokenizer)
-
+    batch_tokenized, batch_prompts = load_alpaca_eval(args, tokenizer, n_batches=25)
     # Run decode
     with torch.no_grad():
-        all_text = run_decode(args=args, model=model, tokenizer=tokenizer, prompt_tokens=tokenized, prompts=prompts)
-
-        if args.output_at_end:
-            with open(
-                "models/demos/t3000/llama2_70b/demo/data/demo_user_output.json", "w"
-            ) as f:  # Open a file for writing
-                output_json = json.dumps(all_text, indent=4)
-                f.write(output_json)
-
-    # Check against ground truth
-    if args.ground_truth:
-        scores = string_similarity_score(ground_truth_outputs, all_text)
-
-        match = sum(scores) == len(scores)
-        if not match:
-            incorrect_indices = [i for i, score in enumerate(scores) if score < 1]
-            logger.info(f"Output does not match ground truth at indices {incorrect_indices}")
-            assert match, "Output must match ground truth!"
-
-        logger.info("Output matches ground truth!")
+        for _ in range(100):
+            for batch_idx, (tokenized, prompts) in enumerate(
+                zip(batch_tokenized, batch_prompts)
+            ):
+                logger.info(f"starting batch: {batch_idx}, n_users:= {len(tokenized)}")
+                all_text = run_decode(
+                    args=args,
+                    model=model,
+                    tokenizer=tokenizer,
+                    prompt_tokens=tokenized,
+                    prompts=prompts,
+                )
+                logger.info(f"finished batch: {batch_idx}.")
+                # write output after each batch
+                if args.output_at_end:
+                    with open(output_filename, "a") as f:
+                        for i, (text, prompt) in enumerate(zip(all_text, prompts)):
+                            f.write(
+                                f"\nbatch: {batch_idx} user: {i}\nprompt: {prompt}\noutput: {text}\n"
+                            )
 
 
 def build_generator(args):
@@ -99,24 +91,22 @@ def build_generator(args):
     return generator
 
 
-def load_prompts_file(args, tokenizer):
-    # Load prompts from json
-    prompts = json.load(open(args.prompts_file))
-    # Encode the prompt
-    if args.chat:
-        formatter = ChatFormat(tokenizer)
-        tokenized = [formatter.encode_dialog_prompt(dialog) for dialog in prompts]
-    else:
-        tokenized = [tokenizer.encode(x, bos=True, eos=False) for x in prompts]
-
-    if len(tokenized) > args.max_batch_size:
-        logger.info(
-            f"Warning: prompts file contains {len(tokenized)} prompts, but max batch size is {args.max_batch_size}. Only first {args.max_batch_size} are decoded."
-        )
-        tokenized = tokenized[: args.max_batch_size]
-        prompts = prompts[: args.max_batch_size]
-
-    return tokenized, prompts
+def load_alpaca_eval(args, tokenizer, n_batches):
+    bsz = args.max_batch_size
+    n_samples = bsz * n_batches
+    alpaca_ds = load_dataset(
+        "tatsu-lab/alpaca_eval", "alpaca_eval", split=f"eval[:{n_samples}]"
+    )
+    logger.info(f"loaded {len(alpaca_ds)} samples from tatsu-lab/alpaca_eval")
+    batch_tokenized = []
+    batch_prompts = []
+    for batch_idx in range(0, len(alpaca_ds) // bsz):
+        batch = alpaca_ds[(batch_idx * bsz) : ((batch_idx * bsz) + bsz)]
+        prompts = [batch["instruction"][i] for i in range(0, bsz)]
+        tokenized = [tokenizer.encode(p, bos=True, eos=False) for p in prompts]
+        batch_prompts.append(prompts)
+        batch_tokenized.append(tokenized)
+    return batch_tokenized, batch_prompts
 
 
 def intialize_inputs(tokenizer, prompt_tokens, bsz, total_len):
@@ -168,7 +158,6 @@ def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=Fal
 
     # some profiling and logging
     latencies = []
-    full_logits = []
 
     for cur_pos in range(min_prompt_len, total_len):
         start = time()
@@ -193,22 +182,9 @@ def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=Fal
         # profiling
         latencies.append(time() - start)
 
-        # Decode the entire sequence generated so far and log it
-        for user_id in range(max(0, bsz - 3), bsz):
-            text = tokenizer.decode(tokens[user_id, : cur_pos + 1].tolist())
-            logger.info(f"Loop {cur_pos} user {user_id}: {text}\n")
-
-        if return_full_logits:
-            full_logits.append(logits.clone().detach())
-
     latency_printout(latencies, args, total_len - min_prompt_len)
     output = get_all_text(tokenizer, tokens, prompt_tokens, max_gen_len)
 
-    if return_logits:
-        output = (output, logits)
-    elif return_full_logits:
-        full_logits = torch.cat(full_logits, dim=1)
-        output = (output, full_logits)
     return output
 
 
@@ -346,74 +322,21 @@ def close_devices(device_mesh):
     ttnn.close_device_mesh(device_mesh)
     del device_mesh
 
-@pytest.mark.timeout(240000)
-@pytest.mark.parametrize(
-    "llama_version",
-    (
-        ("llama2"),
-        ("llama3"),
-    ),
-)
-@pytest.mark.parametrize(
-    "chat, prompts_file",
-    [
-        (True, "/home/user/tt-metal-llama3-70b/src/tt_metal_impl/demo/data/multi_prompt_chat.json"),
-        (False, "/home/user/tt-metal-llama3-70b/src/tt_metal_impl/demo/data/multi_prompt.json"),
-    ],
-    ids=["chat_completion", "text_completion"],
-)
-@pytest.mark.parametrize("decode_only", (True, False), ids=["decode_only", "prefill_decode"])
-@pytest.mark.parametrize("num_layers", (1, 2, 10, 80), ids=["1L", "2L", "10L", "80L"])
-@pytest.mark.parametrize(
-    "implementation, skip_model_load, n_devices",
-    [
-        (
-            "tt",
-            False,
-            8,
-        ),
-        (
-            "meta",
-            False,
-            8,
-        ),
-    ],
-    ids=["tt-70b-T3000", "meta-70b"],
-)
-@pytest.mark.parametrize(
-    "num_tokens, output_at_end, top_p, top_k, temperature",
-    [
-        (128, True, 1, 1, 1.0),
-        (128, True, 0.9, 10, 1.0),
-    ],
-    ids=["greedy", "sampling"],
-)
-@pytest.mark.parametrize(
-    "ground_truth",
-    ["models/demos/t3000/llama2_70b/demo/data/demo_user_output_ground_truth.json", None],
-    ids=["check_enabled", "check_disabled"],
-)
-def test_LlamaModel_demo(
-    # model args
-    implementation,
-    skip_model_load,
-    num_layers,
-    # Generation args
-    num_tokens,
-    prompts_file,
-    output_at_end,
-    top_p,
-    top_k,
-    temperature,
-    chat,
-    # TT args
-    # t3k_device_mesh,
-    n_devices,
-    decode_only,
-    llama_version,
-    ground_truth,
-    # use_program_cache,
-):
+if __name__ == "__main__":
+    implementation = "tt"
+    skip_model_load = False
+    num_layers = 80
+    num_tokens = 512
+    prompts_file = None
+    output_at_end = True
+    top_k = 20
+    top_p = 0.9
+    temperature = 1.0
+    chat = True
+    n_devices = 8
+    decode_only = True
+    llama_version = "llama3"
+    ground_truth = False
     logger.info("Running LlamaModel demo")
     ## Get model config
 

@@ -187,16 +187,16 @@ def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=Fal
 
         tokens, eos_reached, prev_pos = prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token)
 
-        if all(eos_reached):
-            break
+        # if all(eos_reached):
+        #     break
 
         # profiling
         latencies.append(time() - start)
 
         # Decode the entire sequence generated so far and log it
-        for user_id in range(max(0, bsz - 3), bsz):
-            text = tokenizer.decode(tokens[user_id, : cur_pos + 1].tolist())
-            logger.info(f"Loop {cur_pos} user {user_id}: {text}\n")
+        # for user_id in range(max(0, bsz - 3), bsz):
+        #     text = tokenizer.decode(tokens[user_id, : cur_pos + 1].tolist())
+        logger.info(f"Loop {cur_pos}\n")
 
         if return_full_logits:
             full_logits.append(logits.clone().detach())
@@ -346,75 +346,23 @@ def close_devices(device_mesh):
     ttnn.close_device_mesh(device_mesh)
     del device_mesh
 
-@pytest.mark.timeout(240000)
-@pytest.mark.parametrize(
-    "llama_version",
-    (
-        ("llama2"),
-        ("llama3"),
-    ),
-)
-@pytest.mark.parametrize(
-    "chat, prompts_file",
-    [
-        (True, "/home/user/tt-metal-llama3-70b/src/tt_metal_impl/demo/data/multi_prompt_chat.json"),
-        (False, "/home/user/tt-metal-llama3-70b/src/tt_metal_impl/demo/data/multi_prompt.json"),
-    ],
-    ids=["chat_completion", "text_completion"],
-)
-@pytest.mark.parametrize("decode_only", (True, False), ids=["decode_only", "prefill_decode"])
-@pytest.mark.parametrize("num_layers", (1, 2, 10, 80), ids=["1L", "2L", "10L", "80L"])
-@pytest.mark.parametrize(
-    "implementation, skip_model_load, n_devices",
-    [
-        (
-            "tt",
-            False,
-            8,
-        ),
-        (
-            "meta",
-            False,
-            8,
-        ),
-    ],
-    ids=["tt-70b-T3000", "meta-70b"],
-)
-@pytest.mark.parametrize(
-    "num_tokens, output_at_end, top_p, top_k, temperature",
-    [
-        (128, True, 1, 1, 1.0),
-        (128, True, 0.9, 10, 1.0),
-    ],
-    ids=["greedy", "sampling"],
-)
-@pytest.mark.parametrize(
-    "ground_truth",
-    ["models/demos/t3000/llama2_70b/demo/data/demo_user_output_ground_truth.json", None],
-    ids=["check_enabled", "check_disabled"],
-)
-def test_LlamaModel_demo(
-    # model args
-    implementation,
-    skip_model_load,
-    num_layers,
-    # Generation args
-    num_tokens,
-    prompts_file,
-    output_at_end,
-    top_p,
-    top_k,
-    temperature,
-    chat,
-    # TT args
-    # t3k_device_mesh,
-    n_devices,
-    decode_only,
-    llama_version,
-    ground_truth,
-    # use_program_cache,
-):
-    logger.info("Running LlamaModel demo")
+if __name__ == "__main__":
+    implementation = "tt"
+    skip_model_load = False
+    num_layers = 80
+    num_tokens = 8096
+    prompts_file = "/home/user/tt-metal-llama3-70b/src/tt_metal_impl/demo/data/multi_prompt_chat.json"
+    output_at_end = True
+    # greedy
+    top_k = 1
+    top_p = 1.0
+    temperature = 1.0
+    chat = True
+    n_devices = 8
+    decode_only = True
+    llama_version = "llama3"
+    ground_truth = False
+    logger.info("Running LlamaModel demo - first run")
     ## Get model config
 
     model_config, ckpt_dir, tokenizer_path, cache_path = setup_llama_env(

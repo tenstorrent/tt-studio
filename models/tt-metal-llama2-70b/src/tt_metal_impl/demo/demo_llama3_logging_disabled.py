@@ -15,6 +15,15 @@ from models.demos.t3000.llama2_70b.demo.demo import (
     construct_arg,
 )
 
+# disable logging
+from loguru import logger
+
+logger.remove()
+import ttnn
+
+ttnn.logger.remove()
+print("logging disabled")
+
 
 def main(args):
     # Set random reproducible seed
