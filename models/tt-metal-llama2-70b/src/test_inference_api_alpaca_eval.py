@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-n_batches = 30
+n_batches = 25
 n_samples = n_batches * 32
 # alpaca_eval contains 805 evaluation samples
 alpaca_ds = load_dataset(
@@ -81,8 +81,8 @@ def test_api_call_threaded():
     batch_size = 32
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     json_filename = f"responses_{timestamp}.json"
-
-    for _ in range(20):
+    NUM_FULL_ITERATIONS = 1
+    for _ in range(NUM_FULL_ITERATIONS):
         for batch_idx in range(0, len(alpaca_ds) // batch_size):
             threads = []
             batch = alpaca_ds[

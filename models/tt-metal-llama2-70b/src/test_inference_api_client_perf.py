@@ -22,7 +22,7 @@ def test_api_client_perf(prompt_extra="", print_streaming=True):
         "temperature": 1,
         "top_k": 10,
         "top_p": 0.9,
-        "max_tokens": 128,
+        "max_tokens": 256,
         "stop_sequence": None,
         "return_prompt": None,
     }
@@ -54,7 +54,7 @@ def test_api_client_perf(prompt_extra="", print_streaming=True):
 
 def test_api_call_threaded():
     threads = []
-    batch_size = 96
+    batch_size = 32
     for i in range(batch_size):
         thread = threading.Thread(target=test_api_client_perf, args=["", False])
         threads.append(thread)
