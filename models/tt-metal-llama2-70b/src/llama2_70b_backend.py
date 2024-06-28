@@ -11,14 +11,17 @@ import torch.nn.functional as F
 
 import tt_lib as ttl
 import ttnn
+
 from tt_metal_impl.reference.llama import Llama
 from transformers.generation.utils import top_k_top_p_filtering
 from tt_metal_impl.tt.llama_generation import TtLlamaModelForGeneration
-from tt_metal_impl.tt.model_config import (
-    get_model_config,
+from tt_metal_impl.reference.llama.tokenizer3 import ChatFormat
+from tt_metal_impl.tt.llama_common import (
+    setup_llama_env,
+    check_device_mesh,
+    string_similarity_score,
+    load_llama_state_dict,
 )
-
-from tt_metal_impl.tt.llama_common import get_llama_path, load_llama_state_dict
 from transformers.generation.utils import top_k_top_p_filtering
 
 from model_weights_handler import get_model_weights_and_tt_cache_paths
@@ -83,10 +86,12 @@ class Args:
         top_p=1,
         top_k=1,
         temperature=1.0,
+        chat=False,
+        ground_truth=None,
+        sample_len=None,
         # TT args
         device_mesh=None,
         n_devices=8,
-        emulated=False,
         cache_path=None,
         decode_only=False,
     ):
@@ -103,9 +108,11 @@ class Args:
         self.top_p = top_p
         self.top_k = top_k
         self.temperature = temperature
+        self.chat = chat
+        self.ground_truth = ground_truth
+        self.sample_len = sample_len
         self.device_mesh = device_mesh
         self.n_devices = n_devices
-        self.emulated = emulated
         self.cache_path = cache_path
         self.decode_only = decode_only
 
@@ -125,6 +132,7 @@ def build_generator(args):
     )
 
     state_dict = load_llama_state_dict(args.ckpt_dir, n_layers=args.num_layers)
+
     if args.implementation == "tt":
         generator.model = TtLlamaModelForGeneration(
             configuration=generator.model.params,
@@ -132,15 +140,13 @@ def build_generator(args):
             device_mesh=args.device_mesh,
             n_devices=args.n_devices,
             n_layers=args.num_layers,
-            batch=args.max_batch_size,
-            emulated=args.emulated,
             cache_path=args.cache_path,
         )
     return generator
 
 
 class UserInfo:
-    def __init__(self, user_id, prompt, position_id, params, tokenizer):
+    def __init__(self, user_id, prompt, position_id, params, tokenizer, formatter=None):
         self.user_id = user_id
         self.prompt = prompt
         self.position_id = position_id
@@ -148,7 +154,6 @@ class UserInfo:
         self.generated_tokens = []
         self.num_generated_chars = 0
         self.num_tokens_prefilled = 0
-        self.stop_sequence = None
         self.generation_params = params
         self.max_tokens = params["max_tokens"]
         self.return_prompt = params["return_prompt"]
@@ -156,19 +161,25 @@ class UserInfo:
         self.prefill_complete = False
         self.decode_complete = False
         self.sent_stop = False
+        self.chat_format = True
         # this may change for each tokenizer
         self.eos_token_id = tokenizer.eos_id
+        self.stop_sequence = None
+        if params.get("stop_sequence"):
+            self.stop_sequence = tokenizer.encode(
+                params.get("stop_sequence"), bos=False, eos=False
+            )
         # tokenize input here
-        self.prompt_tokens = tokenizer.encode(prompt, bos=True, eos=False)
+        if self.chat_format and inference_config.model_config.llama_version == "llama3":
+            dialog = [{"role": "user", "content": prompt}]
+            self.prompt_tokens = formatter.encode_dialog_prompt(dialog)
+        else:
+            self.prompt_tokens = tokenizer.encode(prompt, bos=True, eos=False)
         # strip eos token from prompt
         self.prompt_tokens = [
             tok for tok in self.prompt_tokens if tok != self.eos_token_id
         ]
         self.num_prefill_tokens = len(self.prompt_tokens)
-        if params.get("stop_sequence"):
-            self.stop_sequence = tokenizer.encode(
-                params.get("stop_sequence"), bos=False, eos=False
-            )
 
 
 class PrefillDecodeBackend:
@@ -253,7 +264,7 @@ class PrefillDecodeBackend:
         ttnn.close_device_mesh(device_mesh)
         del device_mesh
 
-    def init_tt_metal_device(self, model_config_default):
+    def init_tt_metal_device(self):
         logger.info("init_tt_metal_device ...")
         t3k_device_mesh = get_t3k_device_mesh(
             num_devices_requested=inference_config.n_devices
@@ -262,23 +273,11 @@ class PrefillDecodeBackend:
             device = t3k_device_mesh.get_device(i)
             device.enable_program_cache()
 
-        compute_grid_size = t3k_device_mesh.get_device(
-            0
-        ).compute_with_storage_grid_size()
-        if (
-            compute_grid_size.x < model_config_default["MAX_GRID_SIZE"][0]
-            or compute_grid_size.y < model_config_default["MAX_GRID_SIZE"][1]
-        ):
-            logger.error(
-                f"Requires grid size of at least {model_config_default['MAX_GRID_SIZE']} to run"
-            )
-
         self.t3k_device_mesh = t3k_device_mesh
 
     def init_model(self):
         # set up variables for model init
         n_devices = inference_config.n_devices
-        num_layers = inference_config.model_config.num_layers
         # set weights from tt-studio backend using
         # MODEL_WEIGHTS_ID
         # MODEL_WEIGHTS_PATH
@@ -286,23 +285,20 @@ class PrefillDecodeBackend:
         tokenizer_path = weights_path.joinpath("tokenizer.model")
         logger.info(f"tokenizer_path=:{tokenizer_path}")
         logger.info("init_model ...")
-        model_config_default = get_model_config("BFLOAT16-DRAM", num_devices=n_devices)
-        self.init_tt_metal_device(model_config_default)
-        t3k_device_mesh = self.t3k_device_mesh
-        ##
-        model_config_default["DEFAULT_CKPT_DIR"] = weights_path.as_posix()
-        model_config_default["DEFAULT_TOKENIZER_PATH"] = tokenizer_path.as_posix()
-        # DEFAULT_CACHE_PATH is a pathlib.Path
-        model_config_default["DEFAULT_CACHE_PATH"] = tt_cache_path
-        ##
-        # TODO: use get_llama_path with devices
-        # t3k_device_mesh = None
-        # ckpt_dir = model_config_default["DEFAULT_CKPT_DIR"]
-        # tokenizer_path = model_config_default["DEFAULT_TOKENIZER_PATH"]
-        # cache_path = model_config_default["DEFAULT_CACHE_PATH"]
-        t3k_device_mesh, ckpt_dir, tokenizer_path, cache_path = get_llama_path(
-            t3k_device_mesh, model_config_default, n_devices, emulated=False
+        model_config, _, _, _ = setup_llama_env(
+            llama_version=inference_config.model_config.llama_version,
         )
+        # override for tt-studio
+        ckpt_dir = weights_path.as_posix()
+        tokenizer_path = tokenizer_path.as_posix()
+        cache_path = tt_cache_path
+        self.init_tt_metal_device()
+        t3k_device_mesh = self.t3k_device_mesh
+        check_device_mesh(t3k_device_mesh, model_config)
+
+        for i in t3k_device_mesh.get_device_ids():
+            device = t3k_device_mesh.get_device(i)
+            device.enable_async(True)
 
         # set unused vars to None to obviously break any code using them
         args = construct_arg(
@@ -310,22 +306,24 @@ class PrefillDecodeBackend:
             ckpt_dir=ckpt_dir,
             tokenizer_path=tokenizer_path,
             skip_model_load=False,
-            num_layers=num_layers,
+            num_layers=self.num_layers,
             num_tokens=None,
             prompts_file=None,
             output_at_end=None,
             top_p=None,
             top_k=None,
             temperature=None,
+            chat=inference_config.model_config.chat,
             device_mesh=t3k_device_mesh,
             n_devices=n_devices,
-            emulated=False,
             cache_path=cache_path,
             decode_only=self.decode_only,
+            ground_truth=False,
         )
         generator = build_generator(args)
         self.model = generator.model
         self.tokenizer = generator.tokenizer
+        self.formatter = ChatFormat(self.tokenizer)
 
     def _get_user_by_id(self, user_id):
         for user in self.users:
@@ -367,7 +365,7 @@ class PrefillDecodeBackend:
                 logger.warning(f"Ignoring duplicate input from user {user_id}")
                 continue
 
-            user_info = UserInfo(user_id, prompt, 0, params, self.tokenizer)
+            user_info = UserInfo(user_id, prompt, 0, params, self.tokenizer, formatter=self.formatter)
             idx = self._find_free_user_slot()
             self.users[idx] = user_info
             if self.verbose:

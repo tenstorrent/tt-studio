@@ -3,7 +3,8 @@
 ## Docker build
 
 ```bash
-docker build -t tt-metal-llama2-70b-src-full-inference:v0.0.1-tt-metal-fa443d . -f llama2.src.full.inference.fa443d.Dockerfile
+## llama3 and llama2 container
+docker build -t tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc . -f llama3.src.full.inference.a053bc.Dockerfile
 ```
 
 ## Docker run - source dist
@@ -14,6 +15,7 @@ docker build -t tt-metal-llama2-70b-src-full-inference:v0.0.1-tt-metal-fa443d . 
 source app/.env
 docker run \
   --rm \
+  --detach \
   --cap-add ALL \
   --device /dev/tenstorrent:/dev/tenstorrent \
   --env JWT_SECRET=test-secret-456 \

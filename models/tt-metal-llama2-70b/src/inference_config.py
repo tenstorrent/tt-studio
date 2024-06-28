@@ -45,6 +45,8 @@ ModelConfig = namedtuple(
         "default_top_p",
         "default_top_k",
         "default_temperature",
+        "chat",
+        "llama_version",
     ],
 )
 
@@ -58,6 +60,7 @@ BACKEND_DEBUG_MODE = bool(int(os.getenv("BACKEND_DEBUG_MODE", 0)))
 FRONTEND_DEBUG_MODE = bool(int(os.getenv("FRONTEND_DEBUG_MODE", 0)))
 MODEL_WEIGHTS_ID = os.getenv("MODEL_WEIGHTS_ID")
 MODEL_WEIGHTS_PATH = os.getenv("MODEL_WEIGHTS_PATH")
+LLAMA_VERSION = os.getenv("LLAMA_VERSION", "llama3")
 
 inference_config = InferenceConfig(
     cache_root=CACHE_ROOT,
@@ -85,6 +88,8 @@ inference_config = InferenceConfig(
         default_top_p=0.9,
         default_top_k=40,
         default_temperature=1.0,
+        chat=True,
+        llama_version=LLAMA_VERSION,
     ),
 )
 
