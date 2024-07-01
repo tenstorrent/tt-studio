@@ -102,3 +102,9 @@ h1 {
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
+
+@font-face {
+  font-family: "Akkurat-Mono";
+  src: local("Akkurat-Mono"), url("./fonts/Akkurat-Mono.OTF") format("opentype");
+  font-weight: normal;
+}

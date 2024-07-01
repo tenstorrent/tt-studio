@@ -38,7 +38,7 @@ export default function NavBar() {
 
   return (
     <div className="relative w-full">
-      <div className="flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3 bg-secondary border-b-4 rounded-2xl shadow-xl">
+      <div className="font-tt_a_mono flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3 bg-secondary border-b-4 rounded-2xl shadow-xl">
         <div className="flex items-center space-x-4 sm:space-x-6">
           <a
             href="https://www.tenstorrent.com"
@@ -52,7 +52,7 @@ export default function NavBar() {
               className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
             />
             <h4
-              className={`hidden sm:block text-lg sm:text-2xl font-mono ${textColor} ml-3 bold font-roboto`}
+              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
             >
               LLM Studio
             </h4>
