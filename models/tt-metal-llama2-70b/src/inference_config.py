@@ -61,6 +61,14 @@ FRONTEND_DEBUG_MODE = bool(int(os.getenv("FRONTEND_DEBUG_MODE", 0)))
 MODEL_WEIGHTS_ID = os.getenv("MODEL_WEIGHTS_ID")
 MODEL_WEIGHTS_PATH = os.getenv("MODEL_WEIGHTS_PATH")
 LLAMA_VERSION = os.getenv("LLAMA_VERSION", "llama3")
+if LLAMA_VERSION == "llama3":
+    model_version = "meta-llama/Meta-Llama-3-70B-Instruct"
+    inference_route_name = "llama3-70b"
+elif LLAMA_VERSION == "llama2":
+    model_version = "meta-llama/Llama-2-70b-chat"
+    inference_route_name = "llama2-70b"
+else:
+    raise ValueError(f"LLAMA_VERSION:={LLAMA_VERSION} is not supported. Must be either llama3 or llama2.")
 
 inference_config = InferenceConfig(
     cache_root=CACHE_ROOT,
@@ -78,10 +86,10 @@ inference_config = InferenceConfig(
     model_weights_id=MODEL_WEIGHTS_ID,
     model_weights_path=MODEL_WEIGHTS_PATH,
     n_devices=8,
-    inference_route_name="llama2-70b",
+    inference_route_name=inference_route_name,
     end_of_sequence_str="<|endoftext|>",
     model_config=ModelConfig(
-        model_version="meta-llama/Llama-2-70b-chat",
+        model_version=model_version,
         batch_size=32,
         num_layers=80,
         max_seq_len=2048,

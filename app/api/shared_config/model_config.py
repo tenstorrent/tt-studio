@@ -1,6 +1,6 @@
 import os
-from dataclasses import dataclass, asdict
-from typing import Set, Dict, Any
+from dataclasses import dataclass, asdict, field
+from typing import Set, Dict, Any, Optional
 from pathlib import Path
 
 from shared_config.device_config import DeviceConfigurations
@@ -30,6 +30,7 @@ class ModelImpl:
     shm_size: str
     service_port: int
     service_route: str
+    environment_vars: Optional[Dict[str, str]] = field(default=None)
 
     def __post_init__(self):
         self.docker_config.update({"volumes": self.get_volume_mounts()})
@@ -37,6 +38,9 @@ class ModelImpl:
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
+        if self.environment_vars:
+            for env_var, value in self.environment_vars.items():
+                self.docker_config["environment"][env_var] = value
 
     @property
     def image_version(self) -> str:
@@ -148,9 +152,9 @@ model_implmentations_list = [
     ),
     ModelImpl(
         model_name="Llama2-70B-Chat",
-        model_id="id_tt-metal-llama2-70bv0.0.2",
+        model_id="id_tt-metal-llama2-70bv0.0.1",
         image_name="tt-metal-llama2-70b-src-full-inference",
-        image_tag="v0.0.1-tt-metal-fa443d",
+        image_tag="v0.0.1-tt-metal-a053bc",
         device_configurations={DeviceConfigurations.N300_2X4_MESH},
         docker_config=base_docker_config(),
         user_uid=1000,
@@ -158,6 +162,21 @@ model_implmentations_list = [
         shm_size="32G",
         service_port=7000,
         service_route="/inference/llama2-70b",
+        environment_vars={"LLAMA_VERSION": "llama2"},
+    ),
+    ModelImpl(
+        model_name="Llama3-70B-Instruct",
+        model_id="id_tt-metal-llama3-70bv0.0.1",
+        image_name="tt-metal-llama3-70b-src-full-inference",
+        image_tag="v0.0.1-tt-metal-a053bc",
+        device_configurations={DeviceConfigurations.N300_2X4_MESH},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="32G",
+        service_port=7000,
+        service_route="/inference/llama3-70b",
+        environment_vars={"LLAMA_VERSION": "llama3"},
     ),
 ]
 

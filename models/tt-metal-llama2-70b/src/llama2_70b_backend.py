@@ -274,6 +274,7 @@ class PrefillDecodeBackend:
             device.enable_program_cache()
 
         self.t3k_device_mesh = t3k_device_mesh
+        logger.info("init_tt_metal_device finished.")
 
     def init_model(self):
         # set up variables for model init
@@ -565,8 +566,6 @@ class PrefillDecodeBackend:
                 logger.debug(f"run_generate step: {self.num_steps}")
             self.pick_prompts(prompt_q)  # we update to self.users
             self.prepare_inputs()
-            # if any([not user.prefill_complete for user in self.get_users()]):
-            #     self.prefill_via_decode()
             logger.info("Running inference decode and pushing results ...")
             while not all([user.decode_complete for user in self.get_users()]):
                 self.decode()

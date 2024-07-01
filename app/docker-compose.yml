@@ -14,7 +14,7 @@ services:
       - llm_studio_network
     ports:
       - "8000:8000"
-    # command: bash
+    # command: sleep infinity
     # dev server can be used for breakpoint debugging, does not support streaming
     # command: ./manage.py runserver 0.0.0.0:8000
     # gunicorn is used from production, supports streaming

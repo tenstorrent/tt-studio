@@ -85,7 +85,7 @@ def get_devices_mounts(impl):
     # e.g. running falcon-7B and mistral-7B on 2x n150 machine
     if device_config in {DeviceConfigurations.N150, DeviceConfigurations.E150}:
         devices = ["/dev/tenstorrent/0:/dev/tenstorrent/0"]
-    elif device_config == DeviceConfigurations.N300x4:
+    elif device_config == DeviceConfigurations.N300_2X4_MESH:
         devices = ["/dev/tenstorrent:/dev/tenstorrent"]
     elif device_config == DeviceConfigurations.CPU:
         devices = None
@@ -187,6 +187,8 @@ def update_deploy_cache():
             for k, v in model_implmentations.items()
             if v.image_version == con["image_name"]
         ]
+        # if we dont find exactly one container deployed for a model, it is ambiguous what
+        # version is deployed
         assert (
             len(model_impl) == 1
         ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
