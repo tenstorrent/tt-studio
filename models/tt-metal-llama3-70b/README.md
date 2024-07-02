@@ -290,57 +290,39 @@ additionally add the src code as a volume mount so that it can be editted and re
 # export TT_STUDIO_ROOT=/home/tt-admin/projects/tt-studio
 source app/.env
 docker run \
+  -it \
   --rm \
-  --detach \
   --cap-add ALL \
   --device /dev/tenstorrent:/dev/tenstorrent \
   --env JWT_SECRET=test-secret-456 \
   --env CACHE_ROOT=/home/user/cache_root \
   --env HF_HOME=/home/user/cache_root/huggingface \
-  --env MODEL_WEIGHTS_ID=id_repacked-llama-2-70b-chat \
-  --env MODEL_WEIGHTS_PATH=/home/user/cache_root/model_weights/id_repacked-llama-2-70b-chat \
-  --env WH_ARCH_YAML=wormhole_b0_80_arch_eth_dispatch.yaml \
+  --env MODEL_WEIGHTS_ID=id_repacked-llama-3-70b-instruct \
+  --env MODEL_WEIGHTS_PATH=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct \
+  --env LLAMA_VERSION=llama3 \
   --env TT_METAL_ASYNC_DEVICE_QUEUE=1 \
+  --env WH_ARCH_YAML=wormhole_b0_80_arch_eth_dispatch.yaml \
   --env SERVICE_PORT=7000 \
-  --env LLAMA_VERSION="llama3" \
   --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
-  --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama2-70bv0.0.2:/home/user/cache_root:rw \
-  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama3-70b:/home/user/tt-metal-llama3-70b:rw \
+  --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1:/home/user/cache_root:rw \
+  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama3-70b/src:/home/user/tt-metal-llama3-70b/src:rw \
   --shm-size 32G \
   --publish 7000:7000 \
-  tt-metal-llama2-70b-src-full-inference:v0.0.1-tt-metal-fa443d sleep infinity
+  tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc bash
 ```
 
 ## Run tests
 
-```bash
-cd ~/tt-metal-llama3-70b
-# run tests with mocked out model
-python src/test_llama2_70b_backend_mock.py
-# run backend synchronously for debugging
-python src/test_llama2_70b_backend.py
-
-```
-
-## CPU Governor performance setting
-
-Required to get maximum model performance. This needs to be run on the host, outside of Docker conainer:
-```bash
-sudo apt-get update && sudo apt-get install -y linux-tools-generic
-# enable perf mode
-sudo cpupower frequency-set -g performance
-# disable perf mode
-sudo cpupower frequency-set -g ondemand
-```
-
-## Test with mocks
+### Test with mocks
 
 The mock server and mock backend can be used for development on either component in isolation.
 Importantly the mock implementations give a single thread synchronous implmentation for ease of debugging.
 
 ```bash
+cd ~/tt-metal-llama3-70b/src
+
 # within container, access backend mock with:
-python test_llama2_70b_backend_mock.py
+python test_llama3_70b_backend_mock.py
 # access inference server mock (using backend mock) with:
 python test_mock_inference_api_server.py
 ```

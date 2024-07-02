@@ -5,7 +5,7 @@ import time
 from unittest.mock import Mock, patch
 
 import torch
-from llama2_70b_backend import PrefillDecodeBackend, run_backend
+from llama3_70b_backend import PrefillDecodeBackend, run_backend
 from inference_api_server import get_user_parameters
 from inference_logger import get_logger
 

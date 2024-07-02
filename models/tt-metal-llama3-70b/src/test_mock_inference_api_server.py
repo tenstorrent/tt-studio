@@ -7,9 +7,9 @@ import torch
 from model_weights_handler import get_model_weights_and_tt_cache_paths
 # from tt_metal_impl.reference.llama.tokenizer import Tokenizer
 from tt_metal_impl.reference.llama.tokenizer3 import Tokenizer3, ChatFormat
-from llama2_70b_backend import PrefillDecodeBackend, run_backend
+from llama3_70b_backend import PrefillDecodeBackend, run_backend
 
-from llama2_70b_backend import run_backend
+from llama3_70b_backend import run_backend
 from inference_api_server import (
     app,
     initialize_decode_backend,
