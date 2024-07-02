@@ -164,6 +164,7 @@ class UserInfo:
         self.chat_format = True
         # this may change for each tokenizer
         self.eos_token_id = tokenizer.eos_id
+        self.stop_tokens = tokenizer.stop_tokens
         self.stop_sequence = None
         if params.get("stop_sequence"):
             self.stop_sequence = tokenizer.encode(
@@ -177,7 +178,7 @@ class UserInfo:
             self.prompt_tokens = tokenizer.encode(prompt, bos=True, eos=False)
         # strip eos token from prompt
         self.prompt_tokens = [
-            tok for tok in self.prompt_tokens if tok != self.eos_token_id
+            tok for tok in self.prompt_tokens if tok not in self.stop_tokens
         ]
         self.num_prefill_tokens = len(self.prompt_tokens)
 
@@ -461,13 +462,13 @@ class PrefillDecodeBackend:
         self.timer_stop("batch_top_pk_logits_efficient")
         self.decode_ids = next_tokens
         for idx, (user_info, user_decode_id) in enumerate(
-            zip(self.users, self.decode_ids)
+            zip(self.users, self.decode_ids.reshape(self.batch_size))
         ):
             if user_info is None:
                 continue
             if not user_info.prefill_complete:
                 # take next token for prefill
-                user_decode_id[0] = user_info.prompt_tokens[
+                self.decode_ids[idx][0] = user_info.prompt_tokens[
                     user_info.num_tokens_prefilled
                 ]
                 user_info.num_tokens_prefilled += 1
@@ -475,7 +476,7 @@ class PrefillDecodeBackend:
                     user_info.prefill_complete = True
             else:
                 user_info.num_tokens_generated += 1
-                if user_decode_id == user_info.eos_token_id:
+                if user_decode_id in user_info.stop_tokens:
                     user_info.decode_complete = True
                 elif user_info.num_tokens_generated > user_info.max_tokens:
                     user_info.decode_complete = True
@@ -484,7 +485,7 @@ class PrefillDecodeBackend:
                 ):
                     user_info.decode_complete = True
             if user_info.decode_complete:
-                self.decode_ids[idx] = user_info.eos_token_id
+                self.decode_ids[idx][0] = user_info.eos_token_id
 
         self.cur_pos += 1
         self.prev_pos += 1
@@ -506,7 +507,7 @@ class PrefillDecodeBackend:
             return_text = full_text[user_info.num_generated_chars :]
             user_info.num_generated_chars = len(full_text)
             # send special EOS string to frontend
-            if (last_token == user_info.eos_token_id) or (user_info.decode_complete):
+            if (last_token in user_info.stop_tokens) or (user_info.decode_complete):
                 return_text += inference_config.end_of_sequence_str
             output_q.put((user_info.user_id, return_text))
             if self.verbose:
@@ -516,11 +517,11 @@ class PrefillDecodeBackend:
         self.decode_ids[user_idx, 0] = 0
 
     def update_users(self):
-        for i, token_id in enumerate(self.decode_ids):  # bc input_ids is 1x32
+        for i, token_id in enumerate(self.decode_ids.reshape(self.batch_size).tolist()):  # bc input_ids is 1x32
             if self.users[i] is None:
                 continue
 
-            if token_id == self.users[i].eos_token_id and self.users[i].decode_complete:
+            if token_id in self.users[i].stop_tokens and self.users[i].decode_complete:
                 self.reset_user_memory(i, self.users[i])
                 if self.verbose:
                     logger.debug(
@@ -528,7 +529,7 @@ class PrefillDecodeBackend:
                     )
                 self.users[i] = None
             elif (
-                token_id == self.users[i].eos_token_id
+                token_id in self.users[i].stop_tokens
                 and not self.users[i].decode_complete
             ):
                 logger.error(
@@ -537,7 +538,7 @@ class PrefillDecodeBackend:
                 self.reset_user_memory(i, self.users[i])
                 self.users[i] = None
             elif (
-                token_id != self.users[i].eos_token_id and self.users[i].decode_complete
+                token_id not in self.users[i].stop_tokens and self.users[i].decode_complete
             ):
                 logger.error(
                     f"user_id: {self.users[i].user_id} from index {i} did not have EOS token but decode_complete=True."
