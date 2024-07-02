@@ -1,6 +1,6 @@
 # ignore everything by default
 *
 # explictly include files:
-!Dockerfile
+!*.Dockerfile
 !src
 !requirements.txt
