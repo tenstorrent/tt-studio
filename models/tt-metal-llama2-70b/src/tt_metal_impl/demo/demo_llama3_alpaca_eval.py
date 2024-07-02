@@ -326,7 +326,7 @@ if __name__ == "__main__":
     implementation = "tt"
     skip_model_load = False
     num_layers = 80
-    num_tokens = 512
+    num_tokens = 2048
     prompts_file = None
     output_at_end = True
     top_k = 20

@@ -31,7 +31,7 @@ __NOTE:__ For running ML models on Tenstorrent hardware you must uncomment the f
 To correct forward traffic to/from the remote server so that you can use the frontend GUI on your local browser:
 ```bash
 # port forward frontend and backend ports to
-ssh -L 3000:localhost:3000 <username>@<remote_server>
+ssh -L 3000:localhost:3000 <username>@<remote_server> -N
 ```
 
 ## Run local for development
