@@ -28,7 +28,7 @@ test_prompts_outputs = [
 backend_logger = logging.getLogger("llama2_70b_backend")
 backend_logger.setLevel(logging.DEBUG)
 
-
+counter = 0
 class MockModel:
     def forward(self, tokens: torch.Tensor, start_pos: int, *args, **kwargs):
         assert len(tokens.shape) == 2
@@ -36,6 +36,10 @@ class MockModel:
         sleep(1.0 / 32)  # 32 TPS
         # update the new tokens generated to the input id
         logits = torch.randn([32, 1, 32000])
+        counter += 1
+        EOS_TOKEN_ID = 12800
+        if counter == 10:
+            breakpoint()
         return logits
 
 
@@ -46,6 +50,7 @@ def mock_init_model(self):
     self.tokenizer = Tokenizer3(model_path=tokenizer_path.as_posix())
     self.formatter = ChatFormat(self.tokenizer)
     self.model = MockModel()
+    breakpoint()
 
 
 @patch.object(PrefillDecodeBackend, "init_model", new=mock_init_model)

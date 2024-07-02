@@ -25,7 +25,7 @@ docker run \
   --env SERVICE_PORT=7000 \
   --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
   --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1:/home/user/cache_root:rw \
-  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama2-70b/src:/home/user/tt-metal-llama3-70b/src:rw \
+  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama3-70b/src:/home/user/tt-metal-llama3-70b/src:rw \
   --shm-size 32G \
   --publish 7000:7000 \
   tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc bash
@@ -68,7 +68,7 @@ docker run \
   --env SERVICE_PORT=7000 \
   --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
   --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1:/home/user/cache_root:rw \
-  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama2-70b/src:/home/user/tt-metal-llama3-70b/src:rw \
+  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama3-70b/src:/home/user/tt-metal-llama3-70b/src:rw \
   --shm-size 32G \
   --publish 7000:7000 \
   tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc
@@ -108,7 +108,7 @@ The `test_inference_api_alpaca_eval.py` script will run through 800 samples of a
 The results are appended per batch to `responses_{datetime}.json`.
 
 ```bash
-cd /home/tt-admin/projects/tt-studio/models/tt-metal-llama2-70b
+cd /home/tt-admin/projects/tt-studio/models/tt-metal-llama3-70b
 # see above for JWT_TOKEN Authorization
 export AUTHORIZATION="Bearer ${JWT_ENCODED}"
 export CACHE_ROOT="test"  # just to mock
@@ -305,7 +305,7 @@ docker run \
   --env LLAMA_VERSION="llama3" \
   --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
   --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama2-70bv0.0.2:/home/user/cache_root:rw \
-  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama2-70b:/home/user/tt-metal-llama2-70b:rw \
+  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama3-70b:/home/user/tt-metal-llama3-70b:rw \
   --shm-size 32G \
   --publish 7000:7000 \
   tt-metal-llama2-70b-src-full-inference:v0.0.1-tt-metal-fa443d sleep infinity
@@ -314,7 +314,7 @@ docker run \
 ## Run tests
 
 ```bash
-cd ~/tt-metal-llama2-70b
+cd ~/tt-metal-llama3-70b
 # run tests with mocked out model
 python src/test_llama2_70b_backend_mock.py
 # run backend synchronously for debugging

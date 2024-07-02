@@ -10,7 +10,8 @@ from datasets import load_dataset
 from inference_config import inference_config
 
 DEPLOY_URL = "http://127.0.0.1"
-API_BASE_URL = f"{DEPLOY_URL}:{inference_config.backend_server_port}"
+# API_BASE_URL = f"{DEPLOY_URL}:{inference_config.backend_server_port}"
+API_BASE_URL = f"{DEPLOY_URL}:8001"
 API_URL = f"{API_BASE_URL}/inference/{inference_config.inference_route_name}"
 HEALTH_URL = f"{API_BASE_URL}/health"
 
@@ -41,16 +42,16 @@ def test_api_client_perf(alpaca_instruction, response_idx, print_streaming=False
     json_data = {
         "text": prompt,
         "temperature": 1,
-        "top_k": 10,
+        "top_k": 20,
         "top_p": 0.9,
-        "max_tokens": 512,
+        "max_tokens": 2048,
         "stop_sequence": None,
         "return_prompt": None,
     }
     start_time = time.time()
     # using requests stream=True, make sure to set a timeout
     response = requests.post(
-        API_URL, json=json_data, headers=headers, stream=True, timeout=300
+        API_URL, json=json_data, headers=headers, stream=True, timeout=600
     )
     # Handle chunked response
     full_text = ""
@@ -81,7 +82,7 @@ def test_api_call_threaded():
     batch_size = 32
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     json_filename = f"responses_{timestamp}.json"
-    NUM_FULL_ITERATIONS = 1
+    NUM_FULL_ITERATIONS = 500
     for _ in range(NUM_FULL_ITERATIONS):
         for batch_idx in range(0, len(alpaca_ds) // batch_size):
             threads = []
