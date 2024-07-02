@@ -162,7 +162,11 @@ model_implmentations_list = [
         shm_size="32G",
         service_port=7000,
         service_route="/inference/llama2-70b",
-        environment_vars={"LLAMA_VERSION": "llama2"},
+        environment_vars={
+            "LLAMA_VERSION": "llama2",
+            "WH_ARCH_YAML": "wormhole_b0_80_arch_eth_dispatch.yaml",
+            "TT_METAL_ASYNC_DEVICE_QUEUE": "1",
+        },
     ),
     ModelImpl(
         model_name="Llama3-70B-Instruct",
@@ -176,7 +180,11 @@ model_implmentations_list = [
         shm_size="32G",
         service_port=7000,
         service_route="/inference/llama3-70b",
-        environment_vars={"LLAMA_VERSION": "llama3"},
+        environment_vars={
+            "LLAMA_VERSION": "llama3",
+            "WH_ARCH_YAML": "wormhole_b0_80_arch_eth_dispatch.yaml",
+            "TT_METAL_ASYNC_DEVICE_QUEUE": "1",
+        },
     ),
 ]
 

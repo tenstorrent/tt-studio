@@ -314,8 +314,6 @@ def get_output(session_id):
     while not done_generation:
         if session_id in output_queue_map and not started_generation:
             started_generation = True
-            with context.context_lock:
-                context.user_last_read[session_id] = time.time()
         elif session_id not in output_queue_map and not started_generation:
             # waiting for start of generation
             time.sleep(0.02)
@@ -332,6 +330,8 @@ def get_output(session_id):
             continue
 
         out_text = output_queue_map[session_id].get_nowait()
+        with context.context_lock:
+            context.user_last_read[session_id] = time.time()
         if out_text.endswith(inference_config.end_of_sequence_str):
             done_generation = True
 

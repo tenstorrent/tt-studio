@@ -205,7 +205,6 @@ class PrefillDecodeBackend:
         # backend status
         self.time_last_status = time.time()
         self.update_period = 1  # status message period in seconds
-        self.num_steps = 0
         self.verbose = verbose  # enable conditional debug logging
         # new init:
         self.model_version = model_version
@@ -221,6 +220,7 @@ class PrefillDecodeBackend:
         self.enable_profile_logging = False
         self.batch_counter = 0
         self.forward_counter = 0
+        self.prev_forward_counter = 0
         #
         self.device = None
         self.cache_root = Path(cache_root)
@@ -398,6 +398,15 @@ class PrefillDecodeBackend:
         if len(user_ids) != len(set(user_ids)):
             logger.warning(f"WARNING: Duplicate user ids: {user_ids}")
 
+    def batch_stats(self):
+        tokens_generated = self.forward_counter - self.prev_forward_counter
+        batch_duration = time.time() - self.batch_start_time
+        tps = tokens_generated / batch_duration
+        logger.info(f"batch_counter:={self.batch_counter}, forward_counter:={self.forward_counter}, tokens_generated:={tokens_generated}, tps:={tps:.4f} tokens/sec (32 users)")
+        self.prev_forward_counter = self.forward_counter
+        self.batch_start_time = time.time()
+        
+
     def prepare_inputs(self):
         # empty users get pad id
         input_prompts = [
@@ -419,9 +428,6 @@ class PrefillDecodeBackend:
         self.decode_ids = tokens[:, :1]
         self.num_users = len(self.get_users())
         self.batch_counter += 1
-        logger.info(
-            f"batch_counter:={self.batch_counter}, forward_counter:={self.forward_counter}"
-        )
         # self.num_input_tokens =end num_input_tokens
 
     def prefill_via_decode(self):
@@ -561,9 +567,8 @@ class PrefillDecodeBackend:
         """
         logger.info("starting run_generate ...")
         LOOP_FORVEVER = True
+        self.batch_start_time = time.time()
         while LOOP_FORVEVER:
-            if self.verbose:
-                logger.debug(f"run_generate step: {self.num_steps}")
             self.pick_prompts(prompt_q)  # we update to self.users
             self.prepare_inputs()
             logger.info("Running inference decode and pushing results ...")
@@ -572,7 +577,7 @@ class PrefillDecodeBackend:
                 self.push_outputs(output_q)
                 self.update_users()
                 self.send_status(prompt_q, status_q)
-            self.num_steps += 1
+            self.batch_stats()
             if loop_once:
                 break
 
