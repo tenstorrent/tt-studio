@@ -480,10 +480,11 @@ class PrefillDecodeBackend:
                     user_info.decode_complete = True
                 elif user_info.num_tokens_generated > user_info.max_tokens:
                     user_info.decode_complete = True
-                elif (user_info.stop_sequence is not None) and (
-                    user_decode_id == user_info.stop_sequence
-                ):
-                    user_info.decode_complete = True
+                elif (user_info.stop_sequence is not None):
+                    last_n_tokens = user_info.generated_tokens[-(len(user_info.stop_sequence) - 1):]
+                    last_n_tokens.append(user_decode_id)
+                    if last_n_tokens == user_info.stop_sequence:
+                        user_info.decode_complete = True
             if user_info.decode_complete:
                 self.decode_ids[idx][0] = user_info.eos_token_id
 

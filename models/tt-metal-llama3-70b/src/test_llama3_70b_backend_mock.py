@@ -42,6 +42,7 @@ class MockModel:
         logits = torch.randn([32, 1, 128256])
         EOT_ID = 128009
         EOS_ID = 128001
+        period_ID = 13
         if self.forward_counter % 10 == 0:
             print(f"sending {EOT_ID}")
             logits[:,:,EOT_ID] = 100.0
@@ -71,6 +72,7 @@ def test_llama2_70b_backend():
     # user_id, prompt, params
     default_params, _ = get_user_parameters({"max_tokens": 64})
     default_params["max_tokens"] = 128
+    # default_params["stop_sequence"] = "."
     for i in range(0, 31, 1):
         prompt_q.put(
             (f"INIT_ID-{i}", "test", default_params)
