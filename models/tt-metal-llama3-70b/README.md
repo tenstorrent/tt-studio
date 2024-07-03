@@ -36,6 +36,10 @@ docker run \
 
 Within the container shell:
 ```bash
+# need to set path environment variables for demo scripts
+export LLAMA_CKPT_DIR=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct
+export LLAMA_TOKENIZER_PATH=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct/tokenizer.model
+export LLAMA_CACHE_PATH=/home/user/cache_root/tt_metal_cache/repacked-llama-3-70b-instruct
 # run demo with pytest for llama3
 pytest -svv tt_metal_impl/demo/demo.py::test_LlamaModel_demo[check_disabled-greedy-tt-70b-T3000-80L-decode_only-chat_completion-llama3]
 
@@ -140,7 +144,7 @@ docker run \
   --env CACHE_ROOT=/home/user/cache_root \
   --env HF_HOME=/home/user/cache_root/huggingface \
   --env MODEL_WEIGHTS_ID=id_repacked-llama-2-70b-chat \
-  --env MODEL_WEIGHTS_PATH=/home/user/cache_root/model_weights/id_repacked-llama-2-70b-chat \
+  --env MODEL_WEIGHTS_PATH=/home/user/cache_root/model_weights/repacked-llama-2-70b-chat \
   --env LLAMA_VERSION=llama2 \
   --env TT_METAL_ASYNC_DEVICE_QUEUE=1 \
   --env WH_ARCH_YAML=wormhole_b0_80_arch_eth_dispatch.yaml \
@@ -218,11 +222,11 @@ cd tt-studio
 export TT_STUDIO_ROOT=$PWD
 export PERSISENT_VOLUME=${TT_STUDIO_ROOT}/persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1
 # create directories in persistent volume
-mkdir -p ${PERSISENT_VOLUME}/model_weights/repacked-llama-3-70b
-mkdir -p ${PERSISENT_VOLUME}/tt_metal_cache/repacked-llama-3-70b
+mkdir -p ${PERSISENT_VOLUME}/model_weights/repacked-llama-3-70b-instruct
+mkdir -p ${PERSISENT_VOLUME}/tt_metal_cache/repacked-llama-3-70b-instruct
 # assuming weights are downloaded to: ./Meta-Llama-3-70B-Instruct
-cp -r Meta-Llama-3-70B-Instruct ${PERSISENT_VOLUME}/model_weights/llama-3-70b
-cp Meta-Llama-3-70B-Instruct/tokenizer.model ${PERSISENT_VOLUME}/model_weights/repacked-llama-3-70b/tokenizer.model
+cp -r Meta-Llama-3-70B-Instruct ${PERSISENT_VOLUME}/model_weights/llama-3-70b-instruct
+cp Meta-Llama-3-70B-Instruct/tokenizer.model ${PERSISENT_VOLUME}/model_weights/repacked-llama-3-70b-instruct/tokenizer.model
 ```
 
 #### Llama 2 70B (skip if you only want to run Llama 3 70B)
@@ -232,12 +236,14 @@ cd tt-studio
 export TT_STUDIO_ROOT=$PWD
 export PERSISENT_VOLUME=${TT_STUDIO_ROOT}/persistent_volume/volume_id_tt-metal-llama2-70bv0.0.1
 # create directories in persistent volume
-mkdir -p ${PERSISENT_VOLUME}/model_weights/repacked-llama-2-70b
-mkdir -p ${PERSISENT_VOLUME}/tt_metal_cache/repacked-llama-2-70b
-# assuming weights are downloaded to: ~/llama/llama-2-70b
-cp -r ~/llama/llama-2-70b ${PERSISENT_VOLUME}/model_weights/llama-2-70b
-cp ~/llama/tokenizer.model ${PERSISENT_VOLUME}/model_weights/id_repacked-llama-2-70b/tokenizer.model
+mkdir -p ${PERSISENT_VOLUME}/model_weights/repacked-llama-2-70b-chat
+mkdir -p ${PERSISENT_VOLUME}/tt_metal_cache/repacked-llama-2-70b-chat
+# assuming weights are downloaded to: ~/llama/llama-2-70b-chat
+cp -r ~/llama/llama-2-70b-chat ${PERSISENT_VOLUME}/model_weights/llama-2-70b-chat
+cp ~/llama/tokenizer.model ${PERSISENT_VOLUME}/model_weights/repacked-llama-2-70b-chat/tokenizer.model
 ```
+
+#### Repack the weights
 
 Use the docker container to run the `repack_weights.py` script:
 ```bash
@@ -261,11 +267,15 @@ docker run \
   --publish 7000:7000 \
   tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc bash
 
-# you should also see the text: All CPU governors are set to performance.
-# follow step 2. above to set the CPU governor
+# need to set path environment variables for demo scripts
+export LLAMA_CKPT_DIR=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct
+export LLAMA_TOKENIZER_PATH=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct/tokenizer.model
+export LLAMA_CACHE_PATH=/home/user/cache_root/tt_metal_cache/repacked-llama-3-70b-instruct
 cd /tt-metal
 # run script to repack weights
-python models/demos/t3000/llama2_70b/scripts/repack_weights.py /home/user/cache_root/model_weights/llama-2-70b ${LLAMA_CKPT_DIR}
+python models/demos/t3000/llama2_70b/scripts/repack_weights.py /home/user/cache_root/model_weights/llama-3-70b-instruct ${LLAMA_CKPT_DIR}
+# for llama-2-70b-chat, tt_studio_persistent_volume for llama2 must be mounted instead of llama3 volume
+python models/demos/t3000/llama2_70b/scripts/repack_weights.py /home/user/cache_root/model_weights/llama-2-70b-chat ${PERSISENT_VOLUME}/model_weights/repacked-llama-2-70b-chat
 ```
 
 ### 7. First run, create tt-metal weights cache
@@ -273,11 +283,12 @@ python models/demos/t3000/llama2_70b/scripts/repack_weights.py /home/user/cache_
 After 1st run you can use the "sampling" option to enable top p / top k sampling of logits for token generation. "greedy" option should be used for 1st run for caching of rotational matrices.
 
 ```bash
-cd /tt-metal
-source /tt-metal/python_env/bin/activate
-
+# need to set path environment variables for demo scripts
+export LLAMA_CKPT_DIR=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct
+export LLAMA_TOKENIZER_PATH=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct/tokenizer.model
+export LLAMA_CACHE_PATH=/home/user/cache_root/tt_metal_cache/repacked-llama-3-70b-instruct
 # 1st run will generate the tt_metal_cache files in $LLAMA_CACHE_PATH, this will take ~60 minutes
-pytest -svv models/experimental/llama2_70b/demo/demo.py::test_LlamaModel_demo[wormhole_b0-True-greedy-tt-70b-T3000-80L-decode_only]
+python tt_metal_impl/demo/demo_llama3_first_run_4k.py
 ```
 
 # System dependencies
