@@ -569,9 +569,9 @@ class PrefillDecodeBackend:
         """
         logger.info("starting run_generate ...")
         LOOP_FORVEVER = True
-        self.batch_start_time = time.time()
         while LOOP_FORVEVER:
             self.pick_prompts(prompt_q)  # we update to self.users
+            self.batch_start_time = time.time()
             self.prepare_inputs()
             logger.info("Running inference decode and pushing results ...")
             while not all([user.decode_complete for user in self.get_users()]):
