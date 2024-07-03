@@ -6,9 +6,9 @@
 
 Run container with an interactive bash shell:
 ```bash
-# set TT_STUDIO_ROOT on your host machine, this is also in the .env file if you want to use that
-# export TT_STUDIO_ROOT=/home/tt-admin/projects/tt-studio
-source app/.env
+cd tt-studio
+# set TT_STUDIO_ROOT on your host machine to be where you've cloned tt-studio
+export TT_STUDIO_ROOT=$PWD
 docker run \
   --rm \
   -it \
@@ -25,7 +25,6 @@ docker run \
   --env SERVICE_PORT=7000 \
   --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
   --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1:/home/user/cache_root:rw \
-  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama3-70b/src:/home/user/tt-metal-llama3-70b/src:rw \
   --shm-size 32G \
   --publish 7000:7000 \
   tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc bash
@@ -49,9 +48,9 @@ python tt_metal_impl/demo/demo_llama3_alpaca_eval_2k.py
 Running the container directly without overriding the entrypoint CMD will start the inference API server. It will take ~3-5 minutes to start up.
 
 ```bash
-# set TT_STUDIO_ROOT on your host machine, this is also in the .env file if you want to use that
-# export TT_STUDIO_ROOT=/home/tt-admin/projects/tt-studio
-source app/.env
+cd tt-studio
+# set TT_STUDIO_ROOT on your host machine to be where you've cloned tt-studio
+export TT_STUDIO_ROOT=$PWD
 docker run \
   --rm \
   --detach \
@@ -68,7 +67,6 @@ docker run \
   --env SERVICE_PORT=7000 \
   --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
   --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1:/home/user/cache_root:rw \
-  --volume ${TT_STUDIO_ROOT}/models/tt-metal-llama3-70b/src:/home/user/tt-metal-llama3-70b/src:rw \
   --shm-size 32G \
   --publish 7000:7000 \
   tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc
@@ -111,22 +109,23 @@ The results are appended per batch to `responses_{datetime}.json`.
 cd /home/tt-admin/projects/tt-studio/models/tt-metal-llama3-70b
 # see above for JWT_TOKEN Authorization
 export AUTHORIZATION="Bearer ${JWT_ENCODED}"
-export CACHE_ROOT="test"  # just to mock
-python -m venv .venv
+export CACHE_ROOT="test"  # just for testing on the host or external to container
+# the huggingface datasets library is need to access alpaca eval
+python3 -m venv .venv
 source .venv/bin/activate
-pip install requirements-client.txt
-
+pip install datasets
+# run script
 python src/test_inference_api_alpaca_eval.py
 ```
 
 ### Docker run - llama2 
 
-Llama2 is also supported. Use `LLAMA_VERSION=llama3` or `LLAMA_VERSION=llama2` to toggle between llama3 and llama2. Other environment variables must be set correctly as follows.
+Llama2 is also supported if the weights are available. Use `LLAMA_VERSION=llama3` or `LLAMA_VERSION=llama2` to toggle between llama3 and llama2. Other environment variables must be set correctly for llama2 as below for example.
 
 ```bash
-# set TT_STUDIO_ROOT on your host machine, this is also in the .env file if you want to use that
-# export TT_STUDIO_ROOT=/home/tt-admin/projects/tt-studio
-source app/.env
+cd tt-studio
+# set TT_STUDIO_ROOT on your host machine to be where you've cloned tt-studio
+export TT_STUDIO_ROOT=$PWD
 docker run \
   --rm \
   --detach \
@@ -155,9 +154,7 @@ you can alternatively run the container and override the `CMD`:
 ```
 Then use `docker exec -it <container-id> bash` to enter the container with an interactive shell to test and debug.
 
-# First run setup
-
-## Tenstorrent device resets
+## Tenstorrent device soft resets
 
 On host, use tt-smi (https://github.com/tenstorrent/tt-smi) to reset the n300 devices: 
 ```bash
@@ -165,6 +162,11 @@ On host, use tt-smi (https://github.com/tenstorrent/tt-smi) to reset the n300 de
 source ~/.venv/bin/activate
 tt-smi -r 0,1,2,3
 ```
+
+This soft reset is required for example when the device is not closed correctly during termination.
+When this occurs the device may not be able to connect and train the ethernet links. If this occurs try soft resetting the device.
+
+# First run setup
 
 ## Installation setup
 
@@ -206,7 +208,10 @@ Select model size `70B-instruct` and it will download to `./Meta-Llama-3-70B-Ins
 
 #### Llama 3 70B
 ```bash
-export PERSISENT_VOLUME=/home/ttuser/llama_demo/persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1
+cd tt-studio
+# set TT_STUDIO_ROOT on your host machine to be where you've cloned tt-studio
+export TT_STUDIO_ROOT=$PWD
+export PERSISENT_VOLUME=${TT_STUDIO_ROOT}/persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1
 # create directories in persistent volume
 mkdir -p ${PERSISENT_VOLUME}/model_weights/repacked-llama-3-70b
 mkdir -p ${PERSISENT_VOLUME}/tt_metal_cache/repacked-llama-3-70b
@@ -217,42 +222,43 @@ cp Meta-Llama-3-70B-Instruct/tokenizer.model ${PERSISENT_VOLUME}/model_weights/r
 
 #### Llama 2 70B (skip if you only want to run Llama 3 70B)
 ```bash
-export PERSISENT_VOLUME=/home/ttuser/llama_demo/persistent_volume/volume_id_tt-metal-llama2-70bv0.0.1
+cd tt-studio
+# set TT_STUDIO_ROOT on your host machine to be where you've cloned tt-studio
+export TT_STUDIO_ROOT=$PWD
+export PERSISENT_VOLUME=${TT_STUDIO_ROOT}/persistent_volume/volume_id_tt-metal-llama2-70bv0.0.1
 # create directories in persistent volume
-mkdir -p ${PERSISENT_VOLUME}/model_weights/id_repacked-llama-2-70b
-mkdir -p ${PERSISENT_VOLUME}/tt_metal_cache/id_repacked-llama-2-70b
+mkdir -p ${PERSISENT_VOLUME}/model_weights/repacked-llama-2-70b
+mkdir -p ${PERSISENT_VOLUME}/tt_metal_cache/repacked-llama-2-70b
 # assuming weights are downloaded to: ~/llama/llama-2-70b
 cp -r ~/llama/llama-2-70b ${PERSISENT_VOLUME}/model_weights/llama-2-70b
 cp ~/llama/tokenizer.model ${PERSISENT_VOLUME}/model_weights/id_repacked-llama-2-70b/tokenizer.model
 ```
 
+Use the docker container to run the `repack_weights.py` script:
 ```bash
-export PERSISENT_VOLUME=/home/ttuser/llama_demo/persistent_volume/volume_id_tt-metal-llama2-70bv0.0.1
 docker run \
-  -it \
   --rm \
+  -it \
   --cap-add ALL \
   --device /dev/tenstorrent:/dev/tenstorrent \
-  --env LLAMA_CKPT_DIR=/home/user/cache_root/model_weights/id_repacked-llama-2-70b \
-  --env LLAMA_TOKENIZER_PATH=/home/user/cache_root/model_weights/id_repacked-llama-2-70b/tokenizer.model \
-  --env LLAMA_CACHE_PATH=/home/user/cache_root/tt_metal_cache/id_repacked-llama-2-70b \
-  --env WH_ARCH_YAML=wormhole_b0_80_arch_eth_dispatch.yaml \
+  --env JWT_SECRET=test-secret-456 \
+  --env CACHE_ROOT=/home/user/cache_root \
+  --env HF_HOME=/home/user/cache_root/huggingface \
+  --env MODEL_WEIGHTS_ID=id_repacked-llama-3-70b-instruct \
+  --env MODEL_WEIGHTS_PATH=/home/user/cache_root/model_weights/repacked-llama-3-70b-instruct \
+  --env LLAMA_VERSION=llama3 \
   --env TT_METAL_ASYNC_DEVICE_QUEUE=1 \
+  --env WH_ARCH_YAML=wormhole_b0_80_arch_eth_dispatch.yaml \
+  --env SERVICE_PORT=7000 \
   --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
-  --volume ${PERSISENT_VOLUME?ERROR env var PERSISENT_VOLUME must be set}:/home/user/cache_root:rw \
-  --shm-size 64G \
-  tt-metal-llama2-70b-src-full-demo:v0.0.1-tt-metal-fa443d
+  --volume ${TT_STUDIO_ROOT?ERROR env var TT_STUDIO_ROOT must be set}/tt_studio_persistent_volume/volume_id_tt-metal-llama3-70bv0.0.1:/home/user/cache_root:rw \
+  --shm-size 32G \
+  --publish 7000:7000 \
+  tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc bash
 
-# in container you should see the following environment variables are set
-export LLAMA_CKPT_DIR=/home/user/cache_root/model_weights/id_repacked-llama-2-70b
-export LLAMA_TOKENIZER_PATH=/home/user/cache_root/model_weights/id_repacked-llama-2-70b/tokenizer.model
-export LLAMA_CACHE_PATH=/home/user/cache_root/tt_metal_cache/id_repacked-llama-2-70b
-export TT_METAL_ASYNC_DEVICE_QUEUE=1
-export WH_ARCH_YAML=wormhole_b0_80_arch_eth_dispatch.yaml
 # you should also see the text: All CPU governors are set to performance.
 # follow step 2. above to set the CPU governor
 cd /tt-metal
-source /tt-metal/python_env/bin/activate
 # run script to repack weights
 python models/demos/t3000/llama2_70b/scripts/repack_weights.py /home/user/cache_root/model_weights/llama-2-70b ${LLAMA_CKPT_DIR}
 ```
@@ -269,9 +275,9 @@ source /tt-metal/python_env/bin/activate
 pytest -svv models/experimental/llama2_70b/demo/demo.py::test_LlamaModel_demo[wormhole_b0-True-greedy-tt-70b-T3000-80L-decode_only]
 ```
 
-## System dependencies
+# System dependencies
 
-All system dependencies are listed and installed in `llama2.src.full.demo.fa443d.Dockerfile`
+All system dependencies are listed and installed in `llama3.src.full.inference.a053bc.Dockerfile`
 
 ## Firmware and drivers
 
@@ -320,9 +326,16 @@ Importantly the mock implementations give a single thread synchronous implmentat
 
 ```bash
 cd ~/tt-metal-llama3-70b/src
-
 # within container, access backend mock with:
 python test_llama3_70b_backend_mock.py
 # access inference server mock (using backend mock) with:
 python test_mock_inference_api_server.py
+```
+
+### Test with full on device backend
+
+```bash
+cd ~/tt-metal-llama3-70b/src
+# test backend running on device
+python test_llama3_70b_backend.py
 ```
