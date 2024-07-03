@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from datasets import load_dataset
 
-import tt_lib
+import tt_lib as ttl
 import ttnn
 
 from time import time

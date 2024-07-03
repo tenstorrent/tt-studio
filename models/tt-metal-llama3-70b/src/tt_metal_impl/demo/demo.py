@@ -7,7 +7,7 @@ import json
 import torch
 import torch.nn.functional as F
 
-import tt_lib
+import tt_lib as ttl
 import ttnn
 
 from time import time
@@ -57,7 +57,7 @@ def main(args):
 
         if args.output_at_end:
             with open(
-                "models/demos/t3000/llama2_70b/demo/data/demo_user_output.json", "w"
+                "demo_user_output.json", "w"
             ) as f:  # Open a file for writing
                 output_json = json.dumps(all_text, indent=4)
                 f.write(output_json)
@@ -390,7 +390,7 @@ def close_devices(device_mesh):
 )
 @pytest.mark.parametrize(
     "ground_truth",
-    ["models/demos/t3000/llama2_70b/demo/data/demo_user_output_ground_truth.json", None],
+    ["demo_user_output_ground_truth.json", None],
     ids=["check_enabled", "check_disabled"],
 )
 def test_LlamaModel_demo(

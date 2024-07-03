@@ -7,7 +7,7 @@ import json
 import torch
 import torch.nn.functional as F
 
-import tt_lib
+import tt_lib as ttl
 import ttnn
 
 from time import time
@@ -196,7 +196,7 @@ def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=Fal
         # Decode the entire sequence generated so far and log it
         # for user_id in range(max(0, bsz - 3), bsz):
         #     text = tokenizer.decode(tokens[user_id, : cur_pos + 1].tolist())
-        logger.info(f"Loop {cur_pos}\n")
+        logger.info(f"Loop {cur_pos}")
 
         if return_full_logits:
             full_logits.append(logits.clone().detach())
@@ -350,12 +350,15 @@ if __name__ == "__main__":
     implementation = "tt"
     skip_model_load = False
     num_layers = 80
-    num_tokens = 8096
+    num_tokens = 4096
     prompts_file = "/home/user/tt-metal-llama3-70b/src/tt_metal_impl/demo/data/multi_prompt_chat.json"
     output_at_end = True
     # greedy
-    top_k = 1
-    top_p = 1.0
+    # top_k = 1
+    # top_p = 1.0
+    # sampling
+    top_k = 10
+    top_p = 0.9
     temperature = 1.0
     chat = True
     n_devices = 8
