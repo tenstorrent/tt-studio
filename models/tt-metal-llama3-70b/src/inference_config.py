@@ -68,7 +68,9 @@ elif LLAMA_VERSION == "llama2":
     model_version = "meta-llama/Llama-2-70b-chat"
     inference_route_name = "llama2-70b"
 else:
-    raise ValueError(f"LLAMA_VERSION:={LLAMA_VERSION} is not supported. Must be either llama3 or llama2.")
+    raise ValueError(
+        f"LLAMA_VERSION:={LLAMA_VERSION} is not supported. Must be either llama3 or llama2."
+    )
 
 inference_config = InferenceConfig(
     cache_root=CACHE_ROOT,

@@ -367,7 +367,9 @@ class PrefillDecodeBackend:
                 logger.warning(f"Ignoring duplicate input from user {user_id}")
                 continue
 
-            user_info = UserInfo(user_id, prompt, 0, params, self.tokenizer, formatter=self.formatter)
+            user_info = UserInfo(
+                user_id, prompt, 0, params, self.tokenizer, formatter=self.formatter
+            )
             idx = self._find_free_user_slot()
             self.users[idx] = user_info
             if self.verbose:
@@ -403,10 +405,11 @@ class PrefillDecodeBackend:
         tokens_generated = self.forward_counter - self.prev_forward_counter
         batch_duration = time.time() - self.batch_start_time
         tps = tokens_generated / batch_duration
-        logger.info(f"batch_counter:={self.batch_counter}, forward_counter:={self.forward_counter}, tokens_generated:={tokens_generated}, tps:={tps:.4f} tokens/sec (32 users)")
+        logger.info(
+            f"batch_counter:={self.batch_counter}, forward_counter:={self.forward_counter}, tokens_generated:={tokens_generated}, tps:={tps:.4f} tokens/sec (32 users)"
+        )
         self.prev_forward_counter = self.forward_counter
         self.batch_start_time = time.time()
-        
 
     def prepare_inputs(self):
         # empty users get pad id
@@ -480,8 +483,10 @@ class PrefillDecodeBackend:
                     user_info.decode_complete = True
                 elif user_info.num_tokens_generated > user_info.max_tokens:
                     user_info.decode_complete = True
-                elif (user_info.stop_sequence is not None):
-                    last_n_tokens = user_info.generated_tokens[-(len(user_info.stop_sequence) - 1):]
+                elif user_info.stop_sequence is not None:
+                    last_n_tokens = user_info.generated_tokens[
+                        -(len(user_info.stop_sequence) - 1) :
+                    ]
                     last_n_tokens.append(user_decode_id)
                     if last_n_tokens == user_info.stop_sequence:
                         user_info.decode_complete = True
@@ -518,7 +523,9 @@ class PrefillDecodeBackend:
         self.decode_ids[user_idx, 0] = 0
 
     def update_users(self):
-        for i, token_id in enumerate(self.decode_ids.reshape(self.batch_size).tolist()):  # bc input_ids is 1x32
+        for i, token_id in enumerate(
+            self.decode_ids.reshape(self.batch_size).tolist()
+        ):  # bc input_ids is 1x32
             if self.users[i] is None:
                 continue
 
@@ -539,7 +546,8 @@ class PrefillDecodeBackend:
                 self.reset_user_memory(i, self.users[i])
                 self.users[i] = None
             elif (
-                token_id not in self.users[i].stop_tokens and self.users[i].decode_complete
+                token_id not in self.users[i].stop_tokens
+                and self.users[i].decode_complete
             ):
                 logger.error(
                     f"user_id: {self.users[i].user_id} from index {i} did not have EOS token but decode_complete=True."

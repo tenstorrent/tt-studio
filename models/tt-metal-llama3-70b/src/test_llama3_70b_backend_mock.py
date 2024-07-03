@@ -11,6 +11,7 @@ from inference_api_server import get_user_parameters
 from inference_logger import get_logger
 
 from model_weights_handler import get_model_weights_and_tt_cache_paths
+
 # from tt_metal_impl.reference.llama.tokenizer import Tokenizer
 from tt_metal_impl.reference.llama.tokenizer3 import Tokenizer3, ChatFormat
 
@@ -27,6 +28,7 @@ test_prompts_outputs = [
 
 backend_logger = logging.getLogger("llama2_70b_backend")
 backend_logger.setLevel(logging.DEBUG)
+
 
 class MockModel:
 
@@ -45,7 +47,7 @@ class MockModel:
         period_ID = 13
         if self.forward_counter % 10 == 0:
             print(f"sending {EOT_ID}")
-            logits[:,:,EOT_ID] = 100.0
+            logits[:, :, EOT_ID] = 100.0
 
         self.forward_counter += 1
         return logits
@@ -74,9 +76,7 @@ def test_llama2_70b_backend():
     default_params["max_tokens"] = 128
     # default_params["stop_sequence"] = "."
     for i in range(0, 31, 1):
-        prompt_q.put(
-            (f"INIT_ID-{i}", "test", default_params)
-        )
+        prompt_q.put((f"INIT_ID-{i}", "test", default_params))
     run_backend(prompt_q, output_q, status_q, verbose=True, loop_once=True)
     logger.info("finished")
 
