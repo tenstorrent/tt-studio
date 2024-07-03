@@ -124,8 +124,9 @@ def prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token):
     # only replace token if prompt has already been generated
     next_token = torch.where(input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token)
     tokens[:, cur_pos] = next_token
-
-    eos_reached = (~input_text_mask[:, cur_pos]) & (next_token in tokenizer.stop_tokens)
+    # llama3 has multiple stop tokens
+    stop_ids = torch.tensor(list(tokenizer.stop_tokens))
+    eos_reached = (~input_text_mask[:, cur_pos]) & (torch.isin(next_token, stop_ids))
     prev_pos = cur_pos
 
     return tokens, eos_reached, prev_pos
@@ -174,8 +175,9 @@ def run_decode(args, model, tokenizer, prompt_tokens, prompts, return_logits=Fal
             )
         next_token = next_token.reshape(-1)
 
-        tokens, eos_reached, prev_pos = prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token)
-
+        tokens, cur_eos_reached, prev_pos = prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token)
+        # keep track of if stop token previous generated
+        eos_reached = cur_eos_reached | eos_reached
         if all(eos_reached):
             break
 
@@ -225,9 +227,9 @@ def get_all_text(tokenizer, tokens, prompt_tokens, max_gen_len):
             pass
 
         # cut to eos tok if any
-        if tokenizer.eos_id in toks:
-            eos_idx = toks.index(tokenizer.eos_id)
-            toks = toks[:eos_idx]
+        eos_idx = [toks.index(stop_id) for stop_id in tokenizer.stop_tokens if stop_id in toks]
+        if eos_idx:
+            toks = toks[:min(eos_idx)]
         out_tokens.append(toks)
 
     all_text = [tokenizer.decode(toks) for toks in out_tokens]
