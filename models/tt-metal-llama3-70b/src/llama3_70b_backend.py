@@ -462,7 +462,7 @@ class PrefillDecodeBackend:
         self.timer_stop("batch_top_pk_logits_efficient")
         self.decode_ids = next_tokens
         for idx, (user_info, user_decode_id) in enumerate(
-            zip(self.users, self.decode_ids.reshape(self.batch_size))
+            zip(self.users, self.decode_ids.reshape(self.batch_size).tolist())
         ):
             if user_info is None:
                 continue

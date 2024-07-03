@@ -28,18 +28,25 @@ test_prompts_outputs = [
 backend_logger = logging.getLogger("llama2_70b_backend")
 backend_logger.setLevel(logging.DEBUG)
 
-counter = 0
 class MockModel:
+
+    def __init__(self):
+        self.forward_counter = 0
+
     def forward(self, tokens: torch.Tensor, start_pos: int, *args, **kwargs):
         assert len(tokens.shape) == 2
         # mock with repeating previous token
-        sleep(1.0 / 32)  # 32 TPS
+        sleep(1.0 / 500)  # 32 TPS
         # update the new tokens generated to the input id
-        logits = torch.randn([32, 1, 32000])
-        counter += 1
-        EOS_TOKEN_ID = 12800
-        if counter == 10:
-            breakpoint()
+        # vocab size = tokenizer.nwords
+        logits = torch.randn([32, 1, 128256])
+        EOT_ID = 128009
+        EOS_ID = 128001
+        if self.forward_counter % 10 == 0:
+            print(f"sending {EOT_ID}")
+            logits[:,:,EOT_ID] = 100.0
+
+        self.forward_counter += 1
         return logits
 
 
@@ -50,7 +57,6 @@ def mock_init_model(self):
     self.tokenizer = Tokenizer3(model_path=tokenizer_path.as_posix())
     self.formatter = ChatFormat(self.tokenizer)
     self.model = MockModel()
-    breakpoint()
 
 
 @patch.object(PrefillDecodeBackend, "init_model", new=mock_init_model)
@@ -64,12 +70,11 @@ def test_llama2_70b_backend():
 
     # user_id, prompt, params
     default_params, _ = get_user_parameters({"max_tokens": 64})
-    default_params["max_tokens"] = 64
-    for i in range(0, 32, 2):
+    default_params["max_tokens"] = 128
+    for i in range(0, 31, 1):
         prompt_q.put(
-            (f"INIT_ID-{i}", "How do you get to Carnegie Hall?", default_params)
+            (f"INIT_ID-{i}", "test", default_params)
         )
-        prompt_q.put((f"INIT_ID-{i+1}", "Another prompt", default_params))
     run_backend(prompt_q, output_q, status_q, verbose=True, loop_once=True)
     logger.info("finished")
 
