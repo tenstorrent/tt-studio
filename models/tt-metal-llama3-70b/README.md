@@ -1,8 +1,12 @@
-# TT Metalium Falcon 7B Inference API
+# TT Metalium Llama 3 70B Inference API
 
 ## Quick run
 
+If first run setup has already been completed, start here.
+
 ### Docker run - llama3 - demo scripts
+
+These demos show direct usage of the model implementation for performance.
 
 Run container with an interactive bash shell:
 ```bash
@@ -45,7 +49,8 @@ python tt_metal_impl/demo/demo_llama3_alpaca_eval_2k.py
 
 ### Docker run - llama3 - inference API server
 
-Running the container directly without overriding the entrypoint CMD will start the inference API server. It will take ~3-5 minutes to start up.
+Run the container directly without overriding the entrypoint CMD to start the inference API server. It will take ~3-5 minutes to start up.
+Note: there is some overhead to running the inference server with it's unoptimized implementation, this will reduce performance compared to direct calls the model forward method as in the demo scripts above.
 
 ```bash
 cd tt-studio
