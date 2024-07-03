@@ -509,7 +509,7 @@ class PrefillDecodeBackend:
             user_info.num_generated_chars = len(full_text)
             # send special EOS string to frontend
             if (last_token in user_info.stop_tokens) or (user_info.decode_complete):
-                return_text += inference_config.end_of_sequence_str
+                return_text = inference_config.end_of_sequence_str
             output_q.put((user_info.user_id, return_text))
             if self.verbose:
                 logger.debug(f"user_id:{user_info.user_id}, {return_text}")
