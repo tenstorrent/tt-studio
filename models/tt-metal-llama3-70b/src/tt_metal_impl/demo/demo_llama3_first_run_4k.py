@@ -135,7 +135,7 @@ def prepare_next_input(tokenizer, tokens, input_text_mask, cur_pos, next_token):
     next_token = torch.where(input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token)
     tokens[:, cur_pos] = next_token
 
-    eos_reached = (~input_text_mask[:, cur_pos]) & (next_token == tokenizer.eos_id)
+    eos_reached = (~input_text_mask[:, cur_pos]) & (next_token in tokenizer.stop_tokens)
     prev_pos = cur_pos
 
     return tokens, eos_reached, prev_pos

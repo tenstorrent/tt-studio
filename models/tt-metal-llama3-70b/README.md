@@ -47,7 +47,12 @@ pytest -svv tt_metal_impl/demo/demo.py::test_LlamaModel_demo[check_disabled-samp
 
 # this script will run through 800 samples of alpaca eval (25 batches of 32 users).
 # outputs are appended to demo_user_output_{timestamp}.txt
-python tt_metal_impl/demo/demo_llama3_alpaca_eval_2k.py
+python tt_metal_impl/demo/demo_llama3_alpaca_eval.py
+```
+
+You can view the alpaca eval responses by copying the output file to the host, for example:
+```bash
+docker cp 3be74f228f5c:/home/user/tt-metal-llama3-70b/src/demo_user_output_2024-07-03_13-18-25.txt
 ```
 
 ### Docker run - llama3 - inference API server
