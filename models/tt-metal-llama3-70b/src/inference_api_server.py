@@ -253,7 +253,7 @@ def get_user_parameters(data):
         "temperature": (1.0, float),
         "top_p": (0.9, float),
         "top_k": (10, int),
-        "max_tokens": (128, int),
+        "max_tokens": (1024, int),
         "stop_sequence": ("", str),
         "return_prompt": (False, bool),
     }
