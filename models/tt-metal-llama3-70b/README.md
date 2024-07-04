@@ -34,6 +34,8 @@ docker run \
   tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc bash
 ```
 
+To stop the container, simply exit the interactive shell.
+
 Within the container shell:
 ```bash
 # need to set path environment variables for demo scripts
@@ -84,6 +86,8 @@ docker run \
   --publish 7000:7000 \
   tt-metal-llama3-70b-src-full-inference:v0.0.1-tt-metal-a053bc
 ```
+
+To stop the container, use `docker stop $container_id`. A `tt-smi -r 0,1,2,3` reset will almost definitely be required as this will not shutdown the Tenstorrent devices gracefully.
 
 The inference API server after start up (3-5 minutes) is available to server requests.
 See the test scripts for examples on how to send those requests.
