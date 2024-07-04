@@ -94,7 +94,8 @@ The requests can be sent from anywhere that can send HTTP requests to the publis
 
 To authenticate requests use the header `Authorization`. The JWT token can be computed using the script `jwt_util.py`. This is an example:
 ```bash
-export JWT_ENCODED=$(python src/tt_metal_impl/scripts/jwt_util.py --secret ${JWT_SECRET} encode '{"team_id": "tenstorrent", "token_id":"debug-test"}')
+export JWT_SECRET=<your-secure-secret>
+export JWT_ENCODED=$(python src/tt_metal_impl/scripts/jwt_util.py --secret ${JWT_SECRET?ERROR env var JWT_SECRET must be set} encode '{"team_id": "tenstorrent", "token_id":"debug-test"}')
 export AUTHORIZATION="Bearer ${JWT_ENCODED}"
 ```
 
@@ -113,6 +114,10 @@ encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
 print(encoded_jwt)
 ```
 
+You can run this snippet or the `jwt_util.py` script with the JWT_SECRET in either:
+1. the docker container interactive shell, or 
+2. on the host in a python venv with pyjwt installed. (e.g. using the .venv mentioned below for running alpaca eval)
+
 ### Send requests using alpaca eval prompts
 
 The `test_inference_api_alpaca_eval.py` script will run through 800 samples of alpaca eval (25 batches of 32 users).
@@ -126,7 +131,7 @@ export CACHE_ROOT="test"  # just for testing on the host or external to containe
 # the huggingface datasets library is need to access alpaca eval
 python3 -m venv .venv
 source .venv/bin/activate
-pip install datasets
+pip install datasets pyjwt==2.7.0
 # run script
 python src/test_inference_api_alpaca_eval.py
 ```
