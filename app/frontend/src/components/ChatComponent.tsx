@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
+
 import {
   Smile,
   Sun,
@@ -34,6 +35,7 @@ const ChatComponent: React.FC = () => {
   const [textInput, setTextInput] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [modelID, setModelID] = useState(location.state.containerID);
+  const [modelName, setModelName] = useState(location.state.modelName); // Add this line
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -41,7 +43,8 @@ const ChatComponent: React.FC = () => {
 
   useEffect(() => {
     setModelID(location.state.containerID);
-  }, [location.state.containerID]);
+    setModelName(location.state.modelName); // Add this line
+  }, [location.state.containerID, location.state.modelName]);
 
   const scrollToBottom = () => {
     if (bottomRef.current) {
@@ -75,7 +78,6 @@ const ChatComponent: React.FC = () => {
 
       const reader = response.body?.getReader();
 
-      // Add user input to chat history
       setChatHistory((prevHistory) => [
         ...prevHistory,
         { sender: "user", text: textInput },
@@ -108,7 +110,7 @@ const ChatComponent: React.FC = () => {
               ];
             }
           });
-          scrollToBottom(); // Ensure scroll to bottom while streaming
+          scrollToBottom();
         }
       }
 
@@ -126,9 +128,7 @@ const ChatComponent: React.FC = () => {
       deploy_id: modelID,
       text: textInput,
     };
-    console.log("Inference Request:", inferenceRequest);
 
-    // Special case for the predefined question
     if (textInput === "When will Tenstorrent out sell Nvidia?") {
       setChatHistory((prevHistory) => [
         ...prevHistory,
@@ -136,7 +136,7 @@ const ChatComponent: React.FC = () => {
         { sender: "assistant", text: "2024, that was a silly question." },
       ]);
       setTextInput("");
-      scrollToBottom(); // Ensure scroll to bottom after adding special response
+      scrollToBottom();
       return;
     }
 
@@ -151,8 +151,14 @@ const ChatComponent: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-10/12 pt-28 mx-auto">
-      <Card>
+    <div className="flex flex-col overflow-auto w-10/12 mx-auto">
+      <Card className="flex flex-col w-full h-full">
+        <div className="flex flex-col w-full p-6">
+          <div className="flex items-center justify-end">
+            <h3 className="text-gray-500 mr-2">Model Name:</h3>
+            <span className="text-gray-900 dark:text-white">{modelName}</span>
+          </div>
+        </div>
         <div className="flex flex-col w-full h-full p-8">
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
@@ -207,7 +213,6 @@ const ChatComponent: React.FC = () => {
                 ref={scrollAreaRef}
                 onScroll={handleScroll}
               >
-                <h3 className="text-gray-500 pt-2 mb-4">Chat Responses:</h3>
                 {chatHistory.map((message, index) => (
                   <div
                     key={index}
