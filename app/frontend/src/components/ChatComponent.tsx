@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-
+import { useTheme } from "../providers/ThemeProvider";
 import {
   Smile,
   Sun,
@@ -17,14 +17,12 @@ import {
 } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
-
 import {
   Menubar,
   MenubarContent,
   MenubarItem,
   MenubarMenu,
   MenubarSeparator,
-  MenubarShortcut,
   MenubarSub,
   MenubarSubContent,
   MenubarSubTrigger,
@@ -45,6 +43,7 @@ const modelAPIURL = "/models-api/";
 const inferenceUrl = `${modelAPIURL}/inference/`;
 
 const ChatComponent: React.FC = () => {
+  const { theme } = useTheme();
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -173,18 +172,32 @@ const ChatComponent: React.FC = () => {
             <MenubarTrigger onClick={() => setIsMenuOpen(!isMenuOpen)}>
               Model Name {isMenuOpen ? <ChevronUp /> : <ChevronDown />}
             </MenubarTrigger>
-            <MenubarContent>
+            <MenubarContent
+              className={`${
+                isMenuOpen
+                  ? theme === "dark"
+                    ? "bg-zinc-900 text-zinc-200 rounded-lg"
+                    : "bg-zinc-200 text-black rounded-lg"
+                  : "hidden"
+              }`}
+            >
               <MenubarItem>{modelName}</MenubarItem>
             </MenubarContent>
           </MenubarMenu>
           <MenubarMenu>
             <MenubarTrigger>Edit</MenubarTrigger>
-            <MenubarContent>
+            <MenubarContent
+              className={`${
+                theme === "dark"
+                  ? "bg-zinc-900 text-zinc-200 rounded-lg"
+                  : "bg-zinc-200 text-black rounded-lg"
+              }`}
+            >
               <MenubarItem>
-                Undo <MenubarShortcut>⌘Z</MenubarShortcut>
+                Undo <span className="ml-auto">⌘Z</span>
               </MenubarItem>
               <MenubarItem>
-                Redo <MenubarShortcut>⇧⌘Z</MenubarShortcut>
+                Redo <span className="ml-auto">⇧⌘Z</span>
               </MenubarItem>
               <MenubarSeparator />
               <MenubarSub>
@@ -202,9 +215,6 @@ const ChatComponent: React.FC = () => {
               <MenubarItem>Copy</MenubarItem>
               <MenubarItem>Paste</MenubarItem>
             </MenubarContent>
-          </MenubarMenu>
-          <MenubarMenu>
-            <MenubarTrigger> </MenubarTrigger>
           </MenubarMenu>
         </Menubar>
         <div className="flex flex-col w-full h-full p-8">
@@ -279,11 +289,12 @@ const ChatComponent: React.FC = () => {
                     }`}
                   >
                     <div
-                      className={`flex items-center text-left p-2 rounded-lg mb-2 ${
+                      className={`flex items-center max-w-[80%] text-left p-2 rounded-lg mb-2 ${
                         message.sender === "user"
-                          ? "bg-green-600 text-white"
-                          : "bg-gray-700 text-gray-300"
+                          ? "bg-green-600 text-white break-words"
+                          : "bg-gray-700 text-gray-300 break-words"
                       }`}
+                      style={{ wordBreak: "break-word" }}
                     >
                       {message.sender === "user" ? (
                         <User
@@ -297,7 +308,7 @@ const ChatComponent: React.FC = () => {
                           className="w-8 h-8 rounded-full mr-2"
                         />
                       )}
-                      {message.text}
+                      <div>{message.text}</div>
                     </div>
                   </div>
                 ))}
