@@ -13,9 +13,23 @@ import {
   DollarSign,
   CircleArrowUp,
   ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
+
+import {
+  Menubar,
+  MenubarContent,
+  MenubarItem,
+  MenubarMenu,
+  MenubarSeparator,
+  MenubarShortcut,
+  MenubarSub,
+  MenubarSubContent,
+  MenubarSubTrigger,
+  MenubarTrigger,
+} from "./ui/menubar";
 
 interface InferenceRequest {
   deploy_id: string;
@@ -35,15 +49,16 @@ const ChatComponent: React.FC = () => {
   const [textInput, setTextInput] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [modelID, setModelID] = useState(location.state.containerID);
-  const [modelName, setModelName] = useState(location.state.modelName); // Add this line
+  const [modelName, setModelName] = useState(location.state.modelName);
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     setModelID(location.state.containerID);
-    setModelName(location.state.modelName); // Add this line
+    setModelName(location.state.modelName);
   }, [location.state.containerID, location.state.modelName]);
 
   const scrollToBottom = () => {
@@ -153,12 +168,45 @@ const ChatComponent: React.FC = () => {
   return (
     <div className="flex flex-col overflow-auto w-10/12 mx-auto">
       <Card className="flex flex-col w-full h-full">
-        <div className="flex flex-col w-full p-6">
-          <div className="flex items-center justify-end">
-            <h3 className="text-gray-500 mr-2">Model Name:</h3>
-            <span className="text-gray-900 dark:text-white">{modelName}</span>
-          </div>
-        </div>
+        <Menubar className="border-b-2 border-gray-200 dark:border-gray-700 mb-4 bg-white dark:bg-gray-900 rounded-t-2xl shadow-lg dark:shadow-2xl p-6 text-xl text-black dark:text-white">
+          <MenubarMenu>
+            <MenubarTrigger onClick={() => setIsMenuOpen(!isMenuOpen)}>
+              Model Name {isMenuOpen ? <ChevronUp /> : <ChevronDown />}
+            </MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem>{modelName}</MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+          <MenubarMenu>
+            <MenubarTrigger>Edit</MenubarTrigger>
+            <MenubarContent>
+              <MenubarItem>
+                Undo <MenubarShortcut>⌘Z</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem>
+                Redo <MenubarShortcut>⇧⌘Z</MenubarShortcut>
+              </MenubarItem>
+              <MenubarSeparator />
+              <MenubarSub>
+                <MenubarSubTrigger>Find</MenubarSubTrigger>
+                <MenubarSubContent>
+                  <MenubarItem>Search the web</MenubarItem>
+                  <MenubarSeparator />
+                  <MenubarItem>Find...</MenubarItem>
+                  <MenubarItem>Find Next</MenubarItem>
+                  <MenubarItem>Find Previous</MenubarItem>
+                </MenubarSubContent>
+              </MenubarSub>
+              <MenubarSeparator />
+              <MenubarItem>Cut</MenubarItem>
+              <MenubarItem>Copy</MenubarItem>
+              <MenubarItem>Paste</MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+          <MenubarMenu>
+            <MenubarTrigger> </MenubarTrigger>
+          </MenubarMenu>
+        </Menubar>
         <div className="flex flex-col w-full h-full p-8">
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
@@ -177,21 +225,27 @@ const ChatComponent: React.FC = () => {
                     onClick={() => setTextInput("Hello, how are you today?")}
                   >
                     <Smile className="h-6 w-6 mb-2" color="#3b82f6" />
-                    <span>Hello, how are you today?</span>
+                    <span className="dark:text-gray-300">
+                      Hello, how are you today?
+                    </span>
                   </Card>
                   <Card
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("Can you tell me a joke?")}
                   >
                     <Angry className="h-6 w-6 mb-2" color="#be123c" />
-                    <span>Can you tell me a joke?</span>
+                    <span className="dark:text-gray-300">
+                      Can you tell me a joke?
+                    </span>
                   </Card>
                   <Card
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("What's the weather like?")}
                   >
                     <Sun className="h-6 w-6 mb-2" color="#eab308" />
-                    <span>What's the weather like?</span>
+                    <span className="dark:text-gray-300">
+                      What's the weather like?
+                    </span>
                   </Card>
                   <Card
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-500"
@@ -200,7 +254,9 @@ const ChatComponent: React.FC = () => {
                     }
                   >
                     <DollarSign className="h-6 w-6 mb-2" color="#22c55e" />
-                    <span>When will Tenstorrent out sell Nvidia?</span>
+                    <span className="dark:text-gray-300">
+                      When will Tenstorrent out sell Nvidia?
+                    </span>
                   </Card>
                 </div>
               </div>
