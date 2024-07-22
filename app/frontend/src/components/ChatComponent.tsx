@@ -13,21 +13,24 @@ import {
   DollarSign,
   CircleArrowUp,
   ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
 import {
-  Menubar,
-  MenubarContent,
-  MenubarItem,
-  MenubarMenu,
-  MenubarSeparator,
-  MenubarSub,
-  MenubarSubContent,
-  MenubarSubTrigger,
-  MenubarTrigger,
-} from "./ui/menubar";
+  Breadcrumb,
+  BreadcrumbEllipsis,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "./ui/breadcrumb";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 interface InferenceRequest {
   deploy_id: string;
@@ -47,18 +50,21 @@ const ChatComponent: React.FC = () => {
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [modelID, setModelID] = useState(location.state.containerID);
-  const [modelName, setModelName] = useState(location.state.modelName);
+  const [modelID, setModelID] = useState<string | null>(null);
+  const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
-    setModelID(location.state.containerID);
-    setModelName(location.state.modelName);
-  }, [location.state.containerID, location.state.modelName]);
+    if (location.state) {
+      setModelID(location.state.containerID);
+      setModelName(location.state.modelName);
+    }
+  }, [location.state]);
+
+  console.log("Model ID:", modelID, "Model Name:", modelName);
 
   const scrollToBottom = () => {
     if (bottomRef.current) {
@@ -139,7 +145,7 @@ const ChatComponent: React.FC = () => {
     if (textInput.trim() === "") return;
 
     const inferenceRequest: InferenceRequest = {
-      deploy_id: modelID,
+      deploy_id: modelID!,
       text: textInput,
     };
 
@@ -167,56 +173,36 @@ const ChatComponent: React.FC = () => {
   return (
     <div className="flex flex-col overflow-auto w-10/12 mx-auto">
       <Card className="flex flex-col w-full h-full">
-        <Menubar className="border-b-2 border-gray-200 dark:border-gray-700 mb-4 bg-white dark:bg-gray-900 rounded-t-2xl shadow-lg dark:shadow-2xl p-6 text-xl text-black dark:text-white">
-          <MenubarMenu>
-            <MenubarTrigger onClick={() => setIsMenuOpen(!isMenuOpen)}>
-              Model Name {isMenuOpen ? <ChevronUp /> : <ChevronDown />}
-            </MenubarTrigger>
-            <MenubarContent
-              className={`${
-                isMenuOpen
-                  ? theme === "dark"
-                    ? "bg-zinc-900 text-zinc-200 rounded-lg"
-                    : "bg-zinc-200 text-black rounded-lg"
-                  : "hidden"
-              }`}
-            >
-              <MenubarItem>{modelName}</MenubarItem>
-            </MenubarContent>
-          </MenubarMenu>
-          <MenubarMenu>
-            <MenubarTrigger>Edit</MenubarTrigger>
-            <MenubarContent
-              className={`${
-                theme === "dark"
-                  ? "bg-zinc-900 text-zinc-200 rounded-lg"
-                  : "bg-zinc-200 text-black rounded-lg"
-              }`}
-            >
-              <MenubarItem>
-                Undo <span className="ml-auto">⌘Z</span>
-              </MenubarItem>
-              <MenubarItem>
-                Redo <span className="ml-auto">⇧⌘Z</span>
-              </MenubarItem>
-              <MenubarSeparator />
-              <MenubarSub>
-                <MenubarSubTrigger>Find</MenubarSubTrigger>
-                <MenubarSubContent>
-                  <MenubarItem>Search the web</MenubarItem>
-                  <MenubarSeparator />
-                  <MenubarItem>Find...</MenubarItem>
-                  <MenubarItem>Find Next</MenubarItem>
-                  <MenubarItem>Find Previous</MenubarItem>
-                </MenubarSubContent>
-              </MenubarSub>
-              <MenubarSeparator />
-              <MenubarItem>Cut</MenubarItem>
-              <MenubarItem>Copy</MenubarItem>
-              <MenubarItem>Paste</MenubarItem>
-            </MenubarContent>
-          </MenubarMenu>
-        </Menubar>
+        <Breadcrumb className="border-b-2 border-gray-200 dark:border-gray-700 mb-4 bg-white dark:bg-gray-900 rounded-t-2xl shadow-lg dark:shadow-2xl p-6 text-xl text-black dark:text-white">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink
+                href="/models-deployed"
+                className="text-black dark:text-white hover:text-blue-500 dark:hover:text-blue-400"
+              >
+                Models Deployed
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex items-center gap-1">
+                  <BreadcrumbEllipsis className="h-4 w-4" />
+                  <span className="sr-only">Toggle menu</span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem>Model 1</DropdownMenuItem>
+                  <DropdownMenuItem>Model 2</DropdownMenuItem>
+                  <DropdownMenuItem>Model 3</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{modelName}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         <div className="flex flex-col w-full h-full p-8">
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
