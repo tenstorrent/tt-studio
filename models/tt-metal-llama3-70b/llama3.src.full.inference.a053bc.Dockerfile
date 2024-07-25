@@ -24,7 +24,7 @@ ENV LD_LIBRARY_PATH=${TT_METAL_HOME}/build/lib
 RUN apt-get update && apt-get install -y \
     software-properties-common=0.99.9.12 \
     build-essential=12.8ubuntu1.1 \
-    python3.8-venv=3.8.10-0ubuntu1~20.04.9 \
+    python3.8-venv \
     libhwloc-dev \
     graphviz \
     patchelf \
