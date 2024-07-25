@@ -11,10 +11,15 @@ import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { useTheme } from "../providers/ThemeProvider";
 import { Separator } from "./ui/separator";
+import { Button } from "./ui/button"; // Adjust the import path as necessary
+import { Spinner } from "./ui/spinner"; // Adjust the import path as necessary
+import axios from "axios";
 
 export default function NavBar() {
   const { theme } = useTheme();
   const [chatUIActive, setchatUIActive] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
@@ -29,6 +34,28 @@ export default function NavBar() {
     `flex items-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out ${
       isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor}`;
+
+  const resetBoard = async () => {
+    setIsLoading(true);
+    setStatusMessage("Resetting board...");
+    try {
+      const response = await axios.post("/reset-board/");
+      setStatusMessage(response.data.message);
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        setStatusMessage(
+          "Error resetting board: " +
+            (error.response?.data?.message || error.message)
+        );
+      } else if (error instanceof Error) {
+        setStatusMessage("Error resetting board: " + error.message);
+      } else {
+        setStatusMessage("An unknown error occurred.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="relative w-full">
@@ -75,20 +102,22 @@ export default function NavBar() {
                   <span className="hidden sm:inline">Models Deployed</span>
                 </NavLink>
               </NavigationMenuItem>
-              {/* <Separator
-                className="h-6 w-px bg-zinc-400"
-                orientation="vertical"
-              /> */}
               {chatUIActive ? (
-                <NavigationMenuItem>
-                  <NavLink
-                    to="/chat-ui"
-                    className={({ isActive }) => navLinkClass(isActive)}
-                  >
-                    <BotMessageSquare className={`mr-1 ${iconColor}`} />
-                    <span className="hidden sm:inline">Chat UI</span>
-                  </NavLink>
-                </NavigationMenuItem>
+                <>
+                  <Separator
+                    className="h-6 w-px bg-zinc-400"
+                    orientation="vertical"
+                  />
+                  <NavigationMenuItem>
+                    <NavLink
+                      to="/chat-ui"
+                      className={({ isActive }) => navLinkClass(isActive)}
+                    >
+                      <BotMessageSquare className={`mr-1 ${iconColor}`} />
+                      <span className="hidden sm:inline">Chat UI</span>
+                    </NavLink>
+                  </NavigationMenuItem>
+                </>
               ) : null}
             </NavigationMenuList>
           </NavigationMenu>
@@ -96,9 +125,21 @@ export default function NavBar() {
         <div className="flex items-center space-x-2 sm:space-x-4">
           <ModeToggle />
           <Separator className="h-6 w-px bg-zinc-400" orientation="vertical" />
+          <Button
+            onClick={resetBoard}
+            disabled={isLoading}
+            className="flex items-center space-x-2"
+          >
+            {isLoading ? <Spinner /> : "Reset Board"}
+          </Button>
           <HelpIcon />
         </div>
       </div>
+      {statusMessage && (
+        <div className="text-center mt-2">
+          <p className={`text-sm ${textColor}`}>{statusMessage}</p>
+        </div>
+      )}
     </div>
   );
 }
