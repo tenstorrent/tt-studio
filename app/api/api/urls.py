@@ -22,4 +22,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("docker/", include("docker_control.urls")),
     path("models/", include("model_control.urls")),
+    path('reset-board/', include('docker_control.urls')),  # Ensure this line points to the correct app for reset-board
 ]

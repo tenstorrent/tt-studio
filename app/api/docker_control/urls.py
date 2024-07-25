@@ -8,4 +8,5 @@ urlpatterns = [
     path("stop/", views.StopView.as_view()),
     path("status/", views.StatusView.as_view()),
     path("redeploy/", views.RedeployView.as_view()),
+    path('reset-board/', views.ResetBoardView.as_view(), name='reset-board'),
 ]
