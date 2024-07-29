@@ -1,25 +1,26 @@
+import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { useState } from "react";
 import logo from "../assets/tt_logo.svg";
 import {
   NavigationMenu,
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, BrainCog, BotMessageSquare } from "lucide-react";
+import {
+  Home,
+  BrainCog,
+  BotMessageSquare,
+} from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { useTheme } from "../providers/ThemeProvider";
 import { Separator } from "./ui/separator";
-import { Button } from "./ui/button"; // Adjust the import path as necessary
-import { Spinner } from "./ui/spinner"; // Adjust the import path as necessary
-import axios from "axios";
+import ResetIcon from "./ResetIcon";
+import CustomToaster from "./CustomToaster";
 
-export default function NavBar() {
+const NavBar: React.FC = () => {
   const { theme } = useTheme();
-  const [chatUIActive, setchatUIActive] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
+  const [chatUIActive] = useState(false);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
@@ -30,35 +31,14 @@ export default function NavBar() {
   const hoverBackgroundColor =
     theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
 
-  const navLinkClass = (isActive: boolean) =>
+  const navLinkClass = (isActive: boolean): string =>
     `flex items-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out ${
       isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor}`;
 
-  const resetBoard = async () => {
-    setIsLoading(true);
-    setStatusMessage("Resetting board...");
-    try {
-      const response = await axios.post("/reset-board/");
-      setStatusMessage(response.data.message);
-    } catch (error: unknown) {
-      if (axios.isAxiosError(error)) {
-        setStatusMessage(
-          "Error resetting board: " +
-            (error.response?.data?.message || error.message)
-        );
-      } else if (error instanceof Error) {
-        setStatusMessage("Error resetting board: " + error.message);
-      } else {
-        setStatusMessage("An unknown error occurred.");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="relative w-full">
+      <CustomToaster />
       <div className="flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3 bg-secondary border-b-4 rounded-2xl shadow-xl">
         <div className="flex items-center space-x-4 sm:space-x-6">
           <a
@@ -102,7 +82,7 @@ export default function NavBar() {
                   <span className="hidden sm:inline">Models Deployed</span>
                 </NavLink>
               </NavigationMenuItem>
-              {chatUIActive ? (
+              {chatUIActive && (
                 <>
                   <Separator
                     className="h-6 w-px bg-zinc-400"
@@ -118,28 +98,19 @@ export default function NavBar() {
                     </NavLink>
                   </NavigationMenuItem>
                 </>
-              ) : null}
+              )}
             </NavigationMenuList>
           </NavigationMenu>
         </div>
         <div className="flex items-center space-x-2 sm:space-x-4">
           <ModeToggle />
           <Separator className="h-6 w-px bg-zinc-400" orientation="vertical" />
-          <Button
-            onClick={resetBoard}
-            disabled={isLoading}
-            className="flex items-center space-x-2"
-          >
-            {isLoading ? <Spinner /> : "Reset Board"}
-          </Button>
+          <ResetIcon />
           <HelpIcon />
         </div>
       </div>
-      {statusMessage && (
-        <div className="text-center mt-2">
-          <p className={`text-sm ${textColor}`}>{statusMessage}</p>
-        </div>
-      )}
     </div>
   );
-}
+};
+
+export default NavBar;
