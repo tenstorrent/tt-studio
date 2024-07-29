@@ -4,7 +4,7 @@
 import subprocess
 
 from django.shortcuts import render
-
+from django.http import StreamingHttpResponse
 # from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.views import APIView
@@ -14,6 +14,9 @@ from .forms import DockerForm
 from .docker_utils import run_container, stop_container, get_container_status
 from shared_config.model_config import model_implmentations
 from .serializers import DeploymentSerializer, StopSerializer
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class StopView(APIView):
@@ -72,34 +75,32 @@ class RedeployView(APIView):
 # tt-smi reset command view
 class ResetBoardView(APIView):
     def post(self, request, *args, **kwargs):
-        def run_command(command, shell=False):
-            try:
-                result = subprocess.run(command, shell=shell, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                return result.stdout, result.stderr, result.returncode
-            except subprocess.CalledProcessError as e:
-                return e.stdout, e.stderr, e.returncode
+        def stream_command_output(command):
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            for line in iter(process.stdout.readline, ''):
+                yield f"{line}\n"
+            process.stdout.close()
+            return_code = process.wait()
+            if return_code != 0:
+                yield f"Command failed with return code {return_code}\n"
+
+        def stream_response(command):
+            return StreamingHttpResponse(stream_command_output(command), content_type='text/plain')
 
         try:
-            # Install Rust
-            stdout, stderr, returncode = run_command(['curl', '--proto', '=https', '--tlsv1.2', '-sSf', 'https://sh.rustup.rs', '|', 'sh'], shell=True)
-            if returncode != 0:
-                return Response({'status': 'error', 'message': f'Error installing Rust: {stderr}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # Run the tt-smi reset command
+            reset_response = stream_response(['tt-smi', '-r', '0'])
+            
+            # Verify the reset by listing available boards
+            # verify_response = stream_response(['tt-smi', '-ls'])
+            
+            # Combine the outputs
+            def combined_stream():
+                yield "Running tt-smi reset command:\n"
+                yield from reset_response.streaming_content
+                yield "\nVerifying board status:\n"
+                # yield from verify_response.streaming_content
 
-            # Source Rust environment
-            stdout, stderr, returncode = run_command(['source', '$HOME/.cargo/env'], shell=True)
-            if returncode != 0:
-                return Response({'status': 'error', 'message': f'Error sourcing Rust environment: {stderr}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            # Install tt-smi
-            stdout, stderr, returncode = run_command(['cargo', 'install', 'tt-smi'])
-            if returncode != 0:
-                return Response({'status': 'error', 'message': f'Error installing tt-smi: {stderr}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            # Run the tt-smi command
-            stdout, stderr, returncode = run_command(['tt-smi', '-lr', '0'])
-            if returncode != 0:
-                return Response({'status': 'error', 'message': f'Error running tt-smi: {stderr}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-            return Response({'status': 'success', 'message': 'Board reset successfully.', 'output': stdout}, status=status.HTTP_200_OK)
+            return StreamingHttpResponse(combined_stream(), content_type='text/plain')
         except Exception as e:
             return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
