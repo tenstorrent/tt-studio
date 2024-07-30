@@ -106,6 +106,7 @@ const NavBar: React.FC = () => {
           <ModeToggle />
           <Separator className="h-6 w-px bg-zinc-400" orientation="vertical" />
           <ResetIcon />
+          <Separator className="h-6 w-px bg-zinc-400" orientation="vertical" />
           <HelpIcon />
         </div>
       </div>
