@@ -4,6 +4,7 @@ import { RefreshCw, CheckCircle } from "lucide-react";
 import { Spinner } from "./ui/spinner";
 import CustomToaster, { customToast } from "./CustomToaster";
 import { useTheme } from "../providers/ThemeProvider";
+import { Button } from "./ui/button";
 
 const ResetIcon: React.FC = () => {
   const { theme } = useTheme();
@@ -11,76 +12,66 @@ const ResetIcon: React.FC = () => {
   const [isCompleted, setIsCompleted] = useState(false);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverTextColor =
+  const hoverIconColor =
     theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const buttonBackgroundColor = theme === "dark" ? "bg-zinc-900" : "bg-white";
+  const hoverButtonBackgroundColor =
+    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
   const resetBoard = async (): Promise<void> => {
     setIsLoading(true);
     setIsCompleted(false);
 
-    const resetBoardAsync = async (): Promise<boolean> => {
-      try {
-        const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
-          responseType: "blob",
-        });
+    try {
+      const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
+        responseType: "blob",
+      });
 
-        const reader = response.data.stream().getReader();
-        const decoder = new TextDecoder();
-        let fullOutput = "";
+      // Log the full output for debugging
+      const reader = response.data.stream().getReader();
+      const decoder = new TextDecoder();
+      let fullOutput = "";
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          fullOutput += chunk;
-        }
-
-        const finalChunk = decoder.decode();
-        if (finalChunk) {
-          fullOutput += finalChunk;
-        }
-
-        console.log("Full output:", fullOutput);
-        return true;
-      } catch (error) {
-        console.error("Error resetting board:", error);
-        throw error;
+        const chunk = decoder.decode(value, { stream: true });
+        fullOutput += chunk;
       }
-    };
 
-    customToast.promise(resetBoardAsync(), {
-      loading: "Resetting board...",
-      success: "Board reset successfully!",
-      error: "Failed to reset board.",
-    }).then(() => {
+      const finalChunk = decoder.decode();
+      if (finalChunk) {
+        fullOutput += finalChunk;
+      }
+
+      console.log("Full output:", fullOutput); // Reintroduced logging
+      customToast.success("Board reset successfully!");
       setIsCompleted(true);
-
-      // Reset to original state after 5 seconds
-      setTimeout(() => {
-        setIsCompleted(false);
-      }, 5000);
-    }).catch(() => {
-      setIsCompleted(false);
-    }).finally(() => {
+      setTimeout(() => setIsCompleted(false), 5000);
+    } catch (error) {
+      console.error("Error resetting board:", error);
+      customToast.error("Failed to reset board.");
+    } finally {
       setIsLoading(false);
-    });
+    }
   };
 
   return (
-    <div className="relative group">
-      <div
-        onClick={resetBoard}
-        className={`cursor-pointer ${iconColor} ${hoverTextColor} transition-all duration-300 ease-in-out`}
-      >
-        {isLoading ? (
-          <Spinner />
-        ) : isCompleted ? (
-          <CheckCircle className="w-5 h-5" />
-        ) : (
-          <RefreshCw className="w-5 h-5" />
-        )}
-      </div>
+    <Button
+      variant="outline"
+      size="icon"
+      onClick={resetBoard}
+      className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${buttonBackgroundColor} ${hoverButtonBackgroundColor}`}
+    >
+      {isLoading ? (
+        <Spinner />
+      ) : isCompleted ? (
+        <CheckCircle className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+      ) : (
+        <RefreshCw className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+      )}
+      <span className="sr-only">Reset Board</span>
       <div className="absolute bottom-0 flex flex-col items-center hidden mb-6 group-hover:flex">
         <span
           className={`relative z-10 p-2 text-xs leading-none text-white whitespace-no-wrap bg-black shadow-lg`}
@@ -93,7 +84,7 @@ const ResetIcon: React.FC = () => {
         </span>
         <div className="w-3 h-3 -mt-2 rotate-45 bg-black"></div>
       </div>
-    </div>
+    </Button>
   );
 };
 
