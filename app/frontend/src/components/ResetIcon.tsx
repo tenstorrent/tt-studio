@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { RefreshCw, CheckCircle, AlertTriangle } from "lucide-react";
+import { Cpu, CheckCircle, AlertTriangle } from "lucide-react";
 import { Spinner } from "./ui/spinner";
-import CustomToaster, { customToast } from "./CustomToaster";
+import { customToast } from "./CustomToaster";
 import { useTheme } from "../providers/ThemeProvider";
 import { Button } from "./ui/button";
 import {
@@ -102,12 +102,14 @@ const ResetIcon: React.FC = () => {
           ) : isCompleted ? (
             <CheckCircle className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
           ) : (
-            <RefreshCw className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+            <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
           )}
           <span className="sr-only">Reset Board</span>
           <div className="absolute bottom-0 flex flex-col items-center hidden mb-6 group-hover:flex">
             <span
-              className={`relative z-10 p-2 text-xs leading-none text-white whitespace-no-wrap bg-black shadow-lg`}
+              className={`relative z-10 p-2 text-xs leading-none text-white whitespace-no-wrap ${
+                theme === "dark" ? "bg-zinc-800" : "bg-black"
+              } shadow-lg`}
             >
               {isLoading
                 ? "Resetting..."
@@ -115,16 +117,28 @@ const ResetIcon: React.FC = () => {
                 ? "Reset Complete"
                 : "Reset Board"}
             </span>
-            <div className="w-3 h-3 -mt-2 rotate-45 bg-black"></div>
+            <div
+              className={`w-3 h-3 -mt-2 rotate-45 ${
+                theme === "dark" ? "bg-zinc-800" : "bg-black"
+              }`}
+            ></div>
           </div>
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md p-6 rounded-lg shadow-lg bg-white">
+      <DialogContent
+        className={`sm:max-w-md p-6 rounded-lg shadow-lg ${
+          theme === "dark" ? "bg-zinc-900 text-white" : "bg-white text-black"
+        }`}
+      >
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="text-lg font-semibold">
             Are you sure you want to reset the tenstorrent card?
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription
+            className={`text-gray-500 ${
+              theme === "dark" ? "text-gray-400" : "text-gray-500"
+            }`}
+          >
             Software resets will stop all deployed models! Do you want to
             proceed?
           </DialogDescription>
@@ -137,9 +151,19 @@ const ResetIcon: React.FC = () => {
             </div>
           </div>
         )}
-        <div className="mt-4 p-4 bg-yellow-100 text-yellow-700 rounded-md">
+        <div
+          className={`mt-4 p-4 rounded-md ${
+            theme === "dark"
+              ? "bg-yellow-700 text-yellow-200"
+              : "bg-yellow-100 text-yellow-700"
+          }`}
+        >
           <div className="flex">
-            <AlertTriangle className="h-5 w-5 text-yellow-700 mr-2" />
+            <AlertTriangle
+              className={`h-5 w-5 ${
+                theme === "dark" ? "text-yellow-200" : "text-yellow-700"
+              } mr-2`}
+            />
             <span className="font-medium">Warning:</span> Resetting will stop
             all deployed models.
           </div>
@@ -148,20 +172,19 @@ const ResetIcon: React.FC = () => {
           <Button
             type="button"
             variant="outline"
+            onClick={() => setIsDialogOpen(false)}
+            className={`${theme === "dark" ? "text-white" : "text-black"}`}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
             className="bg-red-600 text-white hover:bg-red-700"
             onClick={resetBoard}
           >
             Yes, Reset
           </Button>
-          <DialogClose asChild>
-            <Button
-              type="button"
-              variant="outline"
-              className="bg-gray-200 hover:bg-gray-300"
-            >
-              Cancel
-            </Button>
-          </DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>
