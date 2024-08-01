@@ -26,12 +26,9 @@ const NavBar: React.FC = () => {
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverTextColor =
-    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
-  const activeBorderColor =
-    theme === "dark" ? "border-zinc-400" : "border-black";
-  const hoverBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
+  const hoverTextColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const activeBorderColor = theme === "dark" ? "border-zinc-400" : "border-black";
+  const hoverBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
 
   const navLinkClass = (isActive: boolean): string =>
     `flex items-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out ${
@@ -113,7 +110,7 @@ const NavBar: React.FC = () => {
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Toggle Dark/Light Mode</p>
+                <div>Toggle Dark/Light Mode</div>
               </TooltipContent>
             </Tooltip>
             <Separator
@@ -127,7 +124,7 @@ const NavBar: React.FC = () => {
                 </div>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Reset Board</p>
+                <div>Reset Board</div>
               </TooltipContent>
             </Tooltip>
             <Separator
@@ -141,7 +138,7 @@ const NavBar: React.FC = () => {
                 </div>
               </TooltipTrigger>
               <TooltipContent side="left" align="center">
-                <p>Get Help</p>
+                <div>Get Help</div>
               </TooltipContent>
             </Tooltip>
           </div>
