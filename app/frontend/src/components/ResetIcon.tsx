@@ -7,14 +7,19 @@ import { useTheme } from "../providers/ThemeProvider";
 import { Button } from "./ui/button";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./ui/accordion";
+import { DialogDescription } from "@radix-ui/react-dialog";
 
 const ResetIcon: React.FC = () => {
   const { theme } = useTheme();
@@ -22,30 +27,24 @@ const ResetIcon: React.FC = () => {
   const [isCompleted, setIsCompleted] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [resetHistory, setResetHistory] = useState<Date[]>([]);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverIconColor =
-    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const hoverIconColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
   const buttonBackgroundColor = theme === "dark" ? "bg-zinc-900" : "bg-white";
-  const hoverButtonBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
+  const hoverButtonBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
   const resetBoard = async (): Promise<void> => {
     setIsLoading(true);
     setIsCompleted(false);
-    setErrorMessage(null); // Clear any previous error message
-    setIsDialogOpen(false); // ensure to close the dialog when resetting starts
+    setErrorMessage(null);
+    setIsDialogOpen(false);
 
     try {
-      const response = await axios.post<Blob>(
-        "/docker-api/reset_board/",
-        null,
-        {
-          responseType: "blob",
-        }
-      );
+      const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
+        responseType: "blob",
+      });
 
-      // Log the full output for debugging
       const reader = response.data.stream().getReader();
       const decoder = new TextDecoder();
       let fullOutput = "";
@@ -63,7 +62,7 @@ const ResetIcon: React.FC = () => {
         fullOutput += finalChunk;
       }
 
-      console.log("Full output:", fullOutput); // Reintroduced logging
+      console.log("Full output:", fullOutput);
 
       if (fullOutput.includes("Command failed with return code 1")) {
         throw new Error("Command failed");
@@ -71,12 +70,13 @@ const ResetIcon: React.FC = () => {
 
       customToast.success("Board reset successfully!");
       setIsCompleted(true);
+      setResetHistory((prevHistory) => [...prevHistory, new Date()]);
       setTimeout(() => setIsCompleted(false), 5000);
     } catch (error) {
       console.error("Error resetting board:", error);
       customToast.error("Failed to reset board.");
       setErrorMessage("Command failed");
-      setIsDialogOpen(true); // Reopen the dialog to show the error
+      setIsDialogOpen(true);
     } finally {
       setIsLoading(false);
     }
@@ -85,7 +85,7 @@ const ResetIcon: React.FC = () => {
   const handleDialogOpenChange = (isOpen: boolean) => {
     setIsDialogOpen(isOpen);
     if (isOpen) {
-      setErrorMessage(null); // Clear any previous error message
+      setErrorMessage(null);
     }
   };
 
@@ -131,43 +131,53 @@ const ResetIcon: React.FC = () => {
         }`}
       >
         <DialogHeader>
-          <DialogTitle className="text-lg font-semibold">
-            Are you sure you want to reset the tenstorrent card?
-          </DialogTitle>
-          <DialogDescription
-            className={`text-gray-500 ${
-              theme === "dark" ? "text-gray-400" : "text-gray-500"
-            }`}
-          >
-            Software resets will stop all deployed models! Do you want to
-            proceed?
-          </DialogDescription>
+          <div className="flex items-center mb-4">
+            <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
+            <DialogTitle className="text-lg font-semibold">
+              Are you sure you want to reset?
+            </DialogTitle>
+          </div>
         </DialogHeader>
+        <div className={`mb-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+          <div className="border-l-4 border-red-600 pl-2">
+            <div className="font-bold">
+              Warning! This action will stop all deployed models and might
+              interrupt ongoing processes. Proceed with caution!
+            </div>
+            {resetHistory.length > 0 && (
+              <div className="mt-2">
+                Note: This card was reset in the last 5 minutes. Frequent resets
+                may cause issues. Please wait before resetting again.
+              </div>
+            )}
+          </div>
+        </div>
         {errorMessage && (
           <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
-            <div className="flex">
+            <div className="flex items-center">
               <AlertTriangle className="h-5 w-5 text-red-700 mr-2" />
               <span className="font-medium">Error:</span> {errorMessage}
             </div>
           </div>
         )}
-        <div
-          className={`mt-4 p-4 rounded-md ${
-            theme === "dark"
-              ? "bg-yellow-700 text-yellow-200"
-              : "bg-yellow-100 text-yellow-700"
-          }`}
-        >
-          <div className="flex">
-            <AlertTriangle
-              className={`h-5 w-5 ${
-                theme === "dark" ? "text-yellow-200" : "text-yellow-700"
-              } mr-2`}
-            />
-            <span className="font-medium">Warning:</span> Resetting will stop
-            all deployed models.
-          </div>
-        </div>
+        <Accordion type="single" collapsible className="mt-4">
+          <AccordionItem value="history">
+            <AccordionTrigger className="text-md font-semibold">
+              Reset History
+            </AccordionTrigger>
+            <AccordionContent>
+              <ul className="list-disc pl-5 mt-2 text-sm">
+                {resetHistory.length > 0 ? (
+                  resetHistory.map((resetTime, index) => (
+                    <li key={index}>{resetTime.toLocaleString()}</li>
+                  ))
+                ) : (
+                  <li>No resets yet.</li>
+                )}
+              </ul>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
         <DialogFooter className="mt-4 flex justify-end space-x-2">
           <Button
             type="button"
