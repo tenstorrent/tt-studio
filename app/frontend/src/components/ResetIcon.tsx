@@ -36,49 +36,44 @@ const ResetIcon: React.FC = () => {
   const hoverButtonBackgroundColor =
     theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
+  const resetBoardAsync = async (): Promise<void> => {
+    const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
+      responseType: "blob",
+    });
+
+    const reader = response.data.stream().getReader();
+    const decoder = new TextDecoder();
+    let fullOutput = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      fullOutput += chunk;
+    }
+
+    const finalChunk = decoder.decode();
+    if (finalChunk) {
+      fullOutput += finalChunk;
+    }
+
+    console.log("Full output:", fullOutput);
+
+    if (fullOutput.includes("Command failed with return code 1")) {
+      throw new Error("Command failed");
+    }
+
+    setIsCompleted(true);
+    setResetHistory((prevHistory) => [...prevHistory, new Date()]);
+    setTimeout(() => setIsCompleted(false), 5000);
+  };
+
   const resetBoard = async (): Promise<void> => {
     setIsLoading(true);
     setIsCompleted(false);
     setErrorMessage(null);
     setIsDialogOpen(false);
-
-    const resetBoardAsync = async () => {
-      const response = await axios.post<Blob>(
-        "/docker-api/reset_board/",
-        null,
-        {
-          responseType: "blob",
-        }
-      );
-
-      const reader = response.data.stream().getReader();
-      const decoder = new TextDecoder();
-      let fullOutput = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        fullOutput += chunk;
-      }
-
-      const finalChunk = decoder.decode();
-      if (finalChunk) {
-        fullOutput += finalChunk;
-      }
-
-      console.log("Full output:", fullOutput);
-
-      if (fullOutput.includes("Command failed with return code 1")) {
-        throw new Error("Command failed");
-      }
-
-      customToast.success("Board reset successfully!");
-      setIsCompleted(true);
-      setResetHistory((prevHistory) => [...prevHistory, new Date()]);
-      setTimeout(() => setIsCompleted(false), 5000);
-    };
 
     customToast
       .promise(resetBoardAsync(), {
@@ -151,7 +146,7 @@ const ResetIcon: React.FC = () => {
               Reset Card
             </DialogTitle>
           </div>
-          <DialogDescription>
+          <DialogDescription className="text-left">
             Are you sure you want to reset the card?
           </DialogDescription>
         </DialogHeader>
