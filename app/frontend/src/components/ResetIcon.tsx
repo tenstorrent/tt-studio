@@ -30,9 +30,11 @@ const ResetIcon: React.FC = () => {
   const [resetHistory, setResetHistory] = useState<Date[]>([]);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverIconColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const hoverIconColor =
+    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
   const buttonBackgroundColor = theme === "dark" ? "bg-zinc-900" : "bg-white";
-  const hoverButtonBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
+  const hoverButtonBackgroundColor =
+    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
   const resetBoard = async (): Promise<void> => {
     setIsLoading(true);
@@ -40,10 +42,14 @@ const ResetIcon: React.FC = () => {
     setErrorMessage(null);
     setIsDialogOpen(false);
 
-    try {
-      const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
-        responseType: "blob",
-      });
+    const resetBoardAsync = async () => {
+      const response = await axios.post<Blob>(
+        "/docker-api/reset_board/",
+        null,
+        {
+          responseType: "blob",
+        }
+      );
 
       const reader = response.data.stream().getReader();
       const decoder = new TextDecoder();
@@ -72,14 +78,22 @@ const ResetIcon: React.FC = () => {
       setIsCompleted(true);
       setResetHistory((prevHistory) => [...prevHistory, new Date()]);
       setTimeout(() => setIsCompleted(false), 5000);
-    } catch (error) {
-      console.error("Error resetting board:", error);
-      customToast.error("Failed to reset board.");
-      setErrorMessage("Command failed");
-      setIsDialogOpen(true);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    customToast
+      .promise(resetBoardAsync(), {
+        loading: "Resetting board...",
+        success: "Board reset successfully!",
+        error: "Failed to reset board.",
+      })
+      .catch((error) => {
+        console.error("Error resetting board:", error);
+        setErrorMessage("Command failed");
+        setIsDialogOpen(true);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   };
 
   const handleDialogOpenChange = (isOpen: boolean) => {
@@ -138,7 +152,11 @@ const ResetIcon: React.FC = () => {
             </DialogTitle>
           </div>
         </DialogHeader>
-        <div className={`mb-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+        <div
+          className={`mb-4 ${
+            theme === "dark" ? "text-gray-400" : "text-gray-500"
+          }`}
+        >
           <div className="border-l-4 border-red-600 pl-2">
             <div className="font-bold">
               Warning! This action will stop all deployed models and might
