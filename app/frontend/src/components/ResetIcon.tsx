@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from "./ui/dialog";
 import {
   Accordion,
@@ -19,7 +20,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
-import { DialogDescription } from "@radix-ui/react-dialog";
 
 const ResetIcon: React.FC = () => {
   const { theme } = useTheme();
@@ -148,9 +148,12 @@ const ResetIcon: React.FC = () => {
           <div className="flex items-center mb-4">
             <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
             <DialogTitle className="text-lg font-semibold">
-              Are you sure you want to reset?
+              Reset Card
             </DialogTitle>
           </div>
+          <DialogDescription>
+            Are you sure you want to reset the card?
+          </DialogDescription>
         </DialogHeader>
         <div
           className={`mb-4 ${
@@ -159,8 +162,9 @@ const ResetIcon: React.FC = () => {
         >
           <div className="border-l-4 border-red-600 pl-2">
             <div className="font-bold">
+              {" "}
               Warning! This action will stop all deployed models and might
-              interrupt ongoing processes. Proceed with caution!
+              interrupt ongoing processes.
             </div>
             {resetHistory.length > 0 && (
               <div className="mt-2">
