@@ -1,6 +1,4 @@
-import { useMemo, useRef } from "react";
-import { NavLink, useLocation } from "react-router-dom";
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import logo from "../assets/tt_logo.svg";
 import {
@@ -8,31 +6,39 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, BrainCog, BotMessageSquare } from "lucide-react"; // Import BotMessageSquare
+import { Home, BrainCog, BotMessageSquare } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
+import { useTheme } from "../providers/ThemeProvider";
 import { Separator } from "./ui/separator";
-import useCommonClasses from "../theme/commonThemeClasses";
+import ResetIcon from "./ResetIcon";
+import CustomToaster from "./CustomToaster";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 import Sidebar from "./SideBar";
-import CustomToaster from "./CustomToaster"; // Assuming CustomToaster is from the staging version
 
-export default function NavBar() {
-  const location = useLocation();
-  const { textColor, hoverTextColor, activeBorderColor, hoverBackgroundColor } =
-    useCommonClasses();
+const NavBar: React.FC = () => {
+  const { theme } = useTheme();
+  const [chatUIActive] = useState(false);
+  const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
 
-  const navLinkClass = useMemo(
-    () =>
-      `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
-    [textColor]
-  );
+  const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
+  const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
+  const hoverTextColor =
+    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const activeBorderColor =
+    theme === "dark" ? "border-zinc-400" : "border-black";
+  const hoverBackgroundColor =
+    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
 
-  const getNavLinkClass = (isActive: boolean) =>
-    `${navLinkClass} ${
+  const navLinkClass = (isActive: boolean): string =>
+    `flex items-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out ${
       isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor}`;
-
-  const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
 
   const handleToggleSidebar = () => {
     if (sidebarRef.current) {
@@ -40,109 +46,118 @@ export default function NavBar() {
     }
   };
 
-  const isChatUI = location.pathname === "/chat-ui";
-
   return (
-    <div
-      className={`${
-        isChatUI
-          ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center"
-          : "relative w-full"
-      } bg-secondary shadow-xl z-50`}
-    >
-      <CustomToaster /> {/* This line adds CustomToaster from staging */}
-      <div
-        className={`font-tt_a_mono flex ${
-          isChatUI ? "flex-col items-center" : "items-center justify-between"
-        } w-full px-4 py-2 sm:px-5 sm:py-3`}
-      >
-        <a
-          href="https://www.tenstorrent.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`flex items-center ${
-            isChatUI ? "mb-6 justify-center" : ""
-          }`}
-        >
-          <img
-            src={logo}
-            alt="Tenstorrent Logo"
-            className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
-          />
-          {!isChatUI && (
-            <h4
-              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
+    <TooltipProvider>
+      <div className="relative w-full">
+        <CustomToaster />
+        <div className="flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3 bg-secondary border-b-4 rounded-2xl shadow-xl">
+          <div className="flex items-center space-x-4 sm:space-x-6">
+            <a
+              href="https://www.tenstorrent.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center"
             >
-              LLM Studio
-            </h4>
-          )}
-        </a>
-        <NavigationMenu className={`w-full ${isChatUI ? "mt-4" : ""}`}>
-          <NavigationMenuList
-            className={`flex ${
-              isChatUI ? "flex-col items-center space-y-4" : "justify-between"
-            }`}
-          >
-            <NavigationMenuItem
-              className={`${isChatUI ? "w-full flex justify-center" : ""}`}
-            >
-              <NavLink
-                to="/"
-                className={({ isActive }) => getNavLinkClass(isActive)}
-              >
-                <Home className={`mr-0 ${textColor}`} />
-                {!isChatUI && <span>Home</span>}
-              </NavLink>
-            </NavigationMenuItem>
-            {!isChatUI && (
-              <Separator
-                className="h-6 w-px bg-zinc-400"
-                orientation="vertical"
+              <img
+                src={logo}
+                alt="Tenstorrent Logo"
+                className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
               />
-            )}
-            <NavigationMenuItem
-              className={`${isChatUI ? "w-full flex justify-center" : ""}`}
-            >
-              <NavLink
-                to="/models-deployed"
-                className={({ isActive }) => getNavLinkClass(isActive)}
+              <h4
+                className={`hidden sm:block text-lg sm:text-2xl font-medium ${textColor} ml-3 bold font-roboto`}
               >
-                <BrainCog className={`mr-0 ${textColor}`} />
-                {!isChatUI && <span>Models Deployed</span>}
-              </NavLink>
-            </NavigationMenuItem>
-            {isChatUI && (
-              <NavigationMenuItem
-                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
-              >
-                <NavLink
-                  to="/chat-ui"
-                  className={({ isActive }) => getNavLinkClass(isActive)}
-                >
-                  <BotMessageSquare className={`mr-0 ${textColor}`} />
-                </NavLink>
-              </NavigationMenuItem>
-            )}
-          </NavigationMenuList>
-        </NavigationMenu>
-        {!isChatUI && (
-          <div className={`flex items-center space-x-2 sm:space-x-4`}>
-            <ModeToggle />
+                llm-studio
+              </h4>
+            </a>
+            <NavigationMenu className="flex-grow px-28">
+              <NavigationMenuList className="flex justify-between">
+                <NavigationMenuItem>
+                  <NavLink
+                    to="/"
+                    className={({ isActive }) => navLinkClass(isActive)}
+                  >
+                    <Home className={`mr-1 ${iconColor}`} />
+                    <span className="hidden sm:inline">Home</span>
+                  </NavLink>
+                </NavigationMenuItem>
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+                <NavigationMenuItem>
+                  <NavLink
+                    to="/models-deployed"
+                    className={({ isActive }) => navLinkClass(isActive)}
+                  >
+                    <BrainCog className={`mr-1 ${iconColor}`} />
+                    <span className="hidden sm:inline">Models Deployed</span>
+                  </NavLink>
+                </NavigationMenuItem>
+                {chatUIActive && (
+                  <>
+                    <Separator
+                      className="h-6 w-px bg-zinc-400"
+                      orientation="vertical"
+                    />
+                    <NavigationMenuItem>
+                      <NavLink
+                        to="/chat-ui"
+                        className={({ isActive }) => navLinkClass(isActive)}
+                      >
+                        <BotMessageSquare className={`mr-1 ${iconColor}`} />
+                        <span className="hidden sm:inline">Chat UI</span>
+                      </NavLink>
+                    </NavigationMenuItem>
+                  </>
+                )}
+              </NavigationMenuList>
+            </NavigationMenu>
+          </div>
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ModeToggle />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div>Toggle Dark/Light Mode</div>
+              </TooltipContent>
+            </Tooltip>
             <Separator
               className="h-6 w-px bg-zinc-400"
               orientation="vertical"
             />
-            <HelpIcon toggleSidebar={handleToggleSidebar} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ResetIcon />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div>Reset Board</div>
+              </TooltipContent>
+            </Tooltip>
+            <Separator
+              className="h-6 w-px bg-zinc-400"
+              orientation="vertical"
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <HelpIcon toggleSidebar={handleToggleSidebar} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="left" align="center">
+                <div>Get Help</div>
+              </TooltipContent>
+            </Tooltip>
           </div>
-        )}
-      </div>
-      {isChatUI && (
-        <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
-          <ModeToggle />
-          <HelpIcon toggleSidebar={handleToggleSidebar} />
         </div>
-      )}
+      </div>
       <Sidebar ref={sidebarRef} />
-    </div>
+    </TooltipProvider>
   );
-}
+};
+
+export default NavBar;
