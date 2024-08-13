@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -100,4 +101,10 @@ h1 {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+}
+
+@font-face {
+  font-family: "Akkurat-Mono";
+  src: local("Akkurat-Mono"), url("./fonts/Akkurat-Mono.OTF") format("opentype");
+  font-weight: normal;
 }
