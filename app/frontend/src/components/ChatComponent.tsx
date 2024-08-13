@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
+import { useTheme } from "../providers/ThemeProvider";
 import {
   Smile,
   Sun,
@@ -15,6 +16,21 @@ import {
 } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
+import {
+  Breadcrumb,
+  BreadcrumbEllipsis,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "./ui/breadcrumb";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 interface InferenceRequest {
   deploy_id: string;
@@ -30,18 +46,25 @@ const modelAPIURL = "/models-api/";
 const inferenceUrl = `${modelAPIURL}/inference/`;
 
 const ChatComponent: React.FC = () => {
+  const { theme } = useTheme();
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [modelID, setModelID] = useState(location.state.containerID);
+  const [modelID, setModelID] = useState<string | null>(null);
+  const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
 
   useEffect(() => {
-    setModelID(location.state.containerID);
-  }, [location.state.containerID]);
+    if (location.state) {
+      setModelID(location.state.containerID);
+      setModelName(location.state.modelName);
+    }
+  }, [location.state]);
+
+  console.log("Model ID:", modelID, "Model Name:", modelName);
 
   const scrollToBottom = () => {
     if (bottomRef.current) {
@@ -75,7 +98,6 @@ const ChatComponent: React.FC = () => {
 
       const reader = response.body?.getReader();
 
-      // Add user input to chat history
       setChatHistory((prevHistory) => [
         ...prevHistory,
         { sender: "user", text: textInput },
@@ -108,7 +130,7 @@ const ChatComponent: React.FC = () => {
               ];
             }
           });
-          scrollToBottom(); // Ensure scroll to bottom while streaming
+          scrollToBottom();
         }
       }
 
@@ -123,12 +145,10 @@ const ChatComponent: React.FC = () => {
     if (textInput.trim() === "") return;
 
     const inferenceRequest: InferenceRequest = {
-      deploy_id: modelID,
+      deploy_id: modelID!,
       text: textInput,
     };
-    console.log("Inference Request:", inferenceRequest);
 
-    // Special case for the predefined question
     if (textInput === "When will Tenstorrent out sell Nvidia?") {
       setChatHistory((prevHistory) => [
         ...prevHistory,
@@ -136,7 +156,7 @@ const ChatComponent: React.FC = () => {
         { sender: "assistant", text: "2024, that was a silly question." },
       ]);
       setTextInput("");
-      scrollToBottom(); // Ensure scroll to bottom after adding special response
+      scrollToBottom();
       return;
     }
 
@@ -151,8 +171,38 @@ const ChatComponent: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-10/12 pt-28 mx-auto">
-      <Card>
+    <div className="flex flex-col overflow-auto w-10/12 mx-auto">
+      <Card className="flex flex-col w-full h-full">
+        <Breadcrumb className="border-b-2 border-gray-200 dark:border-gray-700 mb-4 bg-white dark:bg-gray-900 rounded-t-2xl shadow-lg dark:shadow-2xl p-6 text-xl text-black dark:text-white">
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink
+                href="/models-deployed"
+                className="text-black dark:text-white hover:text-blue-500 dark:hover:text-blue-400"
+              >
+                Models Deployed
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex items-center gap-1">
+                  <BreadcrumbEllipsis className="h-4 w-4" />
+                  <span className="sr-only">Toggle menu</span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem>Model 1</DropdownMenuItem>
+                  <DropdownMenuItem>Model 2</DropdownMenuItem>
+                  <DropdownMenuItem>Model 3</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{modelName}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
         <div className="flex flex-col w-full h-full p-8">
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
@@ -171,21 +221,27 @@ const ChatComponent: React.FC = () => {
                     onClick={() => setTextInput("Hello, how are you today?")}
                   >
                     <Smile className="h-6 w-6 mb-2" color="#3b82f6" />
-                    <span>Hello, how are you today?</span>
+                    <span className="dark:text-gray-300">
+                      Hello, how are you today?
+                    </span>
                   </Card>
                   <Card
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("Can you tell me a joke?")}
                   >
                     <Angry className="h-6 w-6 mb-2" color="#be123c" />
-                    <span>Can you tell me a joke?</span>
+                    <span className="dark:text-gray-300">
+                      Can you tell me a joke?
+                    </span>
                   </Card>
                   <Card
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("What's the weather like?")}
                   >
                     <Sun className="h-6 w-6 mb-2" color="#eab308" />
-                    <span>What's the weather like?</span>
+                    <span className="dark:text-gray-300">
+                      What's the weather like?
+                    </span>
                   </Card>
                   <Card
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-500"
@@ -194,7 +250,9 @@ const ChatComponent: React.FC = () => {
                     }
                   >
                     <DollarSign className="h-6 w-6 mb-2" color="#22c55e" />
-                    <span>When will Tenstorrent out sell Nvidia?</span>
+                    <span className="dark:text-gray-300">
+                      When will Tenstorrent out sell Nvidia?
+                    </span>
                   </Card>
                 </div>
               </div>
@@ -207,7 +265,6 @@ const ChatComponent: React.FC = () => {
                 ref={scrollAreaRef}
                 onScroll={handleScroll}
               >
-                <h3 className="text-gray-500 pt-2 mb-4">Chat Responses:</h3>
                 {chatHistory.map((message, index) => (
                   <div
                     key={index}
@@ -218,11 +275,12 @@ const ChatComponent: React.FC = () => {
                     }`}
                   >
                     <div
-                      className={`flex items-center text-left p-2 rounded-lg mb-2 ${
+                      className={`flex items-center max-w-[80%] text-left p-2 rounded-lg mb-2 ${
                         message.sender === "user"
-                          ? "bg-green-600 text-white"
-                          : "bg-gray-700 text-gray-300"
+                          ? "bg-green-600 text-white break-words"
+                          : "bg-gray-700 text-gray-300 break-words"
                       }`}
+                      style={{ wordBreak: "break-word" }}
                     >
                       {message.sender === "user" ? (
                         <User
@@ -236,7 +294,7 @@ const ChatComponent: React.FC = () => {
                           className="w-8 h-8 rounded-full mr-2"
                         />
                       )}
-                      {message.text}
+                      <div>{message.text}</div>
                     </div>
                   </div>
                 ))}

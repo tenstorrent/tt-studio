@@ -199,7 +199,9 @@ export function ModelsDeployedTable() {
                           </Button>
                         )}
                         <Button
-                          onClick={() => handleChatUI(model.id, navigate)}
+                          onClick={() =>
+                            handleChatUI(model.id, model.name, navigate)
+                          }
                           className={`${
                             theme === "dark"
                               ? "bg-blue-500 hover:bg-blue-400 text-white"

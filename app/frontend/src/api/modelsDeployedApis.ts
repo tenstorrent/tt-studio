@@ -115,13 +115,16 @@ export const handleRedeploy = (modelName: string): void => {
 
 export const handleChatUI = (
   modelID: string,
+  modelName: string,
   navigate: NavigateFunction
 ): void => {
   console.log(`ChatUI button clicked for model: ${modelID}`);
-  console.log("Opening Chat UI for model");
-  customToast.success(`Chat UI for model ${modelID} opened.`);
+  console.log(`Opening Chat UI for model: ${modelName}`);
+  customToast.success(`Chat UI for model ${modelID} (${modelName}) opened.`);
 
-  navigate("/chat-ui", { state: { containerID: modelID } });
+  navigate("/chat-ui", {
+    state: { containerID: modelID, modelName: modelName },
+  });
 
   console.log("Navigated to chat-ui page");
 };
