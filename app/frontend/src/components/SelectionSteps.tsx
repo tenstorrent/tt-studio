@@ -1,50 +1,37 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import * as z from "zod";
 import axios from "axios";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card } from "./ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
 import { Button } from "./ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "./ui/form";
-import { Step, Stepper, useStepper } from "./ui/stepper";
-// import UploadDialog from "./UploadDialog";
+import { Step, Stepper } from "./ui/stepper";
 import CustomToaster, { customToast } from "./CustomToaster";
+import StepperFooter from "./StepperFooter";
+import { DeployModelStep } from "./DeployModelStep";
+import { StepperFormActions } from "./StepperFormActions";
+import { WeightForm } from "./WeightForm";
+import { SecondStepForm } from "./SecondStepForm";
+import { FirstStepForm } from "./FirstStepForm";
 
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
-const getModelsUrl = `${dockerAPIURL}get_containers/`;
-const getWeightsUrl = (modelId: string) =>
+export const getModelsUrl = `${dockerAPIURL}get_containers/`;
+export const getWeightsUrl = (modelId: string) =>
   `${modelAPIURL}model_weights/?model_id=${modelId}`;
 
-interface SecondStepFormProps {
+export interface SecondStepFormProps {
   addCustomStep: () => void;
   addFineTuneStep: () => void;
   removeDynamicSteps: () => void;
 }
 
-interface Model {
+export interface Model {
   id: string;
   name: string;
 }
 
-interface Weight {
+export interface Weight {
   weights_id: string;
   name: string;
 }
@@ -59,6 +46,8 @@ export default function StepperDemo() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedWeight, setSelectedWeight] = useState<string | null>(null);
   const [customWeight, setCustomWeight] = useState<Weight | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState(false);
 
   const addCustomStep = () => {
     setSteps((prevSteps) => {
@@ -108,6 +97,11 @@ export default function StepperDemo() {
   };
 
   const handleDeploy = async (): Promise<boolean> => {
+    setLoading(true);
+    setTimeout(() => {
+      setLoading(false);
+    }, 2500);
+
     const model_id = selectedModel || "0";
     const weights_id =
       selectedWeight === "Default Weights"
@@ -128,25 +122,33 @@ export default function StepperDemo() {
       });
       console.log("Deployment response:", response);
       customToast.success("Model deployment started!");
-      return true; 
+      return true;
     } catch (error) {
       console.error("Error during deployment:", error);
       customToast.error("Deployment failed!");
-      return false; 
+      return false;
     }
   };
 
   return (
     <div className="flex flex-col gap-8 w-3/4 mx-auto max-w-7xl px-4 md:px-8 pt-10 py-6">
       <CustomToaster />
-      <Card className="h-auto py-8 px-16 ">
-        <Stepper variant="circle-alt" initialStep={0} steps={steps}>
+      <Card className="h-auto py-8 px-16">
+        <Stepper
+          variant="circle-alt"
+          initialStep={0}
+          steps={steps}
+          state={loading ? "loading" : formError ? "error" : undefined}
+        >
           {steps.map((stepProps) => {
             switch (stepProps.label) {
               case "Step 1":
                 return (
                   <Step key={stepProps.label} {...stepProps} className="mb-8">
-                    <FirstStepForm setSelectedModel={setSelectedModel} />
+                    <FirstStepForm
+                      setSelectedModel={setSelectedModel}
+                      setFormError={setFormError}
+                    />
                   </Step>
                 );
               case "Step 2":
@@ -158,6 +160,7 @@ export default function StepperDemo() {
                       addCustomStep={addCustomStep}
                       addFineTuneStep={addFineTuneStep}
                       removeDynamicSteps={removeDynamicSteps}
+                      setFormError={setFormError}
                     />
                   </Step>
                 );
@@ -168,6 +171,7 @@ export default function StepperDemo() {
                       <WeightForm
                         selectedModel={selectedModel}
                         setCustomWeight={setCustomWeight}
+                        setFormError={setFormError}
                       />
                     </div>
                   </Step>
@@ -206,452 +210,10 @@ export default function StepperDemo() {
             }
           })}
           <div className="py-12">
-            <MyStepperFooter removeDynamicSteps={removeDynamicSteps} />
+            <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>
         </Stepper>
       </Card>
-    </div>
-  );
-}
-
-const FirstFormSchema = z.object({
-  model: z.string().nonempty("Please select a model."),
-});
-
-function FirstStepForm({
-  setSelectedModel,
-}: {
-  setSelectedModel: (model: string) => void;
-}) {
-  const { nextStep } = useStepper();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [models, setModels] = useState<Model[]>([]);
-  const [hasValidationError, setHasValidationError] = useState(false);
-
-  useEffect(() => {
-    console.log("fetching models", getModelsUrl);
-    const fetchModels = async () => {
-      try {
-        const response = await axios.get<Model[]>(getModelsUrl);
-        console.log("fetched models:", response.data);
-        setModels(response.data);
-      } catch (error) {
-        console.error("Error fetching models:", error);
-      }
-    };
-
-    fetchModels();
-  }, []);
-
-  const form = useForm<z.infer<typeof FirstFormSchema>>({
-    resolver: zodResolver(FirstFormSchema),
-    defaultValues: {
-      model: "",
-    },
-  });
-
-  const onSubmit = async (data: z.infer<typeof FirstFormSchema>) => {
-    setIsSubmitting(true);
-    try {
-      const selectedModel = models.find((model) => model.name === data.model);
-      if (selectedModel) {
-        setSelectedModel(selectedModel.id);
-        customToast.success("Model Selected!: " + selectedModel.name);
-        nextStep();
-      } else {
-        customToast.error("Model not found!; Ran into error :(");
-        setHasValidationError(true);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Form {...form}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          form.handleSubmit(onSubmit)();
-        }}
-        className="space-y-10"
-      >
-        <FormField
-          control={form.control}
-          name="model"
-          render={({ field }) => (
-            <FormItem className="w-full mb-4 p-8">
-              <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white ">
-                Models
-              </FormLabel>
-              <Select
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  setHasValidationError(false);
-                }}
-                defaultValue={field.value}
-              >
-                <FormControl>
-                  <SelectTrigger
-                    className={hasValidationError ? "border-red-500" : ""}
-                  >
-                    <SelectValue placeholder="Select a model" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {models.map((model) => (
-                    <SelectItem key={model.id} value={model.name}>
-                      {model.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage className="text-red-500 dark:text-red-300" />
-            </FormItem>
-          )}
-        />
-        <StepperFormActions
-          form={form}
-          removeDynamicSteps={() => {}}
-          isSubmitting={isSubmitting}
-        />
-      </form>
-    </Form>
-  );
-}
-
-const SecondFormSchema = z.object({
-  weight: z.string().nonempty("Please select a weight."),
-});
-
-function SecondStepForm({
-  // selectedModel,
-  setSelectedWeight,
-  addCustomStep,
-  addFineTuneStep,
-  removeDynamicSteps,
-}: SecondStepFormProps & {
-  setSelectedWeight: (weight: string) => void;
-  selectedModel: string | null;
-}) {
-  const { nextStep } = useStepper();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasValidationError, setHasValidationError] = useState(false);
-
-  const form = useForm<z.infer<typeof SecondFormSchema>>({
-    resolver: zodResolver(SecondFormSchema),
-    defaultValues: {
-      weight: "",
-    },
-  });
-
-  const onSubmit = async (data: z.infer<typeof SecondFormSchema>) => {
-    setIsSubmitting(true);
-    try {
-      console.log("Form data:", data);
-      if (data.weight) {
-        setSelectedWeight(data.weight);
-        customToast.success("Model Weights Selected!");
-        nextStep();
-      } else {
-        customToast.error("Weight not found!");
-        setHasValidationError(true);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Form {...form}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          form.handleSubmit(onSubmit)();
-        }}
-        className="space-y-6"
-      >
-        <FormField
-          control={form.control}
-          name="weight"
-          render={({ field }) => (
-            <FormItem className="w-full mb-4 p-8">
-              <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
-                Weight
-              </FormLabel>
-              <Select
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  setHasValidationError(false);
-                  removeDynamicSteps();
-                  if (value === "Custom Weight") {
-                    addCustomStep();
-                  } else if (value === "Fine-Tune Weights") {
-                    addFineTuneStep();
-                  }
-                }}
-                defaultValue={field.value}
-              >
-                <FormControl>
-                  <SelectTrigger
-                    className={hasValidationError ? "border-red-500" : ""}
-                  >
-                    <SelectValue placeholder="Select a weight" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="Default Weights">
-                    Default Weights
-                  </SelectItem>
-                  <SelectItem value="Custom Weight">Custom Weight</SelectItem>
-                  <SelectItem value="Fine-Tune Weights">
-                    Fine-Tune Weights
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage className="text-red-500 dark:text-red-300" />
-            </FormItem>
-          )}
-        />
-        <StepperFormActions
-          form={form}
-          removeDynamicSteps={removeDynamicSteps}
-          isSubmitting={isSubmitting}
-        />
-      </form>
-    </Form>
-  );
-}
-
-function WeightForm({
-  selectedModel,
-  setCustomWeight,
-}: {
-  selectedModel: string | null;
-  setCustomWeight: (weight: Weight) => void;
-}) {
-  const { nextStep } = useStepper();
-  const [weights, setWeights] = useState<Weight[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasValidationError, setHasValidationError] = useState(false);
-
-  useEffect(() => {
-    if (selectedModel) {
-      console.log("fetching weights", getWeightsUrl(selectedModel));
-      const fetchWeights = async () => {
-        try {
-          const response = await axios.get<Weight[]>(
-            getWeightsUrl(selectedModel)
-          );
-          console.log("fetched weights:", response.data);
-          setWeights(response.data);
-        } catch (error) {
-          console.error("Error fetching weights:", error);
-        }
-      };
-
-      fetchWeights();
-    }
-  }, [selectedModel]);
-
-  const form = useForm({
-    resolver: zodResolver(
-      z.object({
-        weight: z.string().nonempty("Please select a weight file."),
-      })
-    ),
-    defaultValues: {
-      weight: "",
-    },
-  });
-
-  const onSubmit = async (data: { weight: string }) => {
-    setIsSubmitting(true);
-    try {
-      const selectedWeight = weights.find(
-        (weight) => weight.name === data.weight
-      );
-      if (selectedWeight) {
-        setCustomWeight(selectedWeight);
-        customToast.success("Model Weight Selected!");
-        nextStep();
-      } else {
-        customToast.error("Weight not found!");
-        setHasValidationError(true);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Form {...form}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          form.handleSubmit(onSubmit)();
-        }}
-        className="space-y-6"
-      >
-        <FormField
-          control={form.control}
-          name="weight"
-          render={({ field }) => (
-            <FormItem className="w-full mb-4 p-8">
-              <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
-                Weight
-              </FormLabel>
-              <Select
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  setHasValidationError(false);
-                }}
-                defaultValue={field.value}
-              >
-                <FormControl>
-                  <SelectTrigger
-                    className={hasValidationError ? "border-red-500" : ""}
-                  >
-                    <SelectValue placeholder="Select a weight" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {weights.map((weight) => (
-                    <SelectItem key={weight.weights_id} value={weight.name}>
-                      {weight.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage className="text-red-500 dark:text-red-300" />
-            </FormItem>
-          )}
-        />
-        <StepperFormActions
-          form={form}
-          removeDynamicSteps={() => {}}
-          isSubmitting={isSubmitting}
-        />
-      </form>
-    </Form>
-  );
-}
-
-function StepperFormActions({
-  form,
-  removeDynamicSteps,
-  isSubmitting,
-}: {
-  form: any;
-  removeDynamicSteps: () => void;
-  isSubmitting?: boolean;
-}) {
-  const {
-    prevStep,
-    nextStep,
-    resetSteps,
-    isDisabledStep,
-    hasCompletedAllSteps,
-    isOptionalStep,
-    activeStep,
-    steps,
-  } = useStepper();
-
-  const customPrevStep = () => {
-    const currentStepLabel = steps[activeStep]?.label;
-    if (
-      currentStepLabel === "Custom Step" ||
-      currentStepLabel === "Fine-Tune Step"
-    ) {
-      removeDynamicSteps();
-    }
-    prevStep();
-  };
-
-  return (
-    <div className="w-full flex justify-end gap-2">
-      {hasCompletedAllSteps ? (
-        <Button
-          size="sm"
-          onClick={() => {
-            removeDynamicSteps();
-            resetSteps();
-          }}
-        >
-          Reset
-        </Button>
-      ) : (
-        <>
-          <Button
-            disabled={isDisabledStep || activeStep === 0 || isSubmitting}
-            onClick={customPrevStep}
-            size="sm"
-            variant="secondary"
-          >
-            Prev
-          </Button>
-          {activeStep < steps.length - 1 && (
-            <Button
-              size="sm"
-              type={form ? "submit" : "button"}
-              disabled={isSubmitting}
-              onClick={!form ? nextStep : undefined}
-            >
-              {isOptionalStep ? "Skip" : "Next"}
-            </Button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function DeployModelStep({
-  handleDeploy,
-}: {
-  selectedModel: string | null;
-  selectedWeight: string | null;
-  customWeight: Weight | null;
-  handleDeploy: () => Promise<boolean>; 
-}) {
-  const { nextStep } = useStepper();
-
-  const onDeploy = async () => {
-    const deploySuccess = await handleDeploy();
-    if (deploySuccess) {
-      nextStep();
-    }
-  };
-
-  return (
-    <>
-      <div className="flex flex-col items-center justify-center p-10">
-        <Button onClick={onDeploy}>Deploy Model</Button>
-      </div>
-      <StepperFormActions form={null} removeDynamicSteps={() => {}} />
-    </>
-  );
-}
-
-function MyStepperFooter({
-  removeDynamicSteps,
-}: {
-  removeDynamicSteps: () => void;
-}) {
-  const { hasCompletedAllSteps, resetSteps } = useStepper();
-
-  const handleReset = () => {
-    removeDynamicSteps();
-    resetSteps();
-  };
-
-  if (!hasCompletedAllSteps) {
-    return null;
-  }
-
-  return (
-    <div className="flex items-center justify-end gap-2">
-      <Button onClick={handleReset}>Reset and Deploy Another Model!</Button>
     </div>
   );
 }
