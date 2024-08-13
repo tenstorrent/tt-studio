@@ -3,11 +3,15 @@ import { HelpCircle } from "lucide-react";
 import { Button } from "./ui/button";
 import { useTheme } from "../providers/ThemeProvider";
 
-const HelpIcon: React.FC = () => {
+interface HelpIconProps {
+  toggleSidebar: () => void;
+}
+
+const HelpIcon: React.FC<HelpIconProps> = ({ toggleSidebar }) => {
   const { theme } = useTheme();
 
   const handleHelpClick = (): void => {
-    alert("Add link to help docs!");
+    toggleSidebar();
   };
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-gray-600";
