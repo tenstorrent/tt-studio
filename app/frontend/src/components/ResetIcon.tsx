@@ -28,6 +28,7 @@ const ResetIcon: React.FC = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resetHistory, setResetHistory] = useState<Date[]>([]);
+  const [fullOutput, setFullOutput] = useState<string | null>(null);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const hoverIconColor =
@@ -43,24 +44,30 @@ const ResetIcon: React.FC = () => {
 
     const reader = response.data.stream().getReader();
     const decoder = new TextDecoder();
-    let fullOutput = "";
+    let output = "";
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
       const chunk = decoder.decode(value, { stream: true });
-      fullOutput += chunk;
+      output += chunk;
     }
 
     const finalChunk = decoder.decode();
     if (finalChunk) {
-      fullOutput += finalChunk;
+      output += finalChunk;
     }
 
-    console.log("Full output:", fullOutput);
+    const styledOutput = `
+<span style="color: green;">Board Reset Successfully</span>
+-----------------------
+<pre style="color: yellow;">${output}</pre>
+    `;
 
-    if (fullOutput.includes("Command failed with return code 1")) {
+    setFullOutput(styledOutput);
+
+    if (output.includes("Command failed with return code 1")) {
       throw new Error("Command failed");
     }
 
@@ -83,6 +90,12 @@ const ResetIcon: React.FC = () => {
       })
       .catch((error) => {
         console.error("Error resetting board:", error);
+        const errorOutput = `
+<span style="color: red;">Error Resetting Board</span>
+-----------------------
+<pre style="color: red;">${error.message}</pre>
+        `;
+        setFullOutput(errorOutput);
         setErrorMessage("Command failed");
         setIsDialogOpen(true);
       })
@@ -105,6 +118,7 @@ const ResetIcon: React.FC = () => {
           variant="outline"
           size="icon"
           className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${buttonBackgroundColor} ${hoverButtonBackgroundColor}`}
+          onClick={() => setIsDialogOpen(true)} // Open dialog, don't trigger reset directly
         >
           {isLoading ? (
             <Spinner />
@@ -194,6 +208,19 @@ const ResetIcon: React.FC = () => {
               </ul>
             </AccordionContent>
           </AccordionItem>
+          {fullOutput && (
+            <AccordionItem value="output">
+              <AccordionTrigger className="text-md font-semibold">
+                Command Output
+              </AccordionTrigger>
+              <AccordionContent>
+                <div
+                  className="whitespace-pre-wrap text-sm mt-2"
+                  dangerouslySetInnerHTML={{ __html: fullOutput }} // Display styled HTML content
+                />
+              </AccordionContent>
+            </AccordionItem>
+          )}
         </Accordion>
         <DialogFooter className="mt-4 flex justify-end space-x-2">
           <Button
@@ -208,7 +235,7 @@ const ResetIcon: React.FC = () => {
             type="button"
             variant="outline"
             className="bg-red-600 text-white hover:bg-red-700"
-            onClick={resetBoard}
+            onClick={resetBoard} // Trigger reset when user confirms
           >
             Yes, Reset
           </Button>
