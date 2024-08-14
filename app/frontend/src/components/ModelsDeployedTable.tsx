@@ -23,8 +23,9 @@ import {
   handleRedeploy,
   handleChatUI,
 } from "../api/modelsDeployedApis";
-
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
+import { NoModelsDialog } from "./NoModelsDeployed";
+import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
 
 interface Model {
   id: string;
@@ -44,6 +45,7 @@ export function ModelsDeployedTable() {
   );
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
 
   useEffect(() => {
@@ -54,10 +56,16 @@ export function ModelsDeployedTable() {
       } catch (error) {
         console.error("Error fetching models:", error);
         customToast.error("Failed to fetch models.");
+      } finally {
+        setLoading(false);
       }
     };
 
-    loadModels();
+    const timer = setTimeout(() => {
+      loadModels();
+    }, 2000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   const handleDelete = async (modelId: string) => {
@@ -67,7 +75,13 @@ export function ModelsDeployedTable() {
     const deleteModelAsync = async () => {
       setLoadingModels((prev) => [...prev, modelId]);
       try {
-        await deleteModel(modelId);
+        const response = await deleteModel(modelId);
+
+        // Accessing the reset_response output correctly
+        const resetOutput =
+          response.reset_response?.output || "No reset output available";
+        console.log(`Reset Output in tsx: ${resetOutput}`);
+
         setFadingModels((prev) => [...prev, modelId]);
       } catch (error) {
         console.error("Error stopping the container:", error);
@@ -91,6 +105,14 @@ export function ModelsDeployedTable() {
     }, 3000);
     return () => clearTimeout(timer);
   }, [fadingModels]);
+
+  if (loading) {
+    return <ModelsDeployedSkeleton />;
+  }
+
+  if (modelsDeployed.length === 0) {
+    return <NoModelsDialog />;
+  }
 
   return (
     <Card
