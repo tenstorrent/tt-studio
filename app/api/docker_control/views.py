@@ -16,16 +16,6 @@ from shared_config.logger_config import get_logger
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
-
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-import subprocess
-import logging
-
-logger = logging.getLogger(__name__)
-
 class StopView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = StopSerializer(data=request.data)
@@ -85,12 +75,14 @@ class StopView(APIView):
             # Run the tt-smi reset command
             reset_result = stream_command_output(['tt-smi', '-r', '0'])
 
-            # Return the reset result
-            return reset_result
+            # Ensure a valid response is returned
+            return reset_result or {"status": "error", "output": "No output from reset command"}
 
         except Exception as e:
             logger.exception("Exception occurred during reset operation.")
             return {"status": "error", "message": str(e)}
+
+
 
 
 class ContainersView(APIView):
