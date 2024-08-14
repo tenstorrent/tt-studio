@@ -20,9 +20,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
-import { fetchModels, deleteModel } from "../api/modelsDeployedApis"; // Import necessary API functions
+import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
 
-const ResetIcon: React.FC = () => {
+interface ResetIconProps {
+  onReset?: () => void;
+}
+
+const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const { theme } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -42,7 +46,7 @@ const ResetIcon: React.FC = () => {
   const deleteAllModels = async (): Promise<void> => {
     try {
       const models = await fetchModels(); // Fetch all deployed models
-      console.log(":();  Models to delete:", models);
+      console.log("Models to delete:", models);
       for (const model of models) {
         await customToast.promise(deleteModel(model.id), {
           loading: `Deleting Model ID: ${model.id.substring(0, 4)}...`,
@@ -54,7 +58,7 @@ const ResetIcon: React.FC = () => {
         });
       }
     } catch (error) {
-      console.error("inside reset part :():  Error deleting models:", error);
+      console.error("Error deleting models:", error);
       throw new Error("Failed to delete all models.");
     }
   };
@@ -105,17 +109,21 @@ const ResetIcon: React.FC = () => {
     setIsDialogOpen(false);
 
     try {
-      await deleteAllModels(); // Delete all models before resetting the board
+      await deleteAllModels();
 
       await customToast.promise(resetBoardAsync(), {
         loading: "Resetting board...",
         success: "Board reset successfully!",
         error: "Failed to reset board.",
       });
+
+      if (onReset) {
+        console.log("Calling onReset prop function");
+        onReset();
+      }
     } catch (error) {
       console.error("Error resetting board:", error);
 
-      // Assert the error type to access its properties
       if (error instanceof Error) {
         const errorOutput = `
 <span style="color: red;">Error Resetting Board</span>
@@ -246,7 +254,7 @@ const ResetIcon: React.FC = () => {
               <AccordionContent>
                 <div
                   className="whitespace-pre-wrap text-sm mt-2"
-                  dangerouslySetInnerHTML={{ __html: fullOutput }} // Display styled HTML content
+                  dangerouslySetInnerHTML={{ __html: fullOutput }}
                 />
               </AccordionContent>
             </AccordionItem>
@@ -265,7 +273,7 @@ const ResetIcon: React.FC = () => {
             type="button"
             variant="outline"
             className="bg-red-600 text-white hover:bg-red-700"
-            onClick={resetBoard} // Trigger reset when user confirms
+            onClick={resetBoard}
           >
             Yes, Reset
           </Button>
