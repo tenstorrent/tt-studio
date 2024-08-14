@@ -84,6 +84,10 @@ export const deleteModel = async (modelId: string): Promise<void> => {
     if (response.data.status !== "success") {
       customToast.error("Failed to stop the container");
       throw new Error("Failed to stop the container");
+    } else {
+      customToast.success(
+        `Model ID: ${truncatedModelId} has been deleted successfully.`
+      );
     }
   } catch (error) {
     if (axios.isAxiosError(error)) {
