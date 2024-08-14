@@ -20,6 +20,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
+import { fetchModels, deleteModel } from "../api/modelsDeployedApis"; // Import necessary API functions
 
 const ResetIcon: React.FC = () => {
   const { theme } = useTheme();
@@ -36,6 +37,27 @@ const ResetIcon: React.FC = () => {
   const buttonBackgroundColor = theme === "dark" ? "bg-zinc-900" : "bg-white";
   const hoverButtonBackgroundColor =
     theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
+
+  // Function to delete all deployed models
+  const deleteAllModels = async (): Promise<void> => {
+    try {
+      const models = await fetchModels(); // Fetch all deployed models
+      console.log(":();  Models to delete:", models);
+      for (const model of models) {
+        await customToast.promise(deleteModel(model.id), {
+          loading: `Deleting Model ID: ${model.id.substring(0, 4)}...`,
+          success: `Model ID: ${model.id.substring(
+            0,
+            4
+          )} deleted successfully.`,
+          error: `Failed to delete Model ID: ${model.id.substring(0, 4)}.`,
+        });
+      }
+    } catch (error) {
+      console.error("inside reset part :():  Error deleting models:", error);
+      throw new Error("Failed to delete all models.");
+    }
+  };
 
   const resetBoardAsync = async (): Promise<void> => {
     const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
@@ -82,14 +104,19 @@ const ResetIcon: React.FC = () => {
     setErrorMessage(null);
     setIsDialogOpen(false);
 
-    customToast
-      .promise(resetBoardAsync(), {
+    try {
+      await deleteAllModels(); // Delete all models before resetting the board
+
+      await customToast.promise(resetBoardAsync(), {
         loading: "Resetting board...",
         success: "Board reset successfully!",
         error: "Failed to reset board.",
-      })
-      .catch((error) => {
-        console.error("Error resetting board:", error);
+      });
+    } catch (error) {
+      console.error("Error resetting board:", error);
+
+      // Assert the error type to access its properties
+      if (error instanceof Error) {
         const errorOutput = `
 <span style="color: red;">Error Resetting Board</span>
 -----------------------
@@ -97,11 +124,14 @@ const ResetIcon: React.FC = () => {
         `;
         setFullOutput(errorOutput);
         setErrorMessage("Command failed");
-        setIsDialogOpen(true);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
+      } else {
+        setErrorMessage("An unknown error occurred");
+      }
+
+      setIsDialogOpen(true);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDialogOpenChange = (isOpen: boolean) => {
