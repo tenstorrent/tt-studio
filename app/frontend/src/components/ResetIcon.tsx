@@ -20,6 +20,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
+import { ScrollArea } from "./ui/scroll-area";
 import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
 
 interface ResetIconProps {
@@ -88,7 +89,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     const styledOutput = `
 <span style="color: green;">Board Reset Successfully</span>
 -----------------------
-<pre style="color: yellow;">${output}</pre>
+<pre style="color: yellow; white-space: pre-wrap;">${output}</pre>
     `;
 
     setFullOutput(styledOutput);
@@ -252,10 +253,12 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
                 Command Output
               </AccordionTrigger>
               <AccordionContent>
-                <div
-                  className="whitespace-pre-wrap text-sm mt-2"
-                  dangerouslySetInnerHTML={{ __html: fullOutput }}
-                />
+                <ScrollArea className="h-48 w-full overflow-auto rounded-md border">
+                  <div
+                    className="text-sm mt-2 px-2 py-1 whitespace-pre-wrap bg-zinc-800 text-green-500 rounded-md"
+                    dangerouslySetInnerHTML={{ __html: fullOutput }}
+                  />
+                </ScrollArea>
               </AccordionContent>
             </AccordionItem>
           )}
