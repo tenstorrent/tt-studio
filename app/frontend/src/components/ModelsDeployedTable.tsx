@@ -26,6 +26,7 @@ import {
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { NoModelsDialog } from "./NoModelsDeployed";
 import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
+import { useRefresh } from "../providers/RefreshContext";
 
 interface Model {
   id: string;
@@ -40,6 +41,7 @@ const initialModelsDeployed: Model[] = [];
 
 export function ModelsDeployedTable() {
   const navigate = useNavigate();
+  const { refreshTrigger } = useRefresh(); // Access the refreshTrigger state
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>(
     initialModelsDeployed
   );
@@ -48,25 +50,26 @@ export function ModelsDeployedTable() {
   const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
 
+  const loadModels = async () => {
+    try {
+      const models = await fetchModels();
+      setModelsDeployed(models);
+    } catch (error) {
+      console.error("Error fetching models:", error);
+      customToast.error("Failed to fetch models.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadModels = async () => {
-      try {
-        const models = await fetchModels();
-        setModelsDeployed(models);
-      } catch (error) {
-        console.error("Error fetching models:", error);
-        customToast.error("Failed to fetch models.");
-      } finally {
-        setLoading(false);
-      }
-    };
+    loadModels();
 
-    const timer = setTimeout(() => {
+    // Reload models whenever refreshTrigger changes
+    if (refreshTrigger > 0) {
       loadModels();
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, []);
+    }
+  }, [refreshTrigger]);
 
   const handleDelete = async (modelId: string) => {
     console.log(`Delete button clicked for model ID: ${modelId}`);
@@ -111,7 +114,7 @@ export function ModelsDeployedTable() {
   }
 
   if (modelsDeployed.length === 0) {
-    return <NoModelsDialog />;
+    return <NoModelsDialog messageKey="reset" />;
   }
 
   return (

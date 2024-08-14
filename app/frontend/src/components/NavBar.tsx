@@ -20,12 +20,13 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 import Sidebar from "./SideBar";
+import { useRefresh } from "../providers/RefreshContext";
 
 const NavBar: React.FC = () => {
   const { theme } = useTheme();
   const location = useLocation();
   const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
-
+  const { triggerRefresh } = useRefresh();
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const hoverTextColor =
@@ -44,6 +45,10 @@ const NavBar: React.FC = () => {
     if (sidebarRef.current) {
       sidebarRef.current.toggleSidebar();
     }
+  };
+
+  const handleReset = () => {
+    triggerRefresh();
   };
 
   const isChatUI = location.pathname === "/chat-ui";
@@ -103,8 +108,8 @@ const NavBar: React.FC = () => {
                   to="/"
                   className={({ isActive }) => navLinkClass(isActive)}
                 >
-                  <Home className={`mr-0 ${iconColor}`} />
-                  {!isChatUI && <span>Home</span>}
+                  <Home className={`mr-2 sm:mr-0 ${iconColor}`} />
+                  {!isChatUI && <span className="ml-2 sm:ml-0">Home</span>}
                 </NavLink>
               </NavigationMenuItem>
               {!isChatUI && (
@@ -120,8 +125,10 @@ const NavBar: React.FC = () => {
                   to="/models-deployed"
                   className={({ isActive }) => navLinkClass(isActive)}
                 >
-                  <BrainCog className={`mr-0 ${iconColor}`} />
-                  {!isChatUI && <span>Models Deployed</span>}
+                  <BrainCog className={`mr-2 sm:mr-0 ${iconColor}`} />
+                  {!isChatUI && (
+                    <span className="ml-2 sm:ml-0">Models Deployed</span>
+                  )}
                 </NavLink>
               </NavigationMenuItem>
               {isChatUI && (
@@ -132,7 +139,7 @@ const NavBar: React.FC = () => {
                     to="/chat-ui"
                     className={({ isActive }) => navLinkClass(isActive)}
                   >
-                    <BotMessageSquare className={`mr-0 ${iconColor}`} />
+                    <BotMessageSquare className={`mr-2 sm:mr-0 ${iconColor}`} />
                   </NavLink>
                 </NavigationMenuItem>
               )}
@@ -165,7 +172,7 @@ const NavBar: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <div>
-                <ResetIcon />
+                <ResetIcon onReset={handleReset} /> {/* Pass the handler */}
               </div>
             </TooltipTrigger>
             <TooltipContent>
