@@ -6,7 +6,7 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, BrainCog, BotMessageSquare } from "lucide-react"; // Import BotMessageSquare
+import { Home, BrainCog, BotMessageSquare } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -48,7 +48,7 @@ export default function NavBar() {
       } bg-secondary shadow-xl z-50`}
     >
       <div
-        className={`font-tt_a_mono flex ${
+        className={`font-tt_headlines flex ${
           isChatUI ? "flex-col items-center" : "items-center justify-between"
         } w-full px-4 py-2 sm:px-5 sm:py-3`}
       >
@@ -67,7 +67,7 @@ export default function NavBar() {
           />
           {!isChatUI && (
             <h4
-              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
+              className={`hidden sm:block text-lg sm:text-2xl font-degularText font-Semibold ${textColor} ml-3 `}
             >
               LLM Studio
             </h4>

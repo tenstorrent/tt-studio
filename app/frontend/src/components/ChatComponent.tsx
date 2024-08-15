@@ -203,7 +203,7 @@ const ChatComponent: React.FC = () => {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <div className="flex flex-col w-full h-full p-8">
+        <div className="flex flex-col w-full h-full p-8 font-rmMono">
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
               <img
@@ -211,7 +211,7 @@ const ChatComponent: React.FC = () => {
                 alt="Tenstorrent Logo"
                 className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
               />
-              <p className="text-gray-500 pt-10">
+              <p className="text-gray-500 pt-9 font-rmMono">
                 Start a conversation with LLM Studio Chat...
               </p>
               <div className="mt-4">
@@ -316,7 +316,7 @@ const ChatComponent: React.FC = () => {
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder="Enter text for inference"
-              className="px-4 py-2 border rounded-lg shadow-md w-full pr-12"
+              className="px-4 py-2 border rounded-lg shadow-md w-full pr-12 font-rmMono"
               disabled={isStreaming}
               rows={4}
             />
