@@ -65,9 +65,9 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", ...fontFamily.sans],
-        mono: ["Roboto Mono", "monospace"],
-        tt_a_mono: ["Akkurat-Mono", "Akkurat-Mono"],
+        degularDisplay: ["Degular Display"],
+        degularText: ["Degular Text"],
+        rmMono: ["RM Mono"],
       },
       keyframes: {
         "accordion-down": {
