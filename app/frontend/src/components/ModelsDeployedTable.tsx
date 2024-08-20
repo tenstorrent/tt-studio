@@ -92,6 +92,7 @@ export function ModelsDeployedTable() {
     return () => clearTimeout(timer);
   }, [fadingModels]);
 
+  console.log("theme:", theme);
   return (
     <Card
       className={
@@ -106,13 +107,7 @@ export function ModelsDeployedTable() {
       <ScrollArea className="whitespace-nowrap rounded-md border">
         <CustomToaster />
         <Table className="rounded-lg">
-          <TableCaption
-            className={`${
-              theme === "dark"
-                ? "text-zinc-400 rounded-lg"
-                : "text-gray-500 rounded-lg"
-            }`}
-          >
+          <TableCaption className="text-TT-black dark:text-TT-white text-xl">
             Models Deployed
           </TableCaption>
           <TableHeader>
@@ -218,7 +213,10 @@ export function ModelsDeployedTable() {
             ))}
           </TableBody>
         </Table>
-        <ScrollBar orientation="horizontal" />
+        <ScrollBar
+          className="scrollbar-thumb-rounded scrollbar-track-rounded scrollbar-thumb-TT-purple scrollbar-track-TT-slate dark:scrollbar-thumb-TT-white dark:scrollbar-track-TT-black"
+          orientation="horizontal"
+        />
       </ScrollArea>
     </Card>
   );
