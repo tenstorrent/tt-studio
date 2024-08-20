@@ -27,7 +27,7 @@ export default function NavBar() {
   const getNavLinkClass = (isActive: boolean) =>
     `${navLinkClass} ${
       isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
-    } ${hoverTextColor} ${hoverBackgroundColor}`;
+    } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
 
   const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
 
@@ -43,12 +43,12 @@ export default function NavBar() {
     <div
       className={`${
         isChatUI
-          ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center"
-          : "relative w-full"
-      } bg-secondary shadow-xl z-50`}
+          ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark"
+          : "relative w-full dark:border-b-4 dark:border-TT-dark"
+      } border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50`}
     >
       <div
-        className={`font-tt_headlines flex ${
+        className={`font-tt_a_mono flex ${
           isChatUI ? "flex-col items-center" : "items-center justify-between"
         } w-full px-4 py-2 sm:px-5 sm:py-3`}
       >
@@ -67,7 +67,7 @@ export default function NavBar() {
           />
           {!isChatUI && (
             <h4
-              className={`hidden sm:block text-lg sm:text-2xl font-degularText font-Semibold ${textColor} ml-3 `}
+              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
             >
               LLM Studio
             </h4>
@@ -97,7 +97,7 @@ export default function NavBar() {
               />
             )}
             <NavigationMenuItem
-              className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              className={`${isChatUI ? "w-full flex justify=center" : ""}`}
             >
               <NavLink
                 to="/models-deployed"
