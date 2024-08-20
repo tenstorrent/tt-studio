@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# 
+#
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
+FROM python:3.12.5-slim-bookworm
 
 FROM python:3.12.1-slim-bullseye
 ENV PYTHONUNBUFFERED=1
@@ -8,15 +10,18 @@ EXPOSE 8000
 
 # debug tools
 RUN apt-get update && \
-    apt-get install -y \
-    procps \
-    net-tools \
-    iputils-ping \
-    dnsutils && \   
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y \
+  procps \
+  net-tools \
+  iputils-ping \
+  python3-dev \
+  build-essential \
+  libsqlite3-dev \
+  dnsutils && \
+  rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && \
-    apt-get install -y \ 
+    apt-get install -y \
     git \
     curl \
     cargo   
