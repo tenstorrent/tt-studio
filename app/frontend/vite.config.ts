@@ -10,6 +10,7 @@ const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {
   "docker-api": "docker",
   "models-api": "models",
   "app-api": "app",
+  "collections-api": "collections",
 };
 
 const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
