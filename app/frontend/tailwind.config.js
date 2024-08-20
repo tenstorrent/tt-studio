@@ -38,6 +38,67 @@ export default {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
         },
+        TT: {
+          purple: {
+            DEFAULT: "#BCB3F7", // Primary Purple
+            accent: "#7C68FA", // Tens Purple
+            tint1: "#D0C6FF", // Purple Tint 1 (+)
+            tint2: "#E2DEFC", // Purple Tint 2 (++)
+            shade: "#4B456E", // Purple Shade (-)
+          },
+          red: {
+            DEFAULT: "#FF9E8A", // Primary Red
+            accent: "#FA512E", // Red Accent
+            tint1: "#EAB1A5", // Red Tint 1 (+)
+            tint2: "#F4D8D2", // Red Tint 2 (++)
+            shade: "#BD2914", // Red Shade (-)
+          },
+          blue: {
+            DEFAULT: "#7584E6", // Primary Blue
+            accent: "#5164E0", // Blue Accent
+            tint1: "#9CABF2", // Blue Tint 1 (+)
+            tint2: "#CCD2F9", // Blue Tint 2 (++)
+            shade: "#252C5B", // Blue Shade (-)
+          },
+          yellow: {
+            DEFAULT: "#F6BC42", // Primary Yellow
+            accent: "#C2A261", // Yellow Accent
+            tint1: "#F9D08E", // Yellow Tint 1 (+)
+            tint2: "#F5E2BA", // Yellow Tint 2 (++)
+            shade: "#B87039", // Yellow Shade (-)
+          },
+          teal: {
+            DEFAULT: "#74C5DF", // Primary Teal
+            accent: "#3E87DE", // Teal Accent
+            tint1: "#90DBF0", // Teal Tint 1 (+)
+            tint2: "#C7F1FF", // Teal Tint 2 (++)
+            shade: "#0D4D62", // Teal Shade (-)
+          },
+          green: {
+            DEFAULT: "#6FABA0", // Primary Green
+            accent: "#608C84", // Green Accent
+            tint1: "#92C9BF", // Green Tint 1 (+)
+            tint2: "#C7EFE8", // Green Tint 2 (++)
+            shade: "#103525", // Green Shade (-)
+          },
+          sand: {
+            DEFAULT: "#CDC2A6", // Primary Sand
+            accent: "#A2987A", // Sand Accent
+            tint1: "#E5D7B5", // Sand Tint 1 (+)
+            tint2: "#EEEAE0", // Sand Tint 2 (++)
+            shade: "#3A3433", // Sand Shade (-)
+          },
+          slate: {
+            DEFAULT: "#737999", // Primary Slate
+            accent: "#606891", // Slate Accent
+            tint1: "#97DDBD", // Slate Tint 1 (+)
+            tint2: "#EDEFF9", // Slate Tint 2 (++)
+            shade: "#10163G", // Slate Shade (-)
+          },
+          black: "#202020", // Black
+          white: "#FFFFFF", // White
+        },
+        // Other color schemes
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
