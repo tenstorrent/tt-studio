@@ -184,11 +184,7 @@ export function ModelsDeployedTable() {
                         ) : (
                           <Button
                             onClick={() => handleDelete(model.id)}
-                            className={`${
-                              theme === "dark"
-                                ? "bg-red-700 hover:bg-red-600 text-white"
-                                : "bg-red-500 hover:bg-red-400 text-black"
-                            } rounded-lg`}
+                            className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg"
                           >
                             Delete
                           </Button>
@@ -197,11 +193,7 @@ export function ModelsDeployedTable() {
                           onClick={() =>
                             handleChatUI(model.id, model.name, navigate)
                           }
-                          className={`${
-                            theme === "dark"
-                              ? "bg-blue-500 hover:bg-blue-400 text-white"
-                              : "bg-blue-500 hover:bg-blue-400 text-white"
-                          } rounded-lg`}
+                          className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
                         >
                           ChatUI
                         </Button>
@@ -214,7 +206,7 @@ export function ModelsDeployedTable() {
           </TableBody>
         </Table>
         <ScrollBar
-          className="scrollbar-thumb-rounded scrollbar-track-rounded scrollbar-thumb-TT-purple scrollbar-track-TT-slate dark:scrollbar-thumb-TT-white dark:scrollbar-track-TT-black"
+          className="scrollbar-thumb-rounded "
           orientation="horizontal"
         />
       </ScrollArea>
