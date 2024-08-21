@@ -10,10 +10,8 @@ const HomePage = () => {
             maskImage:
               "radial-gradient(ellipse at center, transparent 45%, black 100%)",
           }}
-        ></div>{" "}
-        {/* <div className=" flex flex-grow justify-center items-center w-full h-screen border-2 border-rose-500"> */}
+        ></div>
         <StepperDemo />
-        {/* </div> */}
       </div>
     </>
   );
