@@ -303,33 +303,31 @@ const ChatComponent: React.FC = () => {
                 {chatHistory.map((message, index) => (
                   <div
                     key={index}
-                    className={`flex ${
-                      message.sender === "user"
-                        ? "justify-end"
-                        : "justify-start"
+                    className={`chat ${
+                      message.sender === "user" ? "chat-end" : "chat-start"
                     }`}
                   >
+                    <div className="chat-image avatar text-left">
+                      <div className="w-10 rounded-full">
+                        {message.sender === "user" ? (
+                          <User className="h-6 w-6 mr-2 text-left" />
+                        ) : (
+                          <img
+                            src={logo}
+                            alt="Tenstorrent Logo"
+                            className="w-8 h-8 rounded-full mr-2"
+                          />
+                        )}
+                      </div>
+                    </div>
                     <div
-                      className={`flex items-center max-w-[80%] text-left p-2 rounded-lg mb-2 ${
+                      className={`chat-bubble ${
                         message.sender === "user"
-                          ? "bg-green-600 text-white break-words"
-                          : "bg-gray-700 text-gray-300 break-words"
+                          ? "bg-TT-green-accent text-white text-left"
+                          : "bg-TT-slate text-white text-left"
                       }`}
-                      style={{ wordBreak: "break-word" }}
                     >
-                      {message.sender === "user" ? (
-                        <User
-                          className="h-6 w-6 mr-2 text-left"
-                          color="white"
-                        />
-                      ) : (
-                        <img
-                          src={logo}
-                          alt="Tenstorrent Logo"
-                          className="w-8 h-8 rounded-full mr-2"
-                        />
-                      )}
-                      <div>{message.text}</div>
+                      {message.text}
                     </div>
                   </div>
                 ))}
