@@ -86,7 +86,9 @@ export default function NavBar() {
                 to="/"
                 className={({ isActive }) => getNavLinkClass(isActive)}
               >
-                <Home className={`mr-0 ${textColor}`} />
+                <Home
+                  className={`mr-2 ${textColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                />
                 {!isChatUI && <span>Home</span>}
               </NavLink>
             </NavigationMenuItem>
@@ -97,13 +99,15 @@ export default function NavBar() {
               />
             )}
             <NavigationMenuItem
-              className={`${isChatUI ? "w-full flex justify=center" : ""}`}
+              className={`${isChatUI ? "w-full flex justify-center" : ""}`}
             >
               <NavLink
                 to="/models-deployed"
                 className={({ isActive }) => getNavLinkClass(isActive)}
               >
-                <BrainCog className={`mr-0 ${textColor}`} />
+                <BrainCog
+                  className={`mr-2 ${textColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                />
                 {!isChatUI && <span>Models Deployed</span>}
               </NavLink>
             </NavigationMenuItem>
@@ -115,7 +119,9 @@ export default function NavBar() {
                   to="/chat-ui"
                   className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <BotMessageSquare className={`mr-0 ${textColor}`} />
+                  <BotMessageSquare
+                    className={`mr-2 ${textColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                  />
                 </NavLink>
               </NavigationMenuItem>
             )}
