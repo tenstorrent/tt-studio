@@ -348,19 +348,23 @@ const ChatComponent: React.FC = () => {
               disabled={isStreaming}
               rows={4}
             />
-            <Button
-              className="absolute right-2 top-2/4 transform -translate-y-2/4"
-              onClick={handleInference}
-              disabled={isStreaming}
-            >
-              {isStreaming ? (
-                <div className="h-5 w-5">
-                  <Spinner />
+            <div className="absolute right-2 top-2/4 transform -translate-y-2/4">
+              <kbd
+                className="kbd kbd-lg cursor-pointer bg-gray-800 dark:bg-gray-700 text-white dark:text-gray-300 border border-gray-600 rounded-lg flex items-center justify-center"
+                style={{ padding: "0.5rem 0.75rem", minWidth: "4rem" }}
+              >
+                <div className="flex items-center justify-center space-x-2">
+                  {isStreaming ? (
+                    <Spinner />
+                  ) : (
+                    <div className="flex items-center space-x-1">
+                      <CircleArrowUp className="h-5 w-5 text-gray-300" />
+                      <span className="text-sm">Enter</span>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <CircleArrowUp className="h-6 w-6" />
-              )}
-            </Button>
+              </kbd>
+            </div>
           </div>
         </div>
       </Card>
