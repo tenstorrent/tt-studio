@@ -32,6 +32,8 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
+import { fetchModels } from "../api/modelsDeployedApis";
+
 interface InferenceRequest {
   deploy_id: string;
   text: string;
@@ -40,6 +42,11 @@ interface InferenceRequest {
 interface ChatMessage {
   sender: "user" | "assistant";
   text: string;
+}
+
+interface Model {
+  id: string;
+  name: string;
 }
 
 const modelAPIURL = "/models-api/";
@@ -56,12 +63,24 @@ const ChatComponent: React.FC = () => {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
+  const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]); // State for deployed models
 
   useEffect(() => {
     if (location.state) {
       setModelID(location.state.containerID);
       setModelName(location.state.modelName);
     }
+
+    const loadModels = async () => {
+      try {
+        const models = await fetchModels();
+        setModelsDeployed(models);
+      } catch (error) {
+        console.error("Error fetching models:", error);
+      }
+    };
+
+    loadModels(); // Load models on component mount
   }, [location.state]);
 
   console.log("Model ID:", modelID, "Model Name:", modelName);
@@ -173,36 +192,52 @@ const ChatComponent: React.FC = () => {
   return (
     <div className="flex flex-col overflow-auto w-10/12 mx-auto">
       <Card className="flex flex-col w-full h-full">
-        <Breadcrumb className="border-b-2 border-gray-200 dark:border-gray-700 mb-4 bg-white dark:bg-gray-900 rounded-t-2xl shadow-lg dark:shadow-2xl p-6 text-xl text-black dark:text-white">
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink
-                href="/models-deployed"
-                className="text-black dark:text-white hover:text-blue-500 dark:hover:text-blue-400"
-              >
-                Models Deployed
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-1">
-                  <BreadcrumbEllipsis className="h-4 w-4" />
-                  <span className="sr-only">Toggle menu</span>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem>Model 1</DropdownMenuItem>
-                  <DropdownMenuItem>Model 2</DropdownMenuItem>
-                  <DropdownMenuItem>Model 3</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>{modelName}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+        <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-6 shadow-lg dark:shadow-2xl">
+          <Breadcrumb className="flex items-center">
+            <BreadcrumbList className="flex gap-4 text-lg">
+              <BreadcrumbItem>
+                <BreadcrumbLink
+                  href="/models-deployed"
+                  className="text-gray-600 dark:text-gray-200 hover:text-gray-800 dark:hover:text-white transition-colors duration-300"
+                >
+                  Models Deployed
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="mx-4 text-gray-400">
+                /
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
+                    <BreadcrumbEllipsis className="h-5 w-5 text-gray-600 dark:text-blue-400" />
+                    <span className="sr-only">Toggle menu</span>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {modelsDeployed.map((model) => (
+                      <DropdownMenuItem
+                        key={model.id}
+                        onClick={() => {
+                          setModelID(model.id);
+                          setModelName(model.name);
+                        }}
+                      >
+                        {model.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="mx-4 text-gray-400">
+                /
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300">
+                  {modelName}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
         <div className="flex flex-col w-full h-full p-8 font-rmMono">
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
