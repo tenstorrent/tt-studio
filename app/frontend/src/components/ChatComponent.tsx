@@ -4,13 +4,12 @@ import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-import { useTheme } from "../providers/ThemeProvider";
 import {
+  MessageCircle,
   Smile,
-  Sun,
+  CloudSun,
+  Lightbulb,
   User,
-  Angry,
-  DollarSign,
   CircleArrowUp,
   ChevronDown,
 } from "lucide-react";
@@ -53,7 +52,6 @@ const modelAPIURL = "/models-api/";
 const inferenceUrl = `${modelAPIURL}/inference/`;
 
 const ChatComponent: React.FC = () => {
-  const { theme } = useTheme();
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -63,8 +61,7 @@ const ChatComponent: React.FC = () => {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
-  const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]); // State for deployed models
-
+  const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
   useEffect(() => {
     if (location.state) {
       setModelID(location.state.containerID);
@@ -168,11 +165,11 @@ const ChatComponent: React.FC = () => {
       text: textInput,
     };
 
-    if (textInput === "When will Tenstorrent out sell Nvidia?") {
+    if (textInput === "Tell me a fun fact.") {
       setChatHistory((prevHistory) => [
         ...prevHistory,
         { sender: "user", text: textInput },
-        { sender: "assistant", text: "2024, that was a silly question." },
+        { sender: "assistant", text: "Did you know? Honey never spoils." },
       ]);
       setTextInput("");
       scrollToBottom();
@@ -255,7 +252,7 @@ const ChatComponent: React.FC = () => {
                     className="border border-gray-300 p-4 flex flex-col items-center cursor-pointer rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("Hello, how are you today?")}
                   >
-                    <Smile className="h-6 w-6 mb-2" color="#3b82f6" />
+                    <MessageCircle className="h-6 w-6 mb-2" color="#3b82f6" />
                     <span className="dark:text-gray-300">
                       Hello, how are you today?
                     </span>
@@ -264,7 +261,7 @@ const ChatComponent: React.FC = () => {
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("Can you tell me a joke?")}
                   >
-                    <Angry className="h-6 w-6 mb-2" color="#be123c" />
+                    <Smile className="h-6 w-6 mb-2" color="#be123c" />
                     <span className="dark:text-gray-300">
                       Can you tell me a joke?
                     </span>
@@ -273,20 +270,18 @@ const ChatComponent: React.FC = () => {
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
                     onClick={() => setTextInput("What's the weather like?")}
                   >
-                    <Sun className="h-6 w-6 mb-2" color="#eab308" />
+                    <CloudSun className="h-6 w-6 mb-2" color="#eab308" />
                     <span className="dark:text-gray-300">
                       What's the weather like?
                     </span>
                   </Card>
                   <Card
                     className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-500"
-                    onClick={() =>
-                      setTextInput("When will Tenstorrent out sell Nvidia?")
-                    }
+                    onClick={() => setTextInput("Tell me a fun fact.")}
                   >
-                    <DollarSign className="h-6 w-6 mb-2" color="#22c55e" />
+                    <Lightbulb className="h-6 w-6 mb-2" color="#22c55e" />
                     <span className="dark:text-gray-300">
-                      When will Tenstorrent out sell Nvidia?
+                      Tell me a fun fact.
                     </span>
                   </Card>
                 </div>
