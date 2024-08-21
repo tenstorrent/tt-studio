@@ -8,10 +8,10 @@ const ModelsDeployed = () => {
         className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
         style={{
           maskImage:
-            "radial-gradient(ellipse at center, transparent 20%, black 100%)",
+            "radial-gradient(ellipse at center, transparent 65%, black 100%)",
         }}
       ></div>
-      <div className="flex flex-col h-screen w-full md:px-20 pt-8 pb-28 overflow-hidden">
+      <div className="flex flex-col h-screen w-full md:px-20 pt-12 pb-28 overflow-hidden">
         <ModelsDeployedTable />
       </div>
     </div>
