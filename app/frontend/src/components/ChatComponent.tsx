@@ -10,7 +10,6 @@ import {
   CloudSun,
   Lightbulb,
   User,
-  CircleArrowUp,
   ChevronDown,
 } from "lucide-react";
 import { Textarea } from "./ui/textarea";
@@ -30,7 +29,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-
 import { fetchModels } from "../api/modelsDeployedApis";
 
 interface InferenceRequest {
@@ -48,9 +46,6 @@ interface Model {
   name: string;
 }
 
-const modelAPIURL = "/models-api/";
-const inferenceUrl = `${modelAPIURL}/inference/`;
-
 const ChatComponent: React.FC = () => {
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
@@ -62,6 +57,7 @@ const ChatComponent: React.FC = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
+
   useEffect(() => {
     if (location.state) {
       setModelID(location.state.containerID);
@@ -77,10 +73,8 @@ const ChatComponent: React.FC = () => {
       }
     };
 
-    loadModels(); // Load models on component mount
+    loadModels();
   }, [location.state]);
-
-  console.log("Model ID:", modelID, "Model Name:", modelName);
 
   const scrollToBottom = () => {
     if (bottomRef.current) {
@@ -104,7 +98,7 @@ const ChatComponent: React.FC = () => {
   const runInference = async (request: InferenceRequest) => {
     try {
       setIsStreaming(true);
-      const response = await fetch(inferenceUrl, {
+      const response = await fetch(`/models-api/inference/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -348,9 +342,12 @@ const ChatComponent: React.FC = () => {
               disabled={isStreaming}
               rows={4}
             />
-            <div className="absolute right-2 top-2/4 transform -translate-y-2/4">
+            <div
+              className="absolute right-2 top-2/4 transform -translate-y-2/4 cursor-pointer"
+              onClick={handleInference} // Fixing the button to trigger the inference on click
+            >
               <kbd
-                className="kbd kbd-lg cursor-pointer bg-gray-800 dark:bg-gray-700 text-white dark:text-gray-300 border border-gray-600 rounded-lg flex items-center justify-center"
+                className="kbd kbd-lg bg-gray-800 dark:bg-gray-700 text-white dark:text-gray-300 border border-gray-600 rounded-lg flex items-center justify-center"
                 style={{ padding: "0.5rem 0.75rem", minWidth: "4rem" }}
               >
                 <div className="flex items-center justify-center space-x-2">
@@ -358,7 +355,7 @@ const ChatComponent: React.FC = () => {
                     <Spinner />
                   ) : (
                     <div className="flex items-center space-x-1">
-                      <CircleArrowUp className="h-5 w-5 text-gray-300" />
+                      <ChevronDown className="h-5 w-5 text-gray-300" />
                       <span className="text-sm">Enter</span>
                     </div>
                   )}
