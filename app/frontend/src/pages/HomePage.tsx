@@ -11,7 +11,9 @@ const HomePage = () => {
               "radial-gradient(ellipse at center, transparent 45%, black 100%)",
           }}
         ></div>
-        <StepperDemo />
+        <div className="flex flex-grow justify-center items-center w-full h-screen">
+          <StepperDemo />
+        </div>
       </div>
     </>
   );

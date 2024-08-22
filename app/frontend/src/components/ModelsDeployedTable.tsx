@@ -23,8 +23,10 @@ import {
   handleRedeploy,
   handleChatUI,
 } from "../api/modelsDeployedApis";
-
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
+import { NoModelsDialog } from "./NoModelsDeployed";
+import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
+import { useRefresh } from "../providers/RefreshContext";
 
 interface Model {
   id: string;
@@ -39,26 +41,35 @@ const initialModelsDeployed: Model[] = [];
 
 export function ModelsDeployedTable() {
   const navigate = useNavigate();
+  const { refreshTrigger } = useRefresh(); // Access the refreshTrigger state
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>(
     initialModelsDeployed
   );
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
 
-  useEffect(() => {
-    const loadModels = async () => {
-      try {
-        const models = await fetchModels();
-        setModelsDeployed(models);
-      } catch (error) {
-        console.error("Error fetching models:", error);
-        customToast.error("Failed to fetch models.");
-      }
-    };
+  const loadModels = async () => {
+    try {
+      const models = await fetchModels();
+      setModelsDeployed(models);
+    } catch (error) {
+      console.error("Error fetching models:", error);
+      customToast.error("Failed to fetch models.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     loadModels();
-  }, []);
+
+    // Reload models whenever refreshTrigger changes
+    if (refreshTrigger > 0) {
+      loadModels();
+    }
+  }, [refreshTrigger]);
 
   const handleDelete = async (modelId: string) => {
     console.log(`Delete button clicked for model ID: ${modelId}`);
@@ -67,7 +78,13 @@ export function ModelsDeployedTable() {
     const deleteModelAsync = async () => {
       setLoadingModels((prev) => [...prev, modelId]);
       try {
-        await deleteModel(modelId);
+        const response = await deleteModel(modelId);
+
+        // Accessing the reset_response output correctly
+        const resetOutput =
+          response.reset_response?.output || "No reset output available";
+        console.log(`Reset Output in tsx: ${resetOutput}`);
+
         setFadingModels((prev) => [...prev, modelId]);
       } catch (error) {
         console.error("Error stopping the container:", error);
@@ -91,6 +108,14 @@ export function ModelsDeployedTable() {
     }, 3000);
     return () => clearTimeout(timer);
   }, [fadingModels]);
+
+  if (loading) {
+    return <ModelsDeployedSkeleton />;
+  }
+
+  if (modelsDeployed.length === 0) {
+    return <NoModelsDialog messageKey="reset" />;
+  }
 
   return (
     <Card>

@@ -22,4 +22,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("docker/", include("docker_control.urls")),
     path("models/", include("model_control.urls")),
+    path('reset_board/', include('docker_control.urls')),
 ]

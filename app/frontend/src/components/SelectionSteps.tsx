@@ -209,9 +209,8 @@ export default function StepperDemo() {
                 return null;
             }
           })}
-          {/* bottom footer */}
-          <div className="py-12 ">
-            <StepperFooter removeDynamicSteps={removeDynamicSteps} />
+          <div className="py-12">
+            <MyStepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>
         </Stepper>
       </Card>
