@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useEffect, useState, useRef } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
@@ -116,31 +118,34 @@ const ChatComponent: React.FC = () => {
 
       let result = "";
       if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        let done = false;
+        while (!done) {
+          const { done: streamDone, value } = await reader.read();
+          done = streamDone;
 
-          const decoder = new TextDecoder();
-          const chunk = decoder.decode(value);
-          result += chunk;
-          const cleanedResult = result.replace(/<\|endoftext\|>/g, "");
-          setChatHistory((prevHistory) => {
-            const lastMessage = prevHistory[prevHistory.length - 1];
-            if (lastMessage && lastMessage.sender === "assistant") {
-              const updatedHistory = [...prevHistory];
-              updatedHistory[updatedHistory.length - 1] = {
-                ...lastMessage,
-                text: cleanedResult,
-              };
-              return updatedHistory;
-            } else {
-              return [
-                ...prevHistory,
-                { sender: "assistant", text: cleanedResult },
-              ];
-            }
-          });
-          scrollToBottom();
+          if (value) {
+            const decoder = new TextDecoder();
+            const chunk = decoder.decode(value);
+            result += chunk;
+            const cleanedResult = result.replace(/<\|endoftext\|>/g, "");
+            setChatHistory((prevHistory) => {
+              const lastMessage = prevHistory[prevHistory.length - 1];
+              if (lastMessage && lastMessage.sender === "assistant") {
+                const updatedHistory = [...prevHistory];
+                updatedHistory[updatedHistory.length - 1] = {
+                  ...lastMessage,
+                  text: cleanedResult,
+                };
+                return updatedHistory;
+              } else {
+                return [
+                  ...prevHistory,
+                  { sender: "assistant", text: cleanedResult },
+                ];
+              }
+            });
+            scrollToBottom();
+          }
         }
       }
 

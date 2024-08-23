@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useMemo, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import logo from "../assets/tt_logo.svg";
@@ -10,7 +12,7 @@ import { Home, BrainCog, BotMessageSquare } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
-import useCommonClasses from "../theme/commonThemeClasses";
+// import useCommonClasses from "../theme/commonThemeClasses";
 import Sidebar from "./SideBar";
 import { useTheme } from "../providers/ThemeProvider";
 import ResetIcon from "./ResetIcon";
@@ -41,7 +43,7 @@ export default function NavBar() {
   const navLinkClass = useMemo(
     () =>
       `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
-    [textColor]
+    [textColor],
   );
 
   const getNavLinkClass = (isActive: boolean) =>
