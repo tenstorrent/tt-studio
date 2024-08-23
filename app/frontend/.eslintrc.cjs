@@ -6,7 +6,7 @@ module.exports = {
     "plugin:@typescript-eslint/recommended",
     "plugin:react-hooks/recommended",
   ],
-  ignorePatterns: ["dist", ".eslintrc.cjs"],
+  ignorePatterns: ["dist", ".eslintrc.cjs", "vite-env.d.ts"],
   parser: "@typescript-eslint/parser",
   plugins: ["react-refresh", "header"],
   rules: {
@@ -18,8 +18,8 @@ module.exports = {
       "error",
       "line",
       [
-        "# SPDX-License-Identifier: Apache-2.0",
-        "# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC",
+        "SPDX-License-Identifier: Apache-2.0",
+        "SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC",
       ],
     ],
   },
