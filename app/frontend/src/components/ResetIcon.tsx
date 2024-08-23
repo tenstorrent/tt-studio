@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useState } from "react";
 import axios from "axios";
 import { Cpu, CheckCircle, AlertTriangle } from "lucide-react";
@@ -53,7 +55,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           loading: `Deleting Model ID: ${model.id.substring(0, 4)}...`,
           success: `Model ID: ${model.id.substring(
             0,
-            4
+            4,
           )} deleted successfully.`,
           error: `Failed to delete Model ID: ${model.id.substring(0, 4)}.`,
         });
@@ -72,7 +74,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     const reader = response.data.stream().getReader();
     const decoder = new TextDecoder();
     let output = "";
-
+    /* eslint-disable no-constant-condition */
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -176,8 +178,8 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
               {isLoading
                 ? "Resetting..."
                 : isCompleted
-                ? "Reset Complete"
-                : "Reset Board"}
+                  ? "Reset Complete"
+                  : "Reset Board"}
             </span>
             <div
               className={`w-3 h-3 -mt-2 rotate-45 ${

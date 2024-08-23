@@ -1,4 +1,5 @@
-//  Summary: API functions for fetching and deleting models deployed on the models deployed component.
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import axios from "axios";
 import { customToast } from "../components/CustomToaster";
 import { NavigateFunction } from "react-router-dom";
@@ -51,7 +52,7 @@ interface StopResponse {
 export const fetchModels = async (): Promise<Model[]> => {
   try {
     const response = await axios.get<{ [key: string]: ContainerData }>(
-      statusURl
+      statusURl,
     );
     const data = response.data;
     console.log("Data fetched for tables:", data);
@@ -61,7 +62,7 @@ export const fetchModels = async (): Promise<Model[]> => {
       const portMapping = Object.keys(container.port_bindings)
         .map(
           (port) =>
-            `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`
+            `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`,
         )
         .join(", ");
 
@@ -105,7 +106,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       throw new Error("Failed to stop the container");
     } else {
       customToast.success(
-        `Model ID: ${truncatedModelId} has been deleted successfully.`
+        `Model ID: ${truncatedModelId} has been deleted successfully.`,
       );
 
       if (
@@ -113,7 +114,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
         response.data.reset_response.status === "success"
       ) {
         customToast.success(
-          `Model ID: ${truncatedModelId} has been reset successfully.`
+          `Model ID: ${truncatedModelId} has been reset successfully.`,
         );
       } else {
         customToast.error(`Model ID: ${truncatedModelId} reset failed.`);
@@ -122,7 +123,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       console.log(
         `Reset Output: ${
           response.data.reset_response?.output || "No reset output available"
-        }`
+        }`,
       );
     }
 
@@ -133,17 +134,17 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       customToast.error(
         `Failed to delete Model ID: ${truncatedModelId} - ${
           error.response?.data.message || error.message
-        }`
+        }`,
       );
     } else if (error instanceof Error) {
       console.error("Error stopping the container:", error.message);
       customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`
+        `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`,
       );
     } else {
       console.error("Unknown error stopping the container", error);
       customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - Unknown error`
+        `Failed to delete Model ID: ${truncatedModelId} - Unknown error`,
       );
     }
     throw error;
@@ -158,7 +159,7 @@ export const handleRedeploy = (modelName: string): void => {
 export const handleChatUI = (
   modelID: string,
   modelName: string,
-  navigate: NavigateFunction
+  navigate: NavigateFunction,
 ): void => {
   console.log(`ChatUI button clicked for model: ${modelID}`);
   console.log(`Opening Chat UI for model: ${modelName}`);

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
 
 import axios from "axios";
@@ -91,8 +93,8 @@ export default function StepperDemo() {
     setSteps((prevSteps) =>
       prevSteps.filter(
         (step) =>
-          step.label !== "Custom Step" && step.label !== "Fine-Tune Step"
-      )
+          step.label !== "Custom Step" && step.label !== "Fine-Tune Step",
+      ),
     );
   };
 

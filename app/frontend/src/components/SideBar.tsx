@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useState, forwardRef, useImperativeHandle } from "react";
 import { Link } from "react-router-dom";
 import { Menu, CircleX } from "lucide-react";

@@ -1,4 +1,5 @@
-//  refresh context to listen for changes in the refreshTrigger state when reset is triggerd
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { createContext, useContext, useState, ReactNode } from "react";
 
 interface RefreshContextType {

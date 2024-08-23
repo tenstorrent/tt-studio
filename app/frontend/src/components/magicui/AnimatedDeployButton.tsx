@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
 
 import React, { useState } from "react";
@@ -17,7 +19,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
 }) => {
   const [isDeployed, setIsDeployed] = useState<boolean>(false);
   const [displayText, setDisplayText] = useState<React.ReactElement | string>(
-    initialText
+    initialText,
   );
 
   const handleDeploy = async () => {

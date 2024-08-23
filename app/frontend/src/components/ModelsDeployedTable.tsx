@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, useEffect } from "react";
 import { Card } from "./ui/card";
 import {
@@ -43,7 +45,7 @@ export function ModelsDeployedTable() {
   const navigate = useNavigate();
   const { refreshTrigger } = useRefresh(); // Access the refreshTrigger state
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>(
-    initialModelsDeployed
+    initialModelsDeployed,
   );
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
@@ -103,7 +105,7 @@ export function ModelsDeployedTable() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setModelsDeployed((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id))
+        prevModels.filter((model) => !fadingModels.includes(model.id)),
       );
     }, 3000);
     return () => clearTimeout(timer);
