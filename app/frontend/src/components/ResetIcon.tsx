@@ -76,6 +76,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     const decoder = new TextDecoder();
     let output = "";
     /* eslint-disable no-constant-condition */
+    // TODO maybe fix in future
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -160,7 +161,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           variant="outline"
           size="icon"
           className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${buttonBackgroundColor} ${hoverButtonBackgroundColor}`}
-          onClick={() => setIsDialogOpen(true)} // Open dialog, don't trigger reset directly
+          onClick={() => setIsDialogOpen(true)}
         >
           {isLoading ? (
             <Spinner />
