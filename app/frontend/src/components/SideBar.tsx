@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useState, forwardRef, useImperativeHandle } from "react";
+import { useState, forwardRef, useImperativeHandle } from "react";
 import { useLocation } from "react-router-dom";
 import { Menu, CircleX } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
