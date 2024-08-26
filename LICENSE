@@ -190,3 +190,11 @@
    END OF TERMS AND CONDITIONS
 
 -------------------------------------------------------------------------------
+
+Third-Party Dependencies:
+
+The following dependencies are utilized by this project but are not explicitly
+distributed as part of the software:
+
+- Django [License available here](https://github.com/django/django/blob/main/LICENSE)
+- Docker [License available here](https://github.com/docker/docs/blob/main/LICENSE)
