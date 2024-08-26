@@ -12,7 +12,6 @@ import { Home, BrainCog, BotMessageSquare } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
-// import useCommonClasses from "../theme/commonThemeClasses";
 import Sidebar from "./SideBar";
 import { useTheme } from "../providers/ThemeProvider";
 import ResetIcon from "./ResetIcon";
@@ -162,7 +161,7 @@ export default function NavBar() {
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <div>Toggle Dark/Light Mode</div>
+                  <p>Toggle Dark/Light Mode</p>
                 </TooltipContent>
               </Tooltip>
               <Separator
@@ -172,11 +171,11 @@ export default function NavBar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div>
-                    <ResetIcon onReset={handleReset} /> {/* Pass the handler */}
+                    <ResetIcon onReset={handleReset} />
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <div>Reset Board</div>
+                  <p>Reset Board</p>
                 </TooltipContent>
               </Tooltip>
               <Separator
@@ -190,7 +189,7 @@ export default function NavBar() {
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="left" align="center">
-                  <div>Get Help</div>
+                  <p>Get Help</p>
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -199,7 +198,7 @@ export default function NavBar() {
         {isChatUI && (
           <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
             <ModeToggle />
-            <ResetIcon onReset={handleReset} /> {/* Pass the handler */}
+            <ResetIcon onReset={handleReset} />
             <HelpIcon toggleSidebar={handleToggleSidebar} />
           </div>
         )}

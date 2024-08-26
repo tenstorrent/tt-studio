@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 import React, { useState } from "react";
 import axios from "axios";
 import { Cpu, CheckCircle, AlertTriangle } from "lucide-react";
@@ -168,25 +169,6 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           ) : (
             <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
           )}
-          <span className="sr-only">Reset Board</span>
-          <div className="absolute bottom-0 flex flex-col items-center mb-6 group-hover:flex">
-            <span
-              className={`relative z-10 p-2 text-xs leading-none text-white whitespace-no-wrap ${
-                theme === "dark" ? "bg-zinc-800" : "bg-black"
-              } shadow-lg`}
-            >
-              {isLoading
-                ? "Resetting..."
-                : isCompleted
-                  ? "Reset Complete"
-                  : "Reset Board"}
-            </span>
-            <div
-              className={`w-3 h-3 -mt-2 rotate-45 ${
-                theme === "dark" ? "bg-zinc-800" : "bg-black"
-              }`}
-            ></div>
-          </div>
         </Button>
       </DialogTrigger>
       <DialogContent
@@ -212,7 +194,6 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         >
           <div className="border-l-4 border-red-600 pl-2">
             <div className="font-bold">
-              {" "}
               Warning! This action will stop all deployed models and might
               interrupt ongoing processes.
             </div>
