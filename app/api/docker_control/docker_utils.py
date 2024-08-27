@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket
+import socket,os,subprocess
 import copy
 from pathlib import Path
 
@@ -224,3 +224,48 @@ def get_model_weights_path(weights_dir_path, weights_id):
 
     dir_name = remove_id_prefix(weights_id)
     return weights_dir_path.joinpath(dir_name)
+
+
+
+CONFIG_PATH = '/root/.config/tenstorrent/reset_config.json'
+
+def perform_reset():
+    try:
+        logger.info("Running tt-smi reset command.")
+        
+        def stream_command_output(command):
+            logger.info(f"Executing command: {' '.join(command)}")
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            output = []
+            for line in iter(process.stdout.readline, ''):
+                logger.info(f"Command output: {line.strip()}")
+                output.append(line)
+            process.stdout.close()
+            return_code = process.wait()
+            if return_code != 0:
+                logger.info(f"Command failed with return code {return_code}")
+                output.append(f"Command failed with return code {return_code}")
+                return {
+                    "status": "error",
+                    "output": ''.join(output)
+                }
+            else:
+                logger.info(f"Command completed successfully with return code {return_code}")
+                return {
+                    "status": "success",
+                    "output": ''.join(output)
+                }
+
+        # Step 1: Check if the reset config JSON already exists
+        if not os.path.exists(CONFIG_PATH):
+            generate_result = stream_command_output(['tt-smi', '--generate_reset_json'])
+            if generate_result.get("status") == "error":
+                return generate_result
+        
+        # Step 2: Run the reset using the generated JSON
+        reset_result = stream_command_output(['tt-smi', '-r', CONFIG_PATH])
+        return reset_result or {"status": "error", "output": "No output from reset command"}
+
+    except Exception as e:
+        logger.exception("Exception occurred during reset operation.")
+        return {"status": "error", "message": str(e)}
