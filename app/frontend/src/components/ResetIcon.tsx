@@ -75,31 +75,63 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     const reader = response.data.stream().getReader();
     const decoder = new TextDecoder();
     let output = "";
-    /* eslint-disable no-constant-condition */
-    // TODO maybe fix in future
+    let success = true;
+    const statusCode = response.status;
+
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
       const chunk = decoder.decode(value, { stream: true });
       output += chunk;
+
+      // Check for failure in each chunk
+      if (
+        chunk.includes("Command failed") ||
+        chunk.includes("No Tenstorrent devices detected") ||
+        chunk.includes("Exiting") ||
+        chunk.includes("Error")
+      ) {
+        success = false;
+      }
     }
 
     const finalChunk = decoder.decode();
     if (finalChunk) {
       output += finalChunk;
+      if (
+        finalChunk.includes("Command failed") ||
+        finalChunk.includes("No Tenstorrent devices detected") ||
+        finalChunk.includes("Exiting") ||
+        finalChunk.includes("Error")
+      ) {
+        success = false;
+      }
     }
 
-    const styledOutput = `
-<span style="color: green;">Board Reset Successfully</span>
------------------------
-<pre style="color: yellow; white-space: pre-wrap;">${output}</pre>
-    `;
+    const styledOutput = success
+      ? `
+        <span style="color: green;">Board Reset Successfully</span>
+        -----------------------
+        <pre style="color: yellow; white-space: pre-wrap;">${output}</pre>
+      `
+      : `
+        <span style="color: red;">Board Reset Failed</span>
+        -----------------------
+        <pre style="color: yellow; white-space: pre-wrap;">${output}</pre>
+      `;
 
     setFullOutput(styledOutput);
 
-    if (output.includes("Command failed with return code 1")) {
-      throw new Error("Command failed");
+    if (!success) {
+      if (statusCode === 501) {
+        throw new Error(
+          "No Tenstorrent devices detected or functionality not implemented.",
+        );
+      } else {
+        throw new Error("Command failed or no devices detected");
+      }
     }
 
     setIsCompleted(true);
@@ -131,12 +163,12 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
 
       if (error instanceof Error) {
         const errorOutput = `
-<span style="color: red;">Error Resetting Board</span>
------------------------
-<pre style="color: red;">${error.message}</pre>
+          <span style="color: red;">Error Resetting Board</span>
+          -----------------------
+          <pre style="color: red;">${error.message}</pre>
         `;
         setFullOutput(errorOutput);
-        setErrorMessage("Command failed");
+        setErrorMessage("Command failed or no devices detected");
       } else {
         setErrorMessage("An unknown error occurred");
       }
