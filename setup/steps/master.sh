@@ -18,14 +18,20 @@ if [[ "$1" == "--sudo" ]]; then
     USE_SUDO=true
 fi
 
-# # Run the step1 script
+# # # Run the step1 script
 # run_with_sudo $USE_SUDO "step1.sh"
 
-# # Run the step2 script
+# # # Run the step2 script
 # run_with_sudo $USE_SUDO "step2.sh"
 
-# Run the step3 script
+# # Run the step3 script
 # run_with_sudo $USE_SUDO "step3.sh"
 
-# Run the step4script
-run_with_sudo $USE_SUDO "step4.sh"
+# # Run the step4script
+# run_with_sudo $USE_SUDO "step4.sh"
+
+# Run the step5script
+# run_with_sudo $USE_SUDO "step5.sh"
+
+# Run the step6script
+run_with_sudo $USE_SUDO "step6.sh"
