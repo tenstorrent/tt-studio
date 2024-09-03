@@ -28,10 +28,25 @@ InferenceConfig = namedtuple(
         "mock_model",
         "model_weights_id",
         "model_weights_path",
+        "n_devices",
+        "inference_route_name",
         "end_of_sequence_str",
+        "model_config",
     ],
 )
 
+ModelConfig = namedtuple(
+    "ModelConfig",
+    [
+        "model_version",
+        "batch_size",
+        "num_layers",
+        "max_seq_len",
+        "default_top_p",
+        "default_top_k",
+        "default_temperature",
+    ],
+)
 
 # Do as much environment variable termination here as possible.
 # The exception is secrets, which are used directly as os.getenv() calls.
@@ -59,7 +74,18 @@ inference_config = InferenceConfig(
     mock_model=MOCK_MODEL,
     model_weights_id=MODEL_WEIGHTS_ID,
     model_weights_path=MODEL_WEIGHTS_PATH,
+    n_devices=8,
+    inference_route_name="dummy_echo",
     end_of_sequence_str="<|endoftext|>",
+    model_config=ModelConfig(
+        model_version="echo-1",
+        batch_size=32,
+        num_layers=1,
+        max_seq_len=128,
+        default_top_p=0.9,
+        default_top_k=40,
+        default_temperature=1.0,
+    ),
 )
 
 print("using inference_config:\n")
