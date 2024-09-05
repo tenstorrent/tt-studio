@@ -50,6 +50,9 @@ services:
     hostname: tt-studio-frontend
     image: ghcr.io/tenstorrent/tt-studio/frontend:v0.0.0
     build: ./frontend
+    depends_on:
+      tt_studio_backend:
+        condition: service_started
     networks:
       - llm_studio_network
     ports:
@@ -86,7 +89,6 @@ services:
 
     networks:
       - llm_studio_network
-
 
 networks:
   llm_studio_network:
