@@ -149,7 +149,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CHROMA_DB_PORT = int(os.environ.get('CHROMA_DB_PORT', 8111))
 CHROMA_DB_HOST = os.environ.get('CHROMA_DB_HOST', 'tt_studio_chromadb')
 CHROMA_DB_EMBED_MODEL = "all-MiniLM-L6-v2"
-PREPOPULATE_VECTOR_DB = True
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [],
