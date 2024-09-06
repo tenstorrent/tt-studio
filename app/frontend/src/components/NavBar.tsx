@@ -8,7 +8,13 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
+<<<<<<< HEAD
 import { Home, BrainCog, BotMessageSquare } from "lucide-react";
+||||||| parent of d87929d (Adds RAG management link to Navbar)
+import { Home, BrainCog, BotMessageSquare } from "lucide-react"; // Import BotMessageSquare
+=======
+import { Home, BrainCog, BotMessageSquare, Notebook } from "lucide-react"; // Import BotMessageSquare
+>>>>>>> d87929d (Adds RAG management link to Navbar)
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -94,6 +100,7 @@ export default function NavBar() {
               <h4
                 className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
               >
+<<<<<<< HEAD
                 LLM Studio
               </h4>
             )}
@@ -104,6 +111,30 @@ export default function NavBar() {
                 isChatUI ? "flex-col items-center space-y-4" : "justify-between"
               }`}
             >
+||||||| parent of d87929d (Adds RAG management link to Navbar)
+                <BrainCog className={`mr-0 ${textColor}`} />
+                {!isChatUI && <span>Models Deployed</span>}
+              </NavLink>
+            </NavigationMenuItem>
+            {isChatUI && (
+=======
+                <BrainCog className={`mr-0 ${textColor}`} />
+                {!isChatUI && <span>Models Deployed</span>}
+              </NavLink>
+            </NavigationMenuItem>
+            <NavigationMenuItem
+              className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+            >
+              <NavLink
+                to="/rag-management"
+                className={({ isActive }) => getNavLinkClass(isActive)}
+              >
+                <Notebook className={`mr-0 ${textColor}`} />
+                {!isChatUI && <span>RAG Management</span>}
+              </NavLink>
+            </NavigationMenuItem>
+            {isChatUI && (
+>>>>>>> d87929d (Adds RAG management link to Navbar)
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
