@@ -39,8 +39,7 @@ services:
       - JWT_SECRET
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
-      - /run/user/1000/docker.sock:/var/run/docker.sock
-      - /dev/hugepages-1G:/dev/hugepages-1g
+      - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # for development mount api changes
       - ./api:/api
