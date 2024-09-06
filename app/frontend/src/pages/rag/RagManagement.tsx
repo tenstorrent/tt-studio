@@ -23,7 +23,7 @@ import {
   deleteCollection,
   createCollection,
   uploadDocument,
-} from ".";
+} from "@/src/pages/rag";
 
 interface RagDataSource {
   id: string;
@@ -72,6 +72,7 @@ export default function RagManagement() {
   } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     onError: () => customToast.error("Failed to fetch collections"),
+    initialData: [],
   });
 
   // Delete mutation
