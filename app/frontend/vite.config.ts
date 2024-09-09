@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { defineConfig, ProxyOptions } from "vite";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { defineConfig, HttpProxy, ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { ClientRequest, IncomingMessage, ServerResponse } from "http";
 
 const VITE_BACKEND_URL = "http://tt-studio-backend-api:8000";
 // define mapping of backend apis proxy strings -> routes
@@ -21,14 +23,14 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
       changeOrigin: true,
       secure: true,
       // debug logging
-      configure: (proxy) => {
-        proxy.on("error", (err) => {
+      configure: (proxy: HttpProxy.Server) => {
+        proxy.on("error", (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
           console.log("proxy error", err);
         });
-        proxy.on("proxyReq", (proxyReq, req) => {
+        proxy.on("proxyReq", (proxyReq: ClientRequest, req: IncomingMessage, _res: ServerResponse) => {
           console.log("Sending Request to the Target:", req.method, req.url);
         });
-        proxy.on("proxyRes", (proxyRes, req) => {
+        proxy.on("proxyRes", (proxyRes: IncomingMessage, req: IncomingMessage, _res: ServerResponse) => {
           console.log(
             "Received Response from the Target:",
             proxyRes.statusCode,
