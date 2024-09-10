@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import "./App.css";
 import { ThemeProvider } from "./providers/ThemeProvider";
 import AppRouter from "./routes/index.tsx";
