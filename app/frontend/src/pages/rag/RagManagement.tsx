@@ -179,11 +179,10 @@ export default function RagManagement() {
             alertTrigger={
               <Button
                 disabled={isUploading}
-                className={`${
-                  theme === "light"
+                className={`${theme === "light"
                     ? "bg-zinc-700 hover:bg-zinc-600 text-white"
                     : "bg-gray-300 hover:bg-gray-400 text-black"
-                } rounded-lg`}
+                  } rounded-lg`}
               >
                 Delete
               </Button>
@@ -192,11 +191,10 @@ export default function RagManagement() {
           <Button
             disabled={isUploading}
             onClick={() => onUploadClick(item)}
-            className={`${
-              theme === "light"
+            className={`${theme === "light"
                 ? "bg-zinc-700 hover:bg-zinc-600 text-white"
                 : "bg-gray-300 hover:bg-gray-400 text-black"
-            } rounded-lg`}
+              } rounded-lg`}
           >
             Upload Document
           </Button>
@@ -224,10 +222,9 @@ export default function RagManagement() {
         <Card
           className={
             "" +
-            `${
-              theme === "dark"
-                ? " bg-zinc-900 text-zinc-200 rounded-lg border-2 border-red"
-                : " bg-white text-black border-gray-500 border-2 rounded-lg border-red"
+            `${theme === "dark"
+              ? " bg-zinc-900 text-zinc-200 rounded-lg border-2 border-red"
+              : " bg-white text-black border-gray-500 border-2 rounded-lg border-red"
             }`
           }
         >
@@ -241,22 +238,15 @@ export default function RagManagement() {
               }
             />
             <Table className="rounded-lg">
-              <TableCaption
-                className={`${
-                  theme === "dark"
-                    ? "text-zinc-400 rounded-lg"
-                    : "text-gray-500 rounded-lg"
-                }`}
-              >
+              <TableCaption className="text-TT-black dark:text-TT-white text-xl">
                 Manage Rag Datasources
               </TableCaption>
               <TableHeader>
                 <TableRow
-                  className={`${
-                    theme === "dark"
+                  className={`${theme === "dark"
                       ? "bg-zinc-900 rounded-lg"
                       : "bg-zinc-200 rounded-lg"
-                  }`}
+                    }`}
                 >
                   {["Name", "ID", "Manage"].map((f: string) => (
                     <TableHead key={f} className="text-left">
