@@ -251,7 +251,11 @@ const ChatComponent: React.FC = () => {
         </SelectTrigger>
         <SelectContent>
           {collections.map((c) => {
-            return <SelectItem value={c.name}>{c.name}</SelectItem>;
+            return (
+              <SelectItem key={c.id} value={c.name}>
+                {c.name}
+              </SelectItem>
+            );
           })}
         </SelectContent>
       </Select>
