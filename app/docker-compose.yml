@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 services:
   tt_studio_backend:
     container_name: tt_studio_backend_api
@@ -7,10 +11,10 @@ services:
     build: ./api
     # uncomment devices to use Tenstorrent hardware
     # devices:
-    #   # mount all tenstorrent devices to backend container
-    #   - /dev/tenstorrent:/dev/tenstorrent
+      # mount all tenstorrent devices to backend container
+      # - /dev/tenstorrent:/dev/tenstorrent
     # note that `network_mode: host` does not work on mac OS
-    networks: 
+    networks:
       - llm_studio_network
     ports:
       - "8000:8000"
@@ -40,7 +44,7 @@ services:
     hostname: tt-studio-frontend
     image: ghcr.io/tenstorrent/tt-studio/frontend:v0.0.0
     build: ./frontend
-    networks: 
+    networks:
       - llm_studio_network
     ports:
       - "3000:3000"

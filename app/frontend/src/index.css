@@ -3,6 +3,11 @@
 @tailwind components;
 @tailwind utilities;
 
+body {
+  @apply font-degularDisplay;
+  font-weight: 500;
+}
+
 :root {
   --background: 220 20% 96%; /* Light grey background */
   --foreground: 220 15% 20%; /* For text and icons */
@@ -55,20 +60,6 @@
   --ring: 24 5.7% 82.9%;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
 /* Neumorphism effect for all buttons and similar components */
 .neu {
   background-color: var(--background);
@@ -103,8 +94,60 @@ h1 {
   }
 }
 
+/* Import custom fonts */
 @font-face {
-  font-family: "Akkurat-Mono";
-  src: local("Akkurat-Mono"), url("./fonts/Akkurat-Mono.OTF") format("opentype");
-  font-weight: normal;
+  font-family: "Degular Display";
+  font-weight: 200; /* Light */
+  src: local("DegularDisplay-Light"),
+    url("./fonts/DegularDisplay-Light.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Degular Display";
+  font-weight: 500; /* Medium */
+  src: local("DegularDisplay-Medium"),
+    url("./fonts/DegularDisplay-Medium.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Degular Display";
+  font-weight: 600; /* Semibold */
+  src: local("DegularDisplay-Semibold"),
+    url("./fonts/DegularDisplay-Semibold.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Degular Text";
+  font-weight: 700; /* Bold */
+  src: local("DegularText-Bold"),
+    url("./fonts/DegularText-Bold.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Degular Text";
+  font-weight: 500; /* Medium */
+  src: local("DegularText-Medium"),
+    url("./fonts/DegularText-Medium.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Degular Text";
+  font-weight: 500; /* Medium Italic */
+  font-style: italic;
+  src: local("DegularText-MediumItalic"),
+    url("./fonts/DegularText-MediumItalic.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "RM Mono";
+  font-weight: 400; /* Regular */
+  src: local("RMMono-Regular"),
+    url("./fonts/RMMono-Regular.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "RM Mono";
+  font-weight: 600; /* SemiBold */
+  src: local("RMMono-SemiBold"),
+    url("./fonts/RMMono-SemiBold.otf") format("opentype");
 }

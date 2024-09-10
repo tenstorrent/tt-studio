@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "../providers/ThemeProvider";
 
@@ -19,8 +21,8 @@ export const customToast = {
       },
     }),
   promise: (
-    promise: Promise<any>,
-    messages: { loading: string; success: string; error: string }
+    promise: Promise<unknown>,
+    messages: { loading: string; success: string; error: string },
   ) =>
     toast.promise(promise, {
       loading: messages.loading,

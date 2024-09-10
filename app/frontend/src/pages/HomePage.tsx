@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import StepperDemo from "../components/SelectionSteps";
 
 const HomePage = () => {
@@ -8,7 +10,7 @@ const HomePage = () => {
           className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
           style={{
             maskImage:
-              "radial-gradient(ellipse at center, transparent 20%, black 100%)",
+              "radial-gradient(ellipse at center, transparent 45%, black 100%)",
           }}
         ></div>
         <div className="flex flex-grow justify-center items-center w-full h-screen">

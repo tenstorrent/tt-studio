@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# 
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 FROM python:3.12.1-slim-bullseye
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
@@ -8,8 +12,25 @@ RUN apt-get update && \
     procps \
     net-tools \
     iputils-ping \
-    dnsutils && \
+    dnsutils && \   
     rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y \ 
+    git \
+    curl \
+    cargo   
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Add Rust to PATH
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Clone and install tt-smi
+RUN git clone https://github.com/tenstorrent/tt-smi /tmp/tt-smi && \
+    cd /tmp/tt-smi && \
+    pip3 install .
 
 WORKDIR /api
 COPY ./requirements.txt /api

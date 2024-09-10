@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { defineConfig, ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -18,26 +20,48 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
       changeOrigin: true,
       secure: true,
       // debug logging
-      configure: (proxy: any, _options: any) => {
-        proxy.on("error", (err: any, _req: any, _res: any) => {
+      configure: (proxy) => {
+        proxy.on("error", (err) => {
           console.log("proxy error", err);
         });
-        proxy.on("proxyReq", (proxyReq: any, req: any, _res: any) => {
+        proxy.on("proxyReq", (proxyReq, req) => {
           console.log("Sending Request to the Target:", req.method, req.url);
         });
-        proxy.on("proxyRes", (proxyRes: any, req: any, _res: any) => {
+        proxy.on("proxyRes", (proxyRes, req) => {
           console.log(
             "Received Response from the Target:",
             proxyRes.statusCode,
-            req.url
+            req.url,
           );
         });
       },
       rewrite: (path: string) =>
         path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
     },
-  ])
+  ]),
 );
+
+// Add specific proxy configuration for the /reset-board endpoint
+proxyConfig["/reset-board"] = {
+  target: VITE_BACKEND_URL,
+  changeOrigin: true,
+  secure: true,
+  configure: (proxy) => {
+    proxy.on("error", (err) => {
+      console.log("proxy error", err);
+    });
+    proxy.on("proxyReq", (proxyReq, req) => {
+      console.log("Sending Request to the Target:", req.method, req.url);
+    });
+    proxy.on("proxyRes", (proxyRes, req) => {
+      console.log(
+        "Received Response from the Target:",
+        proxyRes.statusCode,
+        req.url,
+      );
+    });
+  },
+};
 
 // https://vitejs.dev/config/
 export default defineConfig({
