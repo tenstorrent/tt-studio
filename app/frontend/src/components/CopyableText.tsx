@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useState } from "react";
 import {
   Tooltip,
@@ -6,7 +8,7 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 import { ClipboardCopy } from "lucide-react";
-import CustomToaster, { customToast } from "./CustomToaster";
+import { customToast } from "./CustomToaster";
 
 const CopyableText = ({ text }: { text: string }) => {
   const [isCopied, setIsCopied] = useState(false);

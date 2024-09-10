@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 # docker_control/forms.py
 from django import forms
 from shared_config.model_config import model_implmentations
