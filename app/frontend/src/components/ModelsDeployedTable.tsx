@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, useEffect } from "react";
 import { Card } from "./ui/card";
 import {
@@ -23,8 +25,10 @@ import {
   handleRedeploy,
   handleChatUI,
 } from "../api/modelsDeployedApis";
-
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
+import { NoModelsDialog } from "./NoModelsDeployed";
+import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
+import { useRefresh } from "../providers/RefreshContext";
 
 interface Model {
   id: string;
@@ -39,26 +43,35 @@ const initialModelsDeployed: Model[] = [];
 
 export function ModelsDeployedTable() {
   const navigate = useNavigate();
+  const { refreshTrigger } = useRefresh(); // Access the refreshTrigger state
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>(
-    initialModelsDeployed
+    initialModelsDeployed,
   );
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
 
-  useEffect(() => {
-    const loadModels = async () => {
-      try {
-        const models = await fetchModels();
-        setModelsDeployed(models);
-      } catch (error) {
-        console.error("Error fetching models:", error);
-        customToast.error("Failed to fetch models.");
-      }
-    };
+  const loadModels = async () => {
+    try {
+      const models = await fetchModels();
+      setModelsDeployed(models);
+    } catch (error) {
+      console.error("Error fetching models:", error);
+      customToast.error("Failed to fetch models.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     loadModels();
-  }, []);
+
+    // Reload models whenever refreshTrigger changes
+    if (refreshTrigger > 0) {
+      loadModels();
+    }
+  }, [refreshTrigger]);
 
   const handleDelete = async (modelId: string) => {
     console.log(`Delete button clicked for model ID: ${modelId}`);
@@ -67,7 +80,13 @@ export function ModelsDeployedTable() {
     const deleteModelAsync = async () => {
       setLoadingModels((prev) => [...prev, modelId]);
       try {
-        await deleteModel(modelId);
+        const response = await deleteModel(modelId);
+
+        // Accessing the reset_response output correctly
+        const resetOutput =
+          response.reset_response?.output || "No reset output available";
+        console.log(`Reset Output in tsx: ${resetOutput}`);
+
         setFadingModels((prev) => [...prev, modelId]);
       } catch (error) {
         console.error("Error stopping the container:", error);
@@ -86,33 +105,26 @@ export function ModelsDeployedTable() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setModelsDeployed((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id))
+        prevModels.filter((model) => !fadingModels.includes(model.id)),
       );
     }, 3000);
     return () => clearTimeout(timer);
   }, [fadingModels]);
 
+  if (loading) {
+    return <ModelsDeployedSkeleton />;
+  }
+
+  if (modelsDeployed.length === 0) {
+    return <NoModelsDialog messageKey="reset" />;
+  }
+
   return (
-    <Card
-      className={
-        "" +
-        `${
-          theme === "dark"
-            ? " bg-zinc-900 text-zinc-200 rounded-lg border-2 border-red"
-            : " bg-white text-black border-gray-500 border-2 rounded-lg border-red"
-        }`
-      }
-    >
+    <Card>
       <ScrollArea className="whitespace-nowrap rounded-md border">
         <CustomToaster />
-        <Table className="rounded-lg">
-          <TableCaption
-            className={`${
-              theme === "dark"
-                ? "text-zinc-400 rounded-lg"
-                : "text-gray-500 rounded-lg"
-            }`}
-          >
+        <Table>
+          <TableCaption className="text-TT-black dark:text-TT-white text-xl">
             Models Deployed
           </TableCaption>
           <TableHeader>
@@ -189,11 +201,7 @@ export function ModelsDeployedTable() {
                         ) : (
                           <Button
                             onClick={() => handleDelete(model.id)}
-                            className={`${
-                              theme === "dark"
-                                ? "bg-red-700 hover:bg-red-600 text-white"
-                                : "bg-red-500 hover:bg-red-400 text-black"
-                            } rounded-lg`}
+                            className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg"
                           >
                             Delete
                           </Button>
@@ -202,11 +210,7 @@ export function ModelsDeployedTable() {
                           onClick={() =>
                             handleChatUI(model.id, model.name, navigate)
                           }
-                          className={`${
-                            theme === "dark"
-                              ? "bg-blue-500 hover:bg-blue-400 text-white"
-                              : "bg-blue-500 hover:bg-blue-400 text-white"
-                          } rounded-lg`}
+                          className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
                         >
                           ChatUI
                         </Button>
@@ -218,7 +222,10 @@ export function ModelsDeployedTable() {
             ))}
           </TableBody>
         </Table>
-        <ScrollBar orientation="horizontal" />
+        <ScrollBar
+          className="scrollbar-thumb-rounded "
+          orientation="horizontal"
+        />
       </ScrollArea>
     </Card>
   );

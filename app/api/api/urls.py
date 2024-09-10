@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 """
 URL configuration for api project.
 
@@ -22,4 +26,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("docker/", include("docker_control.urls")),
     path("models/", include("model_control.urls")),
+    path('reset_board/', include('docker_control.urls')),
 ]
