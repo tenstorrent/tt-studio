@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import axios from "axios";
 
 const collectionsAPIURL = "/collections-api";
@@ -34,6 +36,6 @@ export const uploadDocument = async ({
 }) => {
   return axios.postForm(
     `${collectionsAPIURL}/${collectionName}/insert_document`,
-    { file }
+    { file },
   );
 };
