@@ -11,8 +11,8 @@ services:
     build: ./api
     # uncomment devices to use Tenstorrent hardware
     # devices:
-      # mount all tenstorrent devices to backend container
-      # - /dev/tenstorrent:/dev/tenstorrent
+    # mount all tenstorrent devices to backend container
+    # - /dev/tenstorrent:/dev/tenstorrent
     # note that `network_mode: host` does not work on mac OS
     networks:
       - llm_studio_network
@@ -22,7 +22,8 @@ services:
     # dev server can be used for breakpoint debugging, does not support streaming
     # command: ./manage.py runserver 0.0.0.0:8000
     # gunicorn is used from production, supports streaming
-    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --timeout 1200 api.wsgi:application
+
+    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
     depends_on:
       tt_studio_chroma:
         condition: service_healthy
