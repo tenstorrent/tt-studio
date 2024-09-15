@@ -111,10 +111,25 @@ export default function NavBar() {
                   to="/"
                   className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <Home
-                    className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                  />
-                  {!isChatUI && <span>Home</span>}
+                  {isChatUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Home
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Home</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <Home
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Home</span>
+                    </>
+                  )}
                 </NavLink>
               </NavigationMenuItem>
               {!isChatUI && (
@@ -130,10 +145,25 @@ export default function NavBar() {
                   to="/models-deployed"
                   className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <BrainCog
-                    className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                  />
-                  {!isChatUI && <span>Models Deployed</span>}
+                  {isChatUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <BrainCog
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Models Deployed</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <BrainCog
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Models Deployed</span>
+                    </>
+                  )}
                 </NavLink>
               </NavigationMenuItem>
               {isChatUI && (
@@ -144,9 +174,16 @@ export default function NavBar() {
                     to="/chat-ui"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    <BotMessageSquare
-                      className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                    />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <BotMessageSquare
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Chat UI</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </NavLink>
                 </NavigationMenuItem>
               )}
@@ -197,9 +234,38 @@ export default function NavBar() {
         </div>
         {isChatUI && (
           <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
-            <ModeToggle />
-            <ResetIcon onReset={handleReset} />
-            <HelpIcon toggleSidebar={handleToggleSidebar} />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <ModeToggle />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Toggle Dark/Light Mode</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <ResetIcon onReset={handleReset} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Reset Board</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <HelpIcon toggleSidebar={handleToggleSidebar} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Get Help</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         )}
         <Sidebar ref={sidebarRef} />
