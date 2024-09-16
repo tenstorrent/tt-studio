@@ -11,8 +11,8 @@ services:
     build: ./api
     # uncomment devices to use Tenstorrent hardware
     # devices:
-      # mount all tenstorrent devices to backend container
-      # - /dev/tenstorrent:/dev/tenstorrent
+    # mount all tenstorrent devices to backend container
+    # - /dev/tenstorrent:/dev/tenstorrent
     # note that `network_mode: host` does not work on mac OS
     networks:
       - llm_studio_network
@@ -22,11 +22,17 @@ services:
     # dev server can be used for breakpoint debugging, does not support streaming
     # command: ./manage.py runserver 0.0.0.0:8000
     # gunicorn is used from production, supports streaming
-    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --timeout 1200 api.wsgi:application
+
+    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
+    depends_on:
+      tt_studio_chroma:
+        condition: service_healthy
     stdin_open: true
     tty: true
     environment:
       # env vars are defined in .env file, use .env.default as template
+      - CHROMA_DB_HOST=tt_studio_chroma
+      - CHROMA_DB_PORT=8111
       - TT_STUDIO_ROOT
       - HOST_PERSISTENT_STORAGE_VOLUME
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
@@ -39,11 +45,23 @@ services:
       # for development mount api changes
       - ./api:/api
 
+    healthcheck:
+      # On first application load resources for transformers/etc 
+      # are downloaded. The UI should not start until these resources
+      # have been downloaded. Adjust timeout if on a very slow connection
+      test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
+      timeout: 120s
+      interval: 10s
+      retries: 5
+
   tt_studio_frontend:
     container_name: tt_studio_frontend
     hostname: tt-studio-frontend
     image: ghcr.io/tenstorrent/tt-studio/frontend:v0.0.0
     build: ./frontend
+    depends_on:
+      tt_studio_backend:
+        condition: service_healthy
     networks:
       - llm_studio_network
     ports:
@@ -53,6 +71,33 @@ services:
       - ./frontend:/frontend
     # command: sh
     command: bash -c "npm i && npm run dev"
+
+  tt_studio_chroma:
+    image: chromadb/chroma:0.5.3
+    volumes:
+      # Be aware that indexed data are located in "/chroma/chroma/"
+      # Default configuration for persist_directory in chromadb/config.py
+      # Read more about deployments: https://docs.trychroma.com/deployment
+      - ${HOST_PERSISTENT_STORAGE_VOLUME}/chroma:/chroma/chroma
+    command: "--workers 1 --host 0.0.0.0 --port 8111 --proxy-headers --log-config chromadb/log_config.yml --timeout-keep-alive 30"
+    environment:
+      - IS_PERSISTENT=TRUE
+      # - CHROMA_AUTH_TOKEN_TRANSPORT_HEADER=${CHROMA_AUTH_TOKEN_TRANSPORT_HEADER}
+      # - PERSIST_DIRECTORY=${INTERNAL_PERSISTENT_STORAGE_VOLUME}/chroma
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["http://localhost:3000", "http://tt_studio_frontend", "http://localhost:8000"]
+    restart: unless-stopped # possible values are: "no", always", "on-failure", "unless-stopped"
+    ports:
+      - "8111:8111"
+    healthcheck:
+      # Adjust below to match your container port
+      test: ["CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    container_name: tt_studio_chroma
+
+    networks:
+      - llm_studio_network
 
 networks:
   llm_studio_network:
