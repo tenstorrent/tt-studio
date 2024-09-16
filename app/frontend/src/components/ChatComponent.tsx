@@ -241,7 +241,7 @@ const ChatComponent: React.FC = () => {
     onChange: (v: string) => void;
   }) => (
     <div className="flex justify-start items-center my-2 align-center text-center">
-      <div className="text-sm align-center mr-4"> Select RAG Data Source </div>
+      <div className="text-sm align-center mr-4"> Select RAG Datasource </div>
 
       <Select onValueChange={onChange}>
         <SelectTrigger className="w-[180px]">
