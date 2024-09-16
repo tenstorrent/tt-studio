@@ -32,10 +32,27 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { fetchModels } from "../api/modelsDeployedApis";
+import axios from "axios";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import { useQuery } from "react-query";
+import { fetchCollections } from "@/src/pages/rag/";
 
 interface InferenceRequest {
   deploy_id: string;
   text: string;
+  rag_context?: { documents: string[] };
+}
+
+interface RagDataSource {
+  id: string;
+  name: string;
+  metadata: Record<string, string>;
 }
 
 interface ChatMessage {
@@ -51,6 +68,17 @@ interface Model {
 const ChatComponent: React.FC = () => {
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
+
+  const [ragDatasource, setRagDatasource] = useState<
+    RagDataSource | undefined
+  >();
+
+  // Fetch collections
+  const { data: ragDataSources } = useQuery("collectionsList", {
+    queryFn: fetchCollections,
+    initialData: [],
+  });
+
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
@@ -97,8 +125,33 @@ const ChatComponent: React.FC = () => {
     }
   };
 
+  const getRagContext = async (request: InferenceRequest) => {
+    const ragContext: { documents: string[] } = {
+      documents: [],
+    };
+
+    const response = await axios
+      .get(`/collections-api/${ragDatasource?.name}/query`, {
+        params: { query: request.text },
+      })
+      .catch((e) => {
+        console.error(`Error fetching RAG context ${e}`);
+      });
+
+    if (!response?.data) {
+      return ragContext;
+    }
+
+    ragContext.documents = response.data.documents;
+    return ragContext;
+  };
+
   const runInference = async (request: InferenceRequest) => {
     try {
+      if (ragDatasource) {
+        request.rag_context = await getRagContext(request);
+      }
+
       setIsStreaming(true);
       const response = await fetch(`/models-api/inference/`, {
         method: "POST",
@@ -178,6 +231,37 @@ const ChatComponent: React.FC = () => {
     runInference(inferenceRequest);
   };
 
+  const RagContextSelector = ({
+    collections,
+    onChange,
+    activeCollection,
+  }: {
+    collections: RagDataSource[];
+    activeCollection?: RagDataSource;
+    onChange: (v: string) => void;
+  }) => (
+    <div className="flex justify-start items-center my-2 align-center text-center">
+      <div className="text-sm align-center mr-4"> Select RAG Datasource </div>
+
+      <Select onValueChange={onChange}>
+        <SelectTrigger className="w-[180px]">
+          <SelectValue
+            placeholder={activeCollection?.name ?? "Select Rag Datasource"}
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {collections.map((c) => {
+            return (
+              <SelectItem key={c.id} value={c.name}>
+                {c.name}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -235,6 +319,18 @@ const ChatComponent: React.FC = () => {
           </Breadcrumb>
         </div>
         <div className="flex flex-col w-full h-full p-8 font-rmMono">
+          <RagContextSelector                                                                                                                                                                  
+            collections={ragDataSources}                                                                                                                                                       
+            onChange={(v: string) => {                                                                                                                                                         
+              const dataSource = ragDataSources.find((rds: RagDataSource) => {                                                                                                                 
+                return rds.name == v;                                                                                                                                                          
+              });                                                                                                                                                                              
+              if (dataSource) {                                                                                                                                                                
+                setRagDatasource(dataSource);                                                                                                                                                  
+              }                                                                                                                                                                                
+            }}                                                                                                                                                                                 
+            activeCollection={ragDatasource}                                                                                                                                                   
+          />   
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
               <img
