@@ -35,7 +35,7 @@ const RagDataSourceForm = ({
         className="flex  space-x-4 items-center"
         onSubmit={handleSubmit((d) => onSubmit({ collectionName: d.name }))}
       >
-        <Input {...register("name")} />
+        <Input type="text" {...register("name")} />
         <Button type="submit"> Create New RAG Datasource</Button>
       </form>
       <div>{errors.name?.message && <p>{errors.name?.message}</p>}</div>
