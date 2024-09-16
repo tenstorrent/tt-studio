@@ -332,7 +332,7 @@ const ChatComponent: React.FC = () => {
               </ScrollArea.Root>
               {isScrollButtonVisible && (
                 <Button
-                  className="fixed bottom-4 right-4 p-2 rounded-full bg-gray-700 text-white"
+                  className="fixed bottom-4 left-1/2 transform -translate-x-1/2 p-2 rounded-full bg-gray-700 text-white"
                   onClick={scrollToBottom}
                 >
                   <ChevronDown className="h-6 w-6" />
