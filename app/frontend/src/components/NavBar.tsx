@@ -132,7 +132,12 @@ export default function NavBar() {
                   )}
                 </NavLink>
               </NavigationMenuItem>
-
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
@@ -162,6 +167,12 @@ export default function NavBar() {
                 </NavLink>
               </NavigationMenuItem>
 
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
