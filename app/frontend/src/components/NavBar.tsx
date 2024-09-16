@@ -8,7 +8,7 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, BrainCog, BotMessageSquare } from "lucide-react";
+import { Home, BrainCog, BotMessageSquare, Notebook } from "lucide-react"; // Import BotMessageSquare
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -130,6 +130,25 @@ export default function NavBar() {
                       <span>Home</span>
                     </>
                   )}
+                </NavLink>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <NavLink
+                  to="/rag-management"
+                  className={({ isActive }) => getNavLinkClass(isActive)}
+                >
+                  <Notebook
+                    className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                  />
+                  {!isChatUI && <span>Rag Management</span>}
                 </NavLink>
               </NavigationMenuItem>
               {!isChatUI && (

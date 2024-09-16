@@ -9,7 +9,7 @@ export function StepperFormActions({
   removeDynamicSteps,
   isSubmitting,
 }: {
-  form: unknown;
+  form: HTMLFormElement;
   removeDynamicSteps: () => void;
   isSubmitting?: boolean;
 }) {
