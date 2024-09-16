@@ -172,9 +172,9 @@ export default function RagManagement() {
         <div className="flex gap-1">
           <ConfirmDialog
             dialogDescription={
-              "This action cannot be undone. This will permanently delete the data source"
+              "This action cannot be undone. This will permanently delete the Datasource"
             }
-            dialogTitle={"Delete Data Source"}
+            dialogTitle={"Delete Datasource"}
             onConfirm={() => {
               onDelete(item);
             }}
