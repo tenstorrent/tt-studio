@@ -44,12 +44,15 @@ services:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # for development mount api changes
       - ./api:/api
+
     healthcheck:
-      # Adjust below to match your container port
-      test: ["CMD", "curl", "-f", "http://localhost:8000/up"]
+      # On first application load resources for transformers/etc 
+      # are downloaded. The UI should not start until these resources
+      # have been downloaded. Adjust timeout if on a very slow connection
+      test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
+      timeout: 120s
       interval: 10s
-      timeout: 10s
-      retries: 3
+      retries: 5
 
   tt_studio_frontend:
     container_name: tt_studio_frontend
