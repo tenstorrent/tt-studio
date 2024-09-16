@@ -181,10 +181,7 @@ export default function RagManagement() {
             alertTrigger={
               <Button
                 disabled={isUploading}
-                className={`${theme === "light"
-                    ? "bg-zinc-700 hover:bg-zinc-600 text-white"
-                    : "bg-gray-300 hover:bg-gray-400 text-black"
-                  } rounded-lg`}
+                className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg"
               >
                 Delete
               </Button>
@@ -192,11 +189,9 @@ export default function RagManagement() {
           ></ConfirmDialog>
           <Button
             disabled={isUploading}
+            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
             onClick={() => onUploadClick(item)}
-            className={`${theme === "light"
-                ? "bg-zinc-700 hover:bg-zinc-600 text-white"
-                : "bg-gray-300 hover:bg-gray-400 text-black"
-              } rounded-lg`}
+            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
           >
             Upload Document
           </Button>
@@ -246,8 +241,8 @@ export default function RagManagement() {
               <TableHeader>
                 <TableRow
                   className={`${theme === "dark"
-                      ? "bg-zinc-900 rounded-lg"
-                      : "bg-zinc-200 rounded-lg"
+                    ? "bg-zinc-900 rounded-lg"
+                    : "bg-zinc-200 rounded-lg"
                     }`}
                 >
                   {["Name", "ID", "Manage"].map((f: string) => (
