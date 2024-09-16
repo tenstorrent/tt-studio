@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
-import { ScrollArea } from "./ui/scroll-area";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
 import {
@@ -55,7 +55,7 @@ const ChatComponent: React.FC = () => {
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
@@ -79,20 +79,19 @@ const ChatComponent: React.FC = () => {
   }, [location.state]);
 
   const scrollToBottom = () => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    if (viewportRef.current) {
+      viewportRef.current.scrollTo({
+        top: viewportRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [chatHistory]);
-
   const handleScroll = () => {
-    if (scrollAreaRef.current) {
+    if (viewportRef.current) {
       const isAtBottom =
-        scrollAreaRef.current.scrollHeight - scrollAreaRef.current.scrollTop <=
-        scrollAreaRef.current.clientHeight + 1;
+        viewportRef.current.scrollHeight - viewportRef.current.scrollTop <=
+        viewportRef.current.clientHeight + 1;
       setIsScrollButtonVisible(!isAtBottom);
     }
   };
@@ -144,7 +143,6 @@ const ChatComponent: React.FC = () => {
                 ];
               }
             });
-            scrollToBottom();
           }
         }
       }
@@ -289,44 +287,49 @@ const ChatComponent: React.FC = () => {
           )}
           {chatHistory.length > 0 && (
             <div className="relative flex flex-col h-full">
-              <ScrollArea
-                className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded-lg"
-                ref={scrollAreaRef}
-                onScroll={handleScroll}
-              >
-                {chatHistory.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`chat ${
-                      message.sender === "user" ? "chat-end" : "chat-start"
-                    }`}
-                  >
-                    <div className="chat-image avatar text-left">
-                      <div className="w-10 rounded-full">
-                        {message.sender === "user" ? (
-                          <User className="h-6 w-6 mr-2 text-left" />
-                        ) : (
-                          <img
-                            src={logo}
-                            alt="Tenstorrent Logo"
-                            className="w-8 h-8 rounded-full mr-2"
-                          />
-                        )}
-                      </div>
-                    </div>
+              <ScrollArea.Root>
+                <ScrollArea.Viewport
+                  ref={viewportRef}
+                  onScroll={handleScroll}
+                  className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded-lg"
+                >
+                  {chatHistory.map((message, index) => (
                     <div
-                      className={`chat-bubble ${
-                        message.sender === "user"
-                          ? "bg-TT-green-accent text-white text-left"
-                          : "bg-TT-slate text-white text-left"
+                      key={index}
+                      className={`chat ${
+                        message.sender === "user" ? "chat-end" : "chat-start"
                       }`}
                     >
-                      {message.text}
+                      <div className="chat-image avatar text-left">
+                        <div className="w-10 rounded-full">
+                          {message.sender === "user" ? (
+                            <User className="h-6 w-6 mr-2 text-left" />
+                          ) : (
+                            <img
+                              src={logo}
+                              alt="Tenstorrent Logo"
+                              className="w-8 h-8 rounded-full mr-2"
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        className={`chat-bubble ${
+                          message.sender === "user"
+                            ? "bg-TT-green-accent text-white text-left"
+                            : "bg-TT-slate text-white text-left"
+                        }`}
+                      >
+                        {message.text}
+                      </div>
                     </div>
-                  </div>
-                ))}
-                <div ref={bottomRef} />
-              </ScrollArea>
+                  ))}
+                  <div ref={bottomRef} />
+                </ScrollArea.Viewport>
+                <ScrollArea.Scrollbar orientation="vertical">
+                  <ScrollArea.Thumb />
+                </ScrollArea.Scrollbar>
+              </ScrollArea.Root>
               {isScrollButtonVisible && (
                 <Button
                   className="fixed bottom-4 right-4 p-2 rounded-full bg-gray-700 text-white"
@@ -349,7 +352,7 @@ const ChatComponent: React.FC = () => {
             />
             <div
               className="absolute right-2 top-2/4 transform -translate-y-2/4 cursor-pointer"
-              onClick={handleInference} // Fixing the button to trigger the inference on click
+              onClick={handleInference}
             >
               <kbd
                 className="kbd kbd-lg bg-gray-800 dark:bg-gray-700 text-white dark:text-gray-300 border border-gray-600 rounded-lg flex items-center justify-center"
