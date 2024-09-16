@@ -346,12 +346,12 @@ const ChatComponent: React.FC = () => {
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder="Enter text for inference"
-              className="px-4 py-2 border rounded-lg shadow-md w-full pr-12 font-rmMono"
+              className="px-4 py-2 border rounded-lg shadow-md w-full pr-24 box-border font-rmMono"
               disabled={isStreaming}
               rows={4}
             />
             <div
-              className="absolute right-2 top-2/4 transform -translate-y-2/4 cursor-pointer"
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer"
               onClick={handleInference}
             >
               <kbd
