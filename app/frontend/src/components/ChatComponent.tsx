@@ -311,18 +311,18 @@ const ChatComponent: React.FC = () => {
           </Breadcrumb>
         </div>
         <div className="flex flex-col w-full h-full p-8 font-rmMono">
-          <RagContextSelector                                                                                                                                                                  
-            collections={ragDataSources}                                                                                                                                                       
-            onChange={(v: string) => {                                                                                                                                                         
-              const dataSource = ragDataSources.find((rds: RagDataSource) => {                                                                                                                 
-                return rds.name == v;                                                                                                                                                          
-              });                                                                                                                                                                              
-              if (dataSource) {                                                                                                                                                                
-                setRagDatasource(dataSource);                                                                                                                                                  
-              }                                                                                                                                                                                
-            }}                                                                                                                                                                                 
-            activeCollection={ragDatasource}                                                                                                                                                   
-          />   
+          <RagContextSelector
+            collections={ragDataSources}
+            onChange={(v: string) => {
+              const dataSource = ragDataSources.find((rds: RagDataSource) => {
+                return rds.name == v;
+              });
+              if (dataSource) {
+                setRagDatasource(dataSource);
+              }
+            }}
+            activeCollection={ragDatasource}
+          />
           {chatHistory.length === 0 && (
             <ChatExamples logo={logo} setTextInput={setTextInput} />
           )}
@@ -373,7 +373,8 @@ const ChatComponent: React.FC = () => {
               </ScrollArea.Root>
               {isScrollButtonVisible && (
                 <Button
-                  className="fixed bottom-4 left-1/2 transform -translate-x-1/2 p-2 rounded-full bg-gray-700 text-white"
+                  className="fixed bottom-32 left-1/2 transform -translate-x-1/2 p-2 rounded-full bg-gray-700 text-white z-50"
+                  style={{ zIndex: 50 }}
                   onClick={scrollToBottom}
                 >
                   <ChevronDown className="h-6 w-6" />
