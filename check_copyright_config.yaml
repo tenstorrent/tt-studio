@@ -23,6 +23,11 @@ DEFAULT:
   include:
     - "**/*.py"   
     - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.js"
+    - "**/*.jsx"
+    - "**/*.html"
+    - "**/*.css"
     - "**/*.js"
 
 ignore:  # You can also select ignoring files here
