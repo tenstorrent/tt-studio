@@ -1,5 +1,5 @@
 # Build stage
-FROM ubuntu:20.04 as builder
+FROM ubuntu:20.04 AS builder
 LABEL maintainer="Tom Stesco <tstesco@tenstorrent.com>"
 
 ENV SHELL=/bin/bash
@@ -11,7 +11,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Los_Angeles
 
 RUN apt update && apt install -y \
-    python3.8-venv=3.8.10-0ubuntu1~20.04.9 \
+    python3.8-venv \
     # build deps
     tzdata \
     python-is-python3 \
