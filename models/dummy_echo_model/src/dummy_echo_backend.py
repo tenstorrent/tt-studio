@@ -87,8 +87,9 @@ class DummyEchoBackend:
     def _add_users_from_non_empty_queue(self, prompt_q):
         """add users from prompt_q to self.users"""
         while not prompt_q.empty() and self._get_num_of_users() < self.max_users:
-            user_id, prompt, params = prompt_q.get()
-
+            user_id, rag_context, prompt, params = prompt_q.get()
+            if rag_context:
+                prompt = rag_context + prompt
             # Cancel on special stop token
             if prompt == "<|stop|>":
                 if any(
