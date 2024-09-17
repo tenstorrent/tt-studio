@@ -90,3 +90,17 @@ Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
 - [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+
+
+##  Prettier and ESLint Configuration
+The project uses Prettier and ESLint with specific VS Code plugins to ensure code quality and consistency. Additionally, these tools are configured to automatically add the Tenstorrent license headers to the files in the project.
+
+##  Auto-Adding License Headers
+To ensure that the correct Tenstorrent license headers are added to each file, the project includes configurations for Prettier, ESLint, and specific VS Code plugins. The required SPDX license headers will be added automatically upon saving or formatting the files.
+
+The license headers should look like this:
+
+```js
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+```

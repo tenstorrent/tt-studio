@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
 import { Button } from "./ui/button";
 import { useStepper } from "./ui/stepper";
@@ -7,7 +9,7 @@ export function StepperFormActions({
   removeDynamicSteps,
   isSubmitting,
 }: {
-  form: any;
+  form: HTMLFormElement;
   removeDynamicSteps: () => void;
   isSubmitting?: boolean;
 }) {

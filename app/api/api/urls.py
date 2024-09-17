@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 """
 URL configuration for api project.
 
@@ -16,10 +20,14 @@ Including another URLconf
 """
 
 from django.contrib import admin
+from api.views import UpStatusView
 from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("up/", UpStatusView.as_view()),
     path("docker/", include("docker_control.urls")),
     path("models/", include("model_control.urls")),
+    path('reset_board/', include('docker_control.urls')),
+    path("collections/", include("vector_db_control.urls")),
 ]

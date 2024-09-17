@@ -37,3 +37,4 @@ db.sqlite3
 
 # unignore
 !requirements.txt
+!app/frontend/third-party-licenses.txt

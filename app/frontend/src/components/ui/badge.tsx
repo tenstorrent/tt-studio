@@ -1,19 +1,24 @@
+/* this shadcnn badge component has been updated to be more specific to a status badge component and
+should not be used for the other badges in the application
+*/
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border border-stone-200 px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-stone-950 focus:ring-offset-2 dark:border-stone-800 dark:focus:ring-stone-300",
+  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-green-100 text-green-900 hover:bg-green-100/80 dark:bg-green-800 dark:text-green-50 dark:hover:bg-green-800/80",
+          "border-TT-green-accent bg-[#4CAF50] text-white hover:bg-[#45A049]/80 dark:bg-[#388E3C] dark:text-white dark:hover:bg-[#2E7D32]/80", // Updated green shades
         destructive:
-          "border-transparent bg-red-100 text-red-900 hover:bg-red-100/80 dark:bg-red-800 dark:text-red-50 dark:hover:bg-red-800/80",
-        outline: "text-stone-950 dark:text-stone-50",
+          "border-TT-red-accent bg-TT-red-tint2 text-white hover:bg-TT-red-tint2/80 dark:bg-TT-red-shade dark:text-white dark:hover:bg-TT-red-shade/80",
+        outline:
+          "text-TT-slate-shade dark:text-TT-slate-tint1 border-TT-slate-accent dark:border-TT-slate-tint2",
         warning:
-          "border-transparent bg-yellow-100 text-yellow-900 hover:bg-yellow-100/80 dark:bg-yellow-800 dark:text-yellow-50 dark:hover:bg-yellow-800/80", // Adding the new warning variant
+          "border-TT-yellow-accent bg-TT-yellow-tint2 text-TT-yellow-shade hover:bg-TT-yellow-tint2/80 dark:bg-TT-yellow-accent dark:text-white dark:hover:bg-TT-yellow-accent/80",
       },
     },
     defaultVariants: {
