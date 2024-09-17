@@ -21,13 +21,16 @@ DEFAULT:
 
   # Update the include section with the file types you want to check
   include:
-    - "*.py"
-    - "*.tsx"
-    - "*.html"
-    - "*.js"
-    - "*.css"
-    - "*.json"
-    - "*.yaml"
+    - "**/*.py"
+    - "**/*.html"
+    - "**/*.css"
+    - "**/*.js"
+    - "**/*.jsx"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.json"
+    - "**/*.yaml"
+    - "**/*.scss"
 
 ignore:  # You can also select ignoring files here
   perform_check: no  # Don't check files from that block
