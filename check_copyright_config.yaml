@@ -21,9 +21,9 @@ DEFAULT:
 
   # Update the include section with the file types you want to check
   include:
-    - "*.py"
-    - "*.ts"
-    - "*.js"
+    - "**/*.py"   
+    - "**/*.ts"
+    - "**/*.js"
 
 ignore:  # You can also select ignoring files here
   perform_check: no  # Don't check files from that block
