@@ -29,7 +29,7 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        working-directory: app/frontend  
+        working-directory: app/frontend  # Adjust path according to your repo structure
         run: npm install
 
       - name: Run ESLint and Capture Output
@@ -48,28 +48,29 @@ jobs:
           # Process output to group errors under file paths with separators
           grouped_errors=""
           current_file=""
+          errors_for_file=""
           has_errors=false
 
           while IFS= read -r line; do
             if echo "$line" | grep -q '^\s*\/'; then
               # Detected a file path line, add to grouped_errors if it contains errors
               if [ "$has_errors" = true ]; then
-                grouped_errors+="---\n"  # Add separator between error groups
+                grouped_errors+="$current_file\n$errors_for_file\n---\n"
+                errors_for_file=""  # Reset error collection for next file
                 has_errors=false  # Reset error flag for the next file
               fi
               current_file="$line"
-              errors_for_file=""
             elif echo "$line" | grep -q 'error'; then
               # Detected an error line, associate with the current file
               errors_for_file+="  $line\n"
               has_errors=true  # Mark that this file has errors
             fi
-
-            # Add errors for this file if it contains any
-            if [ "$has_errors" = true ]; then
-              grouped_errors+="$current_file\n$errors_for_file"
-            fi
           done <<< "$clean_output"
+
+          # Add any remaining errors after the loop
+          if [ "$has_errors" = true ]; then
+            grouped_errors+="$current_file\n$errors_for_file\n"
+          fi
 
           # Store grouped errors in environment variable
           if [ -n "$grouped_errors" ]; then
