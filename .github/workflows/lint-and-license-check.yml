@@ -29,7 +29,7 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        working-directory: app/frontend  # Adjust path according to your repo structure
+        working-directory: app/frontend  
         run: npm install
 
       - name: Run ESLint and Capture Output
@@ -58,11 +58,16 @@ jobs:
                 has_errors=false  # Reset error flag for the next file
               fi
               current_file="$line"
-              grouped_errors+="$line\n"
+              errors_for_file=""
             elif echo "$line" | grep -q 'error'; then
               # Detected an error line, associate with the current file
-              grouped_errors+="  $line\n"
+              errors_for_file+="  $line\n"
               has_errors=true  # Mark that this file has errors
+            fi
+
+            # Add errors for this file if it contains any
+            if [ "$has_errors" = true ]; then
+              grouped_errors+="$current_file\n$errors_for_file"
             fi
           done <<< "$clean_output"
 
