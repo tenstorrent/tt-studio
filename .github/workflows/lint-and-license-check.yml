@@ -26,13 +26,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'  
+          node-version: '16'
 
       - name: Install dependencies
-        working-directory: app/frontend  
+        working-directory: app/frontend  # Adjust path according to your repo structure
         run: npm install
 
-      - name: Run ESLint
+      - name: Run ESLint and Filter Errors
         working-directory: app/frontend  
         id: run_eslint
         run: |
@@ -45,29 +45,39 @@ jobs:
           echo "$clean_output" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-          # Check if there are any errors in the ESLint output
-          if echo "$clean_output" | grep -q "error"; then
-            echo "ESLint errors found."
+          # Extract files with the 'missing header' error and any other ESLint errors
+          header_errors=$(echo "$clean_output" | grep 'missing header')
+          lint_errors=$(echo "$clean_output" | grep 'error' | grep -v 'missing header')
+          
+          # Combine both errors
+          combined_errors="$header_errors\n$lint_errors"
+
+          # Check if there are any header or lint errors
+          if [ -n "$combined_errors" ]; then
+            echo "Errors found."
+            echo "COMBINED_ERRORS<<EOF" >> $GITHUB_ENV
+            echo -e "$combined_errors" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
           else
-            echo "No ESLint errors found."
+            echo "No relevant errors found."
             echo "HAS_ERRORS=false" >> $GITHUB_ENV
           fi
 
           exit 0  # Always exit with 0 to avoid failing the step
 
-      - name: Comment on PR with ESLint Errors
+      - name: Comment on PR with ESLint and Header Errors
         if: env.HAS_ERRORS == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            const lintOutput = process.env.CLEAN_OUTPUT;
+            const lintOutput = process.env.COMBINED_ERRORS;
             const issueNumber = context.issue.number || context.payload.pull_request.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
             if (lintOutput && issueNumber) {
-              const commentBody = `## ESLint Errors:\n\`\`\`\n${lintOutput}\n\`\`\`\nPlease fix the errors mentioned above.`;
+              const commentBody = `## Frontend Project: ESLint and License Header Issues\n\`\`\`\n${lintOutput}\n\`\`\`\nPlease review and resolve the ESLint errors and missing license headers.`;
               await github.rest.issues.createComment({
                 issue_number: issueNumber,
                 owner: owner,
@@ -75,7 +85,7 @@ jobs:
                 body: commentBody
               });
             } else {
-              console.log("No ESLint errors to report.");
+              console.log("No relevant errors to report.");
             }
 
       - name: Fail if Errors Exist
