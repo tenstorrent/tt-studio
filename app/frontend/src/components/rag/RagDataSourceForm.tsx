@@ -40,7 +40,13 @@ const RagDataSourceForm = ({
         <Input type="text" autoComplete="off" {...register("name")} />
         <Button type="submit"> Create New RAG Datasource</Button>
       </form>
-      <div>{errors.name?.message && <p>{errors.name?.message}</p>}</div>
+      <div className="p-2">
+        {errors.name?.message && (
+          <p className="text-red-600 dark:text-red-400 text-sm font-medium">
+            {errors.name?.message}
+          </p>
+        )}
+      </div>
     </div>
   );
 };
