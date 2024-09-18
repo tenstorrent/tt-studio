@@ -29,7 +29,7 @@ jobs:
           node-version: '16' 
 
       - name: Install dependencies
-        working-directory: app/frontend  
+        working-directory: app/frontend 
         run: npm install
 
       - name: Run ESLint
@@ -54,7 +54,7 @@ jobs:
             echo "HAS_ERRORS=false" >> $GITHUB_ENV
           fi
 
-          exit $exit_code
+          exit 0  # Always exit with 0 to avoid failing the step
 
       - name: Comment on PR with ESLint Errors
         if: env.HAS_ERRORS == 'true'
@@ -74,8 +74,6 @@ jobs:
                 repo: repo,
                 body: commentBody
               });
-            } else {
-              console.log("No ESLint errors to report.");
 
       - name: Fail if Errors Exist
         if: env.HAS_ERRORS == 'true'
