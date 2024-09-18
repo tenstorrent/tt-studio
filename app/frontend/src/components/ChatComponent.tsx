@@ -35,7 +35,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { useQuery } from "react-query";
-import { fetchCollections } from "@/src/pages/rag/";
+import { fetchCollections } from "@/src/components/rag";
 
 interface InferenceRequest {
   deploy_id: string;

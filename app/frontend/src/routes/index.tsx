@@ -7,7 +7,7 @@ import ModelsDeployed from "../pages/ModelsDeployed";
 import NavBar from "../components/NavBar";
 import ChatUI from "../pages/ChatUIPage";
 import { RefreshProvider } from "../providers/RefreshContext";
-import RagManagement from "../pages/rag/RagManagement";
+import RagManagement from "../components/rag/RagManagement";
 
 const AppRouter = () => {
   return (
