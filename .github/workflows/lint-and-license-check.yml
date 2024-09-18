@@ -49,14 +49,13 @@ jobs:
           header_errors=$(echo "$clean_output" | grep 'missing header')
           lint_errors=$(echo "$clean_output" | grep 'error' | grep -v 'missing header')
           
-          # Format the output to highlight file names
+          # Format the output to highlight file names in bold
           format_output() {
             echo "$1" | while read -r line; do
               file=$(echo "$line" | awk '{print $1}')
               error_msg=$(echo "$line" | cut -d' ' -f3-)
-              # Generate markdown link to the file
-              file_link="[**$file**](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/${file})"
-              echo "$file_link $error_msg"
+              # Output the filename in bold followed by the error message
+              echo "**$file** $error_msg"
             done
           }
 
@@ -100,7 +99,6 @@ jobs:
               });
             } else {
               console.log("No relevant errors to report.");
-            }
 
       - name: Fail if Errors Exist
         if: env.HAS_ERRORS == 'true'
