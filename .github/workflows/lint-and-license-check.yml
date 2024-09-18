@@ -6,7 +6,15 @@ on:
       - main
   pull_request:
     branches:
-      - main
+      - "main"
+      - "staging"
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - assigned
+      - review_requested
+
 
 jobs:
   lint:
