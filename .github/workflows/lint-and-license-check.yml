@@ -15,7 +15,6 @@ on:
       - assigned
       - review_requested
 
-
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -27,12 +26,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'  
+          node-version: '16' 
 
+      - name: Change directory to frontend
+        working-directory: ./tt-studio/app/frontend
+        run: pwd  
       - name: Install dependencies
+        working-directory: ./tt-studio/app/frontend
         run: npm install
 
       - name: Run ESLint
+        working-directory: ./tt-studio/app/frontend
         id: run_eslint
         run: |
           set +e
@@ -74,5 +78,4 @@ jobs:
                 body: commentBody
               });
             } else {
-              console.log("No ESLint errors to report.");
-            }
+              console.log
