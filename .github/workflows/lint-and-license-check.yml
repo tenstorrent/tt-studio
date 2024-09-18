@@ -45,12 +45,26 @@ jobs:
           echo "$clean_output" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-          # Extract files with the 'missing header' error and any other ESLint errors
+          # Extract and format file names with 'missing header' and other ESLint errors
           header_errors=$(echo "$clean_output" | grep 'missing header')
           lint_errors=$(echo "$clean_output" | grep 'error' | grep -v 'missing header')
           
-          # Combine both errors
-          combined_errors="$header_errors\n$lint_errors"
+          # Format the output to highlight file names
+          format_output() {
+            echo "$1" | while read -r line; do
+              file=$(echo "$line" | awk '{print $1}')
+              error_msg=$(echo "$line" | cut -d' ' -f3-)
+              # Generate markdown link to the file
+              file_link="[**$file**](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/${file})"
+              echo "$file_link $error_msg"
+            done
+          }
+
+          formatted_header_errors=$(format_output "$header_errors")
+          formatted_lint_errors=$(format_output "$lint_errors")
+          
+          # Combine formatted outputs
+          combined_errors="$formatted_header_errors\n$formatted_lint_errors"
 
           # Check if there are any header or lint errors
           if [ -n "$combined_errors" ]; then
@@ -86,7 +100,6 @@ jobs:
               });
             } else {
               console.log("No relevant errors to report.");
-            }
 
       - name: Fail if Errors Exist
         if: env.HAS_ERRORS == 'true'
