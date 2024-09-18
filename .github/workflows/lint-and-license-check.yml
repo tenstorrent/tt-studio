@@ -85,7 +85,7 @@ jobs:
         with:
           script: |
             const lintOutput = process.env.COMBINED_ERRORS;
-            const issueNumber = context.issue.number || context.payload.pull_request.number;
+            const issueNumber = context.payload.pull_request.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
@@ -99,6 +99,7 @@ jobs:
               });
             } else {
               console.log("No relevant errors to report.");
+            }
 
       - name: Fail if Errors Exist
         if: env.HAS_ERRORS == 'true'
