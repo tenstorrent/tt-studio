@@ -15,6 +15,10 @@ run_command() {
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
+# Load environment variables from the .env file
+log "Reading repositories from environment file"
+source inputs/common.env
+
 # Step 2: Clone Git repositories into /tmp directory
 log "Step 2: Clone Git repositories into /tmp directory"
 
@@ -22,9 +26,14 @@ log "Step 2: Clone Git repositories into /tmp directory"
 clone_dir="/tmp/tenstorrent_repos"
 run_command "create clone directory at $clone_dir" "mkdir -p \"$clone_dir\""
 
-# Read repository URLs from the text file
-log "Reading repositories from repos.txt"
-while IFS= read -r repo; do
+# Check if REPOSITORIES variable is set
+if [[ -z "$REPOSITORIES" ]]; then
+    log "No repositories defined in environment file."
+    exit 1
+fi
+
+#* Read repositories from the REPOSITORIES variable and clone them
+for repo in $REPOSITORIES; do
     if [[ ! -z "$repo" ]]; then
         repo_name=$(basename "$repo" .git)
         target_dir="$clone_dir/$repo_name"
@@ -35,6 +44,6 @@ while IFS= read -r repo; do
             run_command "clone $repo_name into $target_dir" "git clone \"$repo\" \"$target_dir\""
         fi
     fi
-done < repos.txt
+done
 
 log "Step 2 completed successfully."

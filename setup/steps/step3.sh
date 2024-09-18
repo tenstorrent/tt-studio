@@ -1,13 +1,9 @@
 #!/bin/bash
 
-# Configuration: directory and script name
-directory="/tmp/tenstorrent_repos/tt-system-tools"
-script="hugepages-setup.sh"
-
 # Log function for messages
 log() {
     echo "$1"
-    echo "$1" >> /var/log/step4.log  # Log to a standard location
+    echo "$1" >> /var/log/install_clone.log
 }
 
 # Command runner with optional sudo
@@ -19,26 +15,30 @@ run_command() {
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
-# Step 4: Run hugepages-setup.sh script
-log "Step 4: Run $script script"
+# Load environment variables from the .env file
+log "Reading environment variables from common.env"
+source inputs/common.env
 
-# Check if the directory exists
-if [ -d "$directory" ]; then
-    cd "$directory" || { log "Failed to navigate to $directory"; exit 1; }
-    log "Navigated to $directory"
+# Step 3: Run hugepages-setup.sh script
+log "Step 3: Run hugepages-setup.sh script"
+
+# Check if the directory exists from the env variable
+if [ -d "$TT_SYSTEM_TOOLS_DIR" ]; then
+    cd "$TT_SYSTEM_TOOLS_DIR" || { log "Failed to navigate to $TT_SYSTEM_TOOLS_DIR"; exit 1; }
+    log "Navigated to $TT_SYSTEM_TOOLS_DIR"
 else
-    log "Directory $directory does not exist. Exiting."
+    log "Directory $TT_SYSTEM_TOOLS_DIR does not exist. Exiting."
     exit 1
 fi
 
-# Ensure the script is executable
-run_command "make $script executable" "chmod +x ./$script"
+# Ensure the script is executable, script name from env variable
+run_command "make $HUGEPAGES_SCRIPT executable" "chmod +x ./$HUGEPAGES_SCRIPT"
 
 # Run the script
-run_command "run $script" "./$script"
+run_command "run $HUGEPAGES_SCRIPT" "./$HUGEPAGES_SCRIPT"
 
-# Step 4 continued: Verify hugepages setup
-log "Step 4 continued: Verify hugepages setup"
+# Step 3 continued: Verify hugepages setup
+log "Step 3 continued: Verify hugepages setup"
 
 # Check if HugePages_Total exists in /proc/meminfo
 if grep -q HugePages_Total /proc/meminfo; then
@@ -48,4 +48,4 @@ else
     exit 1
 fi
 
-log "Step 4 completed successfully."
+log "Step 3 completed successfully."

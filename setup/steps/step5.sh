@@ -1,17 +1,11 @@
 #!/bin/bash
 
-# Configuration: paths and variables
-venv_path="/tmp/tenstorrent_repos/venv"
-tt_flash_repo="/tmp/tenstorrent_repos/tt-flash"
-firmware_path="/tmp/tenstorrent_repos/tt-firmware/fw_pack-80.10.0.0.fwbundle"
 
-# Log function for messages
 log() {
     echo "$1"
-    echo "$1" >> /var/log/step6.log  # Log to a standard location
+    echo "$1" >> /var/log/step5.log 
 }
 
-# Command runner with optional sudo
 run_command() {
     local description="$1"
     local command="$2"
@@ -20,8 +14,12 @@ run_command() {
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
-# Step 6: Install Rust, tt-flash, and Flash Firmware
-log "Step 6: Install Rust, tt-flash, and Flash Firmware"
+
+log "Reading environment variables from common.env"
+source inputs/common.env
+
+# Step 5: Install Rust, tt-flash, and Flash Firmware
+log "Step 5: Install Rust, tt-flash, and Flash Firmware"
 
 # Remove existing Rust installation if present
 if [ -d "$HOME/.cargo" ]; then
@@ -38,29 +36,29 @@ run_command "verify Rust installation" "rustc --version"
 run_command "verify Cargo installation" "cargo --version"
 
 # Create Python virtual environment if not exists
-if [ ! -d "$venv_path" ]; then
+if [ ! -d "$VENV_PATH" ]; then
     log "Creating Python virtual environment..."
-    run_command "create Python virtual environment" "python3 -m venv \"$venv_path\""
-    log "Virtual environment created at $venv_path"
+    run_command "create Python virtual environment" "python3 -m venv \"$VENV_PATH\""
+    log "Virtual environment created at $VENV_PATH"
 fi
 
 # Activate the virtual environment
-. "$venv_path/bin/activate"
+. "$VENV_PATH/bin/activate"
 log "Activated virtual environment"
 
 # Set the path to the virtual environment's Python and pip
-VENV_PYTHON="$venv_path/bin/python"
-VENV_PIP="$venv_path/bin/pip"
+VENV_PYTHON="$VENV_PATH/bin/python"
+VENV_PIP="$VENV_PATH/bin/pip"
 
 # Upgrade pip and install wheel
 run_command "upgrade pip, wheel, and setuptools" "$VENV_PIP install --upgrade pip wheel setuptools"
 
 # Check if the tt-flash repository directory exists
-if [ -d "$tt_flash_repo" ]; then
-    cd "$tt_flash_repo" || { log "Failed to navigate to $tt_flash_repo"; exit 1; }
-    log "Navigated to tt-flash repository at $tt_flash_repo"
+if [ -d "$TT_FLASH_REPO" ]; then
+    cd "$TT_FLASH_REPO" || { log "Failed to navigate to $TT_FLASH_REPO"; exit 1; }
+    log "Navigated to tt-flash repository at $TT_FLASH_REPO"
 else
-    log "tt-flash repository not found at $tt_flash_repo. Exiting."
+    log "tt-flash repository not found at $TT_FLASH_REPO. Exiting."
     exit 1
 fi
 
@@ -69,25 +67,25 @@ log "Installing tt-flash using pip..."
 run_command "install tt-flash" "$VENV_PIP install ."
 
 # Verify that tt-flash is installed and accessible
-if ! "$venv_path/bin/tt-flash" -h; then
+if ! "$VENV_PATH/bin/tt-flash" -h; then
     log "tt-flash -h command failed. Exiting."
     exit 1
 fi
 
-log "Step 6 completed successfully: Rust and tt-flash installed."
+log "Step 5 completed successfully: Rust and tt-flash installed."
 
-# Step 8: Flash firmware using tt-flash
-log "Step 8: Flash firmware using tt-flash"
+# Flash firmware using tt-flash
+log "Flashing firmware using tt-flash"
 
 # Check if the firmware file exists
-if [ -f "$firmware_path" ]; then
-    log "Firmware file found at $firmware_path"
+if [ -f "$FIRMWARE_PATH" ]; then
+    log "Firmware file found at $FIRMWARE_PATH"
 else
-    log "Firmware file not found at $firmware_path. Exiting."
+    log "Firmware file not found at $FIRMWARE_PATH. Exiting."
     exit 1
 fi
 
 # Flash the firmware using tt-flash
-run_command "flash firmware using tt-flash" "$venv_path/bin/tt-flash flash --fw-tar \"$firmware_path\""
+run_command "flash firmware using tt-flash" "$VENV_PATH/bin/tt-flash flash --fw-tar \"$FIRMWARE_PATH\""
 
-log "Step 8 flashing completed successfully."
+log "Firmware flashing completed successfully."

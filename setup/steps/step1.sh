@@ -15,12 +15,21 @@ run_command() {
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
-log "Reading packages from text file"
+# Load environment variables from the .env file
+log "Reading packages from environment file"
+source inputs/packages.env
 
-#* Read packages from text file and install them
-while IFS= read -r package; do
+# Check if PACKAGES variable is set
+if [[ -z "$PACKAGES" ]]; then
+    log "No packages defined in environment file."
+    exit 1
+fi
+
+#* Read packages from the PACKAGES variable and install them
+for package in $PACKAGES; do
     if [[ ! -z "$package" ]]; then
         run_command "install $package" "apt-get install -y $package"
     fi
-done < inputs/packages.txt
+done
+
 log "All packages installed successfully."

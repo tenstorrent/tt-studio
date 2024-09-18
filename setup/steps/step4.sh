@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# Configuration: directory and module details
-directory="/tmp/tenstorrent_repos/tt-kmd"
-dkms_module="tenstorrent/1.29"
-
 # Log function for messages
 log() {
     echo "$1"
@@ -19,15 +15,19 @@ run_command() {
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
+# Load environment variables from the .env file
+log "Reading environment variables from common.env"
+source inputs/common.env
+
 # Step 5: Install tt-kmd using dkms
 log "Step 5: Install tt-kmd using dkms"
 
-# Check if the directory exists
-if [ -d "$directory" ]; then
-    cd "$directory" || { log "Failed to navigate to $directory"; exit 1; }
-    log "Navigated to $directory"
+# Check if the directory exists from the env variable
+if [ -d "$TT_KMD_DIR" ]; then
+    cd "$TT_KMD_DIR" || { log "Failed to navigate to $TT_KMD_DIR"; exit 1; }
+    log "Navigated to $TT_KMD_DIR"
 else
-    log "Directory $directory does not exist. Exiting."
+    log "Directory $TT_KMD_DIR does not exist. Exiting."
     exit 1
 fi
 
@@ -48,17 +48,17 @@ else
     log "No Tenstorrent-related drivers found in DKMS."
 fi
 
-# Check if the DKMS module is already added
-if echo "$dkms_status" | grep -q "$dkms_module"; then
-    log "Skipping DKMS add for $dkms_module as it already exists."
+# Check if the DKMS module is already added using the env variable
+if echo "$dkms_status" | grep -q "$DKMS_MODULE"; then
+    log "Skipping DKMS add for $DKMS_MODULE as it already exists."
 else
     run_command "add DKMS module" "dkms add ."
 fi
 
-# Install the DKMS module
-run_command "install DKMS module $dkms_module" "dkms install $dkms_module"
+# Install the DKMS module using the env variable
+run_command "install DKMS module $DKMS_MODULE" "dkms install $DKMS_MODULE"
 
 # Load the module
 run_command "load tenstorrent module" "modprobe tenstorrent"
 
-log "Completed installing tt-kmd using dkms."
+log "Step 4: Completed installing tt-kmd using dkms."
