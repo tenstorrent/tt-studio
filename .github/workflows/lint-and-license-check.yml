@@ -29,11 +29,11 @@ jobs:
           node-version: '16'  
 
       - name: Install dependencies
-        working-directory: tt-studio/app/frontend
+        working-directory: app/frontend  
         run: npm install
 
       - name: Run ESLint
-        working-directory: tt-studio/app/frontend
+        working-directory: app/frontend  
         id: run_eslint
         run: |
           set +e
@@ -64,7 +64,7 @@ jobs:
             const lintOutput = process.env.CLEAN_OUTPUT;
             const issueNumber = context.issue.number || context.payload.pull_request.number;
             const owner = context.repo.owner;
-            const repo = context.repo.repo;
+            const repo = repo.repo;
 
             if (lintOutput) {
               const commentBody = `## ESLint Errors:\n\`\`\`\n${lintOutput}\n\`\`\`\nPlease fix the errors mentioned above.`;
