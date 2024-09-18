@@ -25,7 +25,7 @@ import {
   deleteCollection,
   createCollection,
   uploadDocument,
-} from "@/src/pages/rag";
+} from "@/src/components/rag";
 
 interface RagDataSource {
   id: string;
@@ -61,7 +61,7 @@ export default function RagManagement() {
 
   // Track which collections are being uploaded to
   const [collectionsUploading, setCollectionsUploading] = useState<string[]>(
-    []
+    [],
   );
 
   const { theme } = useTheme();
@@ -95,7 +95,7 @@ export default function RagManagement() {
     mutationFn: createCollection,
     onSuccess: (_data, variables) => {
       customToast.success(
-        `Created new collection: ${variables.collectionName}`
+        `Created new collection: ${variables.collectionName}`,
       );
       queryClient.invalidateQueries(["collectionsList"]);
     },
@@ -110,15 +110,15 @@ export default function RagManagement() {
     },
     onError: (_error, { file, collectionName }) => {
       customToast.error(
-        `Error uploading document ${file.name} to ${collectionName}`
+        `Error uploading document ${file.name} to ${collectionName}`,
       );
     },
     onSuccess: (_data, { file, collectionName }) => {
       setCollectionsUploading(
-        collectionsUploading.filter((e) => e !== collectionName)
+        collectionsUploading.filter((e) => e !== collectionName),
       );
       customToast.success(
-        `Uploaded document ${file.name} to ${collectionName}`
+        `Uploaded document ${file.name} to ${collectionName}`,
       );
     },
     onSettled: () => {
@@ -219,9 +219,10 @@ export default function RagManagement() {
         <Card
           className={
             "" +
-            `${theme === "dark"
-              ? " bg-zinc-900 text-zinc-200 rounded-lg border-2 border-red"
-              : " bg-white text-black border-gray-500 border-2 rounded-lg border-red"
+            `${
+              theme === "dark"
+                ? " bg-zinc-900 text-zinc-200 rounded-lg border-2 border-red"
+                : " bg-white text-black border-gray-500 border-2 rounded-lg border-red"
             }`
           }
         >
@@ -240,10 +241,11 @@ export default function RagManagement() {
               </TableCaption>
               <TableHeader>
                 <TableRow
-                  className={`${theme === "dark"
-                    ? "bg-zinc-900 rounded-lg"
-                    : "bg-zinc-200 rounded-lg"
-                    }`}
+                  className={`${
+                    theme === "dark"
+                      ? "bg-zinc-900 rounded-lg"
+                      : "bg-zinc-200 rounded-lg"
+                  }`}
                 >
                   {["Name", "ID", "Manage"].map((f: string) => (
                     <TableHead key={f} className="text-left">
@@ -266,7 +268,7 @@ export default function RagManagement() {
                       deleteCollectionMutation.mutate({
                         collectionName: rds.name,
                       }),
-                  })
+                  }),
                 )}
               </TableBody>
             </Table>

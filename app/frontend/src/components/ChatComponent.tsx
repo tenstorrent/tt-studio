@@ -41,7 +41,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { useQuery } from "react-query";
-import { fetchCollections } from "@/src/pages/rag/";
+import { fetchCollections } from "@/src/components/rag";
 
 interface InferenceRequest {
   deploy_id: string;
@@ -319,18 +319,18 @@ const ChatComponent: React.FC = () => {
           </Breadcrumb>
         </div>
         <div className="flex flex-col w-full h-full p-8 font-rmMono">
-          <RagContextSelector                                                                                                                                                                  
-            collections={ragDataSources}                                                                                                                                                       
-            onChange={(v: string) => {                                                                                                                                                         
-              const dataSource = ragDataSources.find((rds: RagDataSource) => {                                                                                                                 
-                return rds.name == v;                                                                                                                                                          
-              });                                                                                                                                                                              
-              if (dataSource) {                                                                                                                                                                
-                setRagDatasource(dataSource);                                                                                                                                                  
-              }                                                                                                                                                                                
-            }}                                                                                                                                                                                 
-            activeCollection={ragDatasource}                                                                                                                                                   
-          />   
+          <RagContextSelector
+            collections={ragDataSources}
+            onChange={(v: string) => {
+              const dataSource = ragDataSources.find((rds: RagDataSource) => {
+                return rds.name == v;
+              });
+              if (dataSource) {
+                setRagDatasource(dataSource);
+              }
+            }}
+            activeCollection={ragDatasource}
+          />
           {chatHistory.length === 0 && (
             <div className="flex flex-col items-center justify-center h-96">
               <img
