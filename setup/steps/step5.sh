@@ -1,13 +1,14 @@
 #!/bin/bash
 
-# Configuration: directory and module details
-directory="/tmp/tenstorrent_repos/tt-kmd"
-dkms_module="tenstorrent/1.29"
+# Configuration: paths and variables
+venv_path="/tmp/tenstorrent_repos/venv"
+tt_flash_repo="/tmp/tenstorrent_repos/tt-flash"
+firmware_path="/tmp/tenstorrent_repos/tt-firmware/fw_pack-80.10.0.0.fwbundle"
 
 # Log function for messages
 log() {
     echo "$1"
-    echo "$1" >> /var/log/step5.log  # Log to a standard location
+    echo "$1" >> /var/log/step6.log  # Log to a standard location
 }
 
 # Command runner with optional sudo
@@ -19,46 +20,74 @@ run_command() {
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
-# Step 5: Install tt-kmd using dkms
-log "Step 5: Install tt-kmd using dkms"
+# Step 6: Install Rust, tt-flash, and Flash Firmware
+log "Step 6: Install Rust, tt-flash, and Flash Firmware"
 
-# Check if the directory exists
-if [ -d "$directory" ]; then
-    cd "$directory" || { log "Failed to navigate to $directory"; exit 1; }
-    log "Navigated to $directory"
+# Remove existing Rust installation if present
+if [ -d "$HOME/.cargo" ]; then
+    log "Removing existing Rust installation..."
+    run_command "remove existing Rust installation" "rm -rf \"$HOME/.cargo\" \"$HOME/.rustup\""
+fi
+
+# Install Rust
+log "Installing Rust..."
+run_command "install Rust" "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+export PATH="$HOME/.cargo/bin:$PATH"
+run_command "set Rust default to stable" "rustup default stable"
+run_command "verify Rust installation" "rustc --version"
+run_command "verify Cargo installation" "cargo --version"
+
+# Create Python virtual environment if not exists
+if [ ! -d "$venv_path" ]; then
+    log "Creating Python virtual environment..."
+    run_command "create Python virtual environment" "python3 -m venv \"$venv_path\""
+    log "Virtual environment created at $venv_path"
+fi
+
+# Activate the virtual environment
+. "$venv_path/bin/activate"
+log "Activated virtual environment"
+
+# Set the path to the virtual environment's Python and pip
+VENV_PYTHON="$venv_path/bin/python"
+VENV_PIP="$venv_path/bin/pip"
+
+# Upgrade pip and install wheel
+run_command "upgrade pip, wheel, and setuptools" "$VENV_PIP install --upgrade pip wheel setuptools"
+
+# Check if the tt-flash repository directory exists
+if [ -d "$tt_flash_repo" ]; then
+    cd "$tt_flash_repo" || { log "Failed to navigate to $tt_flash_repo"; exit 1; }
+    log "Navigated to tt-flash repository at $tt_flash_repo"
 else
-    log "Directory $directory does not exist. Exiting."
+    log "tt-flash repository not found at $tt_flash_repo. Exiting."
     exit 1
 fi
 
-# Install the necessary kernel headers
-kernel_version=$(uname -r)
-run_command "install kernel headers for $kernel_version" "apt-get update && apt-get install -y linux-headers-$kernel_version"
+# Install tt-flash using pip
+log "Installing tt-flash using pip..."
+run_command "install tt-flash" "$VENV_PIP install ."
 
-# List all DKMS modules and inform the user about Tenstorrent-related drivers
-log "Checking existing DKMS modules"
-dkms_status=$(dkms status)
-
-if echo "$dkms_status" | grep -q "tenstorrent"; then
-    log "Tenstorrent-related drivers found:"
-    echo "$dkms_status" | grep "tenstorrent" | while IFS= read -r line; do
-        log "$line"
-    done
-else
-    log "No Tenstorrent-related drivers found in DKMS."
+# Verify that tt-flash is installed and accessible
+if ! "$venv_path/bin/tt-flash" -h; then
+    log "tt-flash -h command failed. Exiting."
+    exit 1
 fi
 
-# Check if the DKMS module is already added
-if echo "$dkms_status" | grep -q "$dkms_module"; then
-    log "Skipping DKMS add for $dkms_module as it already exists."
+log "Step 6 completed successfully: Rust and tt-flash installed."
+
+# Step 8: Flash firmware using tt-flash
+log "Step 8: Flash firmware using tt-flash"
+
+# Check if the firmware file exists
+if [ -f "$firmware_path" ]; then
+    log "Firmware file found at $firmware_path"
 else
-    run_command "add DKMS module" "dkms add ."
+    log "Firmware file not found at $firmware_path. Exiting."
+    exit 1
 fi
 
-# Install the DKMS module
-run_command "install DKMS module $dkms_module" "dkms install $dkms_module"
+# Flash the firmware using tt-flash
+run_command "flash firmware using tt-flash" "$venv_path/bin/tt-flash flash --fw-tar \"$firmware_path\""
 
-# Load the module
-run_command "load tenstorrent module" "modprobe tenstorrent"
-
-log "Completed installing tt-kmd using dkms."
+log "Step 8 flashing completed successfully."

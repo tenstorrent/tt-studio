@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Configuration: directory and script name
-directory="/tmp/tenstorrent_repos/tt-system-tools"
-script="hugepages-setup.sh"
+# Configuration: directory and module details
+directory="/tmp/tenstorrent_repos/tt-kmd"
+dkms_module="tenstorrent/1.29"
 
 # Log function for messages
 log() {
     echo "$1"
-    echo "$1" >> /var/log/step4.log  # Log to a standard location
+    echo "$1" >> /var/log/step5.log  # Log to a standard location
 }
 
 # Command runner with optional sudo
@@ -19,8 +19,8 @@ run_command() {
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
-# Step 4: Run hugepages-setup.sh script
-log "Step 4: Run $script script"
+# Step 5: Install tt-kmd using dkms
+log "Step 5: Install tt-kmd using dkms"
 
 # Check if the directory exists
 if [ -d "$directory" ]; then
@@ -31,21 +31,34 @@ else
     exit 1
 fi
 
-# Ensure the script is executable
-run_command "make $script executable" "chmod +x ./$script"
+# Install the necessary kernel headers
+kernel_version=$(uname -r)
+run_command "install kernel headers for $kernel_version" "apt-get update && apt-get install -y linux-headers-$kernel_version"
 
-# Run the script
-run_command "run $script" "./$script"
+# List all DKMS modules and inform the user about Tenstorrent-related drivers
+log "Checking existing DKMS modules"
+dkms_status=$(dkms status)
 
-# Step 4 continued: Verify hugepages setup
-log "Step 4 continued: Verify hugepages setup"
-
-# Check if HugePages_Total exists in /proc/meminfo
-if grep -q HugePages_Total /proc/meminfo; then
-    log "Completed hugepage setup"
+if echo "$dkms_status" | grep -q "tenstorrent"; then
+    log "Tenstorrent-related drivers found:"
+    echo "$dkms_status" | grep "tenstorrent" | while IFS= read -r line; do
+        log "$line"
+    done
 else
-    log "Hugepage setup failed"
-    exit 1
+    log "No Tenstorrent-related drivers found in DKMS."
 fi
 
-log "Step 4 completed successfully."
+# Check if the DKMS module is already added
+if echo "$dkms_status" | grep -q "$dkms_module"; then
+    log "Skipping DKMS add for $dkms_module as it already exists."
+else
+    run_command "add DKMS module" "dkms add ."
+fi
+
+# Install the DKMS module
+run_command "install DKMS module $dkms_module" "dkms install $dkms_module"
+
+# Load the module
+run_command "load tenstorrent module" "modprobe tenstorrent"
+
+log "Completed installing tt-kmd using dkms."
