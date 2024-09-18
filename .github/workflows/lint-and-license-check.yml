@@ -1,0 +1,70 @@
+name: Lint and License Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'  
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ESLint
+        id: run_eslint
+        run: |
+          set +e
+          output=$(npm run lint --silent 2>&1)
+          exit_code=$?
+          echo "$output"
+          clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')  # Remove ANSI escape codes
+          echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$clean_output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # Check if there are any errors in the ESLint output
+          if echo "$clean_output" | grep -q "error"; then
+            echo "ESLint errors found."
+            echo "HAS_ERRORS=true" >> $GITHUB_ENV
+          else
+            echo "No ESLint errors found."
+            echo "HAS_ERRORS=false" >> $GITHUB_ENV
+          fi
+
+          exit $exit_code
+
+      - name: Comment on PR with ESLint errors
+        if: github.event_name == 'pull_request' && env.HAS_ERRORS == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const lintOutput = process.env.CLEAN_OUTPUT;
+            const issueNumber = context.issue.number || context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            if (lintOutput) {
+              const commentBody = `## ESLint Errors:\n\`\`\`\n${lintOutput}\n\`\`\`\nPlease fix the errors mentioned above.`;
+              await github.rest.issues.createComment({
+                issue_number: issueNumber,
+                owner: owner,
+                repo: repo,
+                body: commentBody
+              });
+            } else {
+              console.log("No ESLint errors to report.");
+            }
