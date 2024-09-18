@@ -29,7 +29,7 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        working-directory: app/frontend  # Adjust path according to your repo structure
+        working-directory: app/frontend  
         run: npm install
 
       - name: Run ESLint and Filter Errors
@@ -100,6 +100,7 @@ jobs:
               });
             } else {
               console.log("No relevant errors to report.");
+            }
 
       - name: Fail if Errors Exist
         if: env.HAS_ERRORS == 'true'
