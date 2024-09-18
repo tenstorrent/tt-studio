@@ -1,40 +1,27 @@
 #!/bin/bash
 
-# Function to log messages
+# Configuration: paths and variables
+venv_path="/tmp/tenstorrent_repos/venv"
+tt_flash_repo="/tmp/tenstorrent_repos/tt-flash"
+firmware_path="/tmp/tenstorrent_repos/tt-firmware/fw_pack-80.10.0.0.fwbundle"
+
+# Log function for messages
 log() {
     echo "$1"
-    echo "$1" >> /var/log/step6.log  # Log to a standard location within the container
+    echo "$1" >> /var/log/step6.log  # Log to a standard location
 }
 
-# Function to run a command with optional sudo and log its success or failure
+# Command runner with optional sudo
 run_command() {
     local description="$1"
     local command="$2"
-    local use_sudo="${USE_SUDO:-false}"
-    
-    if [ "$use_sudo" = true ]; then
-        command="sudo $command"
-    fi
-    
+
     log "$description"
     eval "$command" || { log "Failed to $description"; exit 1; }
 }
 
 # Step 6: Install Rust, tt-flash, and Flash Firmware
 log "Step 6: Install Rust, tt-flash, and Flash Firmware"
-
-# Define the virtual environment, directory, and firmware path
-venv_path="/tmp/tenstorrent_repos/venv"
-tt_flash_repo="/tmp/tenstorrent_repos/tt-flash"
-firmware_path="/tmp/tenstorrent_repos/tt-firmware/fw_pack-80.10.0.0.fwbundle"
-
-# Check and install required packages
-required_packages="python3-venv curl build-essential"
-for package in $required_packages; do
-    if ! dpkg -l | grep -q $package; then
-        run_command "install $package" "apt-get update && apt-get install -y $package"
-    fi
-done
 
 # Remove existing Rust installation if present
 if [ -d "$HOME/.cargo" ]; then
