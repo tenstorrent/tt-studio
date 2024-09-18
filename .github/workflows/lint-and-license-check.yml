@@ -26,10 +26,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16' 
+          node-version: '16'  
 
       - name: Install dependencies
-        working-directory: app/frontend 
+        working-directory: app/frontend  
         run: npm install
 
       - name: Run ESLint
@@ -66,7 +66,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            if (lintOutput) {
+            if (lintOutput && issueNumber) {
               const commentBody = `## ESLint Errors:\n\`\`\`\n${lintOutput}\n\`\`\`\nPlease fix the errors mentioned above.`;
               await github.rest.issues.createComment({
                 issue_number: issueNumber,
@@ -74,6 +74,9 @@ jobs:
                 repo: repo,
                 body: commentBody
               });
+            } else {
+              console.log("No ESLint errors to report.");
+            }
 
       - name: Fail if Errors Exist
         if: env.HAS_ERRORS == 'true'
