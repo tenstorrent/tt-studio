@@ -29,7 +29,7 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        working-directory: app/frontend  
+        working-directory: app/frontend  # Adjust path according to your repo structure
         run: npm install
 
       - name: Run ESLint and Capture Output
@@ -45,14 +45,26 @@ jobs:
           echo "$clean_output" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-          # Extract only the errors (ignore warnings)
-          lint_errors=$(echo "$clean_output" | grep 'error')
-          
-          # Check if there are any lint errors
-          if [ -n "$lint_errors" ]; then
+          # Process output to group errors under file paths
+          grouped_errors=""
+          current_file=""
+
+          while IFS= read -r line; do
+            if echo "$line" | grep -q '^\s*\/'; then
+              # Detected a file path line, update the current file
+              current_file="$line"
+              grouped_errors+="$line\n"
+            elif echo "$line" | grep -q 'error'; then
+              # Detected an error line, associate with the current file
+              grouped_errors+="  $line\n"
+            fi
+          done <<< "$clean_output"
+
+          # Store grouped errors in environment variable
+          if [ -n "$grouped_errors" ]; then
             echo "Errors found."
-            echo "LINT_ERRORS<<EOF" >> $GITHUB_ENV
-            echo "$lint_errors" >> $GITHUB_ENV
+            echo "GROUPED_ERRORS<<EOF" >> $GITHUB_ENV
+            echo -e "$grouped_errors" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
           else
@@ -67,7 +79,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const lintErrors = process.env.LINT_ERRORS;
+            const lintErrors = process.env.GROUPED_ERRORS;
             const issueNumber = context.payload.pull_request.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
