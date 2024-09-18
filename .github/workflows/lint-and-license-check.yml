@@ -32,7 +32,7 @@ jobs:
         working-directory: app/frontend  
         run: npm install
 
-      - name: Run ESLint and Filter Errors
+      - name: Run ESLint and Capture Output
         working-directory: app/frontend  
         id: run_eslint
         run: |
@@ -45,31 +45,14 @@ jobs:
           echo "$clean_output" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-          # Extract and format file names with 'missing header' and other ESLint errors
-          header_errors=$(echo "$clean_output" | grep 'missing header')
-          lint_errors=$(echo "$clean_output" | grep 'error' | grep -v 'missing header')
+          # Extract only the errors (ignore warnings)
+          lint_errors=$(echo "$clean_output" | grep 'error')
           
-          # Format the output to highlight file names in bold
-          format_output() {
-            echo "$1" | while read -r line; do
-              file=$(echo "$line" | awk '{print $1}')
-              error_msg=$(echo "$line" | cut -d' ' -f3-)
-              # Output the filename in bold followed by the error message
-              echo "**$file** $error_msg"
-            done
-          }
-
-          formatted_header_errors=$(format_output "$header_errors")
-          formatted_lint_errors=$(format_output "$lint_errors")
-          
-          # Combine formatted outputs
-          combined_errors="$formatted_header_errors\n$formatted_lint_errors"
-
-          # Check if there are any header or lint errors
-          if [ -n "$combined_errors" ]; then
+          # Check if there are any lint errors
+          if [ -n "$lint_errors" ]; then
             echo "Errors found."
-            echo "COMBINED_ERRORS<<EOF" >> $GITHUB_ENV
-            echo -e "$combined_errors" >> $GITHUB_ENV
+            echo "LINT_ERRORS<<EOF" >> $GITHUB_ENV
+            echo "$lint_errors" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
           else
@@ -79,18 +62,18 @@ jobs:
 
           exit 0  # Always exit with 0 to avoid failing the step
 
-      - name: Comment on PR with ESLint and Header Errors
+      - name: Comment on PR with ESLint Errors
         if: env.HAS_ERRORS == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            const lintOutput = process.env.COMBINED_ERRORS;
+            const lintErrors = process.env.LINT_ERRORS;
             const issueNumber = context.payload.pull_request.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            if (lintOutput && issueNumber) {
-              const commentBody = `## Frontend Project: ESLint and License Header Issues\n\`\`\`\n${lintOutput}\n\`\`\`\nPlease review and resolve the ESLint errors and missing license headers.`;
+            if (lintErrors && issueNumber) {
+              const commentBody = `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
               await github.rest.issues.createComment({
                 issue_number: issueNumber,
                 owner: owner,
