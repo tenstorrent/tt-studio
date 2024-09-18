@@ -45,18 +45,24 @@ jobs:
           echo "$clean_output" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-          # Process output to group errors under file paths
+          # Process output to group errors under file paths with separators
           grouped_errors=""
           current_file=""
+          has_errors=false
 
           while IFS= read -r line; do
             if echo "$line" | grep -q '^\s*\/'; then
-              # Detected a file path line, update the current file
+              # Detected a file path line, add to grouped_errors if it contains errors
+              if [ "$has_errors" = true ]; then
+                grouped_errors+="---\n"  # Add separator between error groups
+                has_errors=false  # Reset error flag for the next file
+              fi
               current_file="$line"
               grouped_errors+="$line\n"
             elif echo "$line" | grep -q 'error'; then
               # Detected an error line, associate with the current file
               grouped_errors+="  $line\n"
+              has_errors=true  # Mark that this file has errors
             fi
           done <<< "$clean_output"
 
