@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 LINCOLN_TOWN_CAR = """
 The Lincoln Town Car is a model line of full-size luxury sedans that was marketed by the Lincoln division of the American automaker Ford Motor Company. Deriving its name from a limousine body style, Lincoln marketed the Town Car from 1981 to 2011, with the nameplate previously serving as the flagship trim of the Lincoln Continental. Produced across three generations for thirty model years, the Town Car was marketed directly against luxury sedans from Cadillac and Chrysler.[1]
 Marketed nearly exclusively as a four-door sedan (a two-door sedan was offered for 1981 only), many examples of the Town Car were used for fleet and livery (limousine) service. From 1983 to its 2011 discontinuation, the Town Car was the longest car produced by Ford worldwide, becoming the longest mass-production car sold in North America from 1997 to 2011. While not a direct successor of the Town Car, the Lincoln MKS would become the longest American sedan until 2016 (overtaken by the Cadillac CT6).
