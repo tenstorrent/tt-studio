@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useState, useEffect } from "react";
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card } from "./ui/card";
 import {
   Table,
@@ -15,7 +18,6 @@ import { Button } from "./ui/button";
 import { useTheme } from "../providers/ThemeProvider";
 import CustomToaster, { customToast } from "./CustomToaster";
 import { Spinner } from "./ui/spinner";
-import { useNavigate } from "react-router-dom";
 import CopyableText from "./CopyableText";
 import StatusBadge from "./StatusBadge";
 import HealthBadge from "./HealthBadge";
@@ -29,49 +31,35 @@ import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { NoModelsDialog } from "./NoModelsDeployed";
 import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
 import { useRefresh } from "../providers/RefreshContext";
-
-interface Model {
-  id: string;
-  image: string;
-  status: string;
-  health: string;
-  ports: string;
-  name: string;
-}
-
-const initialModelsDeployed: Model[] = [];
+import { useModels } from "../providers/ModelsContext";
 
 export function ModelsDeployedTable() {
   const navigate = useNavigate();
-  const { refreshTrigger } = useRefresh(); // Access the refreshTrigger state
-  const [modelsDeployed, setModelsDeployed] = useState<Model[]>(
-    initialModelsDeployed,
-  );
+  const { refreshTrigger, triggerRefresh } = useRefresh();
+  const { models, setModels } = useModels();
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
 
-  const loadModels = async () => {
+  const loadModels = useCallback(async () => {
     try {
-      const models = await fetchModels();
-      setModelsDeployed(models);
+      const fetchedModels = await fetchModels();
+      setModels(fetchedModels);
+      if (fetchedModels.length === 0) {
+        triggerRefresh(); // Trigger a refresh when all models are deleted
+      }
     } catch (error) {
       console.error("Error fetching models:", error);
       customToast.error("Failed to fetch models.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [setModels, triggerRefresh]);
 
   useEffect(() => {
     loadModels();
-
-    // Reload models whenever refreshTrigger changes
-    if (refreshTrigger > 0) {
-      loadModels();
-    }
-  }, [refreshTrigger]);
+  }, [loadModels, refreshTrigger]);
 
   const handleDelete = async (modelId: string) => {
     console.log(`Delete button clicked for model ID: ${modelId}`);
@@ -88,6 +76,12 @@ export function ModelsDeployedTable() {
         console.log(`Reset Output in tsx: ${resetOutput}`);
 
         setFadingModels((prev) => [...prev, modelId]);
+
+        // Check if this was the last model
+        const remainingModels = models.filter((model) => model.id !== modelId);
+        if (remainingModels.length === 0) {
+          triggerRefresh(); // Trigger a refresh when the last model is deleted
+        }
       } catch (error) {
         console.error("Error stopping the container:", error);
       } finally {
@@ -104,18 +98,18 @@ export function ModelsDeployedTable() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setModelsDeployed((prevModels) =>
+      setModels((prevModels) =>
         prevModels.filter((model) => !fadingModels.includes(model.id)),
       );
     }, 3000);
     return () => clearTimeout(timer);
-  }, [fadingModels]);
+  }, [fadingModels, setModels]);
 
   if (loading) {
     return <ModelsDeployedSkeleton />;
   }
 
-  if (modelsDeployed.length === 0) {
+  if (models.length === 0) {
     return <NoModelsDialog messageKey="reset" />;
   }
 
@@ -145,7 +139,7 @@ export function ModelsDeployedTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {modelsDeployed.map((model) => (
+            {models.map((model) => (
               <TableRow
                 key={model.id}
                 className={`transition-colors duration-1000 ${
@@ -159,29 +153,34 @@ export function ModelsDeployedTable() {
                 <TableCell className="text-left">
                   <CopyableText text={model.id} />
                 </TableCell>
-                <TableCell className="text-left">{model.image}</TableCell>
                 <TableCell className="text-left">
-                  <StatusBadge status={model.status} />
+                  {model.image || "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
-                  <HealthBadge health={model.health} />
+                  {model.status ? <StatusBadge status={model.status} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
-                  <CopyableText text={model.ports} />
+                  {model.health ? <HealthBadge health={model.health} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
-                  <CopyableText text={model.name} />
+                  {model.ports ? <CopyableText text={model.ports} /> : "N/A"}
+                </TableCell>
+                <TableCell className="text-left">
+                  {model.name ? <CopyableText text={model.name} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
                   <div className="flex gap-2">
                     {fadingModels.includes(model.id) ? (
                       <Button
-                        onClick={() => handleRedeploy(model.image)}
+                        onClick={() =>
+                          model.image && handleRedeploy(model.image)
+                        }
                         className={`${
                           theme === "light"
                             ? "bg-zinc-700 hover:bg-zinc-600 text-white"
                             : "bg-gray-300 hover:bg-gray-400 text-black"
                         } rounded-lg`}
+                        disabled={!model.image}
                       >
                         Redeploy
                       </Button>
@@ -208,9 +207,11 @@ export function ModelsDeployedTable() {
                         )}
                         <Button
                           onClick={() =>
+                            model.name &&
                             handleChatUI(model.id, model.name, navigate)
                           }
                           className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
+                          disabled={!model.name}
                         >
                           ChatUI
                         </Button>
@@ -223,7 +224,7 @@ export function ModelsDeployedTable() {
           </TableBody>
         </Table>
         <ScrollBar
-          className="scrollbar-thumb-rounded "
+          className="scrollbar-thumb-rounded"
           orientation="horizontal"
         />
       </ScrollArea>
