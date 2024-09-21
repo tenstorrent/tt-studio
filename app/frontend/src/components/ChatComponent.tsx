@@ -3,17 +3,10 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
-import { ScrollArea } from "./ui/scroll-area";
+import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-import {
-  MessageCircle,
-  Smile,
-  CloudSun,
-  Lightbulb,
-  User,
-  ChevronDown,
-} from "lucide-react";
+import { User, ChevronDown } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
 import {
@@ -32,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { fetchModels } from "../api/modelsDeployedApis";
+import ChatExamples from "./ChatExamples";
 import axios from "axios";
 import {
   Select,
@@ -83,7 +77,7 @@ const ChatComponent: React.FC = () => {
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
@@ -107,20 +101,19 @@ const ChatComponent: React.FC = () => {
   }, [location.state]);
 
   const scrollToBottom = () => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    if (viewportRef.current) {
+      viewportRef.current.scrollTo({
+        top: viewportRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [chatHistory]);
-
   const handleScroll = () => {
-    if (scrollAreaRef.current) {
+    if (viewportRef.current) {
       const isAtBottom =
-        scrollAreaRef.current.scrollHeight - scrollAreaRef.current.scrollTop <=
-        scrollAreaRef.current.clientHeight + 1;
+        viewportRef.current.scrollHeight - viewportRef.current.scrollTop <=
+        viewportRef.current.clientHeight + 1;
       setIsScrollButtonVisible(!isAtBottom);
     }
   };
@@ -197,7 +190,6 @@ const ChatComponent: React.FC = () => {
                 ];
               }
             });
-            scrollToBottom();
           }
         }
       }
@@ -319,113 +311,70 @@ const ChatComponent: React.FC = () => {
           </Breadcrumb>
         </div>
         <div className="flex flex-col w-full h-full p-8 font-rmMono">
-          <RagContextSelector                                                                                                                                                                  
-            collections={ragDataSources}                                                                                                                                                       
-            onChange={(v: string) => {                                                                                                                                                         
-              const dataSource = ragDataSources.find((rds: RagDataSource) => {                                                                                                                 
-                return rds.name == v;                                                                                                                                                          
-              });                                                                                                                                                                              
-              if (dataSource) {                                                                                                                                                                
-                setRagDatasource(dataSource);                                                                                                                                                  
-              }                                                                                                                                                                                
-            }}                                                                                                                                                                                 
-            activeCollection={ragDatasource}                                                                                                                                                   
-          />   
+          <RagContextSelector
+            collections={ragDataSources}
+            onChange={(v: string) => {
+              const dataSource = ragDataSources.find((rds: RagDataSource) => {
+                return rds.name == v;
+              });
+              if (dataSource) {
+                setRagDatasource(dataSource);
+              }
+            }}
+            activeCollection={ragDatasource}
+          />
           {chatHistory.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-96">
-              <img
-                src={logo}
-                alt="Tenstorrent Logo"
-                className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
-              />
-              <p className="text-gray-500 pt-9 font-rmMono">
-                Start a conversation with LLM Studio Chat...
-              </p>
-              <div className="mt-4">
-                <div className="flex space-x-4 mt-2">
-                  <Card
-                    className="border border-gray-300 p-4 flex flex-col items-center cursor-pointer rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
-                    onClick={() => setTextInput("Hello, how are you today?")}
-                  >
-                    <MessageCircle className="h-6 w-6 mb-2" color="#3b82f6" />
-                    <span className="dark:text-gray-300">
-                      Hello, how are you today?
-                    </span>
-                  </Card>
-                  <Card
-                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
-                    onClick={() => setTextInput("Can you tell me a joke?")}
-                  >
-                    <Smile className="h-6 w-6 mb-2" color="#be123c" />
-                    <span className="dark:text-gray-300">
-                      Can you tell me a joke?
-                    </span>
-                  </Card>
-                  <Card
-                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-300"
-                    onClick={() => setTextInput("What's the weather like?")}
-                  >
-                    <CloudSun className="h-6 w-6 mb-2" color="#eab308" />
-                    <span className="dark:text-gray-300">
-                      What's the weather like?
-                    </span>
-                  </Card>
-                  <Card
-                    className="border border-gray-300 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition duration-500"
-                    onClick={() => setTextInput("Tell me a fun fact.")}
-                  >
-                    <Lightbulb className="h-6 w-6 mb-2" color="#22c55e" />
-                    <span className="dark:text-gray-300">
-                      Tell me a fun fact.
-                    </span>
-                  </Card>
-                </div>
-              </div>
-            </div>
+            <ChatExamples logo={logo} setTextInput={setTextInput} />
           )}
           {chatHistory.length > 0 && (
             <div className="relative flex flex-col h-full">
-              <ScrollArea
-                className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded-lg"
-                ref={scrollAreaRef}
-                onScroll={handleScroll}
-              >
-                {chatHistory.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`chat ${
-                      message.sender === "user" ? "chat-end" : "chat-start"
-                    }`}
-                  >
-                    <div className="chat-image avatar text-left">
-                      <div className="w-10 rounded-full">
-                        {message.sender === "user" ? (
-                          <User className="h-6 w-6 mr-2 text-left" />
-                        ) : (
-                          <img
-                            src={logo}
-                            alt="Tenstorrent Logo"
-                            className="w-8 h-8 rounded-full mr-2"
-                          />
-                        )}
-                      </div>
-                    </div>
+              <ScrollArea.Root>
+                <ScrollArea.Viewport
+                  ref={viewportRef}
+                  onScroll={handleScroll}
+                  className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded-lg"
+                >
+                  {chatHistory.map((message, index) => (
                     <div
-                      className={`chat-bubble ${
-                        message.sender === "user"
-                          ? "bg-TT-green-accent text-white text-left"
-                          : "bg-TT-slate text-white text-left"
+                      key={index}
+                      className={`chat ${
+                        message.sender === "user" ? "chat-end" : "chat-start"
                       }`}
                     >
-                      {message.text}
+                      <div className="chat-image avatar text-left">
+                        <div className="w-10 rounded-full">
+                          {message.sender === "user" ? (
+                            <User className="h-6 w-6 mr-2 text-left" />
+                          ) : (
+                            <img
+                              src={logo}
+                              alt="Tenstorrent Logo"
+                              className="w-8 h-8 rounded-full mr-2"
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        className={`chat-bubble ${
+                          message.sender === "user"
+                            ? "bg-TT-green-accent text-white text-left"
+                            : "bg-TT-slate text-white text-left"
+                        }`}
+                      >
+                        {message.text}
+                      </div>
                     </div>
-                  </div>
-                ))}
-                <div ref={bottomRef} />
-              </ScrollArea>
+                  ))}
+                  <div ref={bottomRef} />
+                </ScrollArea.Viewport>
+                <ScrollArea.Scrollbar orientation="vertical">
+                  <ScrollArea.Thumb />
+                </ScrollArea.Scrollbar>
+              </ScrollArea.Root>
               {isScrollButtonVisible && (
                 <Button
-                  className="fixed bottom-4 right-4 p-2 rounded-full bg-gray-700 text-white"
+                  className="fixed bottom-32 left-1/2 transform -translate-x-1/2 p-2 rounded-full bg-gray-700 text-white z-50"
+                  style={{ zIndex: 50 }}
                   onClick={scrollToBottom}
                 >
                   <ChevronDown className="h-6 w-6" />
@@ -439,13 +388,13 @@ const ChatComponent: React.FC = () => {
               onChange={(e) => setTextInput(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder="Enter text for inference"
-              className="px-4 py-2 border rounded-lg shadow-md w-full pr-12 font-rmMono"
+              className="px-4 py-2 border rounded-lg shadow-md w-full pr-24 box-border font-rmMono"
               disabled={isStreaming}
               rows={4}
             />
             <div
-              className="absolute right-2 top-2/4 transform -translate-y-2/4 cursor-pointer"
-              onClick={handleInference} // Fixing the button to trigger the inference on click
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer"
+              onClick={handleInference}
             >
               <kbd
                 className="kbd kbd-lg bg-gray-800 dark:bg-gray-700 text-white dark:text-gray-300 border border-gray-600 rounded-lg flex items-center justify-center"
