@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+"use client";
+
 import React, { createContext, useContext, useState, useCallback } from "react";
 import { fetchModels } from "../api/modelsDeployedApis";
 
 export interface Model {
   id: string;
   name: string;
-  // ... other model properties
+  image: string;
+  status: string;
+  health: string;
+  ports: string;
 }
 
 interface ModelsContextType {
