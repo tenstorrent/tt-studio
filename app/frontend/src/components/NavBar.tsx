@@ -134,10 +134,25 @@ export default function NavBar() {
                   to="/"
                   className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <Home
-                    className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                  />
-                  {!isChatUI && <span>Home</span>}
+                  {isChatUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Home
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Home</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <Home
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Home</span>
+                    </>
+                  )}
                 </NavLink>
               </NavigationMenuItem>
               {!isChatUI && (
@@ -153,12 +168,28 @@ export default function NavBar() {
                   to="/rag-management"
                   className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <Notebook
-                    className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                  />
-                  {!isChatUI && <span>Rag Management</span>}
+                  {isChatUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Notebook
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Rag Management</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <Notebook
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Rag Management</span>
+                    </>
+                  )}
                 </NavLink>
               </NavigationMenuItem>
+
               {!isChatUI && (
                 <Separator
                   className="h-6 w-px bg-zinc-400"
@@ -195,9 +226,16 @@ export default function NavBar() {
                         models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
                       }`}
                     >
-                      <BotMessageSquare
-                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                      />
+                      <Tooltip>
+                      <TooltipTrigger asChild>
+                        <BotMessageSquare
+                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                          />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Chat UI</p>
+                      </TooltipContent>
+                    </Tooltip>
                       {!isChatUI && <span>Chat UI</span>}
                     </button>
                   </TooltipTrigger>
@@ -255,9 +293,38 @@ export default function NavBar() {
         </div>
         {isChatUI && (
           <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
-            <ModeToggle />
-            <ResetIcon onReset={handleReset} />
-            <HelpIcon toggleSidebar={handleToggleSidebar} />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <ModeToggle />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Toggle Dark/Light Mode</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <ResetIcon onReset={handleReset} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Reset Board</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <HelpIcon toggleSidebar={handleToggleSidebar} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Get Help</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         )}
         <Sidebar ref={sidebarRef} />
