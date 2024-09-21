@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+"use client";
 
 import { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -9,8 +10,13 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, BrainCog, BotMessageSquare, Notebook } from "lucide-react";
-import { Home, BrainCog, BotMessageSquare, Notebook } from "lucide-react";
+import {
+  Home,
+  Boxes,
+  BotMessageSquare,
+  Notebook,
+  FileText,
+} from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -33,7 +39,7 @@ export default function NavBar() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
-  const { models } = useModels();
+  const { models, refreshModels } = useModels();
   const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
@@ -79,7 +85,9 @@ export default function NavBar() {
     }
   };
 
-  useEffect(() => {}, [models, refreshTrigger]);
+  useEffect(() => {
+    refreshModels();
+  }, [refreshModels, refreshTrigger]);
 
   const isChatUI = location.pathname === "/chat-ui";
 
@@ -88,8 +96,8 @@ export default function NavBar() {
       <div
         className={`${
           isChatUI
-            ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark"
-            : "relative w-full dark:border-b-4 dark:border-TT-dark"
+            ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark rounded-r-3xl"
+            : "relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl"
         } border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50`}
       >
         <CustomToaster />
@@ -187,7 +195,6 @@ export default function NavBar() {
                   )}
                 </NavLink>
               </NavigationMenuItem>
-
               {!isChatUI && (
                 <Separator
                   className="h-6 w-px bg-zinc-400"
@@ -204,7 +211,7 @@ export default function NavBar() {
                   {isChatUI ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <BrainCog
+                        <Boxes
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
                       </TooltipTrigger>
@@ -214,7 +221,7 @@ export default function NavBar() {
                     </Tooltip>
                   ) : (
                     <>
-                      <BrainCog
+                      <Boxes
                         className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                       />
                       <span>Models Deployed</span>
@@ -222,27 +229,70 @@ export default function NavBar() {
                   )}
                 </NavLink>
               </NavigationMenuItem>
-              {isChatUI && (
-                <NavigationMenuItem
-                  className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <NavLink
+                  to="/logs"
+                  className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <NavLink
-                    to="/chat-ui"
-                    className={({ isActive }) => getNavLinkClass(isActive)}
-                  >
+                  {isChatUI ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <BotMessageSquare
+                        <FileText
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>Chat UI</p>
+                        <p>Logs</p>
                       </TooltipContent>
                     </Tooltip>
-                  </NavLink>
-                </NavigationMenuItem>
+                  ) : (
+                    <>
+                      <FileText
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Logs</span>
+                    </>
+                  )}
+                </NavLink>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
               )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleChatUIClick}
+                      className={`${getNavLinkClass(false)} ${
+                        models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
+                      }`}
+                    >
+                      <BotMessageSquare
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      {!isChatUI && <span>Chat UI</span>}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {models.length > 0
+                      ? "Open Chat UI"
+                      : "Deploy a model to use Chat UI"}
+                  </TooltipContent>
+                </Tooltip>
+              </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
           {!isChatUI && (
@@ -290,38 +340,36 @@ export default function NavBar() {
         </div>
         {isChatUI && (
           <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <ModeToggle />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Toggle Dark/Light Mode</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <ResetIcon onReset={handleReset} />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Reset Board</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <HelpIcon toggleSidebar={handleToggleSidebar} />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Get Help</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ModeToggle />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Toggle Dark/Light Mode</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ResetIcon onReset={handleReset} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Reset Board</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <HelpIcon toggleSidebar={handleToggleSidebar} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Get Help</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         )}
         <Sidebar ref={sidebarRef} />
