@@ -191,7 +191,7 @@ export default function NavBar() {
                   <TooltipTrigger asChild>
                     <button
                       onClick={handleChatUIClick}
-                      className={`${navLinkClass} ${
+                      className={`${getNavLinkClass(false)} ${
                         models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
                       }`}
                     >
