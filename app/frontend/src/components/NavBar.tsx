@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+"use client";
 
 import { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -32,7 +33,7 @@ export default function NavBar() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
-  const { models } = useModels();
+  const { models, refreshModels } = useModels();
   const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
@@ -78,7 +79,9 @@ export default function NavBar() {
     }
   };
 
-  useEffect(() => {}, [models, refreshTrigger]);
+  useEffect(() => {
+    refreshModels();
+  }, [refreshModels, refreshTrigger]);
 
   const isChatUI = location.pathname === "/chat-ui";
 
