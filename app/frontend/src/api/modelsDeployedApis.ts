@@ -163,7 +163,8 @@ export const handleChatUI = (
 ): void => {
   console.log(`ChatUI button clicked for model: ${modelID}`);
   console.log(`Opening Chat UI for model: ${modelName}`);
-  customToast.success(`Chat UI for model ${modelID} (${modelName}) opened.`);
+  // customToast.success(`Chat UI for model:${modelName} opened.`);
+  customToast.success(`Chat UI page opened!`);
 
   navigate("/chat-ui", {
     state: { containerID: modelID, modelName: modelName },
