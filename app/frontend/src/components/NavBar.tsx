@@ -9,7 +9,7 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, BrainCog, BotMessageSquare, Notebook } from "lucide-react";
+import { Home, Boxes, BotMessageSquare, Notebook } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -169,12 +169,18 @@ export default function NavBar() {
                   to="/models-deployed"
                   className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <BrainCog
+                  <Boxes
                     className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                   />
                   {!isChatUI && <span>Models Deployed</span>}
                 </NavLink>
               </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
