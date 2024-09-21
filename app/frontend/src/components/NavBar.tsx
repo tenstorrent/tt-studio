@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useMemo, useRef } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+
+import { useMemo, useRef, useEffect } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import logo from "../assets/tt_logo.svg";
 import {
   NavigationMenu,
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
+import { Home, BrainCog, BotMessageSquare, Notebook } from "lucide-react";
 import { Home, BrainCog, BotMessageSquare, Notebook } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
@@ -23,11 +25,15 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 import { useRefresh } from "../providers/RefreshContext";
+import { useModels } from "../providers/ModelsContext";
+import { handleChatUI } from "../api/modelsDeployedApis";
 
 export default function NavBar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { theme } = useTheme();
-  const { triggerRefresh } = useRefresh();
+  const { triggerRefresh, refreshTrigger } = useRefresh();
+  const { models } = useModels();
   const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
@@ -59,6 +65,21 @@ export default function NavBar() {
   const handleReset = () => {
     triggerRefresh();
   };
+
+  const handleChatUIClick = () => {
+    if (models.length > 0) {
+      const firstModel = models[0];
+      if (firstModel.id && firstModel.name) {
+        handleChatUI(firstModel.id, firstModel.name, navigate);
+      } else {
+        console.error("Model ID or name is undefined");
+      }
+    } else {
+      navigate("/models-deployed");
+    }
+  };
+
+  useEffect(() => {}, [models, refreshTrigger]);
 
   const isChatUI = location.pathname === "/chat-ui";
 
