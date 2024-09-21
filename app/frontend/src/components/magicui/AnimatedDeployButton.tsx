@@ -9,34 +9,50 @@ import { Rocket } from "lucide-react";
 interface AnimatedDeployButtonProps {
   initialText: React.ReactElement | string;
   changeText: React.ReactElement | string;
-  onDeploy: () => void;
+  onDeploy: () => Promise<void>;
+  disabled?: boolean;
 }
 
 export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   initialText,
   changeText,
   onDeploy,
+  disabled = false,
 }) => {
   const [isDeployed, setIsDeployed] = useState<boolean>(false);
+  const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [displayText, setDisplayText] = useState<React.ReactElement | string>(
     initialText,
   );
 
   const handleDeploy = async () => {
-    setIsDeployed(true);
+    if (disabled || isDeploying || isDeployed) return;
+
+    setIsDeploying(true);
     setDisplayText(changeText); // Change the text after clicking deploy
     await onDeploy();
+    setIsDeploying(false);
+    setIsDeployed(true);
   };
+
+  const buttonClass = `relative flex w-[200px] items-center justify-center overflow-hidden rounded-md p-[10px] outline outline-1 ${
+    disabled
+      ? "bg-gray-400 cursor-not-allowed"
+      : isDeployed
+        ? "bg-green-600"
+        : "bg-gray-600 hover:bg-gray-700"
+  } text-white dark:text-gray-200`;
 
   return (
     <AnimatePresence mode="wait">
       {isDeployed ? (
         <motion.button
-          className="relative flex w-[200px] items-center justify-center overflow-hidden rounded-md p-[10px] outline outline-1 bg-gray-600 text-white dark:bg-gray-700 dark:text-gray-200"
+          className={buttonClass}
           onClick={() => setIsDeployed(false)}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          disabled={disabled}
         >
           <motion.span
             key="action"
@@ -49,11 +65,15 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         </motion.button>
       ) : (
         <motion.button
-          className="relative flex w-[200px] cursor-pointer items-center justify-center rounded-md border-none p-[10px] transition-transform duration-700 ease-in-out transform hover:scale-105 bg-gray-600 text-white dark:bg-gray-700 dark:text-gray-200"
+          className={`${buttonClass} ${
+            !disabled &&
+            "cursor-pointer transition-transform duration-700 ease-in-out transform hover:scale-105"
+          }`}
           onClick={handleDeploy}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          disabled={disabled || isDeploying}
         >
           <motion.span
             key="reaction"
@@ -61,7 +81,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
             initial={{ x: 0 }}
             exit={{ x: 50, transition: { duration: 0.6, ease: "easeIn" } }}
           >
-            {displayText}
+            {isDeploying ? "Deploying..." : displayText}
             <Rocket className="ml-2 h-5 w-5 transition-transform duration-700 ease-in-out group-hover:-translate-y-3" />
           </motion.span>
         </motion.button>
