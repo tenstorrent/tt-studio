@@ -129,9 +129,9 @@ export function SecondStepForm({
                       Default Weights
                     </SelectItem>
                     <SelectItem value="Custom Weight">Custom Weight</SelectItem>
-                    <SelectItem value="Fine-Tune Weights">
+                    {/* <SelectItem value="Fine-Tune Weights">
                       Fine-Tune Weights
-                    </SelectItem>
+                    </SelectItem> */}
                   </SelectContent>
                 </Select>
               </motion.div>
