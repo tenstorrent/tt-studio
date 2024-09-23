@@ -27,6 +27,7 @@ export function DeployModelStep({
   const { refreshModels } = useModels();
   const { triggerRefresh } = useRefresh();
   const [modelName, setModelName] = useState<string | null>(null);
+  const [deploymentComplete, setDeploymentComplete] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchModelName = async () => {
@@ -58,7 +59,7 @@ export function DeployModelStep({
   const isDeployDisabled = !selectedModel || (!selectedWeight && !customWeight);
 
   const onDeploy = useCallback(async () => {
-    if (isDeployDisabled) return;
+    if (isDeployDisabled) return false;
 
     const deploySuccess = await handleDeploy();
     if (deploySuccess) {
@@ -67,21 +68,29 @@ export function DeployModelStep({
 
       // Trigger a global refresh
       triggerRefresh();
-
-      setTimeout(() => {
-        nextStep();
-      }, 1200); // Timing matches the animation for a smooth transition
     }
-  }, [handleDeploy, nextStep, refreshModels, triggerRefresh, isDeployDisabled]);
+    return deploySuccess;
+  }, [handleDeploy, refreshModels, triggerRefresh, isDeployDisabled]);
+
+  const onDeploymentComplete = useCallback(() => {
+    setDeploymentComplete(true);
+    setTimeout(() => {
+      nextStep();
+    }, 500); // Short delay before moving to the next step
+  }, [nextStep]);
 
   return (
     <>
-      <div className="flex flex-col items-center justify-center p-10">
+      <div
+        className="flex flex-col items-center justify-center p-10 overflow-hidden"
+        style={{ minHeight: "300px" }}
+      >
         <AnimatedDeployButton
           initialText={<span>{deployButtonText}</span>}
-          changeText={<span>Model Deployed!</span>}
+          changeText={<span>Deploying Model...</span>}
           onDeploy={onDeploy}
           disabled={isDeployDisabled}
+          onDeploymentComplete={onDeploymentComplete}
         />
         <div className="mt-6 flex flex-col items-start justify-center space-y-4">
           {modelName && (
