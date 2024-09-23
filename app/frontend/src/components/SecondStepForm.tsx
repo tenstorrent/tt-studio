@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -20,10 +21,12 @@ import {
   FormLabel,
   FormMessage,
 } from "./ui/form";
+
 import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { SecondStepFormProps } from "./SelectionSteps";
+import { motion } from "framer-motion";
 
 const SecondFormSchema = z.object({
   weight: z.string().nonempty("Please select a weight."),
@@ -41,17 +44,27 @@ export function SecondStepForm({
 }) {
   const { nextStep } = useStepper();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDefaultSelected, setIsDefaultSelected] = useState(true);
 
   const form = useForm<z.infer<typeof SecondFormSchema>>({
     resolver: zodResolver(SecondFormSchema),
     defaultValues: {
-      weight: "",
+      weight: "Default Weights",
     },
   });
 
   useEffect(() => {
     setFormError(!!form.formState.errors.weight);
-  }, [form.formState.errors]);
+  }, [form.formState.errors, setFormError]);
+
+  useEffect(() => {
+    // add an animation when the component mounts to show the default weight is selected
+    const timer = setTimeout(() => {
+      setIsDefaultSelected(false);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const onSubmit = async (data: z.infer<typeof SecondFormSchema>) => {
     setIsSubmitting(true);
@@ -88,34 +101,40 @@ export function SecondStepForm({
               <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
                 Weight
               </FormLabel>
-              <Select
-                onValueChange={(value) => {
-                  field.onChange(value);
-                  setFormError(false);
-                  removeDynamicSteps();
-                  if (value === "Custom Weight") {
-                    addCustomStep();
-                  } else if (value === "Fine-Tune Weights") {
-                    addFineTuneStep();
-                  }
-                }}
-                defaultValue={field.value}
+              <motion.div
+                initial={{ scale: 1 }}
+                animate={{ scale: isDefaultSelected ? [1, 1.05, 1] : 1 }}
+                transition={{ duration: 0.5, ease: "easeInOut" }}
               >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a weight" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="Default Weights">
-                    Default Weights
-                  </SelectItem>
-                  <SelectItem value="Custom Weight">Custom Weight</SelectItem>
-                  <SelectItem value="Fine-Tune Weights">
-                    Fine-Tune Weights
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+                <Select
+                  onValueChange={(value) => {
+                    field.onChange(value);
+                    setFormError(false);
+                    removeDynamicSteps();
+                    if (value === "Custom Weight") {
+                      addCustomStep();
+                    } else if (value === "Fine-Tune Weights") {
+                      addFineTuneStep();
+                    }
+                  }}
+                  defaultValue={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a weight" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="Default Weights">
+                      Default Weights
+                    </SelectItem>
+                    <SelectItem value="Custom Weight">Custom Weight</SelectItem>
+                    <SelectItem value="Fine-Tune Weights">
+                      Fine-Tune Weights
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </motion.div>
               <FormMessage className="text-red-500 dark:text-red-300">
                 {form.formState.errors.weight?.message}
               </FormMessage>
