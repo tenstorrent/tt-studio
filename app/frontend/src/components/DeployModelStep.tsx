@@ -27,7 +27,6 @@ export function DeployModelStep({
   const { refreshModels } = useModels();
   const { triggerRefresh } = useRefresh();
   const [modelName, setModelName] = useState<string | null>(null);
-  const [deploymentComplete, setDeploymentComplete] = useState<boolean>(false);
 
   useEffect(() => {
     const fetchModelName = async () => {
@@ -73,10 +72,9 @@ export function DeployModelStep({
   }, [handleDeploy, refreshModels, triggerRefresh, isDeployDisabled]);
 
   const onDeploymentComplete = useCallback(() => {
-    setDeploymentComplete(true);
     setTimeout(() => {
       nextStep();
-    }, 500); // Short delay before moving to the next step
+    }, 650); // Short delay before moving to the next step
   }, [nextStep]);
 
   return (
