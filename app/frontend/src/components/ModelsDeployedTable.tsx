@@ -38,6 +38,7 @@ export function ModelsDeployedTable() {
   const { refreshTrigger, triggerRefresh } = useRefresh();
   const { models, setModels } = useModels();
   const [fadingModels, setFadingModels] = useState<string[]>([]);
+  const [pulsatingModels, setPulsatingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
@@ -47,7 +48,7 @@ export function ModelsDeployedTable() {
       const fetchedModels = await fetchModels();
       setModels(fetchedModels);
       if (fetchedModels.length === 0) {
-        triggerRefresh(); // Trigger a refresh when all models are deleted
+        triggerRefresh();
       }
     } catch (error) {
       console.error("Error fetching models:", error);
@@ -65,27 +66,27 @@ export function ModelsDeployedTable() {
     console.log(`Delete button clicked for model ID: ${modelId}`);
     const truncatedModelId = modelId.substring(0, 4);
 
+    setPulsatingModels((prev) => [...prev, modelId]);
+
     const deleteModelAsync = async () => {
       setLoadingModels((prev) => [...prev, modelId]);
       try {
         const response = await deleteModel(modelId);
-
-        // Accessing the reset_response output correctly
         const resetOutput =
           response.reset_response?.output || "No reset output available";
         console.log(`Reset Output in tsx: ${resetOutput}`);
 
         setFadingModels((prev) => [...prev, modelId]);
 
-        // Check if this was the last model
         const remainingModels = models.filter((model) => model.id !== modelId);
         if (remainingModels.length === 0) {
-          triggerRefresh(); // Trigger a refresh when the last model is deleted
+          triggerRefresh();
         }
       } catch (error) {
         console.error("Error stopping the container:", error);
       } finally {
         setLoadingModels((prev) => prev.filter((id) => id !== modelId));
+        setPulsatingModels((prev) => prev.filter((id) => id !== modelId));
       }
     };
 
@@ -101,6 +102,7 @@ export function ModelsDeployedTable() {
       setModels((prevModels) =>
         prevModels.filter((model) => !fadingModels.includes(model.id)),
       );
+      setFadingModels([]);
     }, 3000);
     return () => clearTimeout(timer);
   }, [fadingModels, setModels]);
@@ -142,12 +144,14 @@ export function ModelsDeployedTable() {
             {models.map((model) => (
               <TableRow
                 key={model.id}
-                className={`transition-colors duration-1000 ${
+                className={`transition-all duration-1000 ${
                   fadingModels.includes(model.id)
                     ? theme === "dark"
                       ? "bg-zinc-700 opacity-50"
                       : "bg-zinc-200 opacity-50"
                     : ""
+                } ${
+                  pulsatingModels.includes(model.id) ? "animate-pulse" : ""
                 } rounded-lg`}
               >
                 <TableCell className="text-left">
