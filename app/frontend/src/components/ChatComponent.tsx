@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useEffect, useState, useRef } from "react";
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-import { User, ChevronDown } from "lucide-react";
+import { User, ChevronDown, Send, Info } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
 import {
@@ -36,6 +38,12 @@ import {
 } from "./ui/select";
 import { useQuery } from "react-query";
 import { fetchCollections } from "@/src/components/rag";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 interface InferenceRequest {
   deploy_id: string;
@@ -62,17 +70,13 @@ interface Model {
 const ChatComponent: React.FC = () => {
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
-
   const [ragDatasource, setRagDatasource] = useState<
     RagDataSource | undefined
   >();
-
-  // Fetch collections
   const { data: ragDataSources } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     initialData: [],
   });
-
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
@@ -81,6 +85,7 @@ const ChatComponent: React.FC = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
+  const [isBouncing, setIsBouncing] = useState(false);
 
   useEffect(() => {
     if (location.state) {
@@ -115,6 +120,7 @@ const ChatComponent: React.FC = () => {
         viewportRef.current.scrollHeight - viewportRef.current.scrollTop <=
         viewportRef.current.clientHeight + 1;
       setIsScrollButtonVisible(!isAtBottom);
+      setIsBouncing(!isAtBottom);
     }
   };
 
@@ -209,17 +215,6 @@ const ChatComponent: React.FC = () => {
       text: textInput,
     };
 
-    if (textInput === "Tell me a fun fact.") {
-      setChatHistory((prevHistory) => [
-        ...prevHistory,
-        { sender: "user", text: textInput },
-        { sender: "assistant", text: "Did you know? Honey never spoils." },
-      ]);
-      setTextInput("");
-      scrollToBottom();
-      return;
-    }
-
     runInference(inferenceRequest);
   };
 
@@ -232,23 +227,19 @@ const ChatComponent: React.FC = () => {
     activeCollection?: RagDataSource;
     onChange: (v: string) => void;
   }) => (
-    <div className="flex justify-start items-center my-2 align-center text-center">
-      <div className="text-sm align-center mr-4"> Select RAG Datasource </div>
-
+    <div className="flex items-center">
       <Select onValueChange={onChange}>
         <SelectTrigger className="w-[180px]">
           <SelectValue
-            placeholder={activeCollection?.name ?? "Select Rag Datasource"}
+            placeholder={activeCollection?.name ?? "Select RAG Datasource"}
           />
         </SelectTrigger>
         <SelectContent>
-          {collections.map((c) => {
-            return (
-              <SelectItem key={c.id} value={c.name}>
-                {c.name}
-              </SelectItem>
-            );
-          })}
+          {collections.map((c) => (
+            <SelectItem key={c.id} value={c.name}>
+              {c.name}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     </div>
@@ -261,56 +252,89 @@ const ChatComponent: React.FC = () => {
     }
   };
 
+  const handleTextAreaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    e.target.style.height = "auto";
+    e.target.style.height = `${e.target.scrollHeight}px`;
+    setTextInput(e.target.value);
+  };
+
   return (
     <div className="flex flex-col overflow-auto w-10/12 mx-auto">
       <Card className="flex flex-col w-full h-full">
-        <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-6 shadow-lg dark:shadow-2xl">
+        <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-0 z-10 flex justify-between items-center">
           <Breadcrumb className="flex items-center">
-            <BreadcrumbList className="flex gap-4 text-lg">
+            <BreadcrumbList className="flex gap-2 text-sm">
               <BreadcrumbItem>
-                <BreadcrumbLink
-                  href="/models-deployed"
-                  className="text-gray-600 dark:text-gray-200 hover:text-gray-800 dark:hover:text-white transition-colors duration-300"
-                >
-                  Models Deployed
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="mx-4 text-gray-400">
-                /
-              </BreadcrumbSeparator>
-              <BreadcrumbItem>
-                <DropdownMenu>
-                  <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
-                    <BreadcrumbEllipsis className="h-5 w-5 text-gray-600 dark:text-blue-400" />
-                    <span className="sr-only">Toggle menu</span>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {modelsDeployed.map((model) => (
-                      <DropdownMenuItem
-                        key={model.id}
-                        onClick={() => {
-                          setModelID(model.id);
-                          setModelName(model.name);
-                        }}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <BreadcrumbLink
+                        href="/models-deployed"
+                        className="text-gray-600 dark:text-gray-200 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
                       >
-                        {model.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                        Models Deployed
+                        <Info className="h-4 w-4 ml-1" />
+                      </BreadcrumbLink>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>View all deployed models</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </BreadcrumbItem>
-              <BreadcrumbSeparator className="mx-4 text-gray-400">
+              <BreadcrumbSeparator className="mx-2 text-gray-400">
                 /
               </BreadcrumbSeparator>
               <BreadcrumbItem>
-                <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300">
-                  {modelName}
-                </BreadcrumbPage>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
+                          <BreadcrumbEllipsis className="h-4 w-4 text-gray-600 dark:text-blue-400" />
+                          <span className="sr-only">Toggle menu</span>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {modelsDeployed.map((model) => (
+                            <DropdownMenuItem
+                              key={model.id}
+                              onClick={() => {
+                                setModelID(model.id);
+                                setModelName(model.name);
+                              }}
+                            >
+                              {model.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Select a different model</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="mx-2 text-gray-400">
+                /
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300 flex items-center">
+                        {modelName}
+                        <Info className="h-4 w-4 ml-1" />
+                      </BreadcrumbPage>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Current selected model</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-        </div>
-        <div className="flex flex-col w-full h-full p-8 font-rmMono">
           <RagContextSelector
             collections={ragDataSources}
             onChange={(v: string) => {
@@ -323,6 +347,8 @@ const ChatComponent: React.FC = () => {
             }}
             activeCollection={ragDatasource}
           />
+        </div>
+        <div className="flex flex-col w-full h-full p-8 font-rmMono relative">
           {chatHistory.length === 0 && (
             <ChatExamples logo={logo} setTextInput={setTextInput} />
           )}
@@ -360,6 +386,7 @@ const ChatComponent: React.FC = () => {
                             ? "bg-TT-green-accent text-white text-left"
                             : "bg-TT-slate text-white text-left"
                         }`}
+                        style={{ wordBreak: "break-word" }}
                       >
                         {message.text}
                       </div>
@@ -373,8 +400,9 @@ const ChatComponent: React.FC = () => {
               </ScrollArea.Root>
               {isScrollButtonVisible && (
                 <Button
-                  className="fixed bottom-32 left-1/2 transform -translate-x-1/2 p-2 rounded-full bg-gray-700 text-white z-50"
-                  style={{ zIndex: 50 }}
+                  className={`absolute bottom-4 right-4 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300 ${
+                    isBouncing ? "animate-bounce" : ""
+                  }`}
                   onClick={scrollToBottom}
                 >
                   <ChevronDown className="h-6 w-6" />
@@ -383,34 +411,32 @@ const ChatComponent: React.FC = () => {
             </div>
           )}
           <div className="flex items-center pt-4 relative">
-            <Textarea
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="Enter text for inference"
-              className="px-4 py-2 border rounded-lg shadow-md w-full pr-24 box-border font-rmMono"
-              disabled={isStreaming}
-              rows={4}
-            />
-            <div
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer"
-              onClick={handleInference}
-            >
-              <kbd
-                className="kbd kbd-lg bg-gray-800 dark:bg-gray-700 text-white dark:text-gray-300 border border-gray-600 rounded-lg flex items-center justify-center"
-                style={{ padding: "0.5rem 0.75rem", minWidth: "4rem" }}
+            <div className="relative w-full">
+              <Textarea
+                value={textInput}
+                onInput={handleTextAreaInput}
+                onKeyDown={handleKeyPress}
+                placeholder="Enter text for inference"
+                className="px-4 py-2 pr-12 border rounded-lg shadow-md w-full box-border font-rmMono"
+                disabled={isStreaming}
+                rows={1}
+                style={{
+                  resize: "none",
+                  maxHeight: "150px",
+                  overflowY: "auto",
+                }}
+              />
+              <Button
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={handleInference}
+                disabled={isStreaming || !textInput.trim()}
               >
-                <div className="flex items-center justify-center space-x-2">
-                  {isStreaming ? (
-                    <Spinner />
-                  ) : (
-                    <div className="flex items-center space-x-1">
-                      <ChevronDown className="h-5 w-5 text-gray-300" />
-                      <span className="text-sm">Enter</span>
-                    </div>
-                  )}
-                </div>
-              </kbd>
+                {isStreaming ? (
+                  <Spinner className="h-5 w-5" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
+              </Button>
             </div>
           </div>
         </div>
