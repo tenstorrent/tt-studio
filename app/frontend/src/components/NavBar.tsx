@@ -90,8 +90,8 @@ export default function NavBar() {
       <div
         className={`${
           isChatUI
-            ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark"
-            : "relative w-full dark:border-b-4 dark:border-TT-dark"
+            ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark rounded-r-3xl"
+            : "relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl"
         } border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50`}
       >
         <CustomToaster />
