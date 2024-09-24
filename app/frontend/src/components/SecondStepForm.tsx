@@ -26,11 +26,12 @@ import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { SecondStepFormProps } from "./SelectionSteps";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 const SecondFormSchema = z.object({
   weight: z.string().nonempty("Please select a weight."),
 });
+
 export function SecondStepForm({
   setSelectedWeight,
   addCustomStep,
@@ -44,7 +45,7 @@ export function SecondStepForm({
 }) {
   const { nextStep } = useStepper();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDefaultSelected, setIsDefaultSelected] = useState(true);
+  const [showHighlight, setShowHighlight] = useState(true);
 
   const form = useForm<z.infer<typeof SecondFormSchema>>({
     resolver: zodResolver(SecondFormSchema),
@@ -58,9 +59,9 @@ export function SecondStepForm({
   }, [form.formState.errors, setFormError]);
 
   useEffect(() => {
-    // add an animation when the component mounts to show the default weight is selected
     const timer = setTimeout(() => {
-      setIsDefaultSelected(false);
+      setShowHighlight(false);
+      customToast.info("Default Weights Pre-Selected!");
     }, 2000);
 
     return () => clearTimeout(timer);
@@ -102,9 +103,10 @@ export function SecondStepForm({
                 Weight
               </FormLabel>
               <motion.div
-                initial={{ scale: 1 }}
-                animate={{ scale: isDefaultSelected ? [1, 1.05, 1] : 1 }}
-                transition={{ duration: 0.5, ease: "easeInOut" }}
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+                className="relative"
               >
                 <Select
                   onValueChange={(value) => {
@@ -125,8 +127,20 @@ export function SecondStepForm({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="Default Weights">
+                    <SelectItem value="Default Weights" className="relative">
                       Default Weights
+                      <AnimatePresence>
+                        {showHighlight && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="absolute inset-0 bg-red-100 dark:bg-red-900/30 rounded-sm pointer-events-none"
+                            style={{ zIndex: -1 }}
+                          />
+                        )}
+                      </AnimatePresence>
                     </SelectItem>
                     <SelectItem value="Custom Weight">Custom Weight</SelectItem>
                     {/* <SelectItem value="Fine-Tune Weights">
@@ -134,6 +148,18 @@ export function SecondStepForm({
                     </SelectItem> */}
                   </SelectContent>
                 </Select>
+                <AnimatePresence>
+                  {showHighlight && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="absolute inset-0 bg-red-100 dark:bg-red-900/30 rounded-md pointer-events-none"
+                      style={{ zIndex: -1 }}
+                    />
+                  )}
+                </AnimatePresence>
               </motion.div>
               <FormMessage className="text-red-500 dark:text-red-300">
                 {form.formState.errors.weight?.message}

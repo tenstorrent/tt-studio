@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
+
 import { Button } from "./ui/button";
 import { useStepper } from "./ui/stepper";
+import { UseFormReturn, FieldValues } from "react-hook-form";
 
-export function StepperFormActions({
+type FormData = {
+  weight: string;
+};
+
+export function StepperFormActions<
+  TFieldValues extends FieldValues = FormData,
+  TContext = unknown,
+>({
   form,
   removeDynamicSteps,
   isSubmitting,
 }: {
-  form: HTMLFormElement;
+  form: UseFormReturn<TFieldValues, TContext>;
   removeDynamicSteps: () => void;
   isSubmitting?: boolean;
 }) {
