@@ -85,7 +85,6 @@ const ChatComponent: React.FC = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
-  const [isBouncing, setIsBouncing] = useState(false);
 
   useEffect(() => {
     if (location.state) {
@@ -116,11 +115,9 @@ const ChatComponent: React.FC = () => {
 
   const handleScroll = () => {
     if (viewportRef.current) {
-      const isAtBottom =
-        viewportRef.current.scrollHeight - viewportRef.current.scrollTop <=
-        viewportRef.current.clientHeight + 1;
+      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
       setIsScrollButtonVisible(!isAtBottom);
-      setIsBouncing(!isAtBottom);
     }
   };
 
@@ -398,16 +395,20 @@ const ChatComponent: React.FC = () => {
                   <ScrollArea.Thumb />
                 </ScrollArea.Scrollbar>
               </ScrollArea.Root>
-              {isScrollButtonVisible && (
+              <div
+                className={`absolute bottom-4 right-4 transition-all duration-300 ease-in-out ${
+                  isScrollButtonVisible
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 translate-y-4"
+                }`}
+              >
                 <Button
-                  className={`absolute bottom-4 right-4 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300 ${
-                    isBouncing ? "animate-bounce" : ""
-                  }`}
+                  className="rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
                   onClick={scrollToBottom}
                 >
-                  <ChevronDown className="h-6 w-6" />
+                  <ChevronDown className="h-6 w-6 animate-bounce" />
                 </Button>
-              )}
+              </div>
             </div>
           )}
           <div className="flex items-center pt-4 relative">
@@ -417,7 +418,7 @@ const ChatComponent: React.FC = () => {
                 onInput={handleTextAreaInput}
                 onKeyDown={handleKeyPress}
                 placeholder="Enter text for inference"
-                className="px-4 py-2 pr-12 border rounded-lg shadow-md w-full box-border font-rmMono"
+                className="px-4 py-2 pr-16 border rounded-lg shadow-md w-full box-border font-rmMono"
                 disabled={isStreaming}
                 rows={1}
                 style={{
@@ -427,7 +428,7 @@ const ChatComponent: React.FC = () => {
                 }}
               />
               <Button
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90"
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
                 onClick={handleInference}
                 disabled={isStreaming || !textInput.trim()}
               >
