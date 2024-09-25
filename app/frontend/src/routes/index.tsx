@@ -9,6 +9,7 @@ import ChatUI from "../pages/ChatUIPage";
 import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
 import RagManagement from "../components/rag/RagManagement";
+import LogsPage from "../pages/LogsPage";
 
 const AppRouter = () => {
   return (
@@ -21,6 +22,7 @@ const AppRouter = () => {
             <Route path="/models-deployed" element={<ModelsDeployed />} />
             <Route path="/chat-ui" element={<ChatUI />} />
             <Route path="/rag-management" element={<RagManagement />} />
+            <Route path="/logs" element={<LogsPage />} />
           </Routes>
         </Router>
       </ModelsProvider>
