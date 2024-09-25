@@ -8,7 +8,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Card, CardContent } from "../ui/card";
 import { ChevronRight, File, Folder, ExternalLink } from "lucide-react";
 
-const logsAPIURL = "/logs-api/"; // Proxied API path for logs
+const logsAPIURL = "/logs-api/";
 
 interface LogFile {
   name: string;
@@ -51,9 +51,9 @@ export default function LogsViewer() {
   };
 
   const openLogInNewTab = (logName: string) => {
-    const encodedLogName = encodeURIComponent(logName); // Ensure proper encoding of the log name
-    const logUrl = `${logsAPIURL}${encodedLogName}/`; // Construct URL to the backend API, notice the '/' at the end
-    window.open(logUrl, "_blank", "noopener,noreferrer"); // Open in a new tab
+    const encodedLogName = encodeURIComponent(logName);
+    const logUrl = `${logsAPIURL}${encodedLogName}/`;
+    window.open(logUrl, "_blank", "noopener,noreferrer");
   };
 
   const formatFileName = (name: string) => {
@@ -108,7 +108,7 @@ export default function LogsViewer() {
             variant="ghost"
             size="sm"
             className="w-full justify-start px-2 py-1 h-auto mb-1 hover:bg-accent hover:text-accent-foreground group"
-            onClick={() => openLogInNewTab(currentPath.slice(1))} // Calls backend API
+            onClick={() => openLogInNewTab(currentPath.slice(1))}
           >
             <File className="h-4 w-4 mr-2 flex-shrink-0 text-blue-500" />
             <div className="text-sm truncate text-left flex-grow">
