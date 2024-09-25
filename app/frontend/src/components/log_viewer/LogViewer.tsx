@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Card, CardContent } from "../ui/card";
-import { ChevronRight, File, Folder } from "lucide-react";
+import { ChevronRight, File, Folder, ExternalLink } from "lucide-react";
 
 const logsAPIURL = "/logs-api/"; // Proxied API path for logs
 
@@ -91,7 +91,7 @@ export default function LogsViewer() {
                   isExpanded ? "rotate-90" : ""
                 }`}
               />
-              <Folder className="h-4 w-4 mr-2 flex-shrink-0" />
+              <Folder className="h-4 w-4 mr-2 flex-shrink-0 text-yellow-500" />
               <span className="text-sm font-medium truncate">{node.name}</span>
             </Button>
             {isExpanded && node.children && (
@@ -107,13 +107,14 @@ export default function LogsViewer() {
             key={currentPath}
             variant="ghost"
             size="sm"
-            className="w-full justify-start px-2 py-1 h-auto mb-1 hover:bg-accent hover:text-accent-foreground"
+            className="w-full justify-start px-2 py-1 h-auto mb-1 hover:bg-accent hover:text-accent-foreground group"
             onClick={() => openLogInNewTab(currentPath.slice(1))} // Calls backend API
           >
-            <File className="h-4 w-4 mr-2 flex-shrink-0" />
-            <div className="text-sm truncate text-left">
+            <File className="h-4 w-4 mr-2 flex-shrink-0 text-blue-500" />
+            <div className="text-sm truncate text-left flex-grow">
               {formatFileName(node.name)}
             </div>
+            <ExternalLink className="h-4 w-4 ml-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
           </Button>
         );
       }
