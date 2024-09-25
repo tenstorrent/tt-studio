@@ -53,10 +53,9 @@ class GetLogView(APIView):
     Retrieves the content of a specific log file from the logs directory.
     """
     def get(self, request, filename, *args, **kwargs):
-        # Decode the filename to handle URL-encoded paths
+    
         decoded_filename = unquote(filename)
         
-        # Ensure the decoded filename is properly constructed relative to LOGS_ROOT
         file_path = os.path.normpath(os.path.join(LOGS_ROOT, decoded_filename))
         
         # Security check: Ensure the resolved path is within LOGS_ROOT
@@ -66,7 +65,7 @@ class GetLogView(APIView):
         
         logger.info(f"Looking for log file at: {file_path}")
         
-        # Check if the file exists and is a file (not a directory)
+     
         if os.path.exists(file_path) and os.path.isfile(file_path):
             try:
                 with open(file_path, 'r') as file:
@@ -80,34 +79,3 @@ class GetLogView(APIView):
             logger.error(f"Log file {decoded_filename} not found at {file_path}")
             raise Http404(f"Log file {decoded_filename} not found.")
 
-# class GetLogView(APIView):
-#     """
-#     Retrieves the content of a specific log file from the logs directory.
-#     """
-#     def get(self, request, filename, *args, **kwargs):
-#         # Decode the filename to handle URL-encoded paths
-#         decoded_filename = unquote(filename)
-        
-#         # Ensure the decoded filename is properly constructed relative to LOGS_ROOT
-#         file_path = os.path.normpath(os.path.join(LOGS_ROOT, decoded_filename))
-        
-#         # Security check: Ensure the resolved path is within LOGS_ROOT
-#         if not file_path.startswith(os.path.abspath(LOGS_ROOT)):
-#             logger.error(f"Invalid log file path: {file_path}")
-#             raise Http404("Invalid file path.")
-        
-#         logger.info(f"Looking for log file at: {file_path}")
-        
-#         # Check if the file exists and is a file (not a directory)
-#         if os.path.exists(file_path) and os.path.isfile(file_path):
-#             try:
-#                 with open(file_path, 'r') as file:
-#                     content = file.read()
-#                 logger.info(f"Successfully retrieved content for log: {decoded_filename}")
-#                 return HttpResponse(content, content_type='text/plain')
-#             except Exception as e:
-#                 logger.error(f"Error reading log file {decoded_filename}: {e}")
-#                 return JsonResponse({'error': str(e)}, status=500)
-#         else:
-#             logger.error(f"Log file {decoded_filename} not found at {file_path}")
-#             raise Http404(f"Log file {decoded_filename} not found.")
