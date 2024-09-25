@@ -10,7 +10,13 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import { Home, Boxes, BotMessageSquare, Notebook } from "lucide-react";
+import {
+  Home,
+  Boxes,
+  BotMessageSquare,
+  Notebook,
+  FileText,
+} from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -219,6 +225,40 @@ export default function NavBar() {
                         className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                       />
                       <span>Models Deployed</span>
+                    </>
+                  )}
+                </NavLink>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <NavLink
+                  to="/logs"
+                  className={({ isActive }) => getNavLinkClass(isActive)}
+                >
+                  {isChatUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <FileText
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Logs</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <FileText
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Logs</span>
                     </>
                   )}
                 </NavLink>
