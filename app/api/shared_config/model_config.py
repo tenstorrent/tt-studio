@@ -25,9 +25,7 @@ class ModelImpl:
     model_id: str
     image_name: str
     image_tag: str
-    device_configurations: Set[
-        "DeviceConfigurations"
-    ]  # Assuming DeviceConfigurations is an enum or similar
+    device_configurations: Set["DeviceConfigurations"]
     docker_config: Dict[str, Any]
     user_uid: int  # user inside docker container uid (for file permissions)
     user_gid: int  # user inside docker container gid (for file permissions)
@@ -41,6 +39,10 @@ class ModelImpl:
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
+        
+        # Set environment variable if N150 or N300x4 is in the device configurations
+        if DeviceConfigurations.N150 in self.device_configurations or DeviceConfigurations.N300x4 in self.device_configurations:
+            self.docker_config["environment"]["WH_ARCH_YAML"] = "wormhole_b0_80_arch_eth_dispatch.yaml"
 
     @property
     def image_version(self) -> str:
@@ -150,8 +152,20 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/inference/falcon7b",
     ),
+        ModelImpl(
+        model_name="Llama3.1-70bv0.0.1",
+        model_id="id_tt-metal-llama3.1-70bv0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-inference",
+        image_tag="v0.0.1-tt-metal-v0.52.0-rc27-b45d2dc84532",
+        device_configurations={DeviceConfigurations.N300x4},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="32G",
+        service_port=7000,
+        service_route="/inference/llama3-70b",
+    ),
 ]
-
 
 def validate_model_implemenation_config(impl):
     # no / in model_id strings, model_id will be used in path names
