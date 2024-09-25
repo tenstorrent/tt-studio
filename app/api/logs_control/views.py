@@ -1,55 +1,113 @@
 # SPDX-License-Identifier: Apache-2.0
-#
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 import os
+from urllib.parse import unquote
 from django.http import JsonResponse, HttpResponse, Http404
 from rest_framework.views import APIView
-from shared_config.backend_config import backend_config
-from datetime import datetime
-import logging
+from shared_config.logger_config import get_logger
 
 # Setting up logger
-from shared_config.logger_config import get_logger
 logger = get_logger(__name__)
 
-#  define backend cache root directory for testing POC of log viewer feature
-LOGS_DIR = os.path.join(backend_config.backend_cache_root, "python_logs")
-os.makedirs(LOGS_DIR, exist_ok=True)  # Ensure directory exists
-
+# Use environment variable for the base storage volume
+LOGS_ROOT = os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback")
 
 class ListLogsView(APIView):
     """
-    Lists all available log files in the python_logs directory
+    Lists all available directories and log files within the base logs directory
     """
     def get(self, request, *args, **kwargs):
         logger.info("ListLogsView endpoint hit")
         try:
-            # Only include files with `.log` extension
-            logs = [filename for filename in os.listdir(LOGS_DIR) if filename.endswith(".log")]
-            logger.info(f"Listed logs: {logs}")
-            return JsonResponse({'logs': logs}, status=200)
+            logs_tree = self.build_logs_tree(LOGS_ROOT)
+            logger.info(f"Log tree built: {logs_tree}")
+            return JsonResponse({'logs': logs_tree}, status=200)
         except Exception as e:
             logger.error(f"Error listing logs: {e}")
             return JsonResponse({'error': str(e)}, status=500)
 
+    def build_logs_tree(self, directory):
+        """
+        Recursively build a tree of directories and files.
+        """
+        tree = []
+        for entry in os.listdir(directory):
+            path = os.path.join(directory, entry)
+            if os.path.isdir(path):
+                tree.append({
+                    "name": entry,
+                    "type": "directory",
+                    "children": self.build_logs_tree(path)
+                })
+            elif entry.endswith(".log"):
+                tree.append({
+                    "name": entry,
+                    "type": "file"
+                })
+        return tree
+
 
 class GetLogView(APIView):
     """
-    Retrieves the content of a specific log file from the python_logs directory
+    Retrieves the content of a specific log file from the logs directory.
     """
     def get(self, request, filename, *args, **kwargs):
-        logger.info(f"GetLogView endpoint hit for log: {filename}")
-        file_path = os.path.join(LOGS_DIR, filename)
+        # Decode the filename to handle URL-encoded paths
+        decoded_filename = unquote(filename)
+        
+        # Ensure the decoded filename is properly constructed relative to LOGS_ROOT
+        file_path = os.path.normpath(os.path.join(LOGS_ROOT, decoded_filename))
+        
+        # Security check: Ensure the resolved path is within LOGS_ROOT
+        if not file_path.startswith(os.path.abspath(LOGS_ROOT)):
+            logger.error(f"Invalid log file path: {file_path}")
+            raise Http404("Invalid file path.")
+        
+        logger.info(f"Looking for log file at: {file_path}")
+        
+        # Check if the file exists and is a file (not a directory)
         if os.path.exists(file_path) and os.path.isfile(file_path):
             try:
                 with open(file_path, 'r') as file:
                     content = file.read()
-                logger.info(f"Successfully retrieved content for log: {filename}")
+                logger.info(f"Successfully retrieved content for log: {decoded_filename}")
                 return HttpResponse(content, content_type='text/plain')
             except Exception as e:
-                logger.error(f"Error reading log file {filename}: {e}")
+                logger.error(f"Error reading log file {decoded_filename}: {e}")
                 return JsonResponse({'error': str(e)}, status=500)
         else:
-            logger.error(f"Log file {filename} not found")
-            raise Http404(f"Log file {filename} not found.")
+            logger.error(f"Log file {decoded_filename} not found at {file_path}")
+            raise Http404(f"Log file {decoded_filename} not found.")
+
+# class GetLogView(APIView):
+#     """
+#     Retrieves the content of a specific log file from the logs directory.
+#     """
+#     def get(self, request, filename, *args, **kwargs):
+#         # Decode the filename to handle URL-encoded paths
+#         decoded_filename = unquote(filename)
+        
+#         # Ensure the decoded filename is properly constructed relative to LOGS_ROOT
+#         file_path = os.path.normpath(os.path.join(LOGS_ROOT, decoded_filename))
+        
+#         # Security check: Ensure the resolved path is within LOGS_ROOT
+#         if not file_path.startswith(os.path.abspath(LOGS_ROOT)):
+#             logger.error(f"Invalid log file path: {file_path}")
+#             raise Http404("Invalid file path.")
+        
+#         logger.info(f"Looking for log file at: {file_path}")
+        
+#         # Check if the file exists and is a file (not a directory)
+#         if os.path.exists(file_path) and os.path.isfile(file_path):
+#             try:
+#                 with open(file_path, 'r') as file:
+#                     content = file.read()
+#                 logger.info(f"Successfully retrieved content for log: {decoded_filename}")
+#                 return HttpResponse(content, content_type='text/plain')
+#             except Exception as e:
+#                 logger.error(f"Error reading log file {decoded_filename}: {e}")
+#                 return JsonResponse({'error': str(e)}, status=500)
+#         else:
+#             logger.error(f"Log file {decoded_filename} not found at {file_path}")
+#             raise Http404(f"Log file {decoded_filename} not found.")
