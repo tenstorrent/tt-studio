@@ -8,7 +8,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Card, CardContent } from "../ui/card";
 import { ChevronRight, File, Folder } from "lucide-react";
 
-const logsAPIURL = "/logs-api/";
+const logsAPIURL = "/logs-api/"; // Proxied API path for logs
 
 interface LogFile {
   name: string;
@@ -26,7 +26,7 @@ export default function LogsViewer() {
       try {
         const response = await fetch(logsAPIURL);
         const data = await response.json();
-        const organizedLogs = organizeLogs(data.logs);
+        const organizedLogs = data.logs;
         setLogs(organizedLogs);
       } catch (error) {
         console.error("Error fetching logs:", error);
@@ -37,35 +37,6 @@ export default function LogsViewer() {
 
     fetchLogs();
   }, []);
-
-  const organizeLogs = (logFiles: string[]): LogFile[] => {
-    const root: LogFile[] = [];
-    logFiles.forEach((file) => {
-      const parts = file.split("/");
-      let currentLevel = root;
-      parts.forEach((part, index) => {
-        const existing = currentLevel.find((item) => item.name === part);
-        if (existing) {
-          if (index === parts.length - 1) {
-            existing.type = "file";
-          } else {
-            currentLevel = existing.children!;
-          }
-        } else {
-          const newItem: LogFile = {
-            name: part,
-            type: index === parts.length - 1 ? "file" : "directory",
-            children: index === parts.length - 1 ? undefined : [],
-          };
-          currentLevel.push(newItem);
-          if (newItem.children) {
-            currentLevel = newItem.children;
-          }
-        }
-      });
-    });
-    return root;
-  };
 
   const toggleDir = (path: string) => {
     setExpandedDirs((prev) => {
@@ -80,8 +51,9 @@ export default function LogsViewer() {
   };
 
   const openLogInNewTab = (logName: string) => {
-    const logUrl = `${logsAPIURL}${logName}/`;
-    window.open(logUrl, "_blank", "noopener,noreferrer");
+    const encodedLogName = encodeURIComponent(logName); // Ensure proper encoding of the log name
+    const logUrl = `${logsAPIURL}${encodedLogName}/`; // Construct URL to the backend API, notice the '/' at the end
+    window.open(logUrl, "_blank", "noopener,noreferrer"); // Open in a new tab
   };
 
   const formatFileName = (name: string) => {
@@ -136,7 +108,7 @@ export default function LogsViewer() {
             variant="ghost"
             size="sm"
             className="w-full justify-start px-2 py-1 h-auto mb-1 hover:bg-accent hover:text-accent-foreground"
-            onClick={() => openLogInNewTab(currentPath.slice(1))}
+            onClick={() => openLogInNewTab(currentPath.slice(1))} // Calls backend API
           >
             <File className="h-4 w-4 mr-2 flex-shrink-0" />
             <div className="text-sm truncate text-left">
