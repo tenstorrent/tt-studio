@@ -432,11 +432,7 @@ const ChatComponent: React.FC = () => {
                 onClick={handleInference}
                 disabled={isStreaming || !textInput.trim()}
               >
-                {isStreaming ? (
-                  <Spinner className="h-5 w-5" />
-                ) : (
-                  <Send className="h-5 w-5" />
-                )}
+                {isStreaming ? <Spinner /> : <Send className="h-5 w-5" />}
               </Button>
             </div>
           </div>
