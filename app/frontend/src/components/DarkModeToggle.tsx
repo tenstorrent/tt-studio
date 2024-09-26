@@ -14,7 +14,7 @@ const ModeToggle = () => {
   return (
     <Button
       onClick={toggleTheme}
-      variant="outline"
+      variant="navbar"
       size="icon"
       className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out group ${
         theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300"

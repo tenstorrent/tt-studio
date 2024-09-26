@@ -25,7 +25,7 @@ const HelpIcon: React.FC<HelpIconProps> = ({ toggleSidebar }) => {
 
   return (
     <Button
-      variant="outline"
+      variant="navbar"
       size="icon"
       onClick={handleHelpClick}
       className={`transition duration-300 ${buttonBackgroundColor} ${hoverButtonBackgroundColor}`}
