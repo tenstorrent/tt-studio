@@ -32,8 +32,19 @@ import { NoModelsDialog } from "./NoModelsDeployed";
 import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
 import { useRefresh } from "../providers/RefreshContext";
 import { useModels } from "../providers/ModelsContext";
+import {
+  Box,
+  Image,
+  Activity,
+  Heart,
+  Network,
+  Tag,
+  Settings,
+  Trash2,
+  MessageSquare,
+} from "lucide-react";
 
-export function ModelsDeployedTable() {
+export default function ModelsDeployedTable() {
   const navigate = useNavigate();
   const { refreshTrigger, triggerRefresh } = useRefresh();
   const { models, setModels } = useModels();
@@ -131,13 +142,27 @@ export function ModelsDeployedTable() {
                   : "bg-zinc-200 rounded-lg"
               }`}
             >
-              <TableHead className="text-left">Container ID</TableHead>
-              <TableHead className="text-left">Image</TableHead>
-              <TableHead className="text-left">Status</TableHead>
-              <TableHead className="text-left">Health</TableHead>
-              <TableHead className="text-left">Ports</TableHead>
-              <TableHead className="text-left">Names</TableHead>
-              <TableHead className="text-left">Manage</TableHead>
+              <TableHead className="text-left">
+                <Box className="inline-block mr-2" size={16} /> Container ID
+              </TableHead>
+              <TableHead className="text-left">
+                <Image className="inline-block mr-2" size={16} /> Image
+              </TableHead>
+              <TableHead className="text-left">
+                <Activity className="inline-block mr-2" size={16} /> Status
+              </TableHead>
+              <TableHead className="text-left">
+                <Heart className="inline-block mr-2" size={16} /> Health
+              </TableHead>
+              <TableHead className="text-left">
+                <Network className="inline-block mr-2" size={16} /> Ports
+              </TableHead>
+              <TableHead className="text-left">
+                <Tag className="inline-block mr-2" size={16} /> Names
+              </TableHead>
+              <TableHead className="text-left">
+                <Settings className="inline-block mr-2" size={16} /> Manage
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -206,6 +231,7 @@ export function ModelsDeployedTable() {
                             onClick={() => handleDelete(model.id)}
                             className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg"
                           >
+                            <Trash2 className="w-4 h-4 mr-2" />
                             Delete
                           </Button>
                         )}
@@ -217,6 +243,7 @@ export function ModelsDeployedTable() {
                           className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
                           disabled={!model.name}
                         >
+                          <MessageSquare className="w-4 h-4 mr-2" />
                           ChatUI
                         </Button>
                       </>
