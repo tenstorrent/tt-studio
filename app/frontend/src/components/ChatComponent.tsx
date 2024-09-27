@@ -8,7 +8,7 @@ import { Button } from "./ui/button";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-import { User, ChevronDown, Send, Info } from "lucide-react";
+import { User, ChevronDown, Send } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
 import {
@@ -67,7 +67,7 @@ interface Model {
   name: string;
 }
 
-const ChatComponent: React.FC = () => {
+export default function ChatComponent() {
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [ragDatasource, setRagDatasource] = useState<
@@ -122,23 +122,24 @@ const ChatComponent: React.FC = () => {
   };
 
   const getRagContext = async (request: InferenceRequest) => {
-    const ragContext: { documents: string[] } = {
-      documents: [],
-    };
+    const ragContext: { documents: string[] } = { documents: [] };
 
-    const response = await axios
-      .get(`/collections-api/${ragDatasource?.name}/query`, {
-        params: { query: request.text },
-      })
-      .catch((e) => {
-        console.error(`Error fetching RAG context ${e}`);
-      });
+    if (!ragDatasource) return ragContext;
 
-    if (!response?.data) {
-      return ragContext;
+    try {
+      const response = await axios.get(
+        `/collections-api/${ragDatasource.name}/query`,
+        {
+          params: { query: request.text },
+        },
+      );
+      if (response?.data) {
+        ragContext.documents = response.data.documents;
+      }
+    } catch (e) {
+      console.error(`Error fetching RAG context: ${e}`);
     }
 
-    ragContext.documents = response.data.documents;
     return ragContext;
   };
 
@@ -151,14 +152,11 @@ const ChatComponent: React.FC = () => {
       setIsStreaming(true);
       const response = await fetch(`/models-api/inference/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
 
       const reader = response.body?.getReader();
-
       setChatHistory((prevHistory) => [
         ...prevHistory,
         { sender: "user", text: textInput },
@@ -205,10 +203,10 @@ const ChatComponent: React.FC = () => {
   };
 
   const handleInference = () => {
-    if (textInput.trim() === "") return;
+    if (textInput.trim() === "" || !modelID) return;
 
     const inferenceRequest: InferenceRequest = {
-      deploy_id: modelID!,
+      deploy_id: modelID,
       text: textInput,
     };
 
@@ -270,7 +268,6 @@ const ChatComponent: React.FC = () => {
                         className="text-gray-600 dark:text-gray-200 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
                       >
                         Models Deployed
-                        <Info className="h-4 w-4 ml-1" />
                       </BreadcrumbLink>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -319,9 +316,8 @@ const ChatComponent: React.FC = () => {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300 flex items-center">
+                      <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300">
                         {modelName}
-                        <Info className="h-4 w-4 ml-1" />
                       </BreadcrumbPage>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -335,9 +331,9 @@ const ChatComponent: React.FC = () => {
           <RagContextSelector
             collections={ragDataSources}
             onChange={(v: string) => {
-              const dataSource = ragDataSources.find((rds: RagDataSource) => {
-                return rds.name == v;
-              });
+              const dataSource = ragDataSources.find(
+                (rds: RagDataSource) => rds.name === v,
+              );
               if (dataSource) {
                 setRagDatasource(dataSource);
               }
@@ -351,48 +347,53 @@ const ChatComponent: React.FC = () => {
           )}
           {chatHistory.length > 0 && (
             <div className="relative flex flex-col h-full">
-              <ScrollArea.Root>
+              <ScrollArea.Root className="h-[calc(100vh-20rem)] overflow-auto">
                 <ScrollArea.Viewport
                   ref={viewportRef}
                   onScroll={handleScroll}
-                  className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded-lg"
+                  className="h-full w-full pr-4"
                 >
-                  {chatHistory.map((message, index) => (
-                    <div
-                      key={index}
-                      className={`chat ${
-                        message.sender === "user" ? "chat-end" : "chat-start"
-                      }`}
-                    >
-                      <div className="chat-image avatar text-left">
-                        <div className="w-10 rounded-full">
-                          {message.sender === "user" ? (
-                            <User className="h-6 w-6 mr-2 text-left" />
-                          ) : (
-                            <img
-                              src={logo}
-                              alt="Tenstorrent Logo"
-                              className="w-8 h-8 rounded-full mr-2"
-                            />
-                          )}
+                  <div className="p-4 border rounded-lg">
+                    {chatHistory.map((message, index) => (
+                      <div
+                        key={index}
+                        className={`chat ${
+                          message.sender === "user" ? "chat-end" : "chat-start"
+                        }`}
+                      >
+                        <div className="chat-image avatar text-left">
+                          <div className="w-10 rounded-full">
+                            {message.sender === "user" ? (
+                              <User className="h-6 w-6 mr-2 text-left" />
+                            ) : (
+                              <img
+                                src={logo}
+                                alt="Tenstorrent Logo"
+                                className="w-8 h-8 rounded-full mr-2"
+                              />
+                            )}
+                          </div>
+                        </div>
+                        <div
+                          className={`chat-bubble ${
+                            message.sender === "user"
+                              ? "bg-TT-green-accent text-white text-left"
+                              : "bg-TT-slate text-white text-left"
+                          }`}
+                          style={{ wordBreak: "break-word" }}
+                        >
+                          {message.text}
                         </div>
                       </div>
-                      <div
-                        className={`chat-bubble ${
-                          message.sender === "user"
-                            ? "bg-TT-green-accent text-white text-left"
-                            : "bg-TT-slate text-white text-left"
-                        }`}
-                        style={{ wordBreak: "break-word" }}
-                      >
-                        {message.text}
-                      </div>
-                    </div>
-                  ))}
-                  <div ref={bottomRef} />
+                    ))}
+                    <div ref={bottomRef} />
+                  </div>
                 </ScrollArea.Viewport>
-                <ScrollArea.Scrollbar orientation="vertical">
-                  <ScrollArea.Thumb />
+                <ScrollArea.Scrollbar
+                  className="flex select-none touch-none p-0.5 bg-black/10 transition-colors duration-150 ease-out hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 w-2.5 rounded-tr-md rounded-br-md"
+                  orientation="vertical"
+                >
+                  <ScrollArea.Thumb className="flex-1 bg-black/50 dark:bg-white/50 rounded-full relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:w-full before:h-full before:min-w-[44px] before:min-h-[44px]" />
                 </ScrollArea.Scrollbar>
               </ScrollArea.Root>
               <div
@@ -440,6 +441,4 @@ const ChatComponent: React.FC = () => {
       </Card>
     </div>
   );
-};
-
-export default ChatComponent;
+}
