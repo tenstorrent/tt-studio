@@ -8,7 +8,7 @@ import { Button } from "./ui/button";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-import { User, ChevronDown, Send } from "lucide-react";
+import { User, ChevronDown, Send, Info } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
 import {
@@ -44,7 +44,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-
+import InferenceStats from "./InferenceStats";
 interface InferenceRequest {
   deploy_id: string;
   text: string;
@@ -60,11 +60,28 @@ interface RagDataSource {
 interface ChatMessage {
   sender: "user" | "assistant";
   text: string;
+  inferenceStats?: InferenceStats; // Optional property for stats
 }
 
 interface Model {
   id: string;
   name: string;
+}
+
+interface InferenceStats {
+  user_ttft_ms: number;
+  user_tps: number;
+  user_ttft_e2e_ms: number;
+  prefill: {
+    tokens_prefilled: number;
+    tps: number;
+  };
+  decode: {
+    tokens_decoded: number;
+    tps: number;
+  };
+  batch_size: number;
+  context_length: number;
 }
 
 export default function ChatComponent() {
@@ -85,6 +102,7 @@ export default function ChatComponent() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
+  const [streamingStage, setStreamingStage] = useState<number>(0); // Stage of streaming
 
   useEffect(() => {
     if (location.state) {
@@ -131,7 +149,7 @@ export default function ChatComponent() {
         `/collections-api/${ragDatasource.name}/query`,
         {
           params: { query: request.text },
-        },
+        }
       );
       if (response?.data) {
         ragContext.documents = response.data.documents;
@@ -150,16 +168,19 @@ export default function ChatComponent() {
       }
 
       setIsStreaming(true);
+      setStreamingStage(1);
       const response = await fetch(`/models-api/inference/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
 
+      setStreamingStage(2);
       const reader = response.body?.getReader();
       setChatHistory((prevHistory) => [
         ...prevHistory,
         { sender: "user", text: textInput },
+        { sender: "assistant", text: "" },
       ]);
       setTextInput("");
 
@@ -171,25 +192,63 @@ export default function ChatComponent() {
           done = streamDone;
 
           if (value) {
+            setStreamingStage(3);
             const decoder = new TextDecoder();
             const chunk = decoder.decode(value);
+            console.log("Chunk:", chunk);
+            setStreamingStage(4);
             result += chunk;
-            const cleanedResult = result.replace(/<\|endoftext\|>/g, "");
-            setChatHistory((prevHistory) => {
-              const lastMessage = prevHistory[prevHistory.length - 1];
-              if (lastMessage && lastMessage.sender === "assistant") {
-                const updatedHistory = [...prevHistory];
-                updatedHistory[updatedHistory.length - 1] = {
-                  ...lastMessage,
-                  text: cleanedResult,
-                };
-                return updatedHistory;
-              } else {
-                return [
-                  ...prevHistory,
-                  { sender: "assistant", text: cleanedResult },
-                ];
+
+            const endOfStreamIndex = result.indexOf("<<END_OF_STREAM>>");
+            if (endOfStreamIndex !== -1) {
+              result = result.substring(0, endOfStreamIndex);
+              done = true;
+            }
+
+            const cleanedResult = result
+              .replace(/<\|eot_id\|>/g, "") // Remove "<|eot_id|>"
+              .replace(/<\|endoftext\|>/g, "")
+              .trim();
+
+            const statsStartIndex = cleanedResult.indexOf("{");
+            const statsEndIndex = cleanedResult.lastIndexOf("}");
+
+            let chatContent = cleanedResult;
+
+            if (statsStartIndex !== -1 && statsEndIndex !== -1) {
+              chatContent = cleanedResult.substring(0, statsStartIndex).trim();
+
+              const statsJson = cleanedResult.substring(
+                statsStartIndex,
+                statsEndIndex + 1
+              );
+              try {
+                const parsedStats = JSON.parse(statsJson);
+                setChatHistory((prevHistory) => {
+                  const updatedHistory = [...prevHistory];
+                  const lastAssistantMessage = updatedHistory.findLastIndex(
+                    (message) => message.sender === "assistant"
+                  );
+                  if (lastAssistantMessage !== -1) {
+                    updatedHistory[lastAssistantMessage] = {
+                      ...updatedHistory[lastAssistantMessage],
+                      inferenceStats: parsedStats,
+                    };
+                  }
+                  return updatedHistory;
+                });
+              } catch (e) {
+                console.error("Error parsing inference stats:", e);
               }
+            }
+
+            setChatHistory((prevHistory) => {
+              const updatedHistory = [...prevHistory];
+              updatedHistory[updatedHistory.length - 1] = {
+                ...updatedHistory[updatedHistory.length - 1],
+                text: chatContent,
+              };
+              return updatedHistory;
             });
           }
         }
@@ -253,10 +312,26 @@ export default function ChatComponent() {
     setTextInput(e.target.value);
   };
 
+  const getStreamingStageText = () => {
+    switch (streamingStage) {
+      case 1:
+        return "Streaming from frontend to backend...";
+      case 2:
+        return "Backend streaming to model...";
+      case 3:
+        return "Running through Tenstorrent hardware...";
+      case 4:
+        return "Getting you back results...";
+      default:
+        return "";
+    }
+  };
+
   return (
-    <div className="flex flex-col overflow-auto w-10/12 mx-auto">
+    <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden">
       <Card className="flex flex-col w-full h-full">
-        <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-0 z-10 flex justify-between items-center">
+        <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-4 pshadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center">
+          {/* Breadcrumbs and RAG context selector */}
           <Breadcrumb className="flex items-center">
             <BreadcrumbList className="flex gap-2 text-sm">
               <BreadcrumbItem>
@@ -285,7 +360,7 @@ export default function ChatComponent() {
                     <TooltipTrigger asChild>
                       <DropdownMenu>
                         <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
-                          <BreadcrumbEllipsis className="h-4 w-4 text-gray-600 dark:text-blue-400" />
+                          <BreadcrumbEllipsis className="h-4 w-4 text-gray-600 " />
                           <span className="sr-only">Toggle menu</span>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start">
@@ -332,7 +407,7 @@ export default function ChatComponent() {
             collections={ragDataSources}
             onChange={(v: string) => {
               const dataSource = ragDataSources.find(
-                (rds: RagDataSource) => rds.name === v,
+                (rds: RagDataSource) => rds.name === v
               );
               if (dataSource) {
                 setRagDatasource(dataSource);
@@ -341,101 +416,98 @@ export default function ChatComponent() {
             activeCollection={ragDatasource}
           />
         </div>
-        <div className="flex flex-col w-full h-full p-8 font-rmMono relative">
+        {/* Chat history section */}
+        <div className="flex flex-col w-full flex-grow p-8 font-rmMono relative overflow-hidden">
           {chatHistory.length === 0 && (
             <ChatExamples logo={logo} setTextInput={setTextInput} />
           )}
           {chatHistory.length > 0 && (
-            <div className="relative flex flex-col h-full">
-              <ScrollArea.Root className="h-[calc(100vh-20rem)] overflow-auto">
-                <ScrollArea.Viewport
-                  ref={viewportRef}
-                  onScroll={handleScroll}
-                  className="h-full w-full pr-4"
-                >
-                  <div className="p-4 border rounded-lg">
-                    {chatHistory.map((message, index) => (
-                      <div
-                        key={index}
-                        className={`chat ${
-                          message.sender === "user" ? "chat-end" : "chat-start"
-                        }`}
-                      >
-                        <div className="chat-image avatar text-left">
-                          <div className="w-10 rounded-full">
-                            {message.sender === "user" ? (
-                              <User className="h-6 w-6 mr-2 text-left" />
-                            ) : (
-                              <img
-                                src={logo}
-                                alt="Tenstorrent Logo"
-                                className="w-8 h-8 rounded-full mr-2"
-                              />
-                            )}
-                          </div>
-                        </div>
-                        <div
-                          className={`chat-bubble ${
-                            message.sender === "user"
-                              ? "bg-TT-green-accent text-white text-left"
-                              : "bg-TT-slate text-white text-left"
-                          }`}
-                          style={{ wordBreak: "break-word" }}
-                        >
-                          {message.text}
+            <ScrollArea.Root className="flex-grow h-0 overflow-y-auto">
+              <ScrollArea.Viewport
+                ref={viewportRef}
+                onScroll={handleScroll}
+                className="w-full pr-4"
+              >
+                <div className="p-4 border rounded-lg">
+                  {chatHistory.map((message, index) => (
+                    <div
+                      key={index}
+                      className={`chat ${message.sender === "user" ? "chat-end" : "chat-start"}`}
+                    >
+                      <div className="chat-image avatar text-left">
+                        <div className="w-10 rounded-full">
+                          {message.sender === "user" ? (
+                            <User className="h-6 w-6 mr-2 text-left" />
+                          ) : (
+                            <img
+                              src={logo}
+                              alt="Tenstorrent Logo"
+                              className="w-8 h-8 rounded-full mr-2"
+                            />
+                          )}
                         </div>
                       </div>
-                    ))}
-                    <div ref={bottomRef} />
-                  </div>
-                </ScrollArea.Viewport>
-                <ScrollArea.Scrollbar
-                  className="flex select-none touch-none p-0.5 bg-black/10 transition-colors duration-150 ease-out hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 w-2.5 rounded-tr-md rounded-br-md"
-                  orientation="vertical"
-                >
-                  <ScrollArea.Thumb className="flex-1 bg-black/50 dark:bg-white/50 rounded-full relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:w-full before:h-full before:min-w-[44px] before:min-h-[44px]" />
-                </ScrollArea.Scrollbar>
-              </ScrollArea.Root>
-              <div
-                className={`absolute bottom-4 right-4 transition-all duration-300 ease-in-out ${
-                  isScrollButtonVisible
-                    ? "opacity-100 translate-y-0"
-                    : "opacity-0 translate-y-4"
-                }`}
-              >
-                <Button
-                  className="rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
-                  onClick={scrollToBottom}
-                >
-                  <ChevronDown className="h-6 w-6 animate-bounce" />
-                </Button>
-              </div>
-            </div>
+                      <div
+                        className={`chat-bubble ${
+                          message.sender === "user"
+                            ? "bg-TT-green-accent text-white text-left"
+                            : "bg-TT-slate text-white text-left"
+                        } p-3 rounded-lg mb-1`}
+                        style={{ wordBreak: "break-word" }}
+                      >
+                        {message.text}
+                      </div>
+                      {message.sender === "assistant" &&
+                        message.inferenceStats && (
+                          <InferenceStats stats={message.inferenceStats} />
+                        )}
+                    </div>
+                  ))}
+                  <div ref={bottomRef} />
+                </div>
+              </ScrollArea.Viewport>
+            </ScrollArea.Root>
           )}
-          <div className="flex items-center pt-4 relative">
-            <div className="relative w-full">
-              <Textarea
-                value={textInput}
-                onInput={handleTextAreaInput}
-                onKeyDown={handleKeyPress}
-                placeholder="Enter text for inference"
-                className="px-4 py-2 pr-16 border rounded-lg shadow-md w-full box-border font-rmMono"
-                disabled={isStreaming}
-                rows={1}
-                style={{
-                  resize: "none",
-                  maxHeight: "150px",
-                  overflowY: "auto",
-                }}
-              />
-              <Button
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
-                onClick={handleInference}
-                disabled={isStreaming || !textInput.trim()}
-              >
-                {isStreaming ? <Spinner /> : <Send className="h-5 w-5" />}
-              </Button>
-            </div>
+          {/* Scroll-to-bottom button */}
+          <div
+            className={`absolute bottom-4 right-4 transition-all duration-300 ease-in-out ${
+              isScrollButtonVisible
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-4"
+            }`}
+          >
+            <Button
+              className="rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
+              onClick={scrollToBottom}
+            >
+              <ChevronDown className="h-6 w-6 animate-bounce" />
+            </Button>
+          </div>
+        </div>
+        {/* Input area fixed at bottom */}
+        <div className="flex-shrink-0 p-4 ">
+          <div className="relative w-full">
+            <Textarea
+              value={textInput}
+              onInput={handleTextAreaInput}
+              onKeyDown={handleKeyPress}
+              placeholder="Enter text for inference"
+              className="px-4 py-2 pr-16 border rounded-lg shadow-md w-full box-border font-rmMono"
+              disabled={isStreaming}
+              rows={1}
+              style={{
+                resize: "none",
+                maxHeight: "150px",
+                overflowY: "auto",
+              }}
+            />
+            <Button
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
+              onClick={handleInference}
+              disabled={isStreaming || !textInput.trim()}
+            >
+              {isStreaming ? <Spinner /> : <Send className="h-5 w-5" />}
+            </Button>
           </div>
         </div>
       </Card>
