@@ -25,7 +25,7 @@ import {
   deleteCollection,
   createCollection,
   uploadDocument,
-} from "@/src/pages/rag";
+} from "@/src/components/rag";
 
 interface RagDataSource {
   id: string;
@@ -148,7 +148,6 @@ export default function RagManagement() {
   };
 
   const renderRow = ({
-    theme,
     item,
     isUploading,
     onDelete,
@@ -191,7 +190,6 @@ export default function RagManagement() {
             disabled={isUploading}
             className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
             onClick={() => onUploadClick(item)}
-            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
           >
             Upload Document
           </Button>

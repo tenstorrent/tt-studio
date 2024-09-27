@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useEffect, useState, useRef } from "react";
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-import { User, ChevronDown } from "lucide-react";
+import { User, ChevronDown, Send } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
 import {
@@ -35,7 +37,13 @@ import {
   SelectValue,
 } from "./ui/select";
 import { useQuery } from "react-query";
-import { fetchCollections } from "@/src/pages/rag/";
+import { fetchCollections } from "@/src/components/rag";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 interface InferenceRequest {
   deploy_id: string;
@@ -59,20 +67,16 @@ interface Model {
   name: string;
 }
 
-const ChatComponent: React.FC = () => {
+export default function ChatComponent() {
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
-
   const [ragDatasource, setRagDatasource] = useState<
     RagDataSource | undefined
   >();
-
-  // Fetch collections
   const { data: ragDataSources } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     initialData: [],
   });
-
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
@@ -111,31 +115,31 @@ const ChatComponent: React.FC = () => {
 
   const handleScroll = () => {
     if (viewportRef.current) {
-      const isAtBottom =
-        viewportRef.current.scrollHeight - viewportRef.current.scrollTop <=
-        viewportRef.current.clientHeight + 1;
+      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
       setIsScrollButtonVisible(!isAtBottom);
     }
   };
 
   const getRagContext = async (request: InferenceRequest) => {
-    const ragContext: { documents: string[] } = {
-      documents: [],
-    };
+    const ragContext: { documents: string[] } = { documents: [] };
 
-    const response = await axios
-      .get(`/collections-api/${ragDatasource?.name}/query`, {
-        params: { query: request.text },
-      })
-      .catch((e) => {
-        console.error(`Error fetching RAG context ${e}`);
-      });
+    if (!ragDatasource) return ragContext;
 
-    if (!response?.data) {
-      return ragContext;
+    try {
+      const response = await axios.get(
+        `/collections-api/${ragDatasource.name}/query`,
+        {
+          params: { query: request.text },
+        },
+      );
+      if (response?.data) {
+        ragContext.documents = response.data.documents;
+      }
+    } catch (e) {
+      console.error(`Error fetching RAG context: ${e}`);
     }
 
-    ragContext.documents = response.data.documents;
     return ragContext;
   };
 
@@ -148,14 +152,11 @@ const ChatComponent: React.FC = () => {
       setIsStreaming(true);
       const response = await fetch(`/models-api/inference/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
 
       const reader = response.body?.getReader();
-
       setChatHistory((prevHistory) => [
         ...prevHistory,
         { sender: "user", text: textInput },
@@ -202,23 +203,12 @@ const ChatComponent: React.FC = () => {
   };
 
   const handleInference = () => {
-    if (textInput.trim() === "") return;
+    if (textInput.trim() === "" || !modelID) return;
 
     const inferenceRequest: InferenceRequest = {
-      deploy_id: modelID!,
+      deploy_id: modelID,
       text: textInput,
     };
-
-    if (textInput === "Tell me a fun fact.") {
-      setChatHistory((prevHistory) => [
-        ...prevHistory,
-        { sender: "user", text: textInput },
-        { sender: "assistant", text: "Did you know? Honey never spoils." },
-      ]);
-      setTextInput("");
-      scrollToBottom();
-      return;
-    }
 
     runInference(inferenceRequest);
   };
@@ -232,23 +222,19 @@ const ChatComponent: React.FC = () => {
     activeCollection?: RagDataSource;
     onChange: (v: string) => void;
   }) => (
-    <div className="flex justify-start items-center my-2 align-center text-center">
-      <div className="text-sm align-center mr-4"> Select RAG Datasource </div>
-
+    <div className="flex items-center">
       <Select onValueChange={onChange}>
         <SelectTrigger className="w-[180px]">
           <SelectValue
-            placeholder={activeCollection?.name ?? "Select Rag Datasource"}
+            placeholder={activeCollection?.name ?? "Select RAG Datasource"}
           />
         </SelectTrigger>
         <SelectContent>
-          {collections.map((c) => {
-            return (
-              <SelectItem key={c.id} value={c.name}>
-                {c.name}
-              </SelectItem>
-            );
-          })}
+          {collections.map((c) => (
+            <SelectItem key={c.id} value={c.name}>
+              {c.name}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     </div>
@@ -261,162 +247,198 @@ const ChatComponent: React.FC = () => {
     }
   };
 
+  const handleTextAreaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    e.target.style.height = "auto";
+    e.target.style.height = `${e.target.scrollHeight}px`;
+    setTextInput(e.target.value);
+  };
+
   return (
     <div className="flex flex-col overflow-auto w-10/12 mx-auto">
       <Card className="flex flex-col w-full h-full">
-        <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-6 shadow-lg dark:shadow-2xl">
+        <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-0 z-10 flex justify-between items-center">
           <Breadcrumb className="flex items-center">
-            <BreadcrumbList className="flex gap-4 text-lg">
+            <BreadcrumbList className="flex gap-2 text-sm">
               <BreadcrumbItem>
-                <BreadcrumbLink
-                  href="/models-deployed"
-                  className="text-gray-600 dark:text-gray-200 hover:text-gray-800 dark:hover:text-white transition-colors duration-300"
-                >
-                  Models Deployed
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="mx-4 text-gray-400">
-                /
-              </BreadcrumbSeparator>
-              <BreadcrumbItem>
-                <DropdownMenu>
-                  <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
-                    <BreadcrumbEllipsis className="h-5 w-5 text-gray-600 dark:text-blue-400" />
-                    <span className="sr-only">Toggle menu</span>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {modelsDeployed.map((model) => (
-                      <DropdownMenuItem
-                        key={model.id}
-                        onClick={() => {
-                          setModelID(model.id);
-                          setModelName(model.name);
-                        }}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <BreadcrumbLink
+                        href="/models-deployed"
+                        className="text-gray-600 dark:text-gray-200 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
                       >
-                        {model.name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                        Models Deployed
+                      </BreadcrumbLink>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>View all deployed models</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </BreadcrumbItem>
-              <BreadcrumbSeparator className="mx-4 text-gray-400">
+              <BreadcrumbSeparator className="mx-2 text-gray-400">
                 /
               </BreadcrumbSeparator>
               <BreadcrumbItem>
-                <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300">
-                  {modelName}
-                </BreadcrumbPage>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
+                          <BreadcrumbEllipsis className="h-4 w-4 text-gray-600 dark:text-blue-400" />
+                          <span className="sr-only">Toggle menu</span>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {modelsDeployed.map((model) => (
+                            <DropdownMenuItem
+                              key={model.id}
+                              onClick={() => {
+                                setModelID(model.id);
+                                setModelName(model.name);
+                              }}
+                            >
+                              {model.name}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Select a different model</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="mx-2 text-gray-400">
+                /
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300">
+                        {modelName}
+                      </BreadcrumbPage>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Current selected model</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
-        </div>
-        <div className="flex flex-col w-full h-full p-8 font-rmMono">
           <RagContextSelector
             collections={ragDataSources}
             onChange={(v: string) => {
-              const dataSource = ragDataSources.find((rds: RagDataSource) => {
-                return rds.name == v;
-              });
+              const dataSource = ragDataSources.find(
+                (rds: RagDataSource) => rds.name === v,
+              );
               if (dataSource) {
                 setRagDatasource(dataSource);
               }
             }}
             activeCollection={ragDatasource}
           />
+        </div>
+        <div className="flex flex-col w-full h-full p-8 font-rmMono relative">
           {chatHistory.length === 0 && (
             <ChatExamples logo={logo} setTextInput={setTextInput} />
           )}
           {chatHistory.length > 0 && (
             <div className="relative flex flex-col h-full">
-              <ScrollArea.Root>
+              <ScrollArea.Root className="h-[calc(100vh-20rem)] overflow-auto">
                 <ScrollArea.Viewport
                   ref={viewportRef}
                   onScroll={handleScroll}
-                  className="h-[calc(100vh-20rem)] overflow-auto p-4 border rounded-lg"
+                  className="h-full w-full pr-4"
                 >
-                  {chatHistory.map((message, index) => (
-                    <div
-                      key={index}
-                      className={`chat ${
-                        message.sender === "user" ? "chat-end" : "chat-start"
-                      }`}
-                    >
-                      <div className="chat-image avatar text-left">
-                        <div className="w-10 rounded-full">
-                          {message.sender === "user" ? (
-                            <User className="h-6 w-6 mr-2 text-left" />
-                          ) : (
-                            <img
-                              src={logo}
-                              alt="Tenstorrent Logo"
-                              className="w-8 h-8 rounded-full mr-2"
-                            />
-                          )}
-                        </div>
-                      </div>
+                  <div className="p-4 border rounded-lg">
+                    {chatHistory.map((message, index) => (
                       <div
-                        className={`chat-bubble ${
-                          message.sender === "user"
-                            ? "bg-TT-green-accent text-white text-left"
-                            : "bg-TT-slate text-white text-left"
+                        key={index}
+                        className={`chat ${
+                          message.sender === "user" ? "chat-end" : "chat-start"
                         }`}
                       >
-                        {message.text}
+                        <div className="chat-image avatar text-left">
+                          <div className="w-10 rounded-full">
+                            {message.sender === "user" ? (
+                              <User className="h-6 w-6 mr-2 text-left" />
+                            ) : (
+                              <img
+                                src={logo}
+                                alt="Tenstorrent Logo"
+                                className="w-8 h-8 rounded-full mr-2"
+                              />
+                            )}
+                          </div>
+                        </div>
+                        <div
+                          className={`chat-bubble ${
+                            message.sender === "user"
+                              ? "bg-TT-green-accent text-white text-left"
+                              : "bg-TT-slate text-white text-left"
+                          }`}
+                          style={{ wordBreak: "break-word" }}
+                        >
+                          {message.text}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  <div ref={bottomRef} />
+                    ))}
+                    <div ref={bottomRef} />
+                  </div>
                 </ScrollArea.Viewport>
-                <ScrollArea.Scrollbar orientation="vertical">
-                  <ScrollArea.Thumb />
+                <ScrollArea.Scrollbar
+                  className="flex select-none touch-none p-0.5 bg-black/10 transition-colors duration-150 ease-out hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 w-2.5 rounded-tr-md rounded-br-md"
+                  orientation="vertical"
+                >
+                  <ScrollArea.Thumb className="flex-1 bg-black/50 dark:bg-white/50 rounded-full relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:w-full before:h-full before:min-w-[44px] before:min-h-[44px]" />
                 </ScrollArea.Scrollbar>
               </ScrollArea.Root>
-              {isScrollButtonVisible && (
+              <div
+                className={`absolute bottom-4 right-4 transition-all duration-300 ease-in-out ${
+                  isScrollButtonVisible
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 translate-y-4"
+                }`}
+              >
                 <Button
-                  className="fixed bottom-32 left-1/2 transform -translate-x-1/2 p-2 rounded-full bg-gray-700 text-white z-50"
-                  style={{ zIndex: 50 }}
+                  className="rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
                   onClick={scrollToBottom}
                 >
-                  <ChevronDown className="h-6 w-6" />
+                  <ChevronDown className="h-6 w-6 animate-bounce" />
                 </Button>
-              )}
+              </div>
             </div>
           )}
           <div className="flex items-center pt-4 relative">
-            <Textarea
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              onKeyDown={handleKeyPress}
-              placeholder="Enter text for inference"
-              className="px-4 py-2 border rounded-lg shadow-md w-full pr-24 box-border font-rmMono"
-              disabled={isStreaming}
-              rows={4}
-            />
-            <div
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 cursor-pointer"
-              onClick={handleInference}
-            >
-              <kbd
-                className="kbd kbd-lg bg-gray-800 dark:bg-gray-700 text-white dark:text-gray-300 border border-gray-600 rounded-lg flex items-center justify-center"
-                style={{ padding: "0.5rem 0.75rem", minWidth: "4rem" }}
+            <div className="relative w-full">
+              <Textarea
+                value={textInput}
+                onInput={handleTextAreaInput}
+                onKeyDown={handleKeyPress}
+                placeholder="Enter text for inference"
+                className="px-4 py-2 pr-16 border rounded-lg shadow-md w-full box-border font-rmMono"
+                disabled={isStreaming}
+                rows={1}
+                style={{
+                  resize: "none",
+                  maxHeight: "150px",
+                  overflowY: "auto",
+                }}
+              />
+              <Button
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
+                onClick={handleInference}
+                disabled={isStreaming || !textInput.trim()}
               >
-                <div className="flex items-center justify-center space-x-2">
-                  {isStreaming ? (
-                    <Spinner />
-                  ) : (
-                    <div className="flex items-center space-x-1">
-                      <ChevronDown className="h-5 w-5 text-gray-300" />
-                      <span className="text-sm">Enter</span>
-                    </div>
-                  )}
-                </div>
-              </kbd>
+                {isStreaming ? <Spinner /> : <Send className="h-5 w-5" />}
+              </Button>
             </div>
           </div>
         </div>
       </Card>
     </div>
   );
-};
-
-export default ChatComponent;
+}

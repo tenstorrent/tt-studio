@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "model_control",
     "vector_db_control",
     "corsheaders",
+    "logs_control",
 ]
 
 MIDDLEWARE = [

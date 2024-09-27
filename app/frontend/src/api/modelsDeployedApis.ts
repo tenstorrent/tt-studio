@@ -117,7 +117,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
           `Model ID: ${truncatedModelId} has been reset successfully.`,
         );
       } else {
-        customToast.error(`Model ID: ${truncatedModelId} reset failed.`);
+        customToast.error(`Board Reset failed.`);
       }
 
       console.log(
