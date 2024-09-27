@@ -44,7 +44,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 
-export function ModelsDeployedTable() {
+export default function ModelsDeployedTable() {
   const navigate = useNavigate();
   const { refreshTrigger, triggerRefresh } = useRefresh();
   const { models, setModels } = useModels();
