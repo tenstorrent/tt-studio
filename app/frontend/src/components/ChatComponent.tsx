@@ -8,7 +8,7 @@ import { Button } from "./ui/button";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { useLocation } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
-import { User, ChevronDown, Send, Info } from "lucide-react";
+import { User, ChevronDown, Send } from "lucide-react";
 import { Textarea } from "./ui/textarea";
 import logo from "../assets/tt_logo.svg";
 import {
@@ -102,7 +102,6 @@ export default function ChatComponent() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
-  const [streamingStage, setStreamingStage] = useState<number>(0); // Stage of streaming
 
   useEffect(() => {
     if (location.state) {
@@ -149,7 +148,7 @@ export default function ChatComponent() {
         `/collections-api/${ragDatasource.name}/query`,
         {
           params: { query: request.text },
-        }
+        },
       );
       if (response?.data) {
         ragContext.documents = response.data.documents;
@@ -168,14 +167,11 @@ export default function ChatComponent() {
       }
 
       setIsStreaming(true);
-      setStreamingStage(1);
       const response = await fetch(`/models-api/inference/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
       });
-
-      setStreamingStage(2);
       const reader = response.body?.getReader();
       setChatHistory((prevHistory) => [
         ...prevHistory,
@@ -192,24 +188,19 @@ export default function ChatComponent() {
           done = streamDone;
 
           if (value) {
-            setStreamingStage(3);
             const decoder = new TextDecoder();
             const chunk = decoder.decode(value);
             console.log("Chunk:", chunk);
-            setStreamingStage(4);
             result += chunk;
-
             const endOfStreamIndex = result.indexOf("<<END_OF_STREAM>>");
             if (endOfStreamIndex !== -1) {
               result = result.substring(0, endOfStreamIndex);
               done = true;
             }
-
             const cleanedResult = result
               .replace(/<\|eot_id\|>/g, "") // Remove "<|eot_id|>"
               .replace(/<\|endoftext\|>/g, "")
               .trim();
-
             const statsStartIndex = cleanedResult.indexOf("{");
             const statsEndIndex = cleanedResult.lastIndexOf("}");
 
@@ -220,14 +211,14 @@ export default function ChatComponent() {
 
               const statsJson = cleanedResult.substring(
                 statsStartIndex,
-                statsEndIndex + 1
+                statsEndIndex + 1,
               );
               try {
                 const parsedStats = JSON.parse(statsJson);
                 setChatHistory((prevHistory) => {
                   const updatedHistory = [...prevHistory];
                   const lastAssistantMessage = updatedHistory.findLastIndex(
-                    (message) => message.sender === "assistant"
+                    (message) => message.sender === "assistant",
                   );
                   if (lastAssistantMessage !== -1) {
                     updatedHistory[lastAssistantMessage] = {
@@ -312,21 +303,6 @@ export default function ChatComponent() {
     setTextInput(e.target.value);
   };
 
-  const getStreamingStageText = () => {
-    switch (streamingStage) {
-      case 1:
-        return "Streaming from frontend to backend...";
-      case 2:
-        return "Backend streaming to model...";
-      case 3:
-        return "Running through Tenstorrent hardware...";
-      case 4:
-        return "Getting you back results...";
-      default:
-        return "";
-    }
-  };
-
   return (
     <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden">
       <Card className="flex flex-col w-full h-full">
@@ -407,7 +383,7 @@ export default function ChatComponent() {
             collections={ragDataSources}
             onChange={(v: string) => {
               const dataSource = ragDataSources.find(
-                (rds: RagDataSource) => rds.name === v
+                (rds: RagDataSource) => rds.name === v,
               );
               if (dataSource) {
                 setRagDatasource(dataSource);
@@ -468,7 +444,7 @@ export default function ChatComponent() {
               </ScrollArea.Viewport>
             </ScrollArea.Root>
           )}
-          {/* Scroll-to-bottom button */}
+
           <div
             className={`absolute bottom-4 right-4 transition-all duration-300 ease-in-out ${
               isScrollButtonVisible
@@ -484,7 +460,7 @@ export default function ChatComponent() {
             </Button>
           </div>
         </div>
-        {/* Input area fixed at bottom */}
+
         <div className="flex-shrink-0 p-4 ">
           <div className="relative w-full">
             <Textarea
