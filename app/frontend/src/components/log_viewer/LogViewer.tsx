@@ -2,13 +2,15 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent } from "../ui/card";
 import { ChevronRight, File, Folder, ExternalLink } from "lucide-react";
+import { openEncodedLogInNewTab } from "./openEncodedLogInNewTab";
+import { parseLogFileName } from "./parseLogFileName";
 
-const logsAPIURL = "/logs-api/";
+export const logsAPIURL = "/logs-api/";
 
 interface LogFile {
   name: string;
@@ -21,13 +23,23 @@ export default function LogsViewer() {
   const [loading, setLoading] = useState<boolean>(true);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
+  const filterLogsAndEmptyDirs = useCallback((nodes: LogFile[]): LogFile[] => {
+    return nodes.filter((node) => {
+      if (node.type === "directory") {
+        node.children = filterLogsAndEmptyDirs(node.children || []);
+        return node.children.length > 0;
+      }
+      return node.name.toLowerCase().includes("log");
+    });
+  }, []);
+
   useEffect(() => {
     const fetchLogs = async () => {
       try {
         const response = await fetch(logsAPIURL);
         const data = await response.json();
-        const organizedLogs = filterEmptyFolders(data.logs);
-        setLogs(organizedLogs);
+        const filteredLogs = filterLogsAndEmptyDirs(data.logs);
+        setLogs(filteredLogs);
       } catch (error) {
         console.error("Error fetching logs:", error);
       } finally {
@@ -36,17 +48,7 @@ export default function LogsViewer() {
     };
 
     fetchLogs();
-  }, []);
-
-  const filterEmptyFolders = (nodes: LogFile[]): LogFile[] => {
-    return nodes.filter((node) => {
-      if (node.type === "directory") {
-        node.children = filterEmptyFolders(node.children || []);
-        return node.children.length > 0;
-      }
-      return true;
-    });
-  };
+  }, [filterLogsAndEmptyDirs]);
 
   const toggleDir = (path: string) => {
     setExpandedDirs((prev) => {
@@ -60,27 +62,9 @@ export default function LogsViewer() {
     });
   };
 
-  const openLogInNewTab = (logName: string) => {
-    const encodedLogName = encodeURIComponent(logName);
-    const logUrl = `${logsAPIURL}${encodedLogName}/`;
-    window.open(logUrl, "_blank", "noopener,noreferrer");
-  };
+  const openLogInNewTab = openEncodedLogInNewTab();
 
-  const formatFileName = (name: string) => {
-    const parts = name.split("_");
-    if (parts.length > 2) {
-      const date = parts[0];
-      const time = parts[1].replace(/-/g, ":");
-      const rest = parts.slice(2).join("_");
-      return (
-        <div className="flex flex-col">
-          <span className="font-medium">{rest}</span>
-          <span className="text-xs text-muted-foreground">{`${date} ${time}`}</span>
-        </div>
-      );
-    }
-    return name;
-  };
+  const formatFileName = parseLogFileName();
 
   const renderTree = (nodes: LogFile[], path: string = "") => {
     return nodes.map((node) => {
@@ -89,7 +73,7 @@ export default function LogsViewer() {
 
       if (node.type === "directory") {
         return (
-          <div key={currentPath} className="mb-2">
+          <div key={currentPath} className="mb-1">
             <Button
               variant="ghost"
               size="sm"
@@ -132,26 +116,33 @@ export default function LogsViewer() {
   };
 
   return (
-    <div className="flex flex-col overflow-auto w-full max-w-4xl mx-auto p-4">
+    <div className="flex flex-col overflow-auto w-10/12 mx-auto">
       <Card className="flex flex-col w-full h-full shadow-lg">
-        <CardHeader className="bg-background sticky top-0 z-10">
-          <CardTitle className="text-2xl font-bold">Log Files</CardTitle>
-        </CardHeader>
-        <CardContent className="flex-grow overflow-hidden pt-4">
-          <ScrollArea className="h-[calc(100vh-200px)] w-full pr-4">
-            {loading ? (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-lg text-muted-foreground">Loading logs...</p>
-              </div>
-            ) : logs.length > 0 ? (
-              renderTree(logs)
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-lg text-muted-foreground">
-                  No log files found.
-                </p>
-              </div>
-            )}
+        <div className="bg-gray-200 dark:bg-gray-800 rounded-t-lg p-4 shadow-md dark:shadow-2xl sticky top-0 z-10 flex justify-between items-center">
+          <h2 className="text-xl font-semibold">Log Files</h2>
+          <p className="text-sm text-muted-foreground">
+            Select a log file to view its contents in a new tab.
+          </p>
+        </div>
+        <CardContent className="flex-grow overflow-hidden">
+          <ScrollArea className="h-[calc(100vh-150px)] w-full">
+            <div className="p-4">
+              {loading ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-lg text-muted-foreground">
+                    Loading logs...
+                  </p>
+                </div>
+              ) : logs.length > 0 ? (
+                renderTree(logs)
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-lg text-muted-foreground">
+                    No log files found.
+                  </p>
+                </div>
+              )}
+            </div>
           </ScrollArea>
         </CardContent>
       </Card>
