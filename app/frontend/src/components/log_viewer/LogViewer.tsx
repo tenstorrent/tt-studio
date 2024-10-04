@@ -6,7 +6,14 @@ import { useEffect, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Card, CardContent } from "../ui/card";
-import { ChevronRight, File, Folder, ExternalLink } from "lucide-react";
+import {
+  ChevronRight,
+  File,
+  Folder,
+  ExternalLink,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 import { openEncodedLogInNewTab } from "./openEncodedLogInNewTab";
 import { parseLogFileName } from "./parseLogFileName";
 
@@ -22,6 +29,7 @@ export default function LogsViewer() {
   const [logs, setLogs] = useState<LogFile[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   const filterLogsAndEmptyDirs = useCallback((nodes: LogFile[]): LogFile[] => {
     return nodes.filter((node) => {
@@ -33,12 +41,47 @@ export default function LogsViewer() {
     });
   }, []);
 
+  const extractDateFromFileName = (fileName: string) => {
+    // Adjusted regex to match 'YYYY-MM-DD-HH_MM_SS' format in log files
+    const match = fileName.match(
+      /(\d{4})-(\d{2})-(\d{2})-(\d{2})_(\d{2})_(\d{2})/,
+    );
+    if (match) {
+      const [year, month, day, hour, minute, second] = match
+        .slice(1)
+        .map(Number);
+      return new Date(year, month - 1, day, hour, minute, second); // Create a valid Date object
+    }
+    return null;
+  };
+
+  const sortLogs = useCallback(
+    (nodes: LogFile[]) => {
+      return [...nodes].sort((a, b) => {
+        const dateA = extractDateFromFileName(a.name);
+        const dateB = extractDateFromFileName(b.name);
+
+        if (!dateA || !dateB) {
+          return sortOrder === "asc"
+            ? a.name.localeCompare(b.name)
+            : b.name.localeCompare(a.name);
+        }
+
+        return sortOrder === "asc"
+          ? dateA.getTime() - dateB.getTime()
+          : dateB.getTime() - dateA.getTime();
+      });
+    },
+    [sortOrder],
+  );
+
   useEffect(() => {
     const fetchLogs = async () => {
       try {
         const response = await fetch(logsAPIURL);
         const data = await response.json();
-        const filteredLogs = filterLogsAndEmptyDirs(data.logs);
+        let filteredLogs = filterLogsAndEmptyDirs(data.logs);
+        filteredLogs = sortLogs(filteredLogs);
         setLogs(filteredLogs);
       } catch (error) {
         console.error("Error fetching logs:", error);
@@ -48,7 +91,7 @@ export default function LogsViewer() {
     };
 
     fetchLogs();
-  }, [filterLogsAndEmptyDirs]);
+  }, [filterLogsAndEmptyDirs, sortLogs]);
 
   const toggleDir = (path: string) => {
     setExpandedDirs((prev) => {
@@ -115,14 +158,25 @@ export default function LogsViewer() {
     });
   };
 
+  const toggleSortOrder = () => {
+    setSortOrder((prevOrder) => (prevOrder === "asc" ? "desc" : "asc"));
+  };
+
   return (
     <div className="flex flex-col overflow-auto w-10/12 mx-auto">
       <Card className="flex flex-col w-full h-full shadow-lg">
         <div className="bg-gray-200 dark:bg-gray-800 rounded-t-lg p-4 shadow-md dark:shadow-2xl sticky top-0 z-10 flex justify-between items-center">
           <h2 className="text-xl font-semibold">Log Files</h2>
-          <p className="text-sm text-muted-foreground">
-            Select a log file to view its contents in a new tab.
-          </p>
+          <div className="flex items-center space-x-2">
+            <p className="text-sm text-muted-foreground">Sort by date</p>
+            <Button variant="ghost" size="sm" onClick={toggleSortOrder}>
+              {sortOrder === "asc" ? (
+                <ArrowUp className="h-4 w-4" />
+              ) : (
+                <ArrowDown className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
         </div>
         <CardContent className="flex-grow overflow-hidden">
           <ScrollArea className="h-[calc(100vh-150px)] w-full">
