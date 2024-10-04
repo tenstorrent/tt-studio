@@ -1,51 +1,32 @@
 #!/bin/bash
+source ./common.sh
 
-# Log function for messages
-log() {
-    echo "$1"
-    echo "$1" >> /var/log/install_clone.log
-}
+log "Step 3: Setting up Hugepages"
+load_env
 
-# Command runner with optional sudo
-run_command() {
-    local description="$1"
-    local command="$2"
-
-    log "$description"
-    eval "$command" || { log "Failed to $description"; exit 1; }
-}
-
-# Load environment variables from the .env file
-log "Reading environment variables from common.env"
-source inputs/common.env
-
-# Step 3: Run hugepages-setup.sh script
-log "Step 3: Run hugepages-setup.sh script"
-
-# Check if the directory exists from the env variable
 if [ -d "$TT_SYSTEM_TOOLS_DIR" ]; then
-    cd "$TT_SYSTEM_TOOLS_DIR" || { log "Failed to navigate to $TT_SYSTEM_TOOLS_DIR"; exit 1; }
-    log "Navigated to $TT_SYSTEM_TOOLS_DIR"
+    cd "$TT_SYSTEM_TOOLS_DIR" || { log "⛔ Failed to navigate to $TT_SYSTEM_TOOLS_DIR"; exit 1; }
+    log "📂 Navigated to $TT_SYSTEM_TOOLS_DIR"
 else
-    log "Directory $TT_SYSTEM_TOOLS_DIR does not exist. Exiting."
+    log "⛔ Directory $TT_SYSTEM_TOOLS_DIR does not exist. Exiting."
     exit 1
 fi
 
-# Ensure the script is executable, script name from env variable
 run_command "make $HUGEPAGES_SCRIPT executable" "chmod +x ./$HUGEPAGES_SCRIPT"
 
-# Run the script
-run_command "run $HUGEPAGES_SCRIPT" "./$HUGEPAGES_SCRIPT"
+# steps simlar to tt buda demos
+# Run the hugepages-setup.sh script
+run_command "run $HUGEPAGES_SCRIPT" "sudo ./$HUGEPAGES_SCRIPT"
 
-# Step 3 continued: Verify hugepages setup
-log "Step 3 continued: Verify hugepages setup"
+# Download and install the Tenstorrent tools .deb package
+run_command "download $DEB_PACKAGE_NAME" "wget $DEB_PACKAGE_URL"
+run_command "install $DEB_PACKAGE_NAME" "sudo dpkg -i $DEB_PACKAGE_NAME"
 
-# Check if HugePages_Total exists in /proc/meminfo
-if grep -q HugePages_Total /proc/meminfo; then
-    log "Completed hugepage setup"
-else
-    log "Hugepage setup failed"
-    exit 1
-fi
+# Enable and start services
+run_command "enable and start $HUGEPAGES_SERVICE" "sudo systemctl enable --now $HUGEPAGES_SERVICE"
+run_command "enable and start $MOUNT_SERVICE" "sudo systemctl enable --now $MOUNT_SERVICE"
 
-log "Step 3 completed successfully."
+# Reboot the system
+run_command "reboot the system" "sudo reboot"
+
+log "🎉 Step 3: Hugepages setup completed successfully."
