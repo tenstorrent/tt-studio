@@ -178,6 +178,19 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/inference/llama3-70b",
     ),
+    ModelImpl(
+        model_name="Mistral7B-instruct-v0.2",
+        model_id="id_tt-metal-mistral-7bv0.0.2",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-mistral-7b-src-base",
+        image_tag="v0.0.3-tt-metal-v0.52.0-rc33",
+        device_configurations={DeviceConfigurations.N300x4},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="32G",
+        service_port=7000,
+        service_route="/inference/mistral7b",
+    )
 ]
 
 def validate_model_implemenation_config(impl):
