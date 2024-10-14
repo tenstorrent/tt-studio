@@ -9,13 +9,13 @@ import {
   Layers,
   AlignJustify,
 } from "lucide-react";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "./ui/tooltip";
+} from "../ui/tooltip";
 
 interface InferenceStats {
   user_ttft_ms: number;
