@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { User } from "lucide-react";
+import { User, ChevronDown } from "lucide-react";
 import { Button } from "../ui/button";
-import { ChevronDown } from "lucide-react";
 import InferenceStats from "./InferenceStats";
 import ChatExamples from "./ChatExamples";
 
@@ -42,9 +41,7 @@ export default function ChatHistory({
   setTextInput,
 }: ChatHistoryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [isScrollButtonVisible, setIsScrollButtonVisible] =
-    React.useState(false);
+  const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
 
   const scrollToBottom = () => {
     if (viewportRef.current) {
@@ -58,13 +55,13 @@ export default function ChatHistory({
   const handleScroll = () => {
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100; // Increased threshold
       setIsScrollButtonVisible(!isAtBottom);
     }
   };
 
   useEffect(() => {
-    scrollToBottom();
+    handleScroll();
   }, [chatHistory]);
 
   return (
@@ -73,11 +70,11 @@ export default function ChatHistory({
         <ChatExamples logo={logo} setTextInput={setTextInput} />
       )}
       {chatHistory.length > 0 && (
-        <ScrollArea.Root className="flex-grow h-0 overflow-y-auto">
+        <ScrollArea.Root className="flex-grow h-full overflow-hidden">
           <ScrollArea.Viewport
             ref={viewportRef}
             onScroll={handleScroll}
-            className="w-full pr-4"
+            className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
           >
             <div className="p-4 border rounded-lg">
               {chatHistory.map((message, index) => (
@@ -113,25 +110,24 @@ export default function ChatHistory({
                   )}
                 </div>
               ))}
-              <div ref={bottomRef} />
             </div>
           </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar
+            orientation="vertical"
+            className="w-2 bg-transparent transition-colors duration-150 ease-out hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <ScrollArea.Thumb className="bg-gray-300 rounded-full w-full transition-colors duration-150 ease-out hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500" />
+          </ScrollArea.Scrollbar>
         </ScrollArea.Root>
       )}
-      <div
-        className={`absolute bottom-4 right-4 transition-all duration-300 ease-in-out ${
-          isScrollButtonVisible
-            ? "opacity-100 translate-y-0"
-            : "opacity-0 translate-y-4"
-        }`}
-      >
+      {isScrollButtonVisible && (
         <Button
-          className="rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
+          className="absolute bottom-4 right-4 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
           onClick={scrollToBottom}
         >
           <ChevronDown className="h-6 w-6 animate-bounce" />
         </Button>
-      </div>
+      )}
     </div>
   );
 }
