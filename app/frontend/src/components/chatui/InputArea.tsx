@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Textarea } from "../ui/textarea";
 import { Button } from "../ui/button";
 import { Send } from "lucide-react";
@@ -32,10 +32,20 @@ export default function InputArea({
     }
   };
 
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [isStreaming]);
+
   return (
     <div className="flex-shrink-0 p-4">
       <div className="relative w-full">
         <Textarea
+          ref={textareaRef}
+          autoFocus
           value={textInput}
           onInput={handleTextAreaInput}
           onKeyDown={handleKeyPress}
