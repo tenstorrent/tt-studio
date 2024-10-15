@@ -80,7 +80,7 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({ logo, setTextInput }) => {
           ),
         ];
       });
-    }, 5000); // Cycle every 5 seconds
+    }, 15000); // Cycle time in milliseconds
 
     return () => clearInterval(interval);
   }, []);
