@@ -5,51 +5,13 @@ import { Card } from "../ui/card";
 import { useLocation } from "react-router-dom";
 import logo from "../../assets/tt_logo.svg";
 import { fetchModels } from "../../api/modelsDeployedApis";
-import axios from "axios";
 import { useQuery } from "react-query";
 import { fetchCollections } from "@/src/components/rag";
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
-
-interface InferenceRequest {
-  deploy_id: string;
-  text: string;
-  rag_context?: { documents: string[] };
-}
-
-interface RagDataSource {
-  id: string;
-  name: string;
-  metadata: Record<string, string>;
-}
-
-interface ChatMessage {
-  sender: "user" | "assistant";
-  text: string;
-  inferenceStats?: InferenceStats;
-}
-
-interface Model {
-  id: string;
-  name: string;
-}
-
-interface InferenceStats {
-  user_ttft_ms: number;
-  user_tps: number;
-  user_ttft_e2e_ms: number;
-  prefill: {
-    tokens_prefilled: number;
-    tps: number;
-  };
-  decode: {
-    tokens_decoded: number;
-    tps: number;
-  };
-  batch_size: number;
-  context_length: number;
-}
+import { InferenceRequest, RagDataSource, ChatMessage, Model } from "./types";
+import { runInference } from "./runInference";
 
 export default function ChatComponent() {
   const location = useLocation();
@@ -85,120 +47,6 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
-  const getRagContext = async (request: InferenceRequest) => {
-    const ragContext: { documents: string[] } = { documents: [] };
-
-    if (!ragDatasource) return ragContext;
-
-    try {
-      const response = await axios.get(
-        `/collections-api/${ragDatasource.name}/query`,
-        {
-          params: { query: request.text },
-        },
-      );
-      if (response?.data) {
-        ragContext.documents = response.data.documents;
-      }
-    } catch (e) {
-      console.error(`Error fetching RAG context: ${e}`);
-    }
-
-    return ragContext;
-  };
-
-  const runInference = async (request: InferenceRequest) => {
-    try {
-      if (ragDatasource) {
-        request.rag_context = await getRagContext(request);
-      }
-
-      setIsStreaming(true);
-      const response = await fetch(`/models-api/inference/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-      const reader = response.body?.getReader();
-      setChatHistory((prevHistory) => [
-        ...prevHistory,
-        { sender: "user", text: textInput },
-        { sender: "assistant", text: "" },
-      ]);
-      setTextInput("");
-
-      let result = "";
-      if (reader) {
-        let done = false;
-        while (!done) {
-          const { done: streamDone, value } = await reader.read();
-          done = streamDone;
-
-          if (value) {
-            const decoder = new TextDecoder();
-            const chunk = decoder.decode(value);
-            console.log("Chunk:", chunk);
-            result += chunk;
-            const endOfStreamIndex = result.indexOf("<<END_OF_STREAM>>");
-            if (endOfStreamIndex !== -1) {
-              result = result.substring(0, endOfStreamIndex);
-              done = true;
-            }
-            const cleanedResult = result
-              .replace(/<\|eot_id\|>/g, "")
-              .replace(/<\|endoftext\|>/g, "")
-              .trim();
-            const statsStartIndex = cleanedResult.indexOf("{");
-            const statsEndIndex = cleanedResult.lastIndexOf("}");
-
-            let chatContent = cleanedResult;
-
-            if (statsStartIndex !== -1 && statsEndIndex !== -1) {
-              chatContent = cleanedResult.substring(0, statsStartIndex).trim();
-
-              const statsJson = cleanedResult.substring(
-                statsStartIndex,
-                statsEndIndex + 1,
-              );
-              try {
-                const parsedStats = JSON.parse(statsJson);
-                setChatHistory((prevHistory) => {
-                  const updatedHistory = [...prevHistory];
-                  const lastAssistantMessage = updatedHistory.findLastIndex(
-                    (message) => message.sender === "assistant",
-                  );
-                  if (lastAssistantMessage !== -1) {
-                    updatedHistory[lastAssistantMessage] = {
-                      ...updatedHistory[lastAssistantMessage],
-                      inferenceStats: parsedStats,
-                    };
-                  }
-                  return updatedHistory;
-                });
-              } catch (e) {
-                console.error("Error parsing inference stats:", e);
-              }
-            }
-
-            setChatHistory((prevHistory) => {
-              const updatedHistory = [...prevHistory];
-              updatedHistory[updatedHistory.length - 1] = {
-                ...updatedHistory[updatedHistory.length - 1],
-                text: chatContent,
-              };
-              return updatedHistory;
-            });
-          }
-        }
-      }
-
-      setIsStreaming(false);
-    } catch (error) {
-      console.error("Error running inference:", error);
-      setIsStreaming(false);
-    }
-  };
-
   const handleInference = () => {
     if (textInput.trim() === "" || !modelID) return;
 
@@ -207,7 +55,14 @@ export default function ChatComponent() {
       text: textInput,
     };
 
-    runInference(inferenceRequest);
+    runInference(
+      inferenceRequest,
+      ragDatasource,
+      textInput,
+      setChatHistory,
+      setIsStreaming,
+    );
+    setTextInput("");
   };
 
   return (
