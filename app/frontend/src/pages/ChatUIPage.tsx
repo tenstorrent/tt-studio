@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import ChatComponent from "../components/ChatComponent";
+import ChatComponent from "../components/chatui/ChatComponent";
 
 const ChatUI = () => {
   return (
