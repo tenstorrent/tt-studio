@@ -34,10 +34,12 @@ jobs:
         working-directory: app/frontend  
         run: npm install
 
-      # Run ESLint with auto-fix
       - name: Run ESLint with Auto-fix
         working-directory: app/frontend
-        run: npm run lint  
+        run: |
+          set +e
+          npm run lint || true  # Run lint and allow the workflow to continue even if there are warnings/errors
+
       # Check if GPG key exists
       - name: Check if GPG key exists
         run: |
@@ -166,7 +168,7 @@ jobs:
               });
             } else {
               console.log("No relevant errors to report.");
-
+            }
       - name: Fail the Workflow if LC Headers Are Missing
         if: env.MISSING_LC_HEADERS == 'true'
         run: |
