@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}  
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -31,6 +33,25 @@ jobs:
       - name: Install dependencies
         working-directory: app/frontend  
         run: npm install
+
+      - name: Run ESLint with Auto-fix
+        working-directory: app/frontend
+        run: npm run lint  
+
+      - name: Check for Changes and Commit Fixes
+        working-directory: app/frontend
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "GitHub Actions Bot"
+          if [[ `git status --porcelain` ]]; then
+            echo "Changes detected after ESLint auto-fix. Committing changes."
+            git add .
+            git commit -m "chore: auto-fix ESLint issues"
+            git push origin ${{ github.ref_name }}  # Push changes back to the branch
+          else
+            echo "No changes detected."
+          fi
+
 
       - name: Run ESLint and Capture Output
         working-directory: app/frontend  
