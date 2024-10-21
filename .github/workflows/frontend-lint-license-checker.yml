@@ -29,7 +29,7 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        working-directory: app/frontend  # Adjust path according to your repo structure
+        working-directory: app/frontend 
         run: npm install
 
       - name: Run ESLint and Capture Output
@@ -61,7 +61,7 @@ jobs:
                 errors_for_file=""  # Reset error collection for next file
                 has_errors=false  # Reset error flag for the next file
               fi
-              current_file="$line"
+              current_file=$(echo "$line" | sed 's/\n//g')  # Clean any \n characters from the file path
             elif echo "$line" | grep -q 'error'; then
               # Detected an error line, associate with the current file
               errors_for_file+="  $line\n"
@@ -71,7 +71,7 @@ jobs:
               if echo "$line" | grep -q 'missing header  header/header'; then
                 missing_lc_headers=true
                 errors_for_file+="!Flagged: LC header missing\n"
-                lc_flagged_files+="$current_file\n"  # Add this file to LC header flagged list
+                lc_flagged_files+="${current_file}\n"  # Add this file to LC header flagged list
               fi
             fi
           done <<< "$clean_output"
@@ -97,8 +97,9 @@ jobs:
           if [ "$missing_lc_headers" = true ]; then
             echo "LC headers missing in one or more files."
             echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
+            # Trim excess \n and store cleaned file paths in env variable
             echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
-            echo "$lc_flagged_files" >> $GITHUB_ENV
+            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" >> $GITHUB_ENV  # Remove empty lines and ensure clean file paths
             echo "EOF" >> $GITHUB_ENV
           else
             echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
