@@ -51,6 +51,7 @@ jobs:
           errors_for_file=""
           has_errors=false
           missing_lc_headers=false  # Flag for missing LC headers
+          lc_flagged_files=""  # To store flagged files for license headers
 
           while IFS= read -r line; do
             if echo "$line" | grep -q '^\s*\/'; then
@@ -70,6 +71,7 @@ jobs:
               if echo "$line" | grep -q 'missing header  header/header'; then
                 missing_lc_headers=true
                 errors_for_file+="!Flagged: LC header missing\n"
+                lc_flagged_files+="$current_file\n"  # Add this file to LC header flagged list
               fi
             fi
           done <<< "$clean_output"
@@ -86,16 +88,19 @@ jobs:
             echo -e "$grouped_errors" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
-          else
+          else:
             echo "No relevant errors found."
             echo "HAS_ERRORS=false" >> $GITHUB_ENV
           fi
 
-          # Store the flag for missing LC headers
+          # Store flagged LC header files in environment variable
           if [ "$missing_lc_headers" = true ]; then
             echo "LC headers missing in one or more files."
             echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
-          else
+            echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
+            echo "$lc_flagged_files" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          else:
             echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
           fi
 
@@ -116,11 +121,7 @@ jobs:
 
             // Check for missing license headers and prioritize them in the comment
             if (process.env.MISSING_LC_HEADERS === 'true') {
-              const flaggedFiles = lintErrors
-                .split('\n')
-                .filter(line => line.includes('!Flagged'))  // Extract flagged lines
-                .map(line => line.replace('!Flagged: ', ''))  // Clean up the flagged line
-                .join('\n');
+              const flaggedFiles = process.env.LC_FLAGGED_FILES.trim();
 
               commentBody += `## 🚨 License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\nPlease ensure each of these files includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Your prompt attention and cooperation in updating these files are greatly appreciated. Thank you!\n\n---\n`;
             }
