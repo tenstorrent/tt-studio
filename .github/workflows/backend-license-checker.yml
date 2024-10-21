@@ -81,6 +81,7 @@ jobs:
 
       # Commit the changes made by `add_spdx_header.py`
       - name: Commit changes
+        if: env.FILES != ''
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_user_name: SPDX-Bot
@@ -124,3 +125,4 @@ jobs:
               });
             } else {
               console.log("No SPDX license issues found.");
+            }  
