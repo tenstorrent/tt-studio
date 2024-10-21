@@ -1,0 +1,115 @@
+# 
+
+name: Lint and License Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "main"
+      - "staging"
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - assigned
+      - review_requested
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        working-directory: app/frontend  # Adjust path according to your repo structure
+        run: npm install
+
+      - name: Run ESLint and Capture Output
+        working-directory: app/frontend  
+        id: run_eslint
+        run: |
+          set +e
+          output=$(npm run lint --silent 2>&1)
+          exit_code=$?
+          echo "$output"
+          clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')  # Remove ANSI escape codes
+          echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$clean_output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          # Process output to group errors under file paths with separators
+          grouped_errors=""
+          current_file=""
+          errors_for_file=""
+          has_errors=false
+
+          while IFS= read -r line; do
+            if echo "$line" | grep -q '^\s*\/'; then
+              # Detected a file path line, add to grouped_errors if it contains errors
+              if [ "$has_errors" = true ]; then
+                grouped_errors+="$current_file\n$errors_for_file\n---\n"
+                errors_for_file=""  # Reset error collection for next file
+                has_errors=false  # Reset error flag for the next file
+              fi
+              current_file="$line"
+            elif echo "$line" | grep -q 'error'; then
+              # Detected an error line, associate with the current file
+              errors_for_file+="  $line\n"
+              has_errors=true  # Mark that this file has errors
+            fi
+          done <<< "$clean_output"
+
+          # Add any remaining errors after the loop
+          if [ "$has_errors" = true ]; then
+            grouped_errors+="$current_file\n$errors_for_file\n"
+          fi
+
+          # Store grouped errors in environment variable
+          if [ -n "$grouped_errors" ]; then
+            echo "Errors found."
+            echo "GROUPED_ERRORS<<EOF" >> $GITHUB_ENV
+            echo -e "$grouped_errors" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            echo "HAS_ERRORS=true" >> $GITHUB_ENV
+          else
+            echo "No relevant errors found."
+            echo "HAS_ERRORS=false" >> $GITHUB_ENV
+          fi
+
+          exit 0  # Always exit with 0 to avoid failing the step
+
+      - name: Comment on PR with ESLint Errors
+        if: env.HAS_ERRORS == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const lintErrors = process.env.GROUPED_ERRORS;
+            const issueNumber = context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            if (lintErrors && issueNumber) {
+              const commentBody = `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
+              await github.rest.issues.createComment({
+                issue_number: issueNumber,
+                owner: owner,
+                repo: repo,
+                body: commentBody
+              });
+            } else {
+              console.log("No relevant errors to report.");
+            }
+
+      - name: Fail if Errors Exist
+        if: env.HAS_ERRORS == 'true'
+        run: exit 1  # Fail the workflow if errors exist
