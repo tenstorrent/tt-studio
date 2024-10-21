@@ -88,7 +88,7 @@ jobs:
             echo -e "$grouped_errors" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
-          else:
+          else
             echo "No relevant errors found."
             echo "HAS_ERRORS=false" >> $GITHUB_ENV
           fi
@@ -100,7 +100,7 @@ jobs:
             echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
             echo "$lc_flagged_files" >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
-          else:
+          else
             echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
           fi
 
@@ -132,7 +132,7 @@ jobs:
             }
 
             // Post the comment if errors are present
-            if (commentBody && issueNumber) {
+            if (commentBody.trim() && issueNumber) {
               await github.rest.issues.createComment({
                 issue_number: issueNumber,
                 owner: owner,
