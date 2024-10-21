@@ -69,6 +69,7 @@ jobs:
               # Check if the error is related to missing LC headers
               if echo "$line" | grep -q 'missing header  header/header'; then
                 missing_lc_headers=true
+                errors_for_file+="! Flagged: LC header missing\n"
               fi
             fi
           done <<< "$clean_output"
@@ -100,7 +101,7 @@ jobs:
 
           exit 0  # Always exit with 0 to avoid failing the step
 
-      - name: Comment on PR with ESLint Errors
+      - name: Comment on PR with ESLint Errors and LC Headers
         if: env.HAS_ERRORS == 'true'
         uses: actions/github-script@v7
         with:
@@ -110,8 +111,13 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            let commentBody = `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
+
+            if (process.env.MISSING_LC_HEADERS === 'true') {
+              commentBody += `\n\n---\n🚩 **Flagged: LC header is missing in one or more files.**`;
+            }
+
             if (lintErrors && issueNumber) {
-              const commentBody = `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
               await github.rest.issues.createComment({
                 issue_number: issueNumber,
                 owner: owner,
@@ -122,6 +128,8 @@ jobs:
               console.log("No relevant errors to report.");
             }
 
-      - name: Flag Files with Missing LC Headers
+      - name: Fail the Workflow if LC Headers Are Missing
         if: env.MISSING_LC_HEADERS == 'true'
-        run: echo "One or more files are missing lowercase headers."
+        run: |
+          echo "Failing the workflow because LC headers are missing."
+          exit 1
