@@ -65,7 +65,7 @@ jobs:
         with:
           commit_user_name: CleanBot
           commit_user_email: your-email@example.com
-          commit_message: '*** AUTOMATED COMMIT | Applied Code Formatting and Cleanup ✨***'
+          commit_message: '🚨✨ AUTOMATED COMMIT | Applied Code Formatting, Cleanup and added SPDX license headers'
           commit_options: ${{ env.GPG_KEY_EXISTS == 'true' && '-S' || '' }}
           branch: ${{ github.head_ref }}
 
