@@ -29,7 +29,7 @@ jobs:
           node-version: '16'
 
       - name: Install dependencies
-        working-directory: app/frontend 
+        working-directory: app/frontend  
         run: npm install
 
       - name: Run ESLint and Capture Output
@@ -68,7 +68,7 @@ jobs:
               has_errors=true  # Mark that this file has errors
 
               # Check if the error is related to missing LC headers
-              if echo "$line" | grep -q 'missing header  header/header'; then
+              if echo "$line" | grep -q 'missing header'; then
                 missing_lc_headers=true
                 errors_for_file+="!Flagged: LC header missing\n"
                 lc_flagged_files+="${current_file}\n"  # Add this file to LC header flagged list
