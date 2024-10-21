@@ -56,7 +56,7 @@ jobs:
             if echo "$line" | grep -q '^\s*\/'; then
               # Detected a file path line, add to grouped_errors if it contains errors
               if [ "$has_errors" = true ]; then
-                grouped_errors+="$current_file\n$errors_for_file\n---\n"
+                grouped_errors+="$current_file\n$errors_for_file\n------------------------------------------------------------------------------------------------------------------------------------------\n"
                 errors_for_file=""  # Reset error collection for next file
                 has_errors=false  # Reset error flag for the next file
               fi
@@ -114,7 +114,7 @@ jobs:
             let commentBody = `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
 
             if (process.env.MISSING_LC_HEADERS === 'true') {
-               commentBody += `\n\n---\n🚩 **Flagged: Licence header is missing in one or more files.**\nPlease check the flagged lines in the files and ensure the appropriate licence headers are added.`;
+               commentBody += `\n\n---\n🚨 **Flagged: Licence header is missing in one or more files.**\nPlease check the flagged lines in the files and ensure the appropriate licence headers are added.`;
             }
 
             if (lintErrors && issueNumber) {
