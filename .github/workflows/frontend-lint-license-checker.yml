@@ -124,7 +124,7 @@ jobs:
             if (process.env.MISSING_LC_HEADERS === 'true') {
               const flaggedFiles = process.env.LC_FLAGGED_FILES.trim();
 
-              commentBody += `## 🚨 License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\nPlease ensure each of these files includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Your prompt attention and cooperation in updating these files are greatly appreciated. Thank you!\n\n---\n`;
+              commentBody += `## 🚨 SPDX-License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\nPlease ensure each of these files includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Your prompt attention and cooperation in updating these files are greatly appreciated. Thank you!\n\n---\n`;
             }
 
             // Add ESLint errors after license header issues
