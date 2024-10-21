@@ -1,6 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
-#
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 
 # docker_control/urls.py
 from django.urls import path
