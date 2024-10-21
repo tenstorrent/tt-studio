@@ -50,6 +50,7 @@ jobs:
           current_file=""
           errors_for_file=""
           has_errors=false
+          missing_lc_headers=false  # Flag for missing LC headers
 
           while IFS= read -r line; do
             if echo "$line" | grep -q '^\s*\/'; then
@@ -64,6 +65,11 @@ jobs:
               # Detected an error line, associate with the current file
               errors_for_file+="  $line\n"
               has_errors=true  # Mark that this file has errors
+
+              # Check if the error is related to missing LC headers
+              if echo "$line" | grep -q 'missing header  header/header'; then
+                missing_lc_headers=true
+              fi
             fi
           done <<< "$clean_output"
 
@@ -82,6 +88,14 @@ jobs:
           else
             echo "No relevant errors found."
             echo "HAS_ERRORS=false" >> $GITHUB_ENV
+          fi
+
+          # Store the flag for missing LC headers
+          if [ "$missing_lc_headers" = true ]; then
+            echo "LC headers missing in one or more files."
+            echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
+          else
+            echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
           fi
 
           exit 0  # Always exit with 0 to avoid failing the step
@@ -108,7 +122,6 @@ jobs:
               console.log("No relevant errors to report.");
             }
 
-      # Optional: Instead of failing, you can mark the workflow as successful but warn about the errors
-      - name: Log ESLint errors instead of failing the workflow
-        if: env.HAS_ERRORS == 'true'
-        run: echo "ESLint errors detected but workflow will not fail."
+      - name: Flag Files with Missing LC Headers
+        if: env.MISSING_LC_HEADERS == 'true'
+        run: echo "One or more files are missing lowercase headers."
