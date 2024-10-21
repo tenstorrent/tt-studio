@@ -111,7 +111,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            let commentBody = `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
+            let commentBody = `## Frontend Project: ESLint and Licence Header Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the errors.`;
 
             if (process.env.MISSING_LC_HEADERS === 'true') {
                commentBody += `\n\n---\n🚨 **Flagged: Licence header is missing in one or more files.**\nPlease check the flagged lines in the files and ensure the appropriate licence headers are added.`;
