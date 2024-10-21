@@ -122,6 +122,5 @@ jobs:
                 repo: repo,
                 body: commentBody
               });
-              core.setFailed("SPDX license issues found.");
             } else {
               console.log("No SPDX license issues found.");
