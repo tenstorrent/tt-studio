@@ -1,4 +1,4 @@
-name: Lint and License Check
+name: Front-End Linter SPDX Licenses Checker
 
 on:
   push:

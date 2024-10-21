@@ -1,7 +1,7 @@
 
 # 
 
-name: Check SPDX Licenses
+name: Backend-Models SPDX Licenses Checker
 
 on:
   workflow_dispatch:
