@@ -109,19 +109,19 @@ jobs:
         if: env.FILES_CLEAN != ''
         uses: actions/github-script@v7
         with:
-              script: |
-                const formattedOutput = process.env.FILES_CLEAN;
-                const issueNumber = context.issue.number || context.payload.pull_request.number;
-                const owner = context.repo.owner;
-                const repo = context.repo.repo;
-                if (formattedOutput) {
-                  const commentBody = `Our automated SPDX license verification process has discovered that the following files are missing a license header:\n\`\`\`\n${formattedOutput}\n\`\`\`\nPlease ensure each indicated file includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Thank you.`;
-                  await github.rest.issues.createComment({
-                    issue_number: issueNumber,
-                    owner: owner,
-                    repo: repo,
-                    body: commentBody
-                  });
-                  core.setFailed("SPDX license issues found.");
-                } else {
-                  console.log("No SPDX license issues found.");
+          script: |
+            const formattedOutput = process.env.FILES_CLEAN;
+            const issueNumber = context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            if (formattedOutput) {
+              const commentBody = `Our automated SPDX license verification process has discovered that the following files are missing a license header:\n\`\`\`\n${formattedOutput}\n\`\`\`\nPlease ensure each indicated file includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Thank you.`;
+              await github.rest.issues.createComment({
+                issue_number: issueNumber,
+                owner: owner,
+                repo: repo,
+                body: commentBody
+              });
+              core.setFailed("SPDX license issues found.");
+            } else {
+              console.log("No SPDX license issues found.");
