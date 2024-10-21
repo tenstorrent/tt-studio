@@ -114,7 +114,7 @@ jobs:
             let commentBody = `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
 
             if (process.env.MISSING_LC_HEADERS === 'true') {
-              commentBody += `\n\n---\n🚩 **Flagged: LC header is missing in one or more files.**`;
+               commentBody += `\n\n---\n🚩 **Flagged: Licence header is missing in one or more files.**\nPlease check the flagged lines in the files and ensure the appropriate licence headers are added.`;
             }
 
             if (lintErrors && issueNumber) {
