@@ -69,7 +69,7 @@ jobs:
               # Check if the error is related to missing LC headers
               if echo "$line" | grep -q 'missing header  header/header'; then
                 missing_lc_headers=true
-                errors_for_file+="! Flagged: LC header missing\n"
+                errors_for_file+="!Flagged: LC header missing\n"
               fi
             fi
           done <<< "$clean_output"
@@ -111,13 +111,27 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            let commentBody = `## Frontend Project: ESLint and Licence Header Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the errors.`;
+            // Initialize the comment body
+            let commentBody = "";
 
+            // Check for missing license headers and prioritize them in the comment
             if (process.env.MISSING_LC_HEADERS === 'true') {
-              commentBody += `\n\n---\n🚨 **Flagged: License header is missing in one or more files.**\n\nPlease ensure that each flagged file includes a valid SPDX license identifier. Flagged files will be clearly marked with a **!Flagged** comment. Addressing this is crucial for maintaining licensing compliance. Your prompt attention and cooperation in updating these files are greatly appreciated. Thank you!`;
+              const flaggedFiles = lintErrors
+                .split('\n')
+                .filter(line => line.includes('!Flagged'))  // Extract flagged lines
+                .map(line => line.replace('!Flagged: ', ''))  // Clean up the flagged line
+                .join('\n');
+
+              commentBody += `## 🚨 License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\nPlease ensure each of these files includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Your prompt attention and cooperation in updating these files are greatly appreciated. Thank you!\n\n---\n`;
             }
 
-            if (lintErrors && issueNumber) {
+            // Add ESLint errors after license header issues
+            if (lintErrors) {
+              commentBody += `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
+            }
+
+            // Post the comment if errors are present
+            if (commentBody && issueNumber) {
               await github.rest.issues.createComment({
                 issue_number: issueNumber,
                 owner: owner,
