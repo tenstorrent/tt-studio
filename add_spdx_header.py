@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 from pathlib import Path
 
 # SPDX header content
@@ -33,5 +37,5 @@ if __name__ == "__main__":
             # print(file_path)
             # Check if the file is a Python file, Bash script, or Dockerfile
             if file_path.suffix in (".py", ".sh") or file_path.name == "Dockerfile":
-                print(f"Adding SPDX header to: {file_path}")
+                # print(f"Adding SPDX header to: {file_path}")
                 add_spdx_header(file_path)
