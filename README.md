@@ -6,10 +6,7 @@ Deploy LLM inference servers locally as fast as possible using Tenstorrent hardw
 
 ### 1. Download and run
 ```bash
-git clone https://github.com/tenstorrent/tt-studio.git
-cd tt-studio
-. startup.sh
-```
+
 
 ## Running on machine with Tenstorrent hardware
 
