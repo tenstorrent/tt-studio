@@ -5,23 +5,20 @@ Deploy LLM inference servers locally as fast as possible using Tenstorrent hardw
 ## Quick start
 
 ### 1. Download and run
+
 ```bash
 
 
-## Running on machine with Tenstorrent hardware
-
-You can check for connected Tenstorrent hardware via:
-```bash
-ls -l /dev/tenstorrent
-```
 
 __NOTE:__ For running ML models on Tenstorrent hardware you must uncomment the following lines in `app/docker-compose.yml`:
 ```
+
     # uncomment devices to use Tenstorrent hardware
     # devices:
     #   # mount all tenstorrent devices to backend container
     #   - /dev/tenstorrent:/dev/tenstorrent
-```
+
+````
 
 ## Running on remote machine
 
@@ -29,11 +26,12 @@ To correct forward traffic to/from the remote server so that you can use the fro
 ```bash
 # port forward frontend and backend ports to
 ssh -L 3000:localhost:3000 <username>@<remote_server>
-```
+````
 
 ## Run local for development
 
 To develop locally without running ML models you can keep commented out the following lines in `app/docker-compose.yml`:
+
 ```
     # uncomment devices to use Tenstorrent hardware
     # devices:
@@ -58,4 +56,3 @@ See API docs usage and development docs: [app/api/README.md](app/api/README.md)
 ## Model Implementations
 
 See model docs usage and development docs: [models/README.md](models/README.md)
-
