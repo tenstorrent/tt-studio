@@ -1,33 +1,38 @@
 DEFAULT:
-  perform_check: yes  # Ensure that license header check is performed
+  perform_check: yes  # Ensure the license check is performed
 
-  # List of allowed licenses for files in this section
+  # Allowed licenses for files
   allowed_licenses:
     - Apache-2.0
-    - MIT
-    - GPL-3.0-only
 
   license_for_new_files: Apache-2.0  # License to be used when inserting a new copyright notice
 
-  new_notice_python: |
-    """
-    SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+  new_notice: |  # Notice for new files (JS, TS, HTML, CSS, etc.)
+    # SPDX-License-Identifier: Apache-2.0
     #
-    SPDX-License-Identifier: {license}
-    """
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
 
   # Define the template for replacing comment lines with SPDX notation
-  espressif_copyright: '© {years} Tenstorrent AI ULC'
+  espressif_copyright:
+    '# SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC'
 
-  # Update the include section with the file types you want to check
+# Include the following file types for the license check
+frontend_files:
   include:
-    - "*.py"
+    - '**/*.js'      # Include JavaScript files
+    - '**/*.jsx'     # Include React JSX files
+    - '**/*.ts'      # Include TypeScript files
+    - '**/*.tsx'     # Include React TSX files
+    - '**/*.html'    # Include HTML files
+    - '**/*.css'     # Include CSS files
+    - '**/*.json'    # Include JSON files
+    - '**/*.yaml'    # Include YAML files
+  allowed_licenses:
+    - Apache-2.0
+  license_for_new_files: Apache-2.0
 
-ignore:  # You can also select ignoring files here
-  perform_check: no  # Don't check files from that block
+ignore:
+  perform_check: no  # Don't check files in this block
   include:
-    - .github/*
-    - /CONTRIBUTING.md
-    - /MAINTAINERS.md
-    - /model_demos/nlp_demos/falcon/utils/configuration_RW.py
-    - /model_demos/cv_demos/monodle/utils/model.py
+    - node_modules/*  # Ignore node_modules folder
+    - .github/*       # Ignore GitHub workflows and config files
