@@ -53,7 +53,7 @@ jobs:
         run: |
           set +e
           echo "Running SPDX header script on all files in the repository"
-          python add_spdx_header.py
+          python ./scripts/add_spdx_header.py
           exit 0
 
       # Commit the changes made by `add_spdx_header.py`
@@ -86,3 +86,19 @@ jobs:
             } else {
               console.log("No SPDX license issues found.");
             }  
+
+      - name: Run SPDX Header Script Again 
+        run: |
+          set +e
+          echo "Running SPDX header script again on all files in the repository"
+          python ./scripts/add_spdx_header.py
+          exit 0
+
+      # Commit the changes made by the second run of `add_spdx_header.py`
+      - name: Commit changes from second run
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_user_name: SPDX-Bot
+          commit_user_email: bot@example.com
+          commit_message: '🚨✨AUTOMATED COMMIT | Final SPDX license header additions'
+          branch: ${{ github.head_ref }}
