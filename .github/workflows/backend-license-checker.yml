@@ -53,7 +53,7 @@ jobs:
         run: |
           set +e
           echo "Running SPDX header script on all files in the repository"
-          python ./scripts/add_spdx_header.py
+          python add_spdx_header.py
           exit 0
 
       # Commit the changes made by `add_spdx_header.py`
