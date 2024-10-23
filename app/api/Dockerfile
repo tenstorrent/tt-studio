@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 
 FROM python:3.12.5-slim-bookworm
 
