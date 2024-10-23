@@ -1,38 +1,33 @@
 DEFAULT:
-  perform_check: yes  # Ensure the license check is performed
+  perform_check: yes  # Ensure that license header check is performed
 
-  # Allowed licenses for files
+  # List of allowed licenses for files in this section
   allowed_licenses:
     - Apache-2.0
+    - MIT
+    - GPL-3.0-only
 
   license_for_new_files: Apache-2.0  # License to be used when inserting a new copyright notice
 
-  new_notice: |  # Notice for new files (JS, TS, HTML, CSS, etc.)
-    # SPDX-License-Identifier: Apache-2.0
+  new_notice_python: |
+    """
+    SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
     #
-    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+    SPDX-License-Identifier: {license}
+    """
 
   # Define the template for replacing comment lines with SPDX notation
-  espressif_copyright:
-    '# SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC'
+  espressif_copyright: '© {years} Tenstorrent AI ULC'
 
-# Include the following file types for the license check
-frontend_files:
+  # Update the include section with the file types you want to check
   include:
-    - '**/*.js'      # Include JavaScript files
-    - '**/*.jsx'     # Include React JSX files
-    - '**/*.ts'      # Include TypeScript files
-    - '**/*.tsx'     # Include React TSX files
-    - '**/*.html'    # Include HTML files
-    - '**/*.css'     # Include CSS files
-    - '**/*.json'    # Include JSON files
-    - '**/*.yaml'    # Include YAML files
-  allowed_licenses:
-    - Apache-2.0
-  license_for_new_files: Apache-2.0
+    - "*.py"
 
-ignore:
-  perform_check: no  # Don't check files in this block
+ignore:  # You can also select ignoring files here
+  perform_check: no  # Don't check files from that block
   include:
-    - node_modules/*  # Ignore node_modules folder
-    - .github/*       # Ignore GitHub workflows and config files
+    - .github/*
+    - /CONTRIBUTING.md
+    - /MAINTAINERS.md
+    - /model_demos/nlp_demos/falcon/utils/configuration_RW.py
+    - /model_demos/cv_demos/monodle/utils/model.py
