@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,10 +19,10 @@ export function ConfirmDialog({
   cancelText,
   confirmText,
 }: {
-  cancelText?: string,
-  confirmText?: string,
-  dialogTitle: string,
-  dialogDescription: string,
+  cancelText?: string;
+  confirmText?: string;
+  dialogTitle: string;
+  dialogDescription: string;
   alertTrigger: React.ReactNode;
   onConfirm: React.MouseEventHandler<HTMLButtonElement>;
 }) {
@@ -30,17 +32,18 @@ export function ConfirmDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{dialogTitle}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {dialogDescription}
-          </AlertDialogDescription>
+          <AlertDialogDescription>{dialogDescription}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel
-            className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg"
-          >{cancelText || 'Cancel'} </AlertDialogCancel>
+          <AlertDialogCancel className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg">
+            {cancelText || "Cancel"}{" "}
+          </AlertDialogCancel>
           <AlertDialogAction
             className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
-            onClick={onConfirm}>{confirmText || 'Continue'}</AlertDialogAction>
+            onClick={onConfirm}
+          >
+            {confirmText || "Continue"}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
