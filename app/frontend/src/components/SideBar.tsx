@@ -19,8 +19,9 @@ const Sidebar = forwardRef((_, ref) => {
   };
 
   const getHelpContent = () => {
-    const baseStyles = `shadow-lg rounded-lg p-6 my-4 ${theme === "dark" ? "bg-TT-slate text-white" : "bg-white text-tt-black"
-      }`;
+    const baseStyles = `shadow-lg rounded-lg p-6 my-4 ${
+      theme === "dark" ? "bg-TT-slate text-white" : "bg-white text-tt-black"
+    }`;
 
     return (
       {
@@ -73,19 +74,25 @@ const Sidebar = forwardRef((_, ref) => {
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "RAG Management" page allows you to create additional Datasources
-                to augment the responses provided by the models you have deployed. You can select
-                a datasource to use from the dropdown menu at the top of the chat window.
+                The "RAG Management" page allows you to create additional
+                Datasources to augment the responses provided by the models you
+                have deployed. You can select a datasource to use from the
+                dropdown menu at the top of the chat window.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
                 <li>
-                  <strong>Create New RAG Datasource:</strong> RAG datasources must have a unique name of at least two characters and no spaces.
-                  Enter the name of your datasource and click the create button to create the datasource. </li>
-                <li>
-                  <strong>Upload Document:</strong> Select a document to upload and embed into the RAG datasource.
+                  <strong>Create New RAG Datasource:</strong> RAG datasources
+                  must have a unique name of at least two characters and no
+                  spaces. Enter the name of your datasource and click the create
+                  button to create the datasource.{" "}
                 </li>
                 <li>
-                  <strong>Delete:</strong> Delete your RAG datasource. This action is permanent and irreversible.
+                  <strong>Upload Document:</strong> Select a document to upload
+                  and embed into the RAG datasource.
+                </li>
+                <li>
+                  <strong>Delete:</strong> Delete your RAG datasource. This
+                  action is permanent and irreversible.
                 </li>
               </ul>
             </CardContent>
@@ -157,9 +164,11 @@ const Sidebar = forwardRef((_, ref) => {
   return (
     <div className="relative z-10">
       <div
-        className={`fixed rounded-md right-0 top-0 h-full flex flex-col ${theme === "dark" ? "bg-TT-black text-white" : "bg-white text-black"
-          } w-2/6 transform ${isOpen ? "translate-x-0" : "translate-x-full"
-          } transition-transform duration-300`}
+        className={`fixed rounded-md right-0 top-0 h-full flex flex-col ${
+          theme === "dark" ? "bg-TT-black text-white" : "bg-white text-black"
+        } w-2/6 transform ${
+          isOpen ? "translate-x-0" : "translate-x-full"
+        } transition-transform duration-300`}
       >
         <div className="relative w-full">
           <AspectRatio ratio={28 / 9} className="relative rounded-md">
@@ -180,8 +189,9 @@ const Sidebar = forwardRef((_, ref) => {
       </div>
       <Button
         onClick={toggleSidebar}
-        className={`p-4 md:hidden fixed right-0 top-0 ${isOpen ? "hidden" : "block"
-          }`}
+        className={`p-4 md:hidden fixed right-0 top-0 ${
+          isOpen ? "hidden" : "block"
+        }`}
       >
         <Menu className="w-6 h-6" />
       </Button>
