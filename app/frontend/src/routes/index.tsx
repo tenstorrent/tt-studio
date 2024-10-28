@@ -12,15 +12,15 @@ import RagManagement from "../pages/rag/RagManagement";
 const AppRouter = () => {
   return (
     <RefreshProvider>
-    <Router>
-      <NavBar />
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/models-deployed" element={<ModelsDeployed />} />
-        <Route path="/chat-ui" element={<ChatUI />} />
-        <Route path="/rag-management" element={<RagManagement />} />
-      </Routes>
-    </Router>
+      <Router>
+        <NavBar />
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/models-deployed" element={<ModelsDeployed />} />
+          <Route path="/chat-ui" element={<ChatUI />} />
+          <Route path="/rag-management" element={<RagManagement />} />
+        </Routes>
+      </Router>
     </RefreshProvider>
   );
 };

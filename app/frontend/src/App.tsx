@@ -5,7 +5,6 @@ import { ThemeProvider } from "./providers/ThemeProvider";
 import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "react-query";
 function App() {
-  
   const client = new QueryClient({
     defaultOptions: {},
   });
