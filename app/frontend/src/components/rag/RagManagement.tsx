@@ -25,7 +25,7 @@ import {
   deleteCollection,
   createCollection,
   uploadDocument,
-} from "@/src/pages/rag";
+} from "@/src/components/rag";
 
 interface RagDataSource {
   id: string;
