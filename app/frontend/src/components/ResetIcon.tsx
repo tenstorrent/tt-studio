@@ -190,7 +190,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
       <DialogTrigger asChild>
         <Button
-          variant="outline"
+          variant="navbar"
           size="icon"
           className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${buttonBackgroundColor} ${hoverButtonBackgroundColor}`}
           onClick={() => setIsDialogOpen(true)}

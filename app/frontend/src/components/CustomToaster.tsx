@@ -20,6 +20,15 @@ export const customToast = {
         color: "#fff",
       },
     }),
+  info: (message: string) =>
+    toast(message, {
+      icon: "🔔",
+      style: {
+        borderRadius: "10px",
+        background: "#333",
+        color: "#fff",
+      },
+    }),
   promise: (
     promise: Promise<unknown>,
     messages: { loading: string; success: string; error: string },

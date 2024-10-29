@@ -14,6 +14,7 @@ import { StepperFormActions } from "./StepperFormActions";
 import { WeightForm } from "./WeightForm";
 import { SecondStepForm } from "./SecondStepForm";
 import { FirstStepForm } from "./FirstStepForm";
+import { UseFormReturn } from "react-hook-form";
 
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
@@ -191,7 +192,7 @@ export default function StepperDemo() {
                       </Button>
                     </div>
                     <StepperFormActions
-                      form={null}
+                      form={{} as UseFormReturn<FormData, unknown>}
                       removeDynamicSteps={removeDynamicSteps}
                     />
                   </Step>
