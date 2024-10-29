@@ -34,21 +34,34 @@ def get_deploy_cache():
     data = get_all_records()
     return data
 
-
 def stream_response_from_external_api(url, json_data):
     logger.info(f"stream_response_from_external_api to: url={url}")
     try:
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        logger.info(f"stream_response_from_external_api headers:={headers}")
+        logger.info(f"stream_response_from_external_api json_data:={json_data}")
+        json_data["temperature"] = 1
+        json_data["max_tokens"] = 128
+        logger.info(f"added extra token and temp!:={json_data}")
+        
         with requests.post(
             url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
+            logger.info(f"stream_response_from_external_api response:={response}")
             response.raise_for_status()
             logger.info(f"response.headers:={response.headers}")
             logger.info(f"response.encoding:={response.encoding}")
             # only allow HTTP 1.1 chunked encoding
             assert response.headers.get("transfer-encoding") == "chunked"
-            # Note: chunk_size=None must be passed or it will chunk single chars
+
+            # Stream chunks
             for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                logger.info(f"stream_response_from_external_api chunk:={chunk}")
                 yield chunk
+            
+            # Append the custom end marker after the last chunk
+            yield "<<END_OF_STREAM>>"  # Custom marker to signal end of stream
+
+            logger.info("stream_response_from_external done")
     except requests.RequestException as e:
         yield str(e)
