@@ -14,13 +14,13 @@ else
     exit 1
 fi
 
-
+# Logging function
 log() {
     echo "$1"
     echo "$1" >> /var/log/master.log
 }
 
-
+# Show usage/help
 usage() {
     echo "Usage: $0 [options] <step> ..."
     echo
@@ -41,84 +41,70 @@ usage() {
     exit 0
 }
 
-# Function to run commands with optional sudo
-run_command() {
-    local description="$1"
-    local command="$2"
-    local use_sudo="$3"
+# Function to run step scripts with optional sudo
+run_step_script() {
+    local step="$1"
+    local use_sudo="$2"
+    local step_script="./$step.sh"
 
-    log "🚀 $description..."
-    if [ "$use_sudo" = true ]; then
-        sudo bash -c "$command" || { log "⛔ Failed to $description"; exit 1; }
-    else
-        bash -c "$command" || { log "⛔ Failed to $description"; exit 1; }
+    if [[ ! -f "$step_script" ]]; then
+        log "⛔ Step script $step_script not found."
+        exit 1
     fi
-    log "✅ $description completed successfully."
+
+    log "🚀 Running $step..."
+    if [ "$use_sudo" = true ]; then
+        sudo bash "$step_script" || { log "⛔ Failed to run $step."; exit 1; }
+    else
+        bash "$step_script" || { log "⛔ Failed to run $step."; exit 1; }
+    fi
+    log "✅ $step completed successfully."
 }
 
-# Define the steps
-step1() {
-    log "Step 1: Installing packages..."
-    run_command "Install packages" "apt-get install -y $PACKAGES" $USE_SUDO
-}
-
-step2() {
-    log "Step 2: Cloning repositories..."
-    for repo in $REPOSITORIES; do
-        run_command "Clone repository $repo" "git clone $repo /tmp/tenstorrent_repos" $USE_SUDO
-    done
-}
-
-step3() {
-    log "Step 3: Setting up hugepages..."
-    run_command "Make hugepages script executable" "chmod +x $TT_SYSTEM_TOOLS_DIR/$HUGEPAGES_SCRIPT" $USE_SUDO
-    run_command "Run hugepages script" "$TT_SYSTEM_TOOLS_DIR/$HUGEPAGES_SCRIPT" $USE_SUDO
-}
-
-step4() {
-    log "Step 4: Installing DKMS module..."
-    run_command "Navigate to DKMS directory" "cd $TT_KMD_DIR" $USE_SUDO
-    run_command "Install DKMS module" "dkms add $DKMS_MODULE && dkms install $DKMS_MODULE" $USE_SUDO
-}
-
-step5() {
-    log "Step 5: Setting up Python virtual environment and flashing firmware..."
-    run_command "Create Python virtual environment" "python3 -m venv $VENV_PATH" $USE_SUDO
-    run_command "Activate virtual environment and install tt-flash" "$VENV_PATH/bin/pip install $TT_FLASH_REPO" $USE_SUDO
-    run_command "Flash firmware using tt-flash" "$VENV_PATH/bin/tt-flash flash --fw-tar $FIRMWARE_PATH" $USE_SUDO
-}
-
-# Check if arguments are passed
-if [[ $# -lt 1 ]]; then
+# Check if any arguments were passed
+if [[ "$#" -eq 0 ]]; then
     usage
 fi
 
-# Parse command-line arguments
+# Initialize variables
 USE_SUDO=false
-if [[ "$1" == "--help" ]]; then
-    usage
-elif [[ "$1" == "--sudo" ]]; then
-    USE_SUDO=true
-    shift
-fi
+step_to_sudo=""
 
-# If 'all' is specified, run all steps
-if [[ "$1" == "all" ]]; then
-    steps=("step1" "step2" "step3" "step4" "step5")
-else
-    steps=("$@")
-fi
-
-# Run each specified step
-for step in "${steps[@]}"; do
-    case $step in
-        step1) step1 ;;
-        step2) step2 ;;
-        step3) step3 ;;
-        step4) step4 ;;
-        step5) step5 ;;
-        *) log "⛔ Invalid step: $step"; usage ;;
+# Parse options
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --help)
+            usage
+            ;;
+        --sudo)
+            USE_SUDO=true
+            shift
+            ;;
+        --sudo-step)
+            step_to_sudo=$2
+            shift 2
+            ;;
+        all)
+            for step in "${STEPS[@]}"; do
+                if [[ "$step" == "$step_to_sudo" ]]; then
+                    run_step_script "$step" true
+                else
+                    run_step_script "$step" "$USE_SUDO"
+                fi
+            done
+            shift
+            ;;
+        step1|step2|step3|step4|step5|step6)
+            if [[ "$1" == "$step_to_sudo" ]]; then
+                run_step_script "$1" true
+            else
+                run_step_script "$1" "$USE_SUDO"
+            fi
+            shift
+            ;;
+        *)
+            echo "⛔ Unknown option or step: $1"
+            usage
+            ;;
     esac
 done
-
-log "🎉 All requested steps completed successfully."
