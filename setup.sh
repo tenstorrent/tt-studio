@@ -32,22 +32,26 @@ summary_log=""
 
 # Show usage/help
 usage() {
-    echo "Usage: $0 [options] <step> ..."
+    echo -e "🤖Usage: ./setup.sh [options] <step> ..."
     echo
-    echo "Options:"
-    echo "  --help              Show this help message and exit."
-    echo "  --sudo              Run all specified steps with sudo."
-    echo "  --sudo-step <step>  Run a specific step with sudo."
+    echo -e "Options:"
+    echo -e "  --help              ❓ Show this help message and exit."
+    echo -e "  --sudo              🔐 Run all specified steps with sudo."
+    echo -e "  --sudo-step         🔐 Run a specific step with sudo."
+    echo -e "  --step              🪜 Run a specific step without sudo."
     echo
-    echo "Available Steps:"
-    for i in "${!STEPS[@]}"; do
-        echo "  ${STEPS[$i]}  - ${STEPS_DESCRIPTIONS[$i]}"
-    done
-    echo "  all    - Run all steps sequentially."
+    echo -e "Available Steps:"
+    echo -e "  step1  - 📦 Install required packages"
+    echo -e "  step2  - 🔄 Clone repositories"
+    echo -e "  step3  - 💾 Setup hugepages"
+    echo -e "  step4  - 🛠️  Install DKMS module"
+    echo -e "  step5  - 🌐 Setup Python virtual environment and flash firmware"
+    echo -e "  step6  - 🗺️  Run tt topology command"
+    echo -e "  all    - 🚀 Run all steps sequentially."
     echo
-    echo "Examples:"
-    echo "  $0 step1 step2"
-    echo "  $0 --sudo all"
+    echo -e "Examples:"
+    echo -e "  ./setup.sh step1 step2"
+    echo -e "  ./setup.sh --sudo all"
     exit 0
 }
 
