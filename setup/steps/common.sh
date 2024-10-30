@@ -7,7 +7,6 @@ log() {
 }
 
 # run_command function: templates a command with optional logging and error handling
-# 
 # Arguments:
 #   $1 - Description of the action being performed (used for logging purposes).
 #   $2 - The actual command to be executed.
@@ -23,10 +22,16 @@ log() {
 
 
 run_command() {
-    if eval "$2"; then
-        log "✅ $1 completed successfully."
+    local description="$1"
+    local command="$2"
+
+    log "🚀 $description..."
+
+    # Run the command
+    if eval "$command"; then
+        log "✅ $description completed successfully."
     else
-        log "⛔ Failed to $1"
+        log "⛔ Failed to $description"
         exit 1
     fi
 }
