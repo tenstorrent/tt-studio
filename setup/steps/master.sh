@@ -14,10 +14,14 @@ else
     exit 1
 fi
 
-# Logging function
+# Logging function with conditional sudo
 log() {
+    if [ "$USE_SUDO" = true ]; then
+        sudo bash -c "echo '$1' >> /var/log/master.log"
+    else
+        echo "$1" >> /var/log/master.log
+    fi
     echo "$1"
-    echo "$1" >> /var/log/master.log
 }
 
 # Show usage/help
