@@ -5,8 +5,11 @@
 
 set -euo pipefail  # Exit on error, unset variables treated as errors, and exit on pipeline failure
 
-# Load environment variables from common.env
-ENV_FILE="inputs/common.env"
+# setup steps directory
+SETUP_DIR="./setup/steps"
+ENV_FILE="$SETUP_DIR/inputs/common.env"
+
+#  environment variables 
 if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
 else
@@ -48,11 +51,10 @@ usage() {
     exit 0
 }
 
-# Function to run step scripts with optional sudo
 run_step_script() {
     local step="$1"
     local use_sudo="$2"
-    local step_script="./$step.sh"
+    local step_script="$SETUP_DIR/$step.sh"
 
     if [[ ! -f "$step_script" ]]; then
         log "⛔ Step script $step_script not found."
