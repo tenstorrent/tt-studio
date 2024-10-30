@@ -24,6 +24,9 @@ log() {
     echo "$1"
 }
 
+# Final summary log for errors
+summary_log=""
+
 # Show usage/help
 usage() {
     echo "Usage: $0 [options] <step> ..."
@@ -53,14 +56,23 @@ run_step_script() {
 
     if [[ ! -f "$step_script" ]]; then
         log "⛔ Step script $step_script not found."
-        exit 1
+        summary_log+="Failed: $step script not found.\n"
+        return
     fi
 
     log "🚀 Running $step..."
     if [ "$use_sudo" = true ]; then
-        sudo bash "$step_script" || { log "⛔ Failed to run $step."; exit 1; }
+        sudo bash "$step_script" || { 
+            log "⛔ Failed to run $step."
+            summary_log+="Failed: $step\n"
+            return
+        }
     else
-        bash "$step_script" || { log "⛔ Failed to run $step."; exit 1; }
+        bash "$step_script" || { 
+            log "⛔ Failed to run $step."
+            summary_log+="Failed: $step\n"
+            return
+        }
     fi
     log "✅ $step completed successfully."
 }
@@ -112,3 +124,7 @@ while [[ "$#" -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -n "$summary_log" ]]; then
+    echo -e "⚠️  Summary of failures:\n$summary_log" | tee -a /var/log/master.log
+fi
