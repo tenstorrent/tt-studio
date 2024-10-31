@@ -133,8 +133,8 @@ echo "============================================="
 echo "🎉 TT Studio setup completed successfully!"
 echo "============================================="
 echo
-echo -e "🚀 The frontend is now accessible at: \e[1mhttp://localhost:3000\e[0m"
+echo -e "🚀 The app is now accessible at: \e[1mhttp://localhost:3000\e[0m"
 echo
 echo "============================================="
 echo "🧹 Cleanup Instructions:"
-echo "  - To stop the service, run: './startup.sh --cleanup'"
+echo "  - To stop the app and the services, run: './startup.sh --cleanup'"
