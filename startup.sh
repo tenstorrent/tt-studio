@@ -126,3 +126,15 @@ fi
 
 # step 4: run docker compose
 docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up -d
+
+
+# Final message
+echo "============================================="
+echo "🎉 TT Studio setup completed successfully!"
+echo "============================================="
+echo
+echo -e "🚀 The frontend is now accessible at: \e[1mhttp://localhost:3000\e[0m"
+echo
+echo "============================================="
+echo "🧹 Cleanup Instructions:"
+echo "  - To stop the service, run: './startup.sh --cleanup'"
