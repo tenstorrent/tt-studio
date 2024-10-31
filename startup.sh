@@ -56,6 +56,9 @@ if [[ "$#" -gt 0 ]]; then
     esac
 fi
 
+# Set TT_STUDIO_ROOT before any operations
+TT_STUDIO_ROOT="$(pwd)"
+
 # Cleanup step if --cleanup is provided
 if [[ "$RUN_CLEANUP" = true ]]; then
     echo "🧹 Stopping and removing Docker services..."
@@ -85,7 +88,6 @@ if [[ "$RUN_SETUP" = true ]]; then
 fi
 
 # step 1: Set TT_STUDIO_ROOT and create .env from .env.default if necessary
-TT_STUDIO_ROOT="$(pwd)"
 ENV_FILE_PATH="${TT_STUDIO_ROOT}/app/.env"
 ENV_FILE_DEFAULT="${TT_STUDIO_ROOT}/app/.env.default"
 
@@ -106,7 +108,6 @@ fi
 
 # step 2: source env vars
 source "${ENV_FILE_PATH}"
-
 
 # step 3: Check if the Docker network already exists
 NETWORK_NAME="llm_studio_network"
