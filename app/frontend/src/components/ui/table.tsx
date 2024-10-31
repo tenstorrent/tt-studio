@@ -1,3 +1,6 @@
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 import * as React from "react";
 
 import { cn } from "../../lib/utils";

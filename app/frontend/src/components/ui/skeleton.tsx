@@ -1,3 +1,6 @@
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 import { cn } from "../../lib/utils";
 
 function Skeleton({

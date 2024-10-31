@@ -1,3 +1,6 @@
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 /* this shadcnn badge component has been updated to be more specific to a status badge component and
 should not be used for the other badges in the application
 */

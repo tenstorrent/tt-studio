@@ -1,3 +1,6 @@
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 import * as React from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { Slot } from "@radix-ui/react-slot";

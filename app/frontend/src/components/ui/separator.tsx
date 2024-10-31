@@ -1,3 +1,6 @@
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 import * as React from "react";
 import * as SeparatorPrimitive from "@radix-ui/react-separator";
 import { cn } from "../../lib/utils";

@@ -1,3 +1,6 @@
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
+
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
 
 const Collapsible = CollapsiblePrimitive.Root
