@@ -21,6 +21,8 @@ DEFAULT:
     - "*.py"
     - "*.dockerfile"
     - "*.sh"
+    - "**/Dockerfile"
+    
 ignore:
   perform_check: no
   include:
