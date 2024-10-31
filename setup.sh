@@ -1,15 +1,18 @@
 #!/bin/bash
 # SPDX-License-Identifier: Apache-2.0
-#
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-set -euo pipefail  # Exit on error, unset variables treated as errors, and exit on pipeline failure
+set -euo pipefail
 
-# setup steps directory
-SETUP_DIR="./setup/steps"
+# Set up absolute paths for script consistency
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SETUP_DIR="$SCRIPT_DIR/setup/steps"
 ENV_FILE="$SETUP_DIR/inputs/common.env"
+COMMON_SH="$SETUP_DIR/common.sh"
 
-#  environment variables 
+echo "ENV FILE: $ENV_FILE"
+
+# Load environment variables
 if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
 else
@@ -17,9 +20,9 @@ else
     exit 1
 fi
 
-# Logging function with conditional sudo
+# Logging function with optional sudo
 log() {
-    if [ "$USE_SUDO" = true ]; then
+    if [ "${USE_SUDO:-false}" = true ]; then
         sudo bash -c "echo '$1' >> /var/log/master.log"
     else
         echo "$1" >> /var/log/master.log
@@ -57,7 +60,7 @@ usage() {
 
 run_step_script() {
     local step="$1"
-    local use_sudo="$2"
+    local use_sudo="${2:-false}"
     local step_script="$SETUP_DIR/$step.sh"
 
     if [[ ! -f "$step_script" ]]; then
@@ -67,7 +70,7 @@ run_step_script() {
     fi
 
     log "🚀 Running $step..."
-    if [ "$use_sudo" = true ]; then
+    if [[ "$use_sudo" == true ]]; then
         sudo bash "$step_script" || { 
             log "⛔ Failed to run $step."
             summary_log+="Failed: $step\n"
@@ -132,5 +135,5 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [[ -n "$summary_log" ]]; then
-    echo -e "⚠️  Summary of failures:\n$summary_log" | tee -a /var/log/master.log
+    echo -e "⚠️  Summary of failures:\n$summary_log"
 fi
