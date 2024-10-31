@@ -16,7 +16,7 @@ usage() {
     echo
     echo -e "This script sets up the TT Studio environment by performing the following steps:"
     echo -e "  1. 🧭 Detects the OS."
-    echo -e "  2. 🛠️  Sets the TT_STUDIO_ROOT variable in .env and validates the location."
+    echo -e "  2. 🛠️  Sets the TT_STUDIO_ROOT variable in .env based on the running directory."
     echo -e "  3. 🔄 Sources environment variables from .env file."
     echo -e "  4. 📥 Installs necessary components (TODO: tt-firmware, tt-kmd, tt-smi)."
     echo -e "  5. 🌐 Checks for and creates a Docker network named 'llm_studio_network' if not present."
@@ -71,35 +71,31 @@ if [[ "$RUN_SETUP" = true ]]; then
     fi
 fi
 
-# step 1: automatically set TT_STUDIO_ROOT in .env and validate it
-TT_STUDIO_ROOT="$(git rev-parse --show-toplevel)"
-if [[ "${TT_STUDIO_ROOT}" =~ tt-studio$ ]]; then
-    echo "using TT_STUDIO_ROOT:=${TT_STUDIO_ROOT}"
-else
-    echo "Error: TT_STUDIO_ROOT:=${TT_STUDIO_ROOT} does not end with 'tt-studio'"
-    echo "startup.sh script must be run from the top level of tt-studio repo."
-    exit 1
-fi
+# step 1: Set TT_STUDIO_ROOT and create .env from .env.default if necessary
+TT_STUDIO_ROOT="$(pwd)"
 ENV_FILE_PATH="${TT_STUDIO_ROOT}/app/.env"
-ENV_FILE_TT_STUDIO_ROOT_LINE="TT_STUDIO_ROOT=${TT_STUDIO_ROOT}"
-if [[ "${OS_NAME}" == "Darwin" ]]; then
-    # macOS uses Darwin as the kernel name, use sed with an empty string for the in-place flag
-    # newlines required to add newlines to .env file
-    sed -i '' "/^TT_STUDIO_ROOT=/c\\
-${ENV_FILE_TT_STUDIO_ROOT_LINE}
-" "${ENV_FILE_PATH}"
+ENV_FILE_DEFAULT="${TT_STUDIO_ROOT}/app/.env.default"
+
+# Check if .env exists, if not create from .env.default
+if [[ ! -f "${ENV_FILE_PATH}" && -f "${ENV_FILE_DEFAULT}" ]]; then
+    echo "Creating .env file from .env.default"
+    cp "${ENV_FILE_DEFAULT}" "${ENV_FILE_PATH}"
+fi
+
+# Update TT_STUDIO_ROOT in .env
+if [[ -f "${ENV_FILE_PATH}" ]]; then
+    sed -i "/^TT_STUDIO_ROOT=/c\\TT_STUDIO_ROOT=${TT_STUDIO_ROOT}" "${ENV_FILE_PATH}"
+    echo "Set TT_STUDIO_ROOT to: ${TT_STUDIO_ROOT} in .env file"
 else
-    # Assuming Linux, use sed directly without an empty string
-    sed -i "/^TT_STUDIO_ROOT=/c\\${ENV_FILE_TT_STUDIO_ROOT_LINE}" "${ENV_FILE_PATH}"
+    echo "Error: .env file does not exist and could not be created."
+    exit 1
 fi
 
 # step 2: source env vars
 source "${ENV_FILE_PATH}"
 
-# step 3:
-# TODO: install tt-firmware, tt-kmd, tt-smi
 
-# step 4: Check if the Docker network already exists
+# step 3: Check if the Docker network already exists
 NETWORK_NAME="llm_studio_network"
 if docker network ls | grep -qw "${NETWORK_NAME}"; then
     echo "Network '${NETWORK_NAME}' exists."
@@ -114,6 +110,6 @@ else
     fi
 fi
 
-# step 5: run docker compose
+# step 4: run docker compose
 docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up -d
 echo "To clean up backend service run: 'docker compose -f ${TT_STUDIO_ROOT}/app/docker-compose.yml down'"
