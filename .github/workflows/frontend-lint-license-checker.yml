@@ -40,34 +40,34 @@ jobs:
           set +e
           npm run lint || true  # Run lint and allow the workflow to continue even if there are warnings/errors
 
-      # Check if GPG key exists
-      - name: Check if GPG key exists
-        run: |
-          if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
-            echo "GPG_KEY_EXISTS=true" >> $GITHUB_ENV
-          else
-            echo "GPG_KEY_EXISTS=false" >> $GITHUB_ENV
-          fi
+      # # Check if GPG key exists
+      # - name: Check if GPG key exists
+      #   run: |
+      #     if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
+      #       echo "GPG_KEY_EXISTS=true" >> $GITHUB_ENV
+      #     else
+      #       echo "GPG_KEY_EXISTS=false" >> $GITHUB_ENV
+      #     fi
 
-      # Import GPG key if it exists
-      - name: Import GPG key if it exists
-        if: env.GPG_KEY_EXISTS == 'true'
-        uses: crazy-max/ghaction-import-gpg@v6
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
-          git_user_signingkey: true
-          git_commit_gpgsign: true
+      # # Import GPG key if it exists
+      # - name: Import GPG key if it exists
+      #   if: env.GPG_KEY_EXISTS == 'true'
+      #   uses: crazy-max/ghaction-import-gpg@v6
+      #   with:
+      #     gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+      #     passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      #     git_user_signingkey: true
+      #     git_commit_gpgsign: true
 
-      # Auto-commit changes using stefanzweifel/git-auto-commit-action
-      - name: Commit changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_user_name: CleanBot
-          commit_user_email: your-email@example.com
-          commit_message: '🚨✨ AUTOMATED COMMIT | Applied Code Formatting, Cleanup and added SPDX license headers'
-          commit_options: ${{ env.GPG_KEY_EXISTS == 'true' && '-S' || '' }}
-          branch: ${{ github.head_ref }}
+      # # Auto-commit changes using stefanzweifel/git-auto-commit-action
+      # - name: Commit changes
+      #   uses: stefanzweifel/git-auto-commit-action@v5
+      #   with:
+      #     commit_user_name: CleanBot
+      #     commit_user_email: your-email@example.com
+      #     commit_message: '🚨✨ AUTOMATED COMMIT | Applied Code Formatting, Cleanup and added SPDX license headers'
+      #     commit_options: ${{ env.GPG_KEY_EXISTS == 'true' && '-S' || '' }}
+      #     branch: ${{ github.head_ref }}
 
       # Run ESLint and Capture Output
       - name: Run ESLint and Capture Output
