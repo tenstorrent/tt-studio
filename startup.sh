@@ -17,28 +17,25 @@ usage() {
     echo -e "This script sets up the TT Studio environment by performing the following steps:"
     echo -e "  1. 🧭 Detects the OS."
     echo -e "  2. 🛠️  Sets the TT_STUDIO_ROOT variable in .env based on the running directory."
-    echo -e "  3. 🔄 Sources environment variables from .env file."
-    echo -e "  4. 📥 Installs necessary components (TODO: tt-firmware, tt-kmd, tt-smi)."
-    echo -e "  5. 🌐 Checks for and creates a Docker network named 'llm_studio_network' if not present."
-    echo -e "  6. 🚀 Runs Docker Compose to start the TT Studio services."
+    echo -e "  3. 🌐 Checks for and creates a Docker network named 'llm_studio_network' if not present."
+    echo -e "  4. 🚀 Runs Docker Compose to start the TT Studio services."
     echo
     echo -e "Options:"
     echo -e "  --help              ❓ Show this help message and exit."
     echo -e "  --setup             🔧 Run the setup script with sudo and all steps before executing main steps."
+    echo -e "  --cleanup           🧹 Stop and remove Docker services."
     echo
     echo -e "Examples:"
-    echo -e "  ./startup.sh --setup  # Run setup steps as sudo, then main steps"
-    echo -e "  ./startup.sh          # Run the main setup steps directly"
-    echo -e "  ./startup.sh --help   # Display this help message"
-    echo
-    echo -e "Cleanup Command:"
-    echo -e "  To stop and remove the backend service, run:"
-    echo -e "    docker compose -f \${TT_STUDIO_ROOT}/app/docker-compose.yml down"
+    echo -e "  ./startup.sh --setup     # Run setup steps as sudo, then main steps"
+    echo -e "  ./startup.sh             # Run the main setup steps directly"
+    echo -e "  ./startup.sh --cleanup   # Stop and clean up Docker services"
+    echo -e "  ./startup.sh --help      # Display this help message"
     exit 0
 }
 
-# Initialize setup flag
+# Initialize flags
 RUN_SETUP=false
+RUN_CLEANUP=false
 
 # Parse options
 if [[ "$#" -gt 0 ]]; then
@@ -49,11 +46,27 @@ if [[ "$#" -gt 0 ]]; then
         --setup)
             RUN_SETUP=true
             ;;
+        --cleanup)
+            RUN_CLEANUP=true
+            ;;
         *)
             echo "⛔ Unknown option: $1"
             usage
             ;;
     esac
+fi
+
+# Cleanup step if --cleanup is provided
+if [[ "$RUN_CLEANUP" = true ]]; then
+    echo "🧹 Stopping and removing Docker services..."
+    cd "${TT_STUDIO_ROOT}/app" && docker compose down
+    if [[ $? -eq 0 ]]; then
+        echo "✅ Backend service stopped and removed."
+    else
+        echo "⛔ Failed to clean up backend service."
+        exit 1
+    fi
+    exit 0
 fi
 
 # Step 0: Conditionally run setup.sh with sudo and all steps if --setup is provided
@@ -112,4 +125,3 @@ fi
 
 # step 4: run docker compose
 docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up -d
-echo "To clean up backend service run: 'docker compose -f ${TT_STUDIO_ROOT}/app/docker-compose.yml down'"
