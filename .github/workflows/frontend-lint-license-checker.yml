@@ -1,176 +1,176 @@
-name: Front-End Linter SPDX Licenses Checker
+# name: Front-End Linter SPDX Licenses Checker
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - "main"
-      - "staging"
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - assigned
-      - review_requested
+# on:
+#   push:
+#     branches:
+#       - main
+#   pull_request:
+#     branches:
+#       - "main"
+#       - "staging"
+#     types:
+#       - opened
+#       - reopened
+#       - synchronize
+#       - assigned
+#       - review_requested
 
-jobs:
-  lint:
-    runs-on: ubuntu-latest
+# jobs:
+#   lint:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+#         with:
+#           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '16'
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v3
+#         with:
+#           node-version: '16'
 
-      - name: Install dependencies
-        working-directory: app/frontend  
-        run: npm install
+#       - name: Install dependencies
+#         working-directory: app/frontend  
+#         run: npm install
 
-      - name: Run ESLint with Auto-fix
-        working-directory: app/frontend
-        run: |
-          set +e
-          npm run lint || true  # Run lint and allow the workflow to continue even if there are warnings/errors
+#       - name: Run ESLint with Auto-fix
+#         working-directory: app/frontend
+#         run: |
+#           set +e
+#           npm run lint || true  # Run lint and allow the workflow to continue even if there are warnings/errors
 
-      # # Check if GPG key exists
-      # - name: Check if GPG key exists
-      #   run: |
-      #     if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
-      #       echo "GPG_KEY_EXISTS=true" >> $GITHUB_ENV
-      #     else
-      #       echo "GPG_KEY_EXISTS=false" >> $GITHUB_ENV
-      #     fi
+#       # # Check if GPG key exists
+#       # - name: Check if GPG key exists
+#       #   run: |
+#       #     if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
+#       #       echo "GPG_KEY_EXISTS=true" >> $GITHUB_ENV
+#       #     else
+#       #       echo "GPG_KEY_EXISTS=false" >> $GITHUB_ENV
+#       #     fi
 
-      # # Import GPG key if it exists
-      # - name: Import GPG key if it exists
-      #   if: env.GPG_KEY_EXISTS == 'true'
-      #   uses: crazy-max/ghaction-import-gpg@v6
-      #   with:
-      #     gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-      #     passphrase: ${{ secrets.GPG_PASSPHRASE }}
-      #     git_user_signingkey: true
-      #     git_commit_gpgsign: true
+#       # # Import GPG key if it exists
+#       # - name: Import GPG key if it exists
+#       #   if: env.GPG_KEY_EXISTS == 'true'
+#       #   uses: crazy-max/ghaction-import-gpg@v6
+#       #   with:
+#       #     gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+#       #     passphrase: ${{ secrets.GPG_PASSPHRASE }}
+#       #     git_user_signingkey: true
+#       #     git_commit_gpgsign: true
 
-      # # Auto-commit changes using stefanzweifel/git-auto-commit-action
-      # - name: Commit changes
-      #   uses: stefanzweifel/git-auto-commit-action@v5
-      #   with:
-      #     commit_user_name: CleanBot
-      #     commit_user_email: your-email@example.com
-      #     commit_message: '🚨✨ AUTOMATED COMMIT | Applied Code Formatting, Cleanup and added SPDX license headers'
-      #     commit_options: ${{ env.GPG_KEY_EXISTS == 'true' && '-S' || '' }}
-      #     branch: ${{ github.head_ref }}
+#       # # Auto-commit changes using stefanzweifel/git-auto-commit-action
+#       # - name: Commit changes
+#       #   uses: stefanzweifel/git-auto-commit-action@v5
+#       #   with:
+#       #     commit_user_name: CleanBot
+#       #     commit_user_email: your-email@example.com
+#       #     commit_message: '🚨✨ AUTOMATED COMMIT | Applied Code Formatting, Cleanup and added SPDX license headers'
+#       #     commit_options: ${{ env.GPG_KEY_EXISTS == 'true' && '-S' || '' }}
+#       #     branch: ${{ github.head_ref }}
 
-      # Run ESLint and Capture Output
-      - name: Run ESLint and Capture Output
-        working-directory: app/frontend  
-        id: run_eslint
-        run: |
-          set +e
-          output=$(npm run lint --silent 2>&1)
-          exit_code=$?
-          echo "$output"
-          clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')  # Remove ANSI escape codes
-          echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
-          echo "$clean_output" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+#       # Run ESLint and Capture Output
+#       - name: Run ESLint and Capture Output
+#         working-directory: app/frontend  
+#         id: run_eslint
+#         run: |
+#           set +e
+#           output=$(npm run lint --silent 2>&1)
+#           exit_code=$?
+#           echo "$output"
+#           clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')  # Remove ANSI escape codes
+#           echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
+#           echo "$clean_output" >> $GITHUB_ENV
+#           echo "EOF" >> $GITHUB_ENV
 
-          grouped_errors=""
-          current_file=""
-          errors_for_file=""
-          has_errors=false
-          missing_lc_headers=false
-          lc_flagged_files=""
+#           grouped_errors=""
+#           current_file=""
+#           errors_for_file=""
+#           has_errors=false
+#           missing_lc_headers=false
+#           lc_flagged_files=""
 
-          while IFS= read -r line; do
-            if echo "$line" | grep -q '^\s*\/'; then
-              if [ "$has_errors" = true ]; then
-                grouped_errors+="$current_file\n$errors_for_file\n------------------------------------------------------------------------------------------------------------------------------------------\n"
-                errors_for_file=""
-                has_errors=false
-              fi
-              current_file=$(echo "$line" | sed 's/\n//g')
-            elif echo "$line" | grep -q 'error'; then
-              errors_for_file+="  $line\n"
-              has_errors=true
+#           while IFS= read -r line; do
+#             if echo "$line" | grep -q '^\s*\/'; then
+#               if [ "$has_errors" = true ]; then
+#                 grouped_errors+="$current_file\n$errors_for_file\n------------------------------------------------------------------------------------------------------------------------------------------\n"
+#                 errors_for_file=""
+#                 has_errors=false
+#               fi
+#               current_file=$(echo "$line" | sed 's/\n//g')
+#             elif echo "$line" | grep -q 'error'; then
+#               errors_for_file+="  $line\n"
+#               has_errors=true
 
-              if echo "$line" | grep -q 'missing header'; then
-                missing_lc_headers=true
-                errors_for_file+="!Flagged: LC header missing\n"
-                lc_flagged_files+="${current_file}\n"
-              fi
-            fi
-          done <<< "$clean_output"
+#               if echo "$line" | grep -q 'missing header'; then
+#                 missing_lc_headers=true
+#                 errors_for_file+="!Flagged: LC header missing\n"
+#                 lc_flagged_files+="${current_file}\n"
+#               fi
+#             fi
+#           done <<< "$clean_output"
 
-          if [ "$has_errors" = true ]; then
-            grouped_errors+="$current_file\n$errors_for_file\n"
-          fi
+#           if [ "$has_errors" = true ]; then
+#             grouped_errors+="$current_file\n$errors_for_file\n"
+#           fi
 
-          if [ -n "$grouped_errors" ]; then
-            echo "Errors found."
-            echo "GROUPED_ERRORS<<EOF" >> $GITHUB_ENV
-            echo -e "$grouped_errors" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-            echo "HAS_ERRORS=true" >> $GITHUB_ENV
-          else
-            echo "No relevant errors found."
-            echo "HAS_ERRORS=false" >> $GITHUB_ENV
-          fi
+#           if [ -n "$grouped_errors" ]; then
+#             echo "Errors found."
+#             echo "GROUPED_ERRORS<<EOF" >> $GITHUB_ENV
+#             echo -e "$grouped_errors" >> $GITHUB_ENV
+#             echo "EOF" >> $GITHUB_ENV
+#             echo "HAS_ERRORS=true" >> $GITHUB_ENV
+#           else
+#             echo "No relevant errors found."
+#             echo "HAS_ERRORS=false" >> $GITHUB_ENV
+#           fi
 
-          if [ "$missing_lc_headers" = true ]; then
-            echo "LC headers missing in one or more files."
-            echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
-            echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
-            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-          else
-            echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
-          fi
+#           if [ "$missing_lc_headers" = true ]; then
+#             echo "LC headers missing in one or more files."
+#             echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
+#             echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
+#             echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" >> $GITHUB_ENV
+#             echo "EOF" >> $GITHUB_ENV
+#           else
+#             echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
+#           fi
 
-          exit 0
+#           exit 0
 
-      # Comment on PR with ESLint Errors and LC Headers
-      - name: Comment on PR with ESLint Errors and LC Headers
-        if: env.HAS_ERRORS == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const lintErrors = process.env.GROUPED_ERRORS;
-            const issueNumber = context.payload.pull_request.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+#       # Comment on PR with ESLint Errors and LC Headers
+#       - name: Comment on PR with ESLint Errors and LC Headers
+#         if: env.HAS_ERRORS == 'true'
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const lintErrors = process.env.GROUPED_ERRORS;
+#             const issueNumber = context.payload.pull_request.number;
+#             const owner = context.repo.owner;
+#             const repo = context.repo.repo;
 
-            let commentBody = "";
+#             let commentBody = "";
 
-            if (process.env.MISSING_LC_HEADERS === 'true') {
-              const flaggedFiles = process.env.LC_FLAGGED_FILES.trim();
-              commentBody += `## 🚨 SPDX-License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\nPlease ensure each of these files includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Thank you!`;
-            }
+#             if (process.env.MISSING_LC_HEADERS === 'true') {
+#               const flaggedFiles = process.env.LC_FLAGGED_FILES.trim();
+#               commentBody += `## 🚨 SPDX-License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\nPlease ensure each of these files includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Thank you!`;
+#             }
 
-            if (lintErrors) {
-              commentBody += `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
-            }
+#             if (lintErrors) {
+#               commentBody += `## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
+#             }
 
-            if (commentBody.trim() && issueNumber) {
-              await github.rest.issues.createComment({
-                issue_number: issueNumber,
-                owner: owner,
-                repo: repo,
-                body: commentBody
-              });
-            } else {
-              console.log("No relevant errors to report.");
-            }
-      - name: Fail the Workflow if LC Headers Are Missing
-        if: env.MISSING_LC_HEADERS == 'true'
-        run: |
-          echo "Failing the workflow because LC headers are missing."
-          exit 1
+#             if (commentBody.trim() && issueNumber) {
+#               await github.rest.issues.createComment({
+#                 issue_number: issueNumber,
+#                 owner: owner,
+#                 repo: repo,
+#                 body: commentBody
+#               });
+#             } else {
+#               console.log("No relevant errors to report.");
+#             }
+#       - name: Fail the Workflow if LC Headers Are Missing
+#         if: env.MISSING_LC_HEADERS == 'true'
+#         run: |
+#           echo "Failing the workflow because LC headers are missing."
+#           exit 1

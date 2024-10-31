@@ -71,24 +71,6 @@ jobs:
           echo "Extracted Files:"
           echo "$FILES"
 
-      # # Run the `add_spdx_header.py` script to fix missing SPDX headers
-      # - name: Run SPDX Header Script
-      #   if: env.FILES != ''
-      #   run: |
-      #     set +e
-      #     python add_spdx_header.py  # Run the script to add SPDX headers to the missing files
-      #     exit 0
-
-      # # Commit the changes made by `add_spdx_header.py`
-      # - name: Commit changes
-      #   if: env.FILES != ''
-      #   uses: stefanzweifel/git-auto-commit-action@v5
-      #   with:
-      #     commit_user_name: SPDX-Bot
-      #     commit_user_email: bot@example.com
-      #     commit_message: '🚨✨AUTOMATED COMMIT | Added missing SPDX license headers automatically'
-      #     branch: ${{ github.head_ref }}
-
       # Extract and clean file paths
       - name: Extract File Paths
         if: env.FILES != ''
@@ -126,19 +108,3 @@ jobs:
             } else {
               console.log("No SPDX license issues found.");
             }  
-              
-      - name: Run SPDX Header Script Again 
-        run: |
-          set +e
-          echo "Running SPDX header script again on all files in the repository"
-          python ./add_spdx_header.py
-          exit 0
-
-      # Commit the changes made by the second run of `add_spdx_header.py`
-      - name: Commit changes from second run
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_user_name: SPDX-Bot
-          commit_user_email: bot@example.com
-          commit_message: '🚨✨AUTOMATED COMMIT | Final SPDX license header additions'
-          branch: ${{ github.head_ref }}
