@@ -1,0 +1,29 @@
+DEFAULT:
+  perform_check: yes
+  allowed_licenses:
+    - Apache-2.0
+    - MIT
+    - GPL-3.0-only
+  license_for_new_files: Apache-2.0
+  new_notice_python: |
+    """
+    SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+    
+    SPDX-License-Identifier: {license}
+    """
+  new_notice_dockerfile: |
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+    # SPDX-License-Identifier: {license}
+  new_notice_shell: |
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+    # SPDX-License-Identifier: {license}
+  include:
+    - "*.py"
+    - "*.dockerfile"
+    - "*.sh"
+ignore:
+  perform_check: no
+  include:
+    - .github/*
+    - /CONTRIBUTING.md
+    - /MAINTAINERS.md
