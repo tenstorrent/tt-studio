@@ -1,14 +1,25 @@
 #!/bin/bash
 # step1.sh - Step 1: Installing packages
 
-log() {
-    echo "$1"
-    echo "$1" >> /var/log/step1.log
-}
+# Set up absolute paths based on this script's location
+STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SETUP_DIR="$STEP_DIR/"
+ENV_FILE="$SETUP_DIR/inputs/common.env"
+COMMON_SH="$SETUP_DIR/common.sh"
 
+if [[ -f "$ENV_FILE" ]]; then
+    source "$ENV_FILE"
+else
+    echo "⛔ Environment file $ENV_FILE not found."
+    exit 1
+fi
 
-source ./inputs/common.env
-source ./common.sh  
+if [[ -f "$COMMON_SH" ]]; then
+    source "$COMMON_SH"
+else
+    echo "⛔ Common functions file $COMMON_SH not found."
+    exit 1
+fi
 
 log "Step 1: Installing packages..."
 

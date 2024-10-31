@@ -1,9 +1,28 @@
 #!/bin/bash
-source ./common.sh
+# Step 5: Installing Rust, tt-flash, and Flashing Firmware
+
+# Set up absolute paths based on this script's location
+STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SETUP_DIR="$STEP_DIR/"
+ENV_FILE="$SETUP_DIR/inputs/common.env"
+COMMON_SH="$SETUP_DIR/common.sh"
+
+if [[ -f "$ENV_FILE" ]]; then
+    source "$ENV_FILE"
+else
+    echo "⛔ Environment file $ENV_FILE not found."
+    exit 1
+fi
+
+if [[ -f "$COMMON_SH" ]]; then
+    source "$COMMON_SH"
+else
+    echo "⛔ Common functions file $COMMON_SH not found."
+    exit 1
+fi
 
 log "Step 5: Installing Rust, tt-flash, and Flashing Firmware"
 load_env
-
 
 if [ -d "$HOME/.cargo" ]; then
     log "Removing existing Rust installation..."
@@ -17,20 +36,16 @@ run_command "set Rust default to stable" "rustup default stable"
 run_command "verify Rust installation" "rustc --version"
 run_command "verify Cargo installation" "cargo --version"
 
-
 if [ ! -d "$VENV_PATH" ]; then
     log "Creating Python virtual environment..."
     run_command "create Python virtual environment" "python3 -m venv \"$VENV_PATH\""
     log "Virtual environment created at $VENV_PATH"
 fi
 
-
 . "$VENV_PATH/bin/activate"
 log "Activated virtual environment"
 
-
 run_command "upgrade pip, wheel, and setuptools" "$VENV_PATH/bin/pip install --upgrade pip wheel setuptools"
-
 
 if [ -d "$TT_FLASH_REPO" ]; then
     cd "$TT_FLASH_REPO" || { log "⛔ Failed to navigate to $TT_FLASH_REPO"; exit 1; }
@@ -40,9 +55,7 @@ else
     exit 1
 fi
 
-
 run_command "install tt-flash" "$VENV_PATH/bin/pip install ."
-
 
 if ! "$VENV_PATH/bin/tt-flash" -h; then
     log "⛔ tt-flash -h command failed. Exiting."
