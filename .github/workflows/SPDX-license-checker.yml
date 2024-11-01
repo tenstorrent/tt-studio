@@ -24,10 +24,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run ORT Analysis and Generate Report
+      - name: Run ORT Analysis
         uses: oss-review-toolkit/ort-ci-github-action@v1
         with:
-          ort-cli-args: 'analyze -i . -o ort-results && report -i ort-results/analyzer-result.yml -o ort-results/reports'
+          ort-cli-args: 'analyze -i . -o ort-results'
+
+      - name: Run ORT Report Generation
+        uses: oss-review-toolkit/ort-ci-github-action@v1
+        with:
+          ort-cli-args: 'report -i ort-results/analyzer-result.yml -o ort-results/reports'
 
       - name: Upload ORT Results
         uses: actions/upload-artifact@v3
