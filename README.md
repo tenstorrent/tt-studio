@@ -1,6 +1,6 @@
 # TT Studio
 
-TT Studio enables rapid deployment of LLM inference servers locally and is optimized for Tenstorrent hardware. This guide explains how to set up and use TT Studio in both standard and development modes.
+TT Studio enables rapid deployment of LLM inference servers locally and is optimized for Tenstorrent hardware. This guide explains how to set up and use TT Studio in both standard and development modes. It also guides users through setting up a new Tenstorrent device, including steps for driver installation, firmware flashing, and related configurations.
 
 ## Table of Contents
 
@@ -16,12 +16,6 @@ TT Studio enables rapid deployment of LLM inference servers locally and is optim
    - [Steps](#steps)
 5. [Hardware Configuration](#hardware-configuration)
 6. [Documentation](#documentation)
-
----
-
-## Overview
-
-TT Studio is an application that can be installed on a local T-Series or Galaxy machine to deploy AI models on TT hardware and launch demo applications. This guide covers installation, basic usage, and configuration for both general users and developers.
 
 ---
 
