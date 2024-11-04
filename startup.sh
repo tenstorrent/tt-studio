@@ -24,22 +24,25 @@ usage() {
     echo -e "  --help              ❓ Show this help message and exit."
     echo -e "  --setup             🔧 Run the setup script with sudo and all steps before executing main steps."
     echo -e "  --cleanup           🧹 Stop and remove Docker services."
+    echo -e "  --tt-hardware       🖥️  Configure for TT hardware support in Docker Compose."
     echo
     echo -e "Examples:"
-    echo -e "  ./startup.sh --setup     # Run setup steps as sudo, then main steps"
-    echo -e "  ./startup.sh             # Run the main setup steps directly"
-    echo -e "  ./startup.sh --cleanup   # Stop and clean up Docker services"
-    echo -e "  ./startup.sh --help      # Display this help message"
+    echo -e "  ./startup.sh --setup             # Run setup steps as sudo, then main steps"
+    echo -e "  ./startup.sh                     # Run the main setup steps directly"
+    echo -e "  ./startup.sh --cleanup           # Stop and clean up Docker services"
+    echo -e "  ./startup.sh --tt-hardware       # Run with TT hardware configuration"
+    echo -e "  ./startup.sh --help              # Display this help message"
     exit 0
 }
 
 # Initialize flags
 RUN_SETUP=false
 RUN_CLEANUP=false
+RUN_TT_HARDWARE=false
 
 # Parse options
-if [[ "$#" -gt 0 ]]; then
-    case $1 in
+for arg in "$@"; do
+    case $arg in
         --help)
             usage
             ;;
@@ -49,15 +52,29 @@ if [[ "$#" -gt 0 ]]; then
         --cleanup)
             RUN_CLEANUP=true
             ;;
+        --tt-hardware)
+            RUN_TT_HARDWARE=true
+            ;;
         *)
-            echo "⛔ Unknown option: $1"
+            echo "⛔ Unknown option: $arg"
             usage
             ;;
     esac
-fi
+done
 
 # Set TT_STUDIO_ROOT before any operations
 TT_STUDIO_ROOT="$(pwd)"
+echo "TT_STUDIO_ROOT is set to: ${TT_STUDIO_ROOT}"
+
+
+DOCKER_COMPOSE_FILE="${TT_STUDIO_ROOT}/app/docker-compose.yml"
+ENV_FILE_PATH="${TT_STUDIO_ROOT}/app/.env"
+ENV_FILE_DEFAULT="${TT_STUDIO_ROOT}/app/.env.default"
+
+if [[ ! -f "$DOCKER_COMPOSE_FILE" ]]; then
+    echo "⛔ Error: docker-compose.yml not found at $DOCKER_COMPOSE_FILE."
+    exit 1
+fi
 
 # Cleanup step if --cleanup is provided
 if [[ "$RUN_CLEANUP" = true ]]; then
@@ -97,12 +114,20 @@ if [[ ! -f "${ENV_FILE_PATH}" && -f "${ENV_FILE_DEFAULT}" ]]; then
     cp "${ENV_FILE_DEFAULT}" "${ENV_FILE_PATH}"
 fi
 
-# Update TT_STUDIO_ROOT in .env
+# Update .env with TT_STUDIO_ROOT and ENABLE_TT_HARDWARE based on the flag
 if [[ -f "${ENV_FILE_PATH}" ]]; then
     sed -i "/^TT_STUDIO_ROOT=/c\\TT_STUDIO_ROOT=${TT_STUDIO_ROOT}" "${ENV_FILE_PATH}"
     echo "Set TT_STUDIO_ROOT to: ${TT_STUDIO_ROOT} in .env file"
+
+    if [[ "$RUN_TT_HARDWARE" = true ]]; then
+        sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=true" "${ENV_FILE_PATH}"
+        echo "Enabled TT hardware support in .env file"
+    else
+        sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=false" "${ENV_FILE_PATH}"
+        echo "Disabled TT hardware support in .env file"
+    fi
 else
-    echo "Error: .env file does not exist and could not be created."
+    echo "⛔ Error: .env file does not exist and could not be created."
     exit 1
 fi
 

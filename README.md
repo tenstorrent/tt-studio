@@ -50,7 +50,7 @@ To set up TT Studio:
      ./startup.sh --cleanup
      ```
 
-> **Note**: To use Tenstorrent hardware, uncomment the lines in `app/docker-compose.yml` under `devices` to mount the necessary devices (see the [Hardware Configuration](#hardware-configuration) section for details).
+> **Note**: To use Tenstorrent hardware, use the `--tt-hardware` flag with the `startup.sh` script. This will enable the necessary hardware configurations automatically without manual changes to `docker-compose.yml`. See the [Hardware Configuration](#hardware-configuration) section for details.
 
 ---
 
@@ -95,13 +95,14 @@ To use the startup script, run:
 
 ### Command-Line Options
 
-| Option      | Description                                                   |
-| ----------- | ------------------------------------------------------------- |
-| `--help`    | Display help message with usage details.                      |
-| `--setup`   | Run the `setup.sh` script with sudo privileges for all steps. |
-| `--cleanup` | Stop and remove all Docker services.                          |
+| Option          | Description                                                   |
+| --------------- | ------------------------------------------------------------- |
+| `--help`        | Display help message with usage details.                      |
+| `--setup`       | Run the `setup.sh` script with sudo privileges for all steps. |
+| `--cleanup`     | Stop and remove all Docker services.                          |
+| `--tt-hardware` | Enable Tenstorrent hardware support in Docker Compose.        |
 
-Note: to understand more about the setup script, scroll to [this section](#setting-up-a-tenstorrent-device).
+To understand more about the setup script, see [Setting Up a Tenstorrent Device](#setting-up-a-tenstorrent-device).
 
 To display more detailed help:
 
@@ -158,21 +159,17 @@ To use `setup.sh`, run:
 
 ## Hardware Configuration
 
-To enable Tenstorrent hardware, ensure the following:
+To enable Tenstorrent hardware, use the `--tt-hardware` option with `startup.sh`:
 
-1. **Uncomment Device Configuration**:
-   In `app/docker-compose.yml`, uncomment the following lines:
+```bash
+./startup.sh --tt-hardware
+```
 
-   ```yaml
-   devices:
-     - /dev/tenstorrent:/dev/tenstorrent
-   ```
+This flag automatically configures Docker Compose to mount the necessary devices without requiring manual changes in `docker-compose.yml`. You can confirm that Tenstorrent devices are properly connected by running:
 
-2. **Verify Device Connection**:
-   Confirm Tenstorrent devices are connected with:
-   ```bash
-   ls -l /dev/tenstorrent
-   ```
+```bash
+ls -l /dev/tenstorrent
+```
 
 ---
 
@@ -181,3 +178,7 @@ To enable Tenstorrent hardware, ensure the following:
 - **Frontend Documentation**: [app/frontend/README.md](app/frontend/README.md)
 - **Backend API Documentation**: [app/api/README.md](app/api/README.md)
 - **Model Implementations Documentation**: [models/README.md](models/README.md)
+
+---
+
+This updated README reflects the automated hardware configuration and guides users on enabling Tenstorrent hardware without needing manual edits in the `docker-compose.yml` file.

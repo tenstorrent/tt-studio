@@ -9,10 +9,8 @@ services:
     hostname: tt-studio-backend-api
     image: ghcr.io/tenstorrent/tt-studio/api:v0.0.0
     build: ./api
-    # uncomment devices to use Tenstorrent hardware
-    # devices:
-    # mount all tenstorrent devices to backend container
-    # - /dev/tenstorrent:/dev/tenstorrent
+    devices:
+      - ${ENABLE_TT_HARDWARE:+/dev/tenstorrent:/dev/tenstorrent}
     # note that `network_mode: host` does not work on mac OS
     networks:
       - llm_studio_network
@@ -46,7 +44,7 @@ services:
       - ./api:/api
 
     healthcheck:
-      # On first application load resources for transformers/etc 
+      # On first application load resources for transformers/etc
       # are downloaded. The UI should not start until these resources
       # have been downloaded. Adjust timeout if on a very slow connection
       test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
