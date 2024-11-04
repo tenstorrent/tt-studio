@@ -51,6 +51,7 @@ To set up TT Studio:
      ```
 
 > **Note**: To use Tenstorrent hardware, use the `--tt-hardware` flag with the `startup.sh` script. This will enable the necessary hardware configurations automatically without manual changes to `docker-compose.yml`. See the [Hardware Configuration](#hardware-configuration) section for details.
+> **Note**: To use Tenstorrent hardware, use the `--tt-hardware` flag with the `startup.sh` script. This will enable the necessary hardware configurations automatically without manual changes to `docker-compose.yml`. See the [Hardware Configuration](#hardware-configuration) section for details.
 
 ---
 
@@ -103,6 +104,14 @@ To use the startup script, run:
 | `--tt-hardware` | Enable Tenstorrent hardware support in Docker Compose.        |
 
 To understand more about the setup script, see [Setting Up a Tenstorrent Device](#setting-up-a-tenstorrent-device).
+| Option          | Description                                                   |
+| --------------- | ------------------------------------------------------------- |
+| `--help`        | Display help message with usage details.                      |
+| `--setup`       | Run the `setup.sh` script with sudo privileges for all steps. |
+| `--cleanup`     | Stop and remove all Docker services.                          |
+| `--tt-hardware` | Enable Tenstorrent hardware support in Docker Compose.        |
+
+To understand more about the setup script, see [Setting Up a Tenstorrent Device](#setting-up-a-tenstorrent-device).
 
 To display more detailed help:
 
@@ -119,5 +128,3 @@ To display more detailed help:
 - **Model Implementations Documentation**: [models/README.md](models/README.md)
 
 ---
-
-This updated README reflects the automated hardware configuration and guides users on enabling Tenstorrent hardware without needing manual edits in the `docker-compose.yml` file.
