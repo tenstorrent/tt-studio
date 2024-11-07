@@ -1,5 +1,9 @@
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-License-Identifier: Apache-2.0
+// This file incorporates work covered by the following copyright and permission notice:
 //  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
 //  SPDX-License-Identifier: MIT
+
 
 /* this shadcnn badge component has been updated to be more specific to a status badge component and
 should not be used for the other badges in the application
