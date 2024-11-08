@@ -156,7 +156,9 @@ def torch2tt_tensor(
     py_tensor: torch.Tensor,
     tt_device,
     tt_layout=tt_lib.tensor.Layout.TILE,
-    tt_memory_config=tt_lib.tensor.MemoryConfig(tt_lib.tensor.TensorMemoryLayout.INTERLEAVED),
+    tt_memory_config=tt_lib.tensor.MemoryConfig(
+        tt_lib.tensor.TensorMemoryLayout.INTERLEAVED
+    ),
     tt_dtype=tt_lib.tensor.DataType.BFLOAT16,
 ):
     size = list(py_tensor.size())
@@ -193,7 +195,9 @@ def torch_to_tt_tensor_rm(py_tensor, device, shape=None, put_on_device=True):
         while len(shape) < 4:
             shape.insert(0, 1)
 
-    tt_tensor = tt_lib.tensor.Tensor(py_tensor.reshape(shape), tt_lib.tensor.DataType.BFLOAT16)
+    tt_tensor = tt_lib.tensor.Tensor(
+        py_tensor.reshape(shape), tt_lib.tensor.DataType.BFLOAT16
+    )
     if put_on_device:
         tt_tensor = tt_tensor.to(device)
     return tt_tensor
@@ -209,7 +213,9 @@ def torch_to_tt_tensor(py_tensor, device):
         .to(
             tt_lib.tensor.Layout.TILE
         )  # change memory layout of TT Tensor to TILE (as operation that will use it expects TILE layout)
-        .to(device)  # move TT Tensor from host to TT accelerator device (device is of type tt_lib.device.Device)
+        .to(
+            device
+        )  # move TT Tensor from host to TT accelerator device (device is of type tt_lib.device.Device)
     )
 
     return tt_tensor
@@ -219,7 +225,9 @@ def torch_to_tt_tensor(py_tensor, device):
 def pad_by_zero(
     x: torch.Tensor,
     device=None,
-    tt_memory_config=tt_lib.tensor.MemoryConfig(tt_lib.tensor.TensorMemoryLayout.INTERLEAVED),
+    tt_memory_config=tt_lib.tensor.MemoryConfig(
+        tt_lib.tensor.TensorMemoryLayout.INTERLEAVED
+    ),
     tt_dtype=tt_lib.tensor.DataType.BFLOAT16,
 ):
     initial_shape = x.shape
@@ -244,12 +252,17 @@ def pad_by_zero(
             x = x.to(device, tt_memory_config)
 
     else:
-        x = torch2tt_tensor(x, device, tt_memory_config=tt_memory_config, tt_dtype=tt_dtype)
+        x = torch2tt_tensor(
+            x, device, tt_memory_config=tt_memory_config, tt_dtype=tt_dtype
+        )
     return x, initial_shape
 
 
 def unpad_from_zero(x, desired_shape):
-    if x.get_legacy_shape()[-1] == desired_shape[-1] and x.get_legacy_shape()[-2] == desired_shape[-2]:
+    if (
+        x.get_legacy_shape()[-1] == desired_shape[-1]
+        and x.get_legacy_shape()[-2] == desired_shape[-2]
+    ):
         x = tt2torch_tensor(x)
     else:
         x = x.cpu()
@@ -283,8 +296,12 @@ def pad_activation(x):
     """
     nearest_32 = _nearest_32
 
-    assert isinstance(x, torch.Tensor), "Input to this function must be an instance of torch.Tensor"
-    assert len(x.shape) >= 1 and len(x.shape) <= 4, "Only tensors with dimension 1-4 supported"
+    assert isinstance(
+        x, torch.Tensor
+    ), "Input to this function must be an instance of torch.Tensor"
+    assert (
+        len(x.shape) >= 1 and len(x.shape) <= 4
+    ), "Only tensors with dimension 1-4 supported"
     if len(x.shape) == 1:  # (num_features,)
         padded_tensor = torch.zeros(1, 1, 32, nearest_32(x.shape[0]))
         padded_tensor[:, 0, 0, : x.shape[0]] = x
@@ -292,10 +309,14 @@ def pad_activation(x):
         padded_tensor = torch.zeros(x.shape[0], 1, 32, nearest_32(x.shape[1]))
         padded_tensor[:, 0, 0, : x.shape[1]] = x
     elif len(x.shape) == 3:  # (batch, num features y, num features x)
-        padded_tensor = torch.zeros(x.shape[0], 1, nearest_32(x.shape[-2]), nearest_32(x.shape[-1]))
+        padded_tensor = torch.zeros(
+            x.shape[0], 1, nearest_32(x.shape[-2]), nearest_32(x.shape[-1])
+        )
         padded_tensor[..., 0, : x.shape[-2], : x.shape[-1]] = x
     else:  # (batch, num channels, num features y, num features x)
-        padded_tensor = torch.zeros(*x.shape[:-2], nearest_32(x.shape[-2]), nearest_32(x.shape[-1]))
+        padded_tensor = torch.zeros(
+            *x.shape[:-2], nearest_32(x.shape[-2]), nearest_32(x.shape[-1])
+        )
         padded_tensor[..., : x.shape[-2], : x.shape[-1]] = x
     return padded_tensor
 
@@ -316,17 +337,25 @@ def pad_weight(x):
     """
     nearest_32 = _nearest_32
 
-    assert isinstance(x, torch.Tensor), "Input to this function must be an instance of torch.Tensor"
-    assert len(x.shape) >= 1 and len(x.shape) <= 4, "Only tensors with dimension 1-4 supported"
+    assert isinstance(
+        x, torch.Tensor
+    ), "Input to this function must be an instance of torch.Tensor"
+    assert (
+        len(x.shape) >= 1 and len(x.shape) <= 4
+    ), "Only tensors with dimension 1-4 supported"
 
     if len(x.shape) == 1:  # (num_features,)
         padded_tensor = torch.zeros(1, 1, 32, nearest_32(x.shape[0]))
         padded_tensor[:, 0, 0, : x.shape[0]] = x
     elif len(x.shape) == 2:  # (r_features, c_features)
-        padded_tensor = torch.zeros(1, 1, nearest_32(x.shape[0]), nearest_32(x.shape[1]))
+        padded_tensor = torch.zeros(
+            1, 1, nearest_32(x.shape[0]), nearest_32(x.shape[1])
+        )
         padded_tensor[:, 0, : x.shape[0], : x.shape[1]] = x
     else:
-        padded_tensor = torch.zeros(*x.shape[:-2], nearest_32(x.shape[-2]), nearest_32(x.shape[-1]))
+        padded_tensor = torch.zeros(
+            *x.shape[:-2], nearest_32(x.shape[-2]), nearest_32(x.shape[-1])
+        )
         padded_tensor[..., : x.shape[-2], : x.shape[-1]] = x
 
     return padded_tensor
@@ -353,7 +382,9 @@ def convert_weights_2d_matrix(weights, w_shape):
     return ret.reshape(ret_shape).transpose(2, 3)
 
 
-def convert_act_2d_matrix(activation, kernel_y, kernel_x, stride_y, stride_x, pad_y, pad_x):
+def convert_act_2d_matrix(
+    activation, kernel_y, kernel_x, stride_y, stride_x, pad_y, pad_x
+):
     """
     :param activation: Input PyTorch Tensor
     :type activation: class:`torch.Tensor`
@@ -460,7 +491,9 @@ def untilize(x):
     """
     nearest_32 = _nearest_32
 
-    assert isinstance(x, (torch.Tensor, np.ndarray)), "Input to this function must be an instance of torch.Tensor"
+    assert isinstance(
+        x, (torch.Tensor, np.ndarray)
+    ), "Input to this function must be an instance of torch.Tensor"
     assert len(x.shape) == 4, "Only 4D tensors suppported"
     assert (x.shape[-2] % 32) == 0 and (
         x.shape[-1] % 32
@@ -534,7 +567,9 @@ def comp_allclose(golden, calculated, rtol=1e-05, atol=1e-08):
         calculated = calculated.type(golden.dtype)
 
     atol_delta = torch.max(torch.abs(golden - calculated)).item()
-    rtol_delta = torch.max(torch.abs(golden - calculated) / torch.abs(calculated)).item()
+    rtol_delta = torch.max(
+        torch.abs(golden - calculated) / torch.abs(calculated)
+    ).item()
     return (
         torch.allclose(golden, calculated, rtol, atol, True),
         f"Max ATOL Delta: {atol_delta}, Max RTOL Delta: {rtol_delta}",
@@ -787,11 +822,15 @@ def blocked_mm_with_conv_act(
     for block_act_h in range(num_blocks_act_h):
         # Reset weight (weight) to the starting tile in this column
         for block_weight_w in range(num_blocks_weight_w):
-            output_block = torch.zeros(mm_output_block_shape, dtype=torch.bfloat16).float()
+            output_block = torch.zeros(
+                mm_output_block_shape, dtype=torch.bfloat16
+            ).float()
             for block_act_w in range(num_blocks_act_w):
                 address_map_this_block_size = act_address_map[act_address_map_index]
                 act_address_map_index += 1
-                weight_address_map_this_block_size = weight_address_map[weight_address_map_index]
+                weight_address_map_this_block_size = weight_address_map[
+                    weight_address_map_index
+                ]
                 weight_address_map_index += 1
                 (mm_act_block, act_address_map_index) = read_conv_act_into_mm_act_block(
                     conv_act,
@@ -861,7 +900,9 @@ def is_conv_supported_on_device(conv_params):
     return True
 
 
-def run_conv_on_device_wrapper(conv_weight, conv_params, device, conv_bias=None, channel_transpose=False):
+def run_conv_on_device_wrapper(
+    conv_weight, conv_params, device, conv_bias=None, channel_transpose=False
+):
     K, C, R, S, U, V, P_H, P_W, dilation, groups = [conv_params[i] for i in range(10)]
     conv_on_device = TtConv(conv_weight, conv_params, device, conv_bias)
 
@@ -876,7 +917,9 @@ def run_conv_on_device_wrapper(conv_weight, conv_params, device, conv_bias=None,
             xx = x
 
         partial_convs = [
-            run_conv_on_device_batch_one(torch_to_tt_tensor_rm(xx[batch_idx, :, :, :], device))
+            run_conv_on_device_batch_one(
+                torch_to_tt_tensor_rm(xx[batch_idx, :, :, :], device)
+            )
             for batch_idx in range(N)
         ]
         conv_concat = tt_lib.tensor.concat(partial_convs, 0)
@@ -938,7 +981,9 @@ def run_conv_on_device_wrapper(conv_weight, conv_params, device, conv_bias=None,
 # detect E75 Grayskull card
 def is_e75(device):
     compute_grid_size = device.compute_with_storage_grid_size()
-    return (device.arch() == Arch.GRAYSKULL) and (compute_grid_size.x * compute_grid_size.y == 88)
+    return (device.arch() == Arch.GRAYSKULL) and (
+        compute_grid_size.x * compute_grid_size.y == 88
+    )
 
 
 def is_wormhole_b0():
@@ -974,22 +1019,34 @@ def get_devices_for_t3000(all_devices, num_devices):
         hamiltonian_ring_indices = [0, 7, 6, 1, 2, 5, 4, 3]
         return [all_devices[i] for i in hamiltonian_ring_indices]
     else:
-        raise NotImplementedError("Only supports 1, 2, 3, 4, and 8 chip configurations!")
+        raise NotImplementedError(
+            "Only supports 1, 2, 3, 4, and 8 chip configurations!"
+        )
 
 
 def ttl_complex_2_torch_complex(tt_tensor):
     torch_tensor = tt2torch_tensor(tt_tensor)
 
     # extract real and imag parts of the complex tensor
-    real = torch_tensor[:, :, :, : torch_tensor.shape[-1] // 2].to(torch.bfloat16).to(torch.float)
-    imag = torch_tensor[:, :, :, torch_tensor.shape[-1] // 2 :].to(torch.bfloat16).to(torch.float)
+    real = (
+        torch_tensor[:, :, :, : torch_tensor.shape[-1] // 2]
+        .to(torch.bfloat16)
+        .to(torch.float)
+    )
+    imag = (
+        torch_tensor[:, :, :, torch_tensor.shape[-1] // 2 :]
+        .to(torch.bfloat16)
+        .to(torch.float)
+    )
 
     # create torch complex tensor
     result = torch.complex(real, imag)
     return result
 
 
-def pad_and_fold_conv_activation_for_unity_stride(activation_pyt_nchw_tensor, pad_h, pad_w, stride_h, stride_w):
+def pad_and_fold_conv_activation_for_unity_stride(
+    activation_pyt_nchw_tensor, pad_h, pad_w, stride_h, stride_w
+):
     assert stride_h == stride_w
     assert activation_pyt_nchw_tensor.shape[2] == activation_pyt_nchw_tensor.shape[3]
     # Fold activation for unity stride
@@ -997,7 +1054,8 @@ def pad_and_fold_conv_activation_for_unity_stride(activation_pyt_nchw_tensor, pa
     C = _nearest_y(activation_pyt_nchw_tensor.shape[1], 4)
     # Also, pre-pad the conv left right and top bottom padding
     activation_pyt_padded = torch.nn.functional.pad(
-        activation_pyt_nchw_tensor, (pad_w, pad_w, pad_h, pad_h, 0, C - activation_pyt_nchw_tensor.shape[1])
+        activation_pyt_nchw_tensor,
+        (pad_w, pad_w, pad_h, pad_h, 0, C - activation_pyt_nchw_tensor.shape[1]),
     )
     # Fold the activation face by stride depth wise i.e. C,H,W -> C*stride_h*stride_w, H/stride_h, W/stride_w
     assert activation_pyt_padded.shape[2] % stride_h == 0
@@ -1015,14 +1073,18 @@ def pad_and_fold_conv_activation_for_unity_stride(activation_pyt_nchw_tensor, pa
             folded_w = (int)(w / stride_w)
             for i in range(stride_h * stride_w):
                 start_c = i * C
-                activation_pyt_padded_folded[:, start_c : start_c + C, folded_h, folded_w] = activation_pyt_padded[
+                activation_pyt_padded_folded[
+                    :, start_c : start_c + C, folded_h, folded_w
+                ] = activation_pyt_padded[
                     :, :, h + (int)(i / stride_w), w + (int)(i % stride_w)
                 ]
 
     return activation_pyt_padded_folded
 
 
-def pad_and_fold_conv_filters_for_unity_stride(filter_pyt_nchw_tensor, stride_h, stride_w):
+def pad_and_fold_conv_filters_for_unity_stride(
+    filter_pyt_nchw_tensor, stride_h, stride_w
+):
     assert stride_h == stride_w
     assert filter_pyt_nchw_tensor.shape[2] == filter_pyt_nchw_tensor.shape[3]
     # Fold activation for unity stride
@@ -1057,7 +1119,9 @@ def pad_and_fold_conv_filters_for_unity_stride(filter_pyt_nchw_tensor, stride_h,
             folded_w = (int)(w / stride_w)
             for i in range(4):
                 start_c = i * C
-                filter_pyt_padded_folded[:, start_c : start_c + C, folded_h, folded_w] = filter_pyt_padded[
+                filter_pyt_padded_folded[
+                    :, start_c : start_c + C, folded_h, folded_w
+                ] = filter_pyt_padded[
                     :, :, h + (int)(i / stride_w), w + (int)(i % stride_w)
                 ]
     return filter_pyt_padded_folded
@@ -1065,13 +1129,17 @@ def pad_and_fold_conv_filters_for_unity_stride(filter_pyt_nchw_tensor, stride_h,
 
 # produces a tensor where each element in a page is the page number
 # this tensor is easy to debug and visualize
-def get_debug_tensor(num_pages_width, num_pages_height, dtype, page_width=32, page_height=32):
+def get_debug_tensor(
+    num_pages_width, num_pages_height, dtype, page_width=32, page_height=32
+):
     torch_tensor = None
     for row_idx in range(0, int(num_pages_height)):
         tile_row = None
         for col_idx in range(0, int(num_pages_width)):
             tile_idx = col_idx + num_pages_width * row_idx
-            tile = torch.full((1, 1, page_width, page_height), tile_idx + 1, dtype=dtype)
+            tile = torch.full(
+                (1, 1, page_width, page_height), tile_idx + 1, dtype=dtype
+            )
             if tile_row == None:
                 tile_row = tile
             else:

@@ -40,9 +40,15 @@ class TtFalconCausalLM(TtFalconModelShared):
         self.model_config = model_config
 
         lm_head_str = f"lm_head.weight"
-        if (tt_cache_path / f"{lm_head_str}_{self.model_config['LM_HEAD_MM_WEIGHTS_DTYPE'].name}.bin").exists():
+        if (
+            tt_cache_path
+            / f"{lm_head_str}_{self.model_config['LM_HEAD_MM_WEIGHTS_DTYPE'].name}.bin"
+        ).exists():
             self.lm_head_weights = tt_lib.tensor.load_tensor(
-                str(tt_cache_path / f"{lm_head_str}_{self.model_config['LM_HEAD_MM_WEIGHTS_DTYPE'].name}.bin")
+                str(
+                    tt_cache_path
+                    / f"{lm_head_str}_{self.model_config['LM_HEAD_MM_WEIGHTS_DTYPE'].name}.bin"
+                )
             ).to(device, self.model_config["LM_HEAD_MM_WEIGHTS_MEMCFG"])
         else:
             self.lm_head_weights = torch2tt_tensor(
@@ -52,7 +58,10 @@ class TtFalconCausalLM(TtFalconModelShared):
                 tt_dtype=self.model_config["LM_HEAD_MM_WEIGHTS_DTYPE"],
             )
             tt_lib.tensor.dump_tensor(
-                str(tt_cache_path / f"{lm_head_str}_{self.model_config['LM_HEAD_MM_WEIGHTS_DTYPE'].name}.bin"),
+                str(
+                    tt_cache_path
+                    / f"{lm_head_str}_{self.model_config['LM_HEAD_MM_WEIGHTS_DTYPE'].name}.bin"
+                ),
                 self.lm_head_weights.cpu(),
             )
 

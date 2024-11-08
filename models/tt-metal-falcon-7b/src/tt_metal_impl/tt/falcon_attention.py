@@ -51,11 +51,15 @@ class TtFalconRotaryEmbedding(torch.nn.Module):
         layer_name = f"{base_url}.{layer_num}.rotary_embedding"
         overwrite_cos, overwrite_sin = False, False
         cos_exists = (
-            tt_cache_path / f"{layer_name}.cos_cached_{self.model_config['COS_CACHED_WEIGHTS_DTYPE'].name}.bin"
+            tt_cache_path
+            / f"{layer_name}.cos_cached_{self.model_config['COS_CACHED_WEIGHTS_DTYPE'].name}.bin"
         ).exists()
         if cos_exists:
             self.tt_cos_cached = tt_lib.tensor.load_tensor(
-                str(tt_cache_path / f"{layer_name}.cos_cached_{self.model_config['COS_CACHED_WEIGHTS_DTYPE'].name}.bin")
+                str(
+                    tt_cache_path
+                    / f"{layer_name}.cos_cached_{self.model_config['COS_CACHED_WEIGHTS_DTYPE'].name}.bin"
+                )
             ).to(tt_device, self.model_config["COS_CACHED_WEIGHTS_MEMCFG"])
             overwrite_cos = (
                 tt2torch_tensor(self.tt_cos_cached).shape[-2] != self.max_seq_len_cached
@@ -69,16 +73,21 @@ class TtFalconRotaryEmbedding(torch.nn.Module):
             )
             tt_lib.tensor.dump_tensor(
                 str(
-                    tt_cache_path / f"{layer_name}.cos_cached_{self.model_config['COS_CACHED_WEIGHTS_DTYPE'].name}.bin"
+                    tt_cache_path
+                    / f"{layer_name}.cos_cached_{self.model_config['COS_CACHED_WEIGHTS_DTYPE'].name}.bin"
                 ),
                 self.tt_cos_cached.cpu(),
             )
         sin_exists = (
-            tt_cache_path / f"{layer_name}.sin_cached_{self.model_config['SIN_CACHED_WEIGHTS_DTYPE'].name}.bin"
+            tt_cache_path
+            / f"{layer_name}.sin_cached_{self.model_config['SIN_CACHED_WEIGHTS_DTYPE'].name}.bin"
         ).exists()
         if sin_exists:
             self.tt_sin_cached = tt_lib.tensor.load_tensor(
-                str(tt_cache_path / f"{layer_name}.sin_cached_{self.model_config['SIN_CACHED_WEIGHTS_DTYPE'].name}.bin")
+                str(
+                    tt_cache_path
+                    / f"{layer_name}.sin_cached_{self.model_config['SIN_CACHED_WEIGHTS_DTYPE'].name}.bin"
+                )
             ).to(tt_device, self.model_config["SIN_CACHED_WEIGHTS_MEMCFG"])
             overwrite_sin = (
                 tt2torch_tensor(self.tt_sin_cached).shape[-2] != self.max_seq_len_cached
@@ -92,14 +101,19 @@ class TtFalconRotaryEmbedding(torch.nn.Module):
             )
             tt_lib.tensor.dump_tensor(
                 str(
-                    tt_cache_path / f"{layer_name}.sin_cached_{self.model_config['SIN_CACHED_WEIGHTS_DTYPE'].name}.bin"
+                    tt_cache_path
+                    / f"{layer_name}.sin_cached_{self.model_config['SIN_CACHED_WEIGHTS_DTYPE'].name}.bin"
                 ),
                 self.tt_sin_cached.cpu(),
             )
 
-    def forward(self, layer: tt_lib.tensor.Tensor, token_idx: Optional[int] = None) -> tt_lib.tensor.Tensor:
+    def forward(
+        self, layer: tt_lib.tensor.Tensor, token_idx: Optional[int] = None
+    ) -> tt_lib.tensor.Tensor:
         seq_len = layer.get_legacy_shape()[2]
-        assert seq_len <= self.max_seq_len_cached, "seq_len exceeds max_seq_len_cached in RotaryEmbedding!"
+        assert (
+            seq_len <= self.max_seq_len_cached
+        ), "seq_len exceeds max_seq_len_cached in RotaryEmbedding!"
 
         return tt_lib.tensor.rotary_embedding(
             layer,
@@ -145,10 +159,14 @@ class TtFalconAttention(nn.Module):
         selfout_str = f"{layer_name}.dense.weight"
 
         if (
-            tt_cache_path / f"{query_key_value_str}_{self.model_config['FUSED_QKV_MM_WEIGHTS_DTYPE'].name}.bin"
+            tt_cache_path
+            / f"{query_key_value_str}_{self.model_config['FUSED_QKV_MM_WEIGHTS_DTYPE'].name}.bin"
         ).exists():
             self.query_key_value_weights = tt_lib.tensor.load_tensor(
-                str(tt_cache_path / f"{query_key_value_str}_{self.model_config['FUSED_QKV_MM_WEIGHTS_DTYPE'].name}.bin")
+                str(
+                    tt_cache_path
+                    / f"{query_key_value_str}_{self.model_config['FUSED_QKV_MM_WEIGHTS_DTYPE'].name}.bin"
+                )
             ).to(device, self.model_config["FUSED_QKV_MM_WEIGHTS_MEMCFG"])
         else:
             self.query_key_value_weights = torch2tt_tensor(
@@ -163,14 +181,21 @@ class TtFalconAttention(nn.Module):
             )
             tt_lib.tensor.dump_tensor(
                 str(
-                    tt_cache_path / f"{query_key_value_str}_{self.model_config['FUSED_QKV_MM_WEIGHTS_DTYPE'].name}.bin"
+                    tt_cache_path
+                    / f"{query_key_value_str}_{self.model_config['FUSED_QKV_MM_WEIGHTS_DTYPE'].name}.bin"
                 ),
                 self.query_key_value_weights.cpu(),
             )
 
-        if (tt_cache_path / f"{selfout_str}_{self.model_config['SELFOUT_MM_WEIGHTS_DTYPE'].name}.bin").exists():
+        if (
+            tt_cache_path
+            / f"{selfout_str}_{self.model_config['SELFOUT_MM_WEIGHTS_DTYPE'].name}.bin"
+        ).exists():
             self.dense_weights = tt_lib.tensor.load_tensor(
-                str(tt_cache_path / f"{selfout_str}_{self.model_config['SELFOUT_MM_WEIGHTS_DTYPE'].name}.bin")
+                str(
+                    tt_cache_path
+                    / f"{selfout_str}_{self.model_config['SELFOUT_MM_WEIGHTS_DTYPE'].name}.bin"
+                )
             ).to(device, self.model_config["SELFOUT_MM_WEIGHTS_MEMCFG"])
         else:
             self.dense_weights = torch2tt_tensor(
@@ -184,7 +209,10 @@ class TtFalconAttention(nn.Module):
                 tt_dtype=self.model_config["SELFOUT_MM_WEIGHTS_DTYPE"],
             )
             tt_lib.tensor.dump_tensor(
-                str(tt_cache_path / f"{selfout_str}_{self.model_config['SELFOUT_MM_WEIGHTS_DTYPE'].name}.bin"),
+                str(
+                    tt_cache_path
+                    / f"{selfout_str}_{self.model_config['SELFOUT_MM_WEIGHTS_DTYPE'].name}.bin"
+                ),
                 self.dense_weights.cpu(),
             )
 
@@ -198,7 +226,9 @@ class TtFalconAttention(nn.Module):
             tt_cache_path=tt_cache_path,
         )
 
-        self.scalar = pad_by_zero(torch.Tensor([1 / math.sqrt(self.head_dim)]), self.device)[0]
+        self.scalar = pad_by_zero(
+            torch.Tensor([1 / math.sqrt(self.head_dim)]), self.device
+        )[0]
 
     def forward(
         self,
@@ -232,7 +262,9 @@ class TtFalconAttention(nn.Module):
             assert layer_past is not None
             assert layer_past_len > 0 and layer_past_len <= self.max_position_embeddings
         else:
-            raise NotImplementedError(f"Llm mode {llm_mode} is not supported! Must be one of prefill or decode.")
+            raise NotImplementedError(
+                f"Llm mode {llm_mode} is not supported! Must be one of prefill or decode."
+            )
 
         #################
         ### FUSED QKV ###
@@ -247,9 +279,11 @@ class TtFalconAttention(nn.Module):
         ###########
         ### TMs ###
         ###########
-        query_layer, key_layer, value_layer = tt_lib.tensor.nlp_create_qkv_heads_falcon7b(
-            fused_query_key_value,
-            output_mem_config=self.model_config["CREATE_QKV_HEADS_OUTPUT_MEMCFG"],
+        query_layer, key_layer, value_layer = (
+            tt_lib.tensor.nlp_create_qkv_heads_falcon7b(
+                fused_query_key_value,
+                output_mem_config=self.model_config["CREATE_QKV_HEADS_OUTPUT_MEMCFG"],
+            )
         )
         fused_query_key_value.deallocate()
 
@@ -306,7 +340,9 @@ class TtFalconAttention(nn.Module):
                     key_layer_transposed,
                     compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
                     output_mem_config=self.model_config["PRE_SOFTMAX_MM_OUTPUT_MEMCFG"],
-                    output_dtype=self.model_config["PRE_SOFTMAX_MM_OUTPUT_DTYPE"],  # Must be BFLOAT16
+                    output_dtype=self.model_config[
+                        "PRE_SOFTMAX_MM_OUTPUT_DTYPE"
+                    ],  # Must be BFLOAT16
                 )
             else:
                 attn_weights = tt_lib.operations.primary.transformers.group_attn_matmul(
@@ -314,7 +350,9 @@ class TtFalconAttention(nn.Module):
                     key_layer_transposed,
                     compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
                     output_mem_config=self.model_config["PRE_SOFTMAX_MM_OUTPUT_MEMCFG"],
-                    output_dtype=self.model_config["PRE_SOFTMAX_MM_OUTPUT_DTYPE"],  # Must be BFLOAT16
+                    output_dtype=self.model_config[
+                        "PRE_SOFTMAX_MM_OUTPUT_DTYPE"
+                    ],  # Must be BFLOAT16
                 )
         query_layer.deallocate()
         key_layer_transposed.deallocate()
@@ -377,16 +415,24 @@ class TtFalconAttention(nn.Module):
                     attn_weights,
                     value_layer,
                     compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
-                    output_mem_config=self.model_config["POST_SOFTMAX_MM_OUTPUT_MEMCFG"],
-                    output_dtype=self.model_config["POST_SOFTMAX_MM_OUTPUT_DTYPE"],  # Must be BFLOAT16
+                    output_mem_config=self.model_config[
+                        "POST_SOFTMAX_MM_OUTPUT_MEMCFG"
+                    ],
+                    output_dtype=self.model_config[
+                        "POST_SOFTMAX_MM_OUTPUT_DTYPE"
+                    ],  # Must be BFLOAT16
                 )
             else:
                 attn_output = tt_lib.operations.primary.transformers.group_attn_matmul(
                     attn_weights,
                     value_layer,
                     compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
-                    output_mem_config=self.model_config["POST_SOFTMAX_MM_OUTPUT_MEMCFG"],
-                    output_dtype=self.model_config["POST_SOFTMAX_MM_OUTPUT_DTYPE"],  # Must be BFLOAT16
+                    output_mem_config=self.model_config[
+                        "POST_SOFTMAX_MM_OUTPUT_MEMCFG"
+                    ],
+                    output_dtype=self.model_config[
+                        "POST_SOFTMAX_MM_OUTPUT_DTYPE"
+                    ],  # Must be BFLOAT16
                 )
         attn_weights.deallocate()
         value_layer.deallocate()

@@ -65,7 +65,8 @@ class TtFalconDecoderLayer(nn.Module):
         layernorm_bias_str = f"{layer_name}.input_layernorm.bias"
 
         if (
-            tt_cache_path / f"{layernorm_weights_str}_{self.model_config['INPUT_LAYERNORM_WEIGHTS_DTYPE'].name}.bin"
+            tt_cache_path
+            / f"{layernorm_weights_str}_{self.model_config['INPUT_LAYERNORM_WEIGHTS_DTYPE'].name}.bin"
         ).exists():
             self.layernorm_gamma = tt_lib.tensor.load_tensor(
                 str(
@@ -89,10 +90,14 @@ class TtFalconDecoderLayer(nn.Module):
             )
 
         if (
-            tt_cache_path / f"{layernorm_bias_str}_{self.model_config['INPUT_LAYERNORM_BIAS_DTYPE'].name}.bin"
+            tt_cache_path
+            / f"{layernorm_bias_str}_{self.model_config['INPUT_LAYERNORM_BIAS_DTYPE'].name}.bin"
         ).exists():
             self.layernorm_beta = tt_lib.tensor.load_tensor(
-                str(tt_cache_path / f"{layernorm_bias_str}_{self.model_config['INPUT_LAYERNORM_BIAS_DTYPE'].name}.bin")
+                str(
+                    tt_cache_path
+                    / f"{layernorm_bias_str}_{self.model_config['INPUT_LAYERNORM_BIAS_DTYPE'].name}.bin"
+                )
             ).to(device, self.model_config["INPUT_LAYERNORM_BIAS_MEMCFG"])
         else:
             self.layernorm_beta = pad_by_zero(
@@ -102,7 +107,10 @@ class TtFalconDecoderLayer(nn.Module):
                 tt_dtype=self.model_config["INPUT_LAYERNORM_BIAS_DTYPE"],
             )[0]
             tt_lib.tensor.dump_tensor(
-                str(tt_cache_path / f"{layernorm_bias_str}_{self.model_config['INPUT_LAYERNORM_BIAS_DTYPE'].name}.bin"),
+                str(
+                    tt_cache_path
+                    / f"{layernorm_bias_str}_{self.model_config['INPUT_LAYERNORM_BIAS_DTYPE'].name}.bin"
+                ),
                 self.layernorm_beta.cpu(),
             )
 
@@ -119,7 +127,9 @@ class TtFalconDecoderLayer(nn.Module):
         layer_past_len: int = 0,
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
-    ) -> Tuple[tt_lib.tensor.Tensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+    ) -> Tuple[
+        tt_lib.tensor.Tensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
+    ]:
         """Input shape: [batch, 1, seq_len, hidden_size]"""
 
         assert not output_attentions

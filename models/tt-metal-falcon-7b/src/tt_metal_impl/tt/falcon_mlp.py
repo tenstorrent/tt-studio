@@ -33,7 +33,8 @@ class TtFalconMLP(nn.Module):
         dense_4h_to_h_str = f"{layer_name}.mlp.dense_4h_to_h.weight"
 
         if (
-            tt_cache_path / f"{dense_h_to_4h_str}_{self.model_config['DENSE_H_TO_4H_MM_WEIGHTS_DTYPE'].name}.bin"
+            tt_cache_path
+            / f"{dense_h_to_4h_str}_{self.model_config['DENSE_H_TO_4H_MM_WEIGHTS_DTYPE'].name}.bin"
         ).exists():
             self.dense_h_to_4h_weights = tt_lib.tensor.load_tensor(
                 str(
@@ -61,7 +62,8 @@ class TtFalconMLP(nn.Module):
             )
 
         if (
-            tt_cache_path / f"{dense_4h_to_h_str}_{self.model_config['DENSE_4H_TO_H_MM_WEIGHTS_DTYPE'].name}.bin"
+            tt_cache_path
+            / f"{dense_4h_to_h_str}_{self.model_config['DENSE_4H_TO_H_MM_WEIGHTS_DTYPE'].name}.bin"
         ).exists():
             self.dense_4h_to_h_weights = tt_lib.tensor.load_tensor(
                 str(

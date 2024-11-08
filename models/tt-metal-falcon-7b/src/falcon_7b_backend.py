@@ -243,7 +243,6 @@ class PrefillDecodeBackend:
             dev.enable_program_cache()
         disable_persistent_kernel_cache()
         disable_compilation_reports()
-    
 
     def init_tt_metal(self):
         logger.info("init_tt_metal ...")

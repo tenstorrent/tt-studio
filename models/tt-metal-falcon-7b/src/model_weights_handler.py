@@ -23,8 +23,12 @@ def get_model_weights_and_tt_cache_paths():
     # defined in ModelImpl.model_container_weights_dir(), must match
     DEFAULT_MODEL_WEIGHTS_DIR_NAME = "model_weights"
     DEFAULT_TT_METAL_CACHE_DIR_NAME = "tt_metal_cache"
-    model_weights_dir_path = Path(inference_config.cache_root, DEFAULT_MODEL_WEIGHTS_DIR_NAME)
-    tt_cache_dir_path = Path(inference_config.cache_root, DEFAULT_TT_METAL_CACHE_DIR_NAME)
+    model_weights_dir_path = Path(
+        inference_config.cache_root, DEFAULT_MODEL_WEIGHTS_DIR_NAME
+    )
+    tt_cache_dir_path = Path(
+        inference_config.cache_root, DEFAULT_TT_METAL_CACHE_DIR_NAME
+    )
     weights_id = inference_config.model_weights_id
     weights_path = inference_config.model_weights_path
     logger.info(f"MODEL_WEIGHTS_ID:={weights_id}")
@@ -34,7 +38,9 @@ def get_model_weights_and_tt_cache_paths():
         # default weights
         default_weights_id = "id_default"
         default_weights_path = model_weights_dir_path.joinpath(default_weights_id)
-        default_tt_cache_path = tt_cache_dir_path.joinpath(remove_id_prefix(default_weights_id))
+        default_tt_cache_path = tt_cache_dir_path.joinpath(
+            remove_id_prefix(default_weights_id)
+        )
         default_weights_path.mkdir(parents=True, exist_ok=True)
         default_tt_cache_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"using default_weights_path:={default_weights_path}")

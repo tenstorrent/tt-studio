@@ -52,7 +52,9 @@ def test_cpu_demo_no_kv(batch_size):
     input_ids = tokenized_inputs["input_ids"]
 
     logger.info("Initializing CausalLM Model")
-    causalLM = FalconForCausalLM.from_pretrained(MODEL_VERSION, device_map="auto", offload_folder="offload")
+    causalLM = FalconForCausalLM.from_pretrained(
+        MODEL_VERSION, device_map="auto", offload_folder="offload"
+    )
     causalLM.eval()
 
     generator = partial(
@@ -97,7 +99,9 @@ def test_cpu_demo_kv(batch_size):
     input_ids = tokenized_inputs["input_ids"]
 
     logger.info("Initializing CausalLM Model")
-    causalLM = FalconForCausalLM.from_pretrained(MODEL_VERSION, device_map="auto", offload_folder="offload")
+    causalLM = FalconForCausalLM.from_pretrained(
+        MODEL_VERSION, device_map="auto", offload_folder="offload"
+    )
     causalLM.eval()
 
     generator = partial(
@@ -161,7 +165,9 @@ def test_cpu_demo_with_kv_split(batch_size):
     logger.info("Initializing CausalLM Model")
     generators = []
     for i in range(batch_size):
-        causalLM = FalconForCausalLM.from_pretrained(MODEL_VERSION, device_map="auto", offload_folder="offload")
+        causalLM = FalconForCausalLM.from_pretrained(
+            MODEL_VERSION, device_map="auto", offload_folder="offload"
+        )
         causalLM.eval()
         generator = partial(
             generate_next_id, causalLMModel=causalLM, post_processor=post_processor

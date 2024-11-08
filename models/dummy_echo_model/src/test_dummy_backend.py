@@ -12,6 +12,7 @@ import sys
 from inference_api_server import get_user_parameters
 from dummy_echo_backend import run_backend
 
+
 def test_dummy_backend():
     prompt_q = queue.Queue()
     output_q = queue.Queue()

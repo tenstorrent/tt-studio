@@ -3,7 +3,6 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 
-
 import os
 from time import sleep
 from unittest.mock import Mock, patch

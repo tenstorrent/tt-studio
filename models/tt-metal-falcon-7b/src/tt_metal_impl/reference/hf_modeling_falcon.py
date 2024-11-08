@@ -786,7 +786,7 @@ class FalconPreTrainedModel(PreTrainedModel):
 
     @staticmethod
     def _convert_to_rw_cache(
-        past_key_value: Tuple[Tuple[torch.Tensor, torch.Tensor]]
+        past_key_value: Tuple[Tuple[torch.Tensor, torch.Tensor]],
     ) -> Tuple[Tuple[torch.Tensor, torch.Tensor]]:
         batch_size, num_heads, kv_length, head_dim = past_key_value[0][0].shape
         batch_size_times_num_heads = batch_size * num_heads

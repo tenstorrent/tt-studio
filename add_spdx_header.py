@@ -12,6 +12,7 @@ SPDX_HEADER = f"""# SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
 """
 
+
 def add_spdx_header(file_path):
     """
     Adds the SPDX header to the file if it doesn't already contain it.
@@ -21,6 +22,7 @@ def add_spdx_header(file_path):
         if "SPDX-License-Identifier" not in content:
             file.seek(0, 0)
             file.write(SPDX_HEADER + "\n" + content)
+
 
 if __name__ == "__main__":
     # Define the repo root and directories to process
