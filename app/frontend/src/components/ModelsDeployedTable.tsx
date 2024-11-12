@@ -117,7 +117,7 @@ export default function ModelsDeployedTable() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setModels((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id))
+        prevModels.filter((model) => !fadingModels.includes(model.id)),
       );
       setFadingModels([]);
     }, 3000);
