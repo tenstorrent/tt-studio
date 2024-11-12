@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
 
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -42,7 +41,14 @@ import {
   Settings,
   Trash2,
   MessageSquare,
+  AlertCircle,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
@@ -111,7 +117,7 @@ export default function ModelsDeployedTable() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setModels((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id)),
+        prevModels.filter((model) => !fadingModels.includes(model.id))
       );
       setFadingModels([]);
     }, 3000);
@@ -126,9 +132,13 @@ export default function ModelsDeployedTable() {
     return <NoModelsDialog messageKey="reset" />;
   }
 
+  const isLLaMAModel = (modelName: string) => {
+    return modelName.toLowerCase().includes("llama");
+  };
+
   return (
-    <Card>
-      <ScrollArea className="whitespace-nowrap rounded-md border">
+    <Card className="border-0 shadow-none">
+      <ScrollArea className="whitespace-nowrap rounded-md">
         <CustomToaster />
         <Table>
           <TableCaption className="text-TT-black dark:text-TT-white text-xl">
@@ -172,7 +182,7 @@ export default function ModelsDeployedTable() {
                 className={`transition-all duration-1000 ${
                   fadingModels.includes(model.id)
                     ? theme === "dark"
-                      ? "bg-zinc-700 opacity-50"
+                      ? "bg-zinc-900 opacity-50"
                       : "bg-zinc-200 opacity-50"
                     : ""
                 } ${
@@ -207,7 +217,7 @@ export default function ModelsDeployedTable() {
                         className={`${
                           theme === "light"
                             ? "bg-zinc-700 hover:bg-zinc-600 text-white"
-                            : "bg-gray-300 hover:bg-gray-400 text-black"
+                            : "bg-zinc-600 hover:bg-zinc-500 text-white"
                         } rounded-lg`}
                         disabled={!model.image}
                       >
@@ -235,17 +245,40 @@ export default function ModelsDeployedTable() {
                             Delete
                           </Button>
                         )}
-                        <Button
-                          onClick={() =>
-                            model.name &&
-                            handleChatUI(model.id, model.name, navigate)
-                          }
-                          className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
-                          disabled={!model.name}
-                        >
-                          <MessageSquare className="w-4 h-4 mr-2" />
-                          ChatUI
-                        </Button>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                onClick={() =>
+                                  model.name &&
+                                  handleChatUI(model.id, model.name, navigate)
+                                }
+                                className={`${
+                                  theme === "dark"
+                                    ? "bg-blue-500 dark:bg-blue-700 hover:bg-blue-400 dark:hover:bg-blue-600 text-white"
+                                    : "bg-blue-500 hover:bg-blue-400 text-white"
+                                } rounded-lg`}
+                                disabled={!model.name}
+                              >
+                                <MessageSquare className="w-4 h-4 mr-2" />
+                                ChatUI
+                                {isLLaMAModel(model.name || "") && (
+                                  <AlertCircle className="w-4 h-4 ml-2 text-yellow-600" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="bg-gray-700 text-white">
+                              {isLLaMAModel(model.name || "") ? (
+                                <p>
+                                  Warning: First-time inference may take up to
+                                  an hour. Subsequent runs may take 5-7 minutes.
+                                </p>
+                              ) : (
+                                <p>Open ChatUI for this model</p>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </>
                     )}
                   </div>
