@@ -178,7 +178,3 @@ ls -l /dev/tenstorrent
 - **Frontend Documentation**: [app/frontend/README.md](app/frontend/README.md)
 - **Backend API Documentation**: [app/api/README.md](app/api/README.md)
 - **Model Implementations Documentation**: [models/README.md](models/README.md)
-
----
-
-This updated README reflects the automated hardware configuration and guides users on enabling Tenstorrent hardware without needing manual edits in the `docker-compose.yml` file.
