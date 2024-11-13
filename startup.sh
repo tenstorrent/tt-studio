@@ -1,13 +1,13 @@
+#!/bin/bash
+
 # SPDX-License-Identifier: Apache-2.0
 # 
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-#!/bin/bash
-
 # Define setup script path
 SETUP_SCRIPT="./setup.sh"
 
-# step 0: detect OS
+# Step 0: detect OS
 OS_NAME="$(uname)"
 
 # Function to show usage/help
@@ -116,15 +116,32 @@ fi
 
 # Update .env with TT_STUDIO_ROOT and ENABLE_TT_HARDWARE based on the flag
 if [[ -f "${ENV_FILE_PATH}" ]]; then
-    sed -i "/^TT_STUDIO_ROOT=/c\\TT_STUDIO_ROOT=${TT_STUDIO_ROOT}" "${ENV_FILE_PATH}"
-    echo "Set TT_STUDIO_ROOT to: ${TT_STUDIO_ROOT} in .env file"
+    # Check OS and set sed command accordingly
+    if [[ "$OS_NAME" == "Darwin" ]]; then
+        # macOS sed requires an empty string after -i
+        sed -i '' "/^TT_STUDIO_ROOT=/c\\
+TT_STUDIO_ROOT=${TT_STUDIO_ROOT}" "${ENV_FILE_PATH}"
 
-    if [[ "$RUN_TT_HARDWARE" = true ]]; then
-        sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=true" "${ENV_FILE_PATH}"
-        echo "Enabled TT hardware support in .env file"
+        if [[ "$RUN_TT_HARDWARE" = true ]]; then
+            sed -i '' "/^ENABLE_TT_HARDWARE=/c\\
+ENABLE_TT_HARDWARE=true" "${ENV_FILE_PATH}"
+            echo "Enabled TT hardware support in .env file"
+        else
+            sed -i '' "/^ENABLE_TT_HARDWARE=/c\\
+ENABLE_TT_HARDWARE=false" "${ENV_FILE_PATH}"
+            echo "Disabled TT hardware support in .env file"
+        fi
     else
-        sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=false" "${ENV_FILE_PATH}"
-        echo "Disabled TT hardware support in .env file"
+        # Linux syntax for sed
+        sed -i "/^TT_STUDIO_ROOT=/c\\TT_STUDIO_ROOT=${TT_STUDIO_ROOT}" "${ENV_FILE_PATH}"
+
+        if [[ "$RUN_TT_HARDWARE" = true ]]; then
+            sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=true" "${ENV_FILE_PATH}"
+            echo "Enabled TT hardware support in .env file"
+        else
+            sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=false" "${ENV_FILE_PATH}"
+            echo "Disabled TT hardware support in .env file"
+        fi
     fi
 else
     echo "⛔ Error: .env file does not exist and could not be created."
