@@ -50,11 +50,12 @@ export default function ChatComponent() {
   const handleInference = () => {
     if (textInput.trim() === "" || !modelID) return;
 
-    // Adding user's message to chat history before making the inference request
-    const updatedChatHistory = [
-      ...chatHistory,
-      { sender: "user", text: textInput },
-    ];
+    const userMessage: ChatMessage = {
+      sender: "user",
+      text: textInput,
+    };
+
+    const updatedChatHistory = [...chatHistory, userMessage];
     setChatHistory(updatedChatHistory);
 
     const inferenceRequest: InferenceRequest = {
