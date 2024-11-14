@@ -15,12 +15,14 @@ export const runInference = async (
   try {
     setIsStreaming(true);
 
-    // Step 2: Get the RAG context if available
+    // Step 1: Get the RAG context if available
     if (ragDatasource) {
+      console.log("Fetching RAG context for the given request...");
       request.rag_context = await getRagContext(request, ragDatasource);
+      console.log("RAG context fetched:", request.rag_context);
     }
 
-    // Step 3: Render the prompt using Nunjucks with the updated chat history
+    // Step 2: Render the prompt using Nunjucks with the updated chat history
     const prompt = renderPrompt(
       chatHistory.map((message) => ({
         role: message.sender,
@@ -63,13 +65,20 @@ export const runInference = async (
       body: JSON.stringify(requestBody),
     });
 
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
     const reader = response.body?.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    // Add a placeholder for the assistant's response
     setChatHistory((prevHistory) => [
       ...prevHistory,
       { sender: "assistant", text: "" },
     ]);
 
-    let result = "";
     if (reader) {
       let done = false;
       while (!done) {
@@ -77,42 +86,51 @@ export const runInference = async (
         done = streamDone;
 
         if (value) {
-          const chunk = new TextDecoder().decode(value);
-          const parsedChunk = chunk.replace(/^data: /, "").trim();
+          // Decode value into text
+          buffer += decoder.decode(value, { stream: true });
+          console.log("Decoded buffer:", buffer);
 
-          if (parsedChunk === "[DONE]") {
-            console.log("Received [DONE] signal, ending stream.");
-            break;
-          }
+          // Split the buffer into lines
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Keep the incomplete line in the buffer
 
-          console.log("Received chunk from model:", parsedChunk);
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            console.log("Processing line:", trimmedLine);
 
-          if (parsedChunk.startsWith("{") && parsedChunk.endsWith("}")) {
-            try {
-              const jsonData = JSON.parse(parsedChunk);
-              const content = jsonData.choices[0]?.text || "";
-              result += content;
-
-              // Update chat history in real-time with the current assistant's response
-              setChatHistory((prevHistory) => {
-                const updatedHistory = [...prevHistory];
-                updatedHistory[updatedHistory.length - 1] = {
-                  ...updatedHistory[updatedHistory.length - 1],
-                  text: result,
-                };
-                return updatedHistory;
-              });
-            } catch (e) {
-              console.error("Failed to parse JSON:", e);
+            if (trimmedLine === "data: [DONE]") {
+              console.log("Received [DONE] signal, ending stream.");
+              done = true;
+              break;
             }
-          } else {
-            console.warn("Skipped non-JSON chunk:", parsedChunk);
+
+            if (trimmedLine.startsWith("data: ")) {
+              try {
+                const jsonData = trimmedLine.slice(6); // Remove "data: " prefix
+                console.log("Extracted JSON string:", jsonData);
+                const json = JSON.parse(jsonData);
+                const content = json.choices[0]?.text || "";
+
+                console.log("Parsed content from model:", content);
+
+                // Update chat history in real-time with the current assistant's response
+                setChatHistory((prevHistory) => {
+                  const updatedHistory = [...prevHistory];
+                  updatedHistory[updatedHistory.length - 1].text += content;
+                  console.log("Updated chat history:", updatedHistory);
+                  return updatedHistory;
+                });
+              } catch (error) {
+                console.error("Failed to parse JSON:", error);
+                console.error("Problematic JSON string:", trimmedLine.slice(6));
+              }
+            }
           }
         }
       }
     }
 
-    console.log("Final assembled response from model:", result);
+    console.log("Inference stream ended.");
     setIsStreaming(false);
   } catch (error) {
     console.error("Error running inference:", error);

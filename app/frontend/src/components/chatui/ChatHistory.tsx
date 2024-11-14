@@ -6,7 +6,7 @@ import { User, ChevronDown } from "lucide-react";
 import { Button } from "../ui/button";
 import InferenceStats from "./InferenceStats";
 import ChatExamples from "./ChatExamples";
-import StreamingMessage from "./StreamingMessage"; // Importing StreamingMessage
+import StreamingMessage from "./StreamingMessage";
 
 interface ChatMessage {
   sender: "user" | "assistant";
@@ -56,13 +56,12 @@ export default function ChatHistory({
   const handleScroll = () => {
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100; // Increased threshold to detect proximity to the bottom
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
       setIsScrollButtonVisible(!isAtBottom);
     }
   };
 
   useEffect(() => {
-    // Auto-scroll to the bottom only if the user is at or near the bottom
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
       const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
@@ -110,9 +109,8 @@ export default function ChatHistory({
                         ? "bg-TT-green-accent text-white text-left"
                         : "bg-TT-slate text-white text-left"
                     } p-3 rounded-lg mb-1`}
-                    style={{ wordBreak: "break-word" }}
+                    style={{ wordBreak: "break-word", whiteSpace: "pre-wrap" }}
                   >
-                    {/* Using StreamingMessage for rich content */}
                     <StreamingMessage
                       content={message.text}
                       isStreamFinished={true}
