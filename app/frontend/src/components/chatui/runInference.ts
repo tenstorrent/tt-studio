@@ -20,7 +20,6 @@ export const runInference = async (
     const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
-    // Build headers, including Authorization only if AUTH_TOKEN is present
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -28,7 +27,6 @@ export const runInference = async (
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
 
-    // Prepare the request body
     const requestBody = {
       model: "meta-llama/Meta-Llama-3.1-70B",
       prompt: textInput,
@@ -40,7 +38,6 @@ export const runInference = async (
       stop: ["<|eot_id|>"],
     };
 
-    // Log the request body
     console.log(
       "Sending request to model:",
       JSON.stringify(requestBody, null, 2),
@@ -70,29 +67,38 @@ export const runInference = async (
           const chunk = new TextDecoder().decode(value);
           const parsedChunk = chunk.replace(/^data: /, "").trim();
 
-          // Log each chunk received from the model
+          // Check for the "[DONE]" signal to stop the stream
+          if (parsedChunk === "[DONE]") {
+            console.log("Received [DONE] signal, ending stream.");
+            break;
+          }
+
           console.log("Received chunk from model:", parsedChunk);
 
-          try {
-            const jsonData = JSON.parse(parsedChunk);
-            const content = jsonData.choices[0].text || "";
-            result += content;
-            setChatHistory((prevHistory) => {
-              const updatedHistory = [...prevHistory];
-              updatedHistory[updatedHistory.length - 1] = {
-                ...updatedHistory[updatedHistory.length - 1],
-                text: result,
-              };
-              return updatedHistory;
-            });
-          } catch (e) {
-            console.error("Failed to parse JSON:", e);
+          // Only parse if it appears to be valid JSON
+          if (parsedChunk.startsWith("{") && parsedChunk.endsWith("}")) {
+            try {
+              const jsonData = JSON.parse(parsedChunk);
+              const content = jsonData.choices[0].text || "";
+              result += content;
+              setChatHistory((prevHistory) => {
+                const updatedHistory = [...prevHistory];
+                updatedHistory[updatedHistory.length - 1] = {
+                  ...updatedHistory[updatedHistory.length - 1],
+                  text: result,
+                };
+                return updatedHistory;
+              });
+            } catch (e) {
+              console.error("Failed to parse JSON:", e);
+            }
+          } else {
+            console.warn("Skipped non-JSON chunk:", parsedChunk);
           }
         }
       }
     }
 
-    // Log the final assembled response
     console.log("Final assembled response from model:", result);
 
     setIsStreaming(false);
