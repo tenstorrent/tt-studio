@@ -66,8 +66,8 @@ done
 TT_STUDIO_ROOT="$(pwd)"
 echo "TT_STUDIO_ROOT is set to: ${TT_STUDIO_ROOT}"
 
-
 DOCKER_COMPOSE_FILE="${TT_STUDIO_ROOT}/app/docker-compose.yml"
+DOCKER_COMPOSE_TT_HARDWARE_FILE="${TT_STUDIO_ROOT}/app/docker-compose.tt-hardware.yml"
 ENV_FILE_PATH="${TT_STUDIO_ROOT}/app/.env"
 ENV_FILE_DEFAULT="${TT_STUDIO_ROOT}/app/.env.default"
 
@@ -104,42 +104,35 @@ if [[ "$RUN_SETUP" = true ]]; then
     fi
 fi
 
-# step 1: Set TT_STUDIO_ROOT and create .env from .env.default if necessary
-ENV_FILE_PATH="${TT_STUDIO_ROOT}/app/.env"
-ENV_FILE_DEFAULT="${TT_STUDIO_ROOT}/app/.env.default"
-
-# Check if .env exists, if not create from .env.default
+# Step 1: Create .env from .env.default if necessary, and set TT_STUDIO_ROOT and ENABLE_TT_HARDWARE
 if [[ ! -f "${ENV_FILE_PATH}" && -f "${ENV_FILE_DEFAULT}" ]]; then
     echo "Creating .env file from .env.default"
     cp "${ENV_FILE_DEFAULT}" "${ENV_FILE_PATH}"
 fi
 
-# Update .env with TT_STUDIO_ROOT and ENABLE_TT_HARDWARE based on the flag
+# Update TT_STUDIO_ROOT and ENABLE_TT_HARDWARE in the .env file
 if [[ -f "${ENV_FILE_PATH}" ]]; then
     # Check OS and set sed command accordingly
     if [[ "$OS_NAME" == "Darwin" ]]; then
         # macOS sed requires an empty string after -i
-        sed -i '' "/^TT_STUDIO_ROOT=/c\\
-TT_STUDIO_ROOT=${TT_STUDIO_ROOT}" "${ENV_FILE_PATH}"
+        sed -i '' "s|^TT_STUDIO_ROOT=.*|TT_STUDIO_ROOT=${TT_STUDIO_ROOT}|g" "${ENV_FILE_PATH}"
 
         if [[ "$RUN_TT_HARDWARE" = true ]]; then
-            sed -i '' "/^ENABLE_TT_HARDWARE=/c\\
-ENABLE_TT_HARDWARE=true" "${ENV_FILE_PATH}"
+            sed -i '' "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=true|g" "${ENV_FILE_PATH}"
             echo "Enabled TT hardware support in .env file"
         else
-            sed -i '' "/^ENABLE_TT_HARDWARE=/c\\
-ENABLE_TT_HARDWARE=false" "${ENV_FILE_PATH}"
+            sed -i '' "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=false|g" "${ENV_FILE_PATH}"
             echo "Disabled TT hardware support in .env file"
         fi
     else
         # Linux syntax for sed
-        sed -i "/^TT_STUDIO_ROOT=/c\\TT_STUDIO_ROOT=${TT_STUDIO_ROOT}" "${ENV_FILE_PATH}"
+        sed -i "s|^TT_STUDIO_ROOT=.*|TT_STUDIO_ROOT=${TT_STUDIO_ROOT}|g" "${ENV_FILE_PATH}"
 
         if [[ "$RUN_TT_HARDWARE" = true ]]; then
-            sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=true" "${ENV_FILE_PATH}"
+            sed -i "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=true|g" "${ENV_FILE_PATH}"
             echo "Enabled TT hardware support in .env file"
         else
-            sed -i "/^ENABLE_TT_HARDWARE=/c\\ENABLE_TT_HARDWARE=false" "${ENV_FILE_PATH}"
+            sed -i "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=false|g" "${ENV_FILE_PATH}"
             echo "Disabled TT hardware support in .env file"
         fi
     fi
@@ -148,10 +141,10 @@ else
     exit 1
 fi
 
-# step 2: source env vars
+# Step 2: Source env vars
 source "${ENV_FILE_PATH}"
 
-# step 3: Check if the Docker network already exists
+# Step 3: Check if the Docker network already exists
 NETWORK_NAME="llm_studio_network"
 if docker network ls | grep -qw "${NETWORK_NAME}"; then
     echo "Network '${NETWORK_NAME}' exists."
@@ -166,17 +159,26 @@ else
     fi
 fi
 
-# step 4: run docker compose
-docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up -d
-
+# Step 4: Run Docker Compose with or without hardware support
+if [[ "$RUN_TT_HARDWARE" = true ]]; then
+    echo "🚀 Running Docker Compose with TT hardware support..."
+    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" -f "${DOCKER_COMPOSE_TT_HARDWARE_FILE}" up --build -d
+else
+    echo "🚀 Running Docker Compose without TT hardware support..."
+    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up --build -d
+fi
 
 # Final message
 echo "============================================="
-echo "🎉 TT Studio setup completed successfully!"
+echo "          🎉 TT Studio Setup Complete!          "
 echo "============================================="
 echo
-echo -e "🚀 The app is now accessible at: \e[1mhttp://localhost:3000\e[0m"
+echo -e "🚀 The app is now accessible at: \e[1;32mhttp://localhost:3000\e[0m"
 echo
 echo "============================================="
-echo "🧹 Cleanup Instructions:"
-echo "  - To stop the app and the services, run: './startup.sh --cleanup'"
+echo "           🧹 Cleanup Instructions             "
+echo "============================================="
+echo
+echo "🛑 To stop the app and the services, run: './startup.sh --cleanup'"
+echo
+echo "============================================="
