@@ -177,6 +177,20 @@ model_implmentations_list = [
         shm_size="32G",
         service_port=7000,
         service_route="/inference/mistral7b",
+    ),
+        #! Add new model vLLM model implementations here
+        ModelImpl(
+        model_name="", #? Add the model name for the vLLM model based on persistent storage
+        model_id="", #? Add the model id for the vLLM model based on persistent storage
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
+        image_tag="v0.0.1-tt-metal-685ef1303b5a-54b9157d852b",
+        device_configurations={DeviceConfigurations.N300x4},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="32G",
+        service_port=7000,
+        service_route="/inference/**",  #? Add the correct route for the vLLM model
     )
 ]
 
