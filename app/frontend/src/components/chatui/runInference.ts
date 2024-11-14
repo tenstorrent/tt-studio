@@ -16,11 +16,42 @@ export const runInference = async (
     }
 
     setIsStreaming(true);
-    const response = await fetch(`/models-api/inference/`, {
+
+    const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
+    const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
+
+    // Build headers, including Authorization only if AUTH_TOKEN is present
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (AUTH_TOKEN) {
+      headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
+    }
+
+    // Prepare the request body
+    const requestBody = {
+      model: "meta-llama/Meta-Llama-3.1-70B",
+      prompt: textInput,
+      temperature: 1,
+      top_k: 20,
+      top_p: 0.9,
+      max_tokens: 512,
+      stream: true,
+      stop: ["<|eot_id|>"],
+    };
+
+    // Log the request body
+    console.log(
+      "Sending request to model:",
+      JSON.stringify(requestBody, null, 2),
+    );
+
+    const response = await fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
+      headers: headers,
+      body: JSON.stringify(requestBody),
     });
+
     const reader = response.body?.getReader();
     setChatHistory((prevHistory) => [
       ...prevHistory,
@@ -36,62 +67,33 @@ export const runInference = async (
         done = streamDone;
 
         if (value) {
-          const decoder = new TextDecoder();
-          const chunk = decoder.decode(value);
-          console.log("Chunk:", chunk);
-          result += chunk;
-          const endOfStreamIndex = result.indexOf("<<END_OF_STREAM>>");
-          if (endOfStreamIndex !== -1) {
-            result = result.substring(0, endOfStreamIndex);
-            done = true;
+          const chunk = new TextDecoder().decode(value);
+          const parsedChunk = chunk.replace(/^data: /, "").trim();
+
+          // Log each chunk received from the model
+          console.log("Received chunk from model:", parsedChunk);
+
+          try {
+            const jsonData = JSON.parse(parsedChunk);
+            const content = jsonData.choices[0].text || "";
+            result += content;
+            setChatHistory((prevHistory) => {
+              const updatedHistory = [...prevHistory];
+              updatedHistory[updatedHistory.length - 1] = {
+                ...updatedHistory[updatedHistory.length - 1],
+                text: result,
+              };
+              return updatedHistory;
+            });
+          } catch (e) {
+            console.error("Failed to parse JSON:", e);
           }
-          const cleanedResult = result
-            .replace(/<\|eot_id\|>/g, "")
-            .replace(/<\|endoftext\|>/g, "")
-            .trim();
-          const statsStartIndex = cleanedResult.indexOf("{");
-          const statsEndIndex = cleanedResult.lastIndexOf("}");
-
-          let chatContent = cleanedResult;
-
-          if (statsStartIndex !== -1 && statsEndIndex !== -1) {
-            chatContent = cleanedResult.substring(0, statsStartIndex).trim();
-
-            const statsJson = cleanedResult.substring(
-              statsStartIndex,
-              statsEndIndex + 1,
-            );
-            try {
-              const parsedStats = JSON.parse(statsJson);
-              setChatHistory((prevHistory) => {
-                const updatedHistory = [...prevHistory];
-                const lastAssistantMessage = updatedHistory.findLastIndex(
-                  (message) => message.sender === "assistant",
-                );
-                if (lastAssistantMessage !== -1) {
-                  updatedHistory[lastAssistantMessage] = {
-                    ...updatedHistory[lastAssistantMessage],
-                    inferenceStats: parsedStats,
-                  };
-                }
-                return updatedHistory;
-              });
-            } catch (e) {
-              console.error("Error parsing inference stats:", e);
-            }
-          }
-
-          setChatHistory((prevHistory) => {
-            const updatedHistory = [...prevHistory];
-            updatedHistory[updatedHistory.length - 1] = {
-              ...updatedHistory[updatedHistory.length - 1],
-              text: chatContent,
-            };
-            return updatedHistory;
-          });
         }
       }
     }
+
+    // Log the final assembled response
+    console.log("Final assembled response from model:", result);
 
     setIsStreaming(false);
   } catch (error) {
