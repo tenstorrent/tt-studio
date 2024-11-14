@@ -1,21 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { InferenceRequest, RagDataSource, ChatMessage } from "./types.ts";
+import { InferenceRequest, RagDataSource, ChatMessage } from "./types";
 import { getRagContext } from "./getRagContext";
+import { renderPrompt } from "./templateRenderer";
 
 export const runInference = async (
   request: InferenceRequest,
   ragDatasource: RagDataSource | undefined,
-  textInput: string,
+  chatHistory: ChatMessage[],
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
 ) => {
   try {
+    setIsStreaming(true);
+
     if (ragDatasource) {
       request.rag_context = await getRagContext(request, ragDatasource);
     }
 
-    setIsStreaming(true);
+    const prompt = renderPrompt(
+      chatHistory.map((message) => ({
+        role: message.sender,
+        content: message.text,
+      })),
+    );
+
+    console.log("Rendered Prompt:", prompt);
 
     const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
@@ -29,7 +39,7 @@ export const runInference = async (
 
     const requestBody = {
       model: "meta-llama/Meta-Llama-3.1-70B",
-      prompt: textInput,
+      prompt: prompt,
       temperature: 1,
       top_k: 20,
       top_p: 0.9,
@@ -50,9 +60,9 @@ export const runInference = async (
     });
 
     const reader = response.body?.getReader();
+
     setChatHistory((prevHistory) => [
       ...prevHistory,
-      { sender: "user", text: textInput },
       { sender: "assistant", text: "" },
     ]);
 
@@ -67,7 +77,6 @@ export const runInference = async (
           const chunk = new TextDecoder().decode(value);
           const parsedChunk = chunk.replace(/^data: /, "").trim();
 
-          // Check for the "[DONE]" signal to stop the stream
           if (parsedChunk === "[DONE]") {
             console.log("Received [DONE] signal, ending stream.");
             break;
@@ -75,12 +84,12 @@ export const runInference = async (
 
           console.log("Received chunk from model:", parsedChunk);
 
-          // Only parse if it appears to be valid JSON
           if (parsedChunk.startsWith("{") && parsedChunk.endsWith("}")) {
             try {
               const jsonData = JSON.parse(parsedChunk);
-              const content = jsonData.choices[0].text || "";
+              const content = jsonData.choices[0]?.text || "";
               result += content;
+
               setChatHistory((prevHistory) => {
                 const updatedHistory = [...prevHistory];
                 updatedHistory[updatedHistory.length - 1] = {
@@ -100,7 +109,6 @@ export const runInference = async (
     }
 
     console.log("Final assembled response from model:", result);
-
     setIsStreaming(false);
   } catch (error) {
     console.error("Error running inference:", error);

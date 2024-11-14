@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Card } from "../ui/card";
 import { useLocation } from "react-router-dom";
 import logo from "../../assets/tt_logo.svg";
@@ -26,7 +26,7 @@ export default function ChatComponent() {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
 
   useEffect(() => {
@@ -50,6 +50,11 @@ export default function ChatComponent() {
   const handleInference = () => {
     if (textInput.trim() === "" || !modelID) return;
 
+    const newMessage: ChatMessage = { sender: "user", text: textInput };
+
+    const updatedChatHistory = [...chatHistory, newMessage];
+    setChatHistory(updatedChatHistory);
+
     const inferenceRequest: InferenceRequest = {
       deploy_id: modelID,
       text: textInput,
@@ -58,10 +63,11 @@ export default function ChatComponent() {
     runInference(
       inferenceRequest,
       ragDatasource,
-      textInput,
+      updatedChatHistory,
       setChatHistory,
       setIsStreaming,
     );
+
     setTextInput("");
   };
 

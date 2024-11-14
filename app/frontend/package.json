@@ -7,7 +7,7 @@
     "dev": "vite ",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "lint-fix":"eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 --fix",
+    "lint-fix": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 --fix",
     "preview": "vite preview",
     "generate-license": "npx generate-license-file --input package.json --output ./third-party-licenses.txt"
   },
@@ -26,7 +26,7 @@
     "@radix-ui/react-popover": "^1.0.7",
     "@radix-ui/react-progress": "^1.0.3",
     "@radix-ui/react-scroll-area": "^1.0.5",
-    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-select": "^2.1.2",
     "@radix-ui/react-separator": "^1.0.3",
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-tooltip": "^1.0.7",
@@ -52,6 +52,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.8",
+    "@types/nunjucks": "^3.2.6",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
@@ -66,6 +67,7 @@
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.11",
     "generate-license-file": "^3.5.1",
+    "nunjucks": "^3.2.4",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.2.2",

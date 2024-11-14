@@ -55,7 +55,7 @@ export default function ChatHistory({
   const handleScroll = () => {
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100; // Increased threshold
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
       setIsScrollButtonVisible(!isAtBottom);
     }
   };
