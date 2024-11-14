@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 import { InferenceRequest, RagDataSource, ChatMessage } from "./types";
 import { getRagContext } from "./getRagContext";
 import { renderPrompt } from "./templateRenderer";
@@ -12,21 +13,27 @@ export const runInference = async (
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
 ) => {
   try {
+    // Step 1: Set streaming to true
     setIsStreaming(true);
 
+    // Step 2: Get the RAG context if available
     if (ragDatasource) {
       request.rag_context = await getRagContext(request, ragDatasource);
     }
 
+    // Step 3: Render the prompt using Nunjucks with updated chat history
     const prompt = renderPrompt(
-      chatHistory.map((message) => ({
-        role: message.sender,
-        content: message.text,
-      })),
+      [...chatHistory, { role: "user", content: request.text }].map(
+        (message) => ({
+          role: message.sender,
+          content: message.text,
+        }),
+      ),
     );
 
     console.log("Rendered Prompt:", prompt);
 
+    // Step 4: Prepare request body
     const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
@@ -53,6 +60,7 @@ export const runInference = async (
       JSON.stringify(requestBody, null, 2),
     );
 
+    // Step 5: Send request to model
     const response = await fetch(API_URL, {
       method: "POST",
       headers: headers,
@@ -61,6 +69,7 @@ export const runInference = async (
 
     const reader = response.body?.getReader();
 
+    // Step 6: Immediately add placeholder for assistant response
     setChatHistory((prevHistory) => [
       ...prevHistory,
       { sender: "assistant", text: "" },
@@ -90,6 +99,7 @@ export const runInference = async (
               const content = jsonData.choices[0]?.text || "";
               result += content;
 
+              // Update chat history in real-time with the current assistant's response
               setChatHistory((prevHistory) => {
                 const updatedHistory = [...prevHistory];
                 updatedHistory[updatedHistory.length - 1] = {

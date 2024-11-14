@@ -50,9 +50,11 @@ export default function ChatComponent() {
   const handleInference = () => {
     if (textInput.trim() === "" || !modelID) return;
 
-    const newMessage: ChatMessage = { sender: "user", text: textInput };
-
-    const updatedChatHistory = [...chatHistory, newMessage];
+    // Adding user's message to chat history before making the inference request
+    const updatedChatHistory = [
+      ...chatHistory,
+      { sender: "user", text: textInput },
+    ];
     setChatHistory(updatedChatHistory);
 
     const inferenceRequest: InferenceRequest = {
@@ -60,6 +62,7 @@ export default function ChatComponent() {
       text: textInput,
     };
 
+    // Run inference
     runInference(
       inferenceRequest,
       ragDatasource,

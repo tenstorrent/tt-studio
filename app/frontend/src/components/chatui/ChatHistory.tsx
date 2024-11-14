@@ -6,6 +6,7 @@ import { User, ChevronDown } from "lucide-react";
 import { Button } from "../ui/button";
 import InferenceStats from "./InferenceStats";
 import ChatExamples from "./ChatExamples";
+import StreamingMessage from "./StreamingMessage"; // Importing StreamingMessage
 
 interface ChatMessage {
   sender: "user" | "assistant";
@@ -64,6 +65,10 @@ export default function ChatHistory({
     handleScroll();
   }, [chatHistory]);
 
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatHistory]);
+
   return (
     <div className="flex flex-col w-full flex-grow p-8 font-rmMono relative overflow-hidden">
       {chatHistory.length === 0 && (
@@ -76,37 +81,41 @@ export default function ChatHistory({
             onScroll={handleScroll}
             className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
           >
-            <div className="p-4 border rounded-lg">
+            <div className="p-4">
               {chatHistory.map((message, index) => (
                 <div
                   key={index}
-                  className={`chat ${message.sender === "user" ? "chat-end" : "chat-start"}`}
+                  className={`flex mb-4 ${
+                    message.sender === "user" ? "justify-end" : "justify-start"
+                  }`}
                 >
-                  <div className="chat-image avatar text-left">
-                    <div className="w-10 rounded-full">
-                      {message.sender === "user" ? (
-                        <User className="h-6 w-6 mr-2 text-left" />
-                      ) : (
-                        <img
-                          src={logo}
-                          alt="Tenstorrent Logo"
-                          className="w-8 h-8 rounded-full mr-2"
-                        />
-                      )}
+                  {message.sender === "assistant" && (
+                    <div className="flex items-start mr-2">
+                      <img
+                        src={logo}
+                        alt="Assistant Logo"
+                        className="w-8 h-8 rounded-full"
+                      />
                     </div>
-                  </div>
+                  )}
                   <div
-                    className={`chat-bubble ${
+                    className={`max-w-[75%] p-3 rounded-lg ${
                       message.sender === "user"
-                        ? "bg-TT-green-accent text-white text-left"
+                        ? "bg-TT-green-accent text-white text-right"
                         : "bg-TT-slate text-white text-left"
-                    } p-3 rounded-lg mb-1`}
+                    }`}
                     style={{ wordBreak: "break-word" }}
                   >
-                    {message.text}
+                    {/* Using StreamingMessage for rich content */}
+                    <StreamingMessage
+                      content={message.text}
+                      isStreamFinished={true}
+                    />
                   </div>
-                  {message.sender === "assistant" && message.inferenceStats && (
-                    <InferenceStats stats={message.inferenceStats} />
+                  {message.sender === "user" && (
+                    <div className="flex items-end ml-2">
+                      <User className="w-6 h-6 text-white" />
+                    </div>
                   )}
                 </div>
               ))}

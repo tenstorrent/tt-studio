@@ -38,3 +38,7 @@ export interface InferenceStats {
   batch_size: number;
   context_length: number;
 }
+export interface StreamingMessageProps {
+  content: string; // The actual content of the message (text or code)
+  isStreamFinished: boolean; // Indicates whether the streaming of the message is complete
+}
