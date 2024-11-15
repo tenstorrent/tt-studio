@@ -90,7 +90,7 @@ export default function Header({
   setRagDatasource,
 }: HeaderProps) {
   return (
-    <div className="bg-gray-200 dark:bg-gray-800 rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center">
+    <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center border border-gray-200 dark:border-[#7C68FA]/20">
       <Breadcrumb className="flex items-center">
         <BreadcrumbList className="flex gap-2 text-sm">
           <BreadcrumbItem>
@@ -99,18 +99,18 @@ export default function Header({
                 <TooltipTrigger asChild>
                   <BreadcrumbLink
                     href="/models-deployed"
-                    className="text-gray-600 dark:text-gray-200 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
+                    className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
                   >
                     Models Deployed
                   </BreadcrumbLink>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
                   <p>View all deployed models</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </BreadcrumbItem>
-          <BreadcrumbSeparator className="mx-2 text-gray-400">
+          <BreadcrumbSeparator className="mx-2 text-white/40 dark:text-white/40">
             /
           </BreadcrumbSeparator>
           <BreadcrumbItem>
@@ -123,24 +123,24 @@ export default function Header({
                     setModelName={setModelName}
                   />
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
                   <p>Select a different model</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </BreadcrumbItem>
-          <BreadcrumbSeparator className="mx-2 text-gray-400">
+          <BreadcrumbSeparator className="mx-2 text-white/40 dark:text-white/40">
             /
           </BreadcrumbSeparator>
           <BreadcrumbItem>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <BreadcrumbPage className="text-gray-800 dark:text-blue-400 font-bold hover:text-gray-900 dark:hover:text-white transition-colors duration-300">
+                  <BreadcrumbPage className="text-[#7C68FA] dark:text-[#7C68FA] font-bold hover:text-[#7C68FA]/80 dark:hover:text-[#7C68FA]/80 transition-colors duration-300">
                     {modelName}
                   </BreadcrumbPage>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
                   <p>Current selected model</p>
                 </TooltipContent>
               </Tooltip>
@@ -157,14 +157,18 @@ export default function Header({
             }
           }}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
             <SelectValue
               placeholder={ragDatasource?.name ?? "Select RAG Datasource"}
             />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
             {ragDataSources.map((c) => (
-              <SelectItem key={c.id} value={c.name}>
+              <SelectItem
+                key={c.id}
+                value={c.name}
+                className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+              >
                 {c.name}
               </SelectItem>
             ))}
