@@ -42,3 +42,8 @@ export interface StreamingMessageProps {
   content: string; // The actual content of the message (text or code)
   isStreamFinished: boolean; // Indicates whether the streaming of the message is complete
 }
+
+export interface StreamingMessageProps {
+  content: string;
+  isStreamFinished: boolean;
+}
