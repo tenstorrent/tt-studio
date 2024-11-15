@@ -69,6 +69,9 @@ export const runInference = async (
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
+    console.log("Response received. Status:", response.status);
+    console.log("Response headers:", response.headers);
+
     const reader = response.body?.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
@@ -107,17 +110,21 @@ export const runInference = async (
             if (trimmedLine.startsWith("data: ")) {
               try {
                 const jsonData = trimmedLine.slice(6); // Remove "data: " prefix
-                console.log("Extracted JSON string:", jsonData);
+                // console.log("Extracted JSON string:", jsonData);
                 const json = JSON.parse(jsonData);
+                // console.log("Parsed JSON:", JSON.stringify(json, null, 2));
                 const content = json.choices[0]?.text || "";
 
-                console.log("Parsed content from model:", content);
+                // console.log("Parsed content from model:", content);
 
                 // Update chat history in real-time with the current assistant's response
                 setChatHistory((prevHistory) => {
                   const updatedHistory = [...prevHistory];
                   updatedHistory[updatedHistory.length - 1].text += content;
-                  console.log("Updated chat history:", updatedHistory);
+                  // console.log(
+                  //   "Updated chat history:",
+                  //   JSON.stringify(updatedHistory, null, 2),
+                  // );
                   return updatedHistory;
                 });
               } catch (error) {

@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
-
 import type { CodeToHtmlOptions } from "@llm-ui/code";
 import {
-  allLangs,
-  allLangsAlias,
   loadHighlighter,
   useCodeBlockToHtml,
+  allLangs,
+  allLangsAlias,
 } from "@llm-ui/code";
 import { LLMOutputComponent } from "@llm-ui/react";
+import parseHtml from "html-react-parser";
 import { getHighlighterCore } from "shiki/core";
 import { bundledLanguagesInfo } from "shiki/langs";
 import githubDark from "shiki/themes/github-dark.mjs";
 import getWasm from "shiki/wasm";
-import parseHtml from "html-react-parser";
 
 const highlighter = loadHighlighter(
   getHighlighterCore({
@@ -30,14 +28,14 @@ const codeToHtmlOptions: CodeToHtmlOptions = {
 };
 
 const CodeBlock: LLMOutputComponent = ({ blockMatch }) => {
-  const isStreaming = !blockMatch.isComplete;
   const { html, code } = useCodeBlockToHtml({
     markdownCodeBlock: blockMatch.output,
     highlighter,
     codeToHtmlOptions,
   });
 
-  if (isStreaming || !html) {
+  if (!html) {
+    // Fallback to <pre> if Shiki is not loaded yet
     return (
       <pre className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">
         <code className="text-white text-sm">{code}</code>

@@ -118,9 +118,6 @@ export default function ChatHistory({
                       isStreamFinished={
                         !isStreaming || index !== chatHistory.length - 1
                       }
-                      isStreaming={
-                        isStreaming && index === chatHistory.length - 1
-                      }
                     />
                   </div>
                   {message.sender === "assistant" && message.inferenceStats && (
