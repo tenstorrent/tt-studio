@@ -20,13 +20,11 @@ Start by cloning both the `tt-studio` and `tt-inference-server` repositories. Us
 git clone https://github.com/tenstorrent/tt-studio
 cd tt-studio
 
-# Switch to the main branch for stable release
-git checkout main
 
 # Make the setup script executable
 chmod +x startup.sh
 
-# Clone tt-inference-server
+#Clone tt-inference-server into a new directory, separate from tt studio
 git clone https://github.com/tenstorrent/tt-inference-server
 ```
 
