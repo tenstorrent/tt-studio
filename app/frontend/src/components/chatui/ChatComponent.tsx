@@ -91,6 +91,7 @@ export default function ChatComponent() {
           chatHistory={chatHistory}
           logo={logo}
           setTextInput={setTextInput}
+          isStreaming={isStreaming}
         />
         <InputArea
           textInput={textInput}

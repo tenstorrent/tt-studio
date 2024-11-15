@@ -3,7 +3,7 @@
 "use client";
 
 import React from "react";
-import { useLLMOutput } from "@llm-ui/react";
+import { useLLMOutput, LLMOutputComponent } from "@llm-ui/react";
 import { markdownLookBack } from "@llm-ui/markdown";
 import {
   codeBlockLookBack,
@@ -17,6 +17,7 @@ import { StreamingMessageProps } from "./types";
 const StreamingMessage: React.FC<StreamingMessageProps> = ({
   content,
   isStreamFinished,
+  //   isStreaming,
 }) => {
   const { blockMatches } = useLLMOutput({
     llmOutput: content,
@@ -38,7 +39,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = ({
   return (
     <div className="text-white">
       {blockMatches.map((blockMatch, index) => {
-        const Component = blockMatch.block.component;
+        const Component = blockMatch.block.component as LLMOutputComponent;
         return <Component key={index} blockMatch={blockMatch} />;
       })}
     </div>

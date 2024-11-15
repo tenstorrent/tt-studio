@@ -34,12 +34,14 @@ interface ChatHistoryProps {
   chatHistory: ChatMessage[];
   logo: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
+  isStreaming: boolean;
 }
 
 export default function ChatHistory({
   chatHistory,
   logo,
   setTextInput,
+  isStreaming,
 }: ChatHistoryProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
@@ -113,7 +115,12 @@ export default function ChatHistory({
                   >
                     <StreamingMessage
                       content={message.text}
-                      isStreamFinished={true}
+                      isStreamFinished={
+                        !isStreaming || index !== chatHistory.length - 1
+                      }
+                      isStreaming={
+                        isStreaming && index === chatHistory.length - 1
+                      }
                     />
                   </div>
                   {message.sender === "assistant" && message.inferenceStats && (
