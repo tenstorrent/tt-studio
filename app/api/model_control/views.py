@@ -31,11 +31,13 @@ class InferenceView(APIView):
             deploy_id = data.pop("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
+            logger.info(f"internal_url:= {internal_url}")
+            logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
+            data["model"] = deploy["model_impl"].model_name
             response_stream = stream_response_from_external_api(internal_url, data)
             return StreamingHttpResponse(response_stream, content_type="text/plain")
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class DeployedModelsView(APIView):
     def get(self, request, *args, **kwargs):
