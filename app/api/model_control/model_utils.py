@@ -40,10 +40,12 @@ def stream_response_from_external_api(url, json_data):
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         logger.info(f"stream_response_from_external_api headers:={headers}")
         logger.info(f"stream_response_from_external_api json_data:={json_data}")
+        # TODO: remove once vllm implementation can support different topk/temperature in same batch
         json_data["temperature"] = 1
-        json_data["max_tokens"] = 128
-        logger.info(f"added extra token and temp!:={json_data}")
-        
+        json_data["top_k"] = 20
+        json_data["top_p"] = 0.9
+        json_data["max_tokens"] = 512
+        logger.info(f"added extra token and temp:={json_data}")
         with requests.post(
             url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
