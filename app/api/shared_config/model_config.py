@@ -153,7 +153,7 @@ model_implmentations_list = [
         service_route="/inference/falcon7b",
     ),
     ModelImpl(
-        model_name="meta-llama/Llama-3.1-70B-Instruct",
+        model_name="meta-llama/Meta-Llama-3.1-70B",
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
         image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
@@ -162,7 +162,7 @@ model_implmentations_list = [
         user_uid=1000,
         user_gid=1000,
         shm_size="32G",
-        service_port=7001,
+        service_port=7000,
         service_route="/v1/completions",
     ),
     ModelImpl(
