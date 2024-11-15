@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
-
 import React from "react";
 import { useLLMOutput, LLMOutputComponent } from "@llm-ui/react";
 import { markdownLookBack } from "@llm-ui/markdown";
@@ -12,12 +10,15 @@ import {
 } from "@llm-ui/code";
 import MarkdownComponent from "./MarkdownComponent";
 import CodeBlock from "./CodeBlock";
-import { StreamingMessageProps } from "./types";
+
+interface StreamingMessageProps {
+  content: string;
+  isStreamFinished: boolean;
+}
 
 const StreamingMessage: React.FC<StreamingMessageProps> = ({
   content,
   isStreamFinished,
-  //   isStreaming,
 }) => {
   const { blockMatches } = useLLMOutput({
     llmOutput: content,
@@ -37,7 +38,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = ({
   });
 
   return (
-    <div className="text-white">
+    <div className="text-white whitespace-pre-wrap overflow-x-auto">
       {blockMatches.map((blockMatch, index) => {
         const Component = blockMatch.block.component as LLMOutputComponent;
         return <Component key={index} blockMatch={blockMatch} />;

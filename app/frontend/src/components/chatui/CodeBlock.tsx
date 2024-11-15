@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
 
-import React from "react";
 import type { CodeToHtmlOptions } from "@llm-ui/code";
 import {
   allLangs,
