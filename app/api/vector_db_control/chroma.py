@@ -27,37 +27,44 @@ def delete_collection(collection_name: str):
 
 
 def get_collection(collection_name: str, embedding_func_name: str):
-    embedding_func = get_embedding_function(
-        model_name=embedding_func_name
+    embedding_func = get_embedding_function(model_name=embedding_func_name)
+    return ChromaClient().get_collection(
+        name=collection_name, embedding_function=embedding_func
     )
-    return ChromaClient().get_collection(name=collection_name, embedding_function=embedding_func)
 
 
-def create_collection(collection_name: str, embedding_func_name: str,
-                      metadata=None, distance_func_name: str = "cosine"):
+def create_collection(
+    collection_name: str,
+    embedding_func_name: str,
+    metadata=None,
+    distance_func_name: str = "cosine",
+):
     # Metadata could be used in the future to filter our collections.
     # For instance - ` metadata = { 'target_models' : "X, Y, Z" }
-    embedding_func = get_embedding_function(
-        model_name=embedding_func_name
-    )
+    embedding_func = get_embedding_function(model_name=embedding_func_name)
     metadata = metadata or {}
-    metadata.update({"hnsw:space": distance_func_name, "embedding_func_name": embedding_func_name})
+    metadata.update(
+        {"hnsw:space": distance_func_name, "embedding_func_name": embedding_func_name}
+    )
     metadata.update({"created_at": datetime.now()})
-    return ChromaClient().create_collection(name=collection_name, embedding_function=embedding_func, metadata=metadata)
+    return ChromaClient().create_collection(
+        name=collection_name, embedding_function=embedding_func, metadata=metadata
+    )
 
 
 def delete_collection(collection_name: str):
     if not ChromaClient().get_collection(collection_name):
-        raise ValueError('Collection does not exist')
+        raise ValueError("Collection does not exist")
     ChromaClient().delete_collection(collection_name)
 
 
-def query_collection(collection_name: str, embedding_func_name: str,
-                     query_texts: List[str]):
-    embedding_func = get_embedding_function(
-        model_name=embedding_func_name
+def query_collection(
+    collection_name: str, embedding_func_name: str, query_texts: List[str]
+):
+    embedding_func = get_embedding_function(model_name=embedding_func_name)
+    target_collection = ChromaClient().get_collection(
+        name=collection_name, embedding_function=embedding_func
     )
-    target_collection = ChromaClient().get_collection(name=collection_name, embedding_function=embedding_func)
     return target_collection.query(query_texts=query_texts)
 
 
@@ -70,16 +77,13 @@ def serialize_collection(collection: Collection):
 
 
 def insert_to_chroma_collection(
-        collection_name: str,
-        embedding_func_name: str,
-        ids: list[str],
-        documents: list[str],
-        metadatas: list[dict],
-
+    collection_name: str,
+    embedding_func_name: str,
+    ids: list[str],
+    documents: list[str],
+    metadatas: list[dict],
 ):
-    embedding_func = get_embedding_function(
-        model_name=embedding_func_name
-    )
+    embedding_func = get_embedding_function(model_name=embedding_func_name)
 
     target_collection = ChromaClient().get_collection(
         name=collection_name,
@@ -91,7 +95,9 @@ def insert_to_chroma_collection(
     for batch in batched(document_indices, 166):
         start_idx = batch[0]
         end_idx = batch[-1] + 1
-        metadatas = metadatas[start_idx:end_idx] if metadatas and len(metadatas) else None
+        metadatas = (
+            metadatas[start_idx:end_idx] if metadatas and len(metadatas) else None
+        )
         target_collection.add(
             ids=ids[start_idx:end_idx],
             documents=documents[start_idx:end_idx],

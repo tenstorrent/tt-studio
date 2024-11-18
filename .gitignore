@@ -7,6 +7,7 @@
 __pycache__
 *egg-info
 *.whl
+.venv/
 
 # Virtual Environment
 env
@@ -38,3 +39,5 @@ db.sqlite3
 # unignore
 !requirements.txt
 !app/frontend/third-party-licenses.txt
+!requirements-dev.txt
+

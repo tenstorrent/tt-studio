@@ -29,8 +29,10 @@ def get_embedding_function(model_name: str):
         with _lock:  # Ensure that only one thread can initialize the model
             # Double-check pattern to avoid race condition
             if model_name not in _instances:
-                _instances[model_name] = embedding_functions.SentenceTransformerEmbeddingFunction(
-                    model_name=model_name
+                _instances[model_name] = (
+                    embedding_functions.SentenceTransformerEmbeddingFunction(
+                        model_name=model_name
+                    )
                 )
 
     return _instances[model_name]
@@ -45,6 +47,7 @@ class ChromaClient:
             with cls._lock:
                 if cls._instance is None:
                     logger.info(f"Initializing ChromaDB connection {host}:{port}")
-                    cls._instance = HttpClient(host=host, port=port,
-                                               settings=Settings())
+                    cls._instance = HttpClient(
+                        host=host, port=port, settings=Settings()
+                    )
         return cls._instance

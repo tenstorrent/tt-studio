@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket,os,subprocess
+import socket, os, subprocess
 import copy
 from pathlib import Path
 
@@ -16,7 +16,7 @@ from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 
 
-CONFIG_PATH = '/root/.config/tenstorrent/reset_config.json'
+CONFIG_PATH = "/root/.config/tenstorrent/reset_config.json"
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 client = docker.from_env()
@@ -227,30 +227,29 @@ def get_model_weights_path(weights_dir_path, weights_id):
     return weights_dir_path.joinpath(dir_name)
 
 
-
 def perform_reset():
     try:
         logger.info("Running initial tt-smi command to check device detection.")
-        
+
         # Initial check to see if Tenstorrent devices are detected
         def check_device_detection():
             process = subprocess.Popen(
-                ['tt-smi'], 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
+                ["tt-smi"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,  # Prevents interactive command-line interface
-                text=True
+                text=True,
             )
             output = []
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(process.stdout.readline, ""):
                 logger.info(f"tt-smi output: {line.strip()}")
                 output.append(line)
                 if "No Tenstorrent devices detected" in line:
                     return {
                         "status": "error",
                         "message": "No Tenstorrent devices detected! Please check your hardware and try again.",
-                        "output": ''.join(output),
-                        "http_status": 501  # Not Implemented
+                        "output": "".join(output),
+                        "http_status": 501,  # Not Implemented
                     }
             process.stdout.close()
             return_code = process.wait()
@@ -258,10 +257,10 @@ def perform_reset():
                 return {
                     "status": "error",
                     "message": f"tt-smi command failed with return code {return_code}.",
-                    "output": ''.join(output),
-                    "http_status": 500  # Internal Server Error
+                    "output": "".join(output),
+                    "http_status": 500,  # Internal Server Error
                 }
-            return {"status": "success", "output": ''.join(output)}
+            return {"status": "success", "output": "".join(output)}
 
         # Run the device detection check
         detection_result = check_device_detection()
@@ -269,18 +268,18 @@ def perform_reset():
             return detection_result
 
         logger.info("Running tt-smi reset command.")
-        
+
         def stream_command_output(command):
             logger.info(f"Executing command: {' '.join(command)}")
             process = subprocess.Popen(
-                command, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,  # Prevents interactive command-line interface
-                text=True
+                text=True,
             )
             output = []
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(process.stdout.readline, ""):
                 logger.info(f"Command output: {line.strip()}")
                 output.append(line)
             process.stdout.close()
@@ -290,26 +289,33 @@ def perform_reset():
                 output.append(f"Command failed with return code {return_code}")
                 return {
                     "status": "error",
-                    "output": ''.join(output),
-                    "http_status": 500  # Internal Server Error
+                    "output": "".join(output),
+                    "http_status": 500,  # Internal Server Error
                 }
             else:
-                logger.info(f"Command completed successfully with return code {return_code}")
-                return {
-                    "status": "success",
-                    "output": ''.join(output)
-                }
+                logger.info(
+                    f"Command completed successfully with return code {return_code}"
+                )
+                return {"status": "success", "output": "".join(output)}
 
         # Step 1: Check if the reset config JSON already exists
         if not os.path.exists(CONFIG_PATH):
-            generate_result = stream_command_output(['tt-smi', '--generate_reset_json'])
+            generate_result = stream_command_output(["tt-smi", "--generate_reset_json"])
             if generate_result.get("status") == "error":
                 return generate_result
-        
+
         # Step 2: Run the reset using the generated JSON
-        reset_result = stream_command_output(['tt-smi', '-r', CONFIG_PATH])
-        return reset_result or {"status": "error", "output": "No output from reset command"}
+        reset_result = stream_command_output(["tt-smi", "-r", CONFIG_PATH])
+        return reset_result or {
+            "status": "error",
+            "output": "No output from reset command",
+        }
 
     except Exception as e:
         logger.exception("Exception occurred during reset operation.")
-        return {"status": "error", "message": str(e), "output": "An exception occurred during the reset operation.", "http_status": 500}
+        return {
+            "status": "error",
+            "message": str(e),
+            "output": "An exception occurred during the reset operation.",
+            "http_status": 500,
+        }

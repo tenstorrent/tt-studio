@@ -14,6 +14,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 logger.info(f"importing {__file__}")
 
+
 def test_e2e():
     # get all deployed_ids
     base_url = "http://localhost:3000"
@@ -23,6 +24,7 @@ def test_e2e():
     deployed_data = response.json()
     for deploy_id, v in deployed_data.items():
         valid_api_call(inference_url, deploy_id)
+
 
 def valid_api_call(api_url, deploy_id, prompt_extra="", print_output=True):
     # set API prompt and optional parameters

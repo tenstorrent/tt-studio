@@ -60,7 +60,7 @@ SERVICE_PORT = int(os.getenv("SERVICE_PORT", 7000))
 MOCK_MODEL = bool(int(os.getenv("MOCK_MODEL", 0)))
 BACKEND_DEBUG_MODE = bool(int(os.getenv("BACKEND_DEBUG_MODE", 0)))
 FRONTEND_DEBUG_MODE = bool(int(os.getenv("FRONTEND_DEBUG_MODE", 0)))
-MODEL_WEIGHTS_ID= os.getenv("MODEL_WEIGHTS_ID")
+MODEL_WEIGHTS_ID = os.getenv("MODEL_WEIGHTS_ID")
 MODEL_WEIGHTS_PATH = os.getenv("MODEL_WEIGHTS_PATH")
 
 inference_config = InferenceConfig(
