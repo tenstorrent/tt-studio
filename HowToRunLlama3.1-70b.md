@@ -24,7 +24,8 @@ cd tt-studio
 # Make the setup script executable
 chmod +x startup.sh
 
-#Clone tt-inference-server into a new directory, separate from tt studio
+# Clone `tt-inference-server` into a separate directory
+cd ..
 git clone https://github.com/tenstorrent/tt-inference-server
 ```
 
