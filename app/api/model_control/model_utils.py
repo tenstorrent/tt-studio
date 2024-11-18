@@ -34,6 +34,7 @@ def get_deploy_cache():
     data = get_all_records()
     return data
 
+
 def stream_response_from_external_api(url, json_data):
     logger.info(f"stream_response_from_external_api to: url={url}")
     try:
@@ -43,7 +44,7 @@ def stream_response_from_external_api(url, json_data):
         json_data["temperature"] = 1
         json_data["max_tokens"] = 128
         logger.info(f"added extra token and temp!:={json_data}")
-        
+
         with requests.post(
             url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
@@ -58,7 +59,7 @@ def stream_response_from_external_api(url, json_data):
             for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
                 logger.info(f"stream_response_from_external_api chunk:={chunk}")
                 yield chunk
-            
+
             # Append the custom end marker after the last chunk
             yield "<<END_OF_STREAM>>"  # Custom marker to signal end of stream
 

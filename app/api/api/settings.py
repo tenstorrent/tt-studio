@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
+
 import os
 from pathlib import Path
 
@@ -89,7 +90,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "api.wsgi.application"
-SESSIONS_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSIONS_ENGINE = "django.contrib.sessions.backends.cache"
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
@@ -147,12 +148,12 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CHROMA_DB_PORT = int(os.environ.get('CHROMA_DB_PORT', 8111))
-CHROMA_DB_HOST = os.environ.get('CHROMA_DB_HOST', 'tt_studio_chromadb')
+CHROMA_DB_PORT = int(os.environ.get("CHROMA_DB_PORT", 8111))
+CHROMA_DB_HOST = os.environ.get("CHROMA_DB_HOST", "tt_studio_chromadb")
 CHROMA_DB_EMBED_MODEL = "all-MiniLM-L6-v2"
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [],
-    'DEFAULT_PERMISSION_CLASSES': [],
-    'UNAUTHENTICATED_USER': None,
+    "DEFAULT_AUTHENTICATION_CLASSES": [],
+    "DEFAULT_PERMISSION_CLASSES": [],
+    "UNAUTHENTICATED_USER": None,
 }

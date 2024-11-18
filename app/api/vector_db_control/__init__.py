@@ -2,4 +2,4 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-default_app_config = 'api.apps.vector_db.apps.VectorDbConfig'
+default_app_config = "api.apps.vector_db.apps.VectorDbConfig"

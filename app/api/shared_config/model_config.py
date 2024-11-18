@@ -39,10 +39,15 @@ class ModelImpl:
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
-        
+
         # Set environment variable if N150 or N300x4 is in the device configurations
-        if DeviceConfigurations.N150 in self.device_configurations or DeviceConfigurations.N300x4 in self.device_configurations:
-            self.docker_config["environment"]["WH_ARCH_YAML"] = "wormhole_b0_80_arch_eth_dispatch.yaml"
+        if (
+            DeviceConfigurations.N150 in self.device_configurations
+            or DeviceConfigurations.N300x4 in self.device_configurations
+        ):
+            self.docker_config["environment"]["WH_ARCH_YAML"] = (
+                "wormhole_b0_80_arch_eth_dispatch.yaml"
+            )
 
     @property
     def image_version(self) -> str:
@@ -152,7 +157,7 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/inference/falcon7b",
     ),
-        ModelImpl(
+    ModelImpl(
         model_name="Llama3.1-70bv0.0.1-instruct",
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-inference",
@@ -177,8 +182,9 @@ model_implmentations_list = [
         shm_size="32G",
         service_port=7000,
         service_route="/inference/mistral7b",
-    )
+    ),
 ]
+
 
 def validate_model_implemenation_config(impl):
     # no / in model_id strings, model_id will be used in path names
