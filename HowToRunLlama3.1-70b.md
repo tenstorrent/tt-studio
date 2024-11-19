@@ -56,7 +56,7 @@ sudo ./setup.sh llama-3-70b-instruct
 > Enter your PERSISTENT_VOLUME_ROOT [default: /path/to/tt-inference-server/persistent_volume]: /path/to/tt-studio/tt_studio_persistent_volume
 > ```
 
-Ensure the directory path you specify matches the expected format. This will enable TT Studio to access the model weights and configurations seamlessly.
+Ensure the directory path you specify matches the expected format. This will enable TT-Studio to access the model weights and configurations seamlessly.
 
 ### 4. Additional Configuration Details
 
