@@ -166,4 +166,4 @@ If you encounter unexpected or "weird" outputs from the Llama model or if the mo
 
 ## You're All Set!
 
-With the setup complete, you’re ready to run inference on the Llama 3.1 70B model (or any other supported model) within TT Studio. Refer to the documentation and setup instructions in the repositories for further guidance.
+With the setup complete, you’re ready to run inference on the Llama3.1-70B model (or any other supported model) within TT-Studio. Refer to the documentation and setup instructions in the repositories for further guidance.
