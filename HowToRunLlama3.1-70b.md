@@ -1,6 +1,6 @@
 # Running Llama3.1-70B in TT-Studio
 
-This guide provides a step-by-step process to set up and deploy models like Llama 3.1 70B using TT Studio. You will need access to both `tt-studio` and `tt-inference-server` repositories to complete the setup.
+This guide provides a step-by-step process to set up and deploy models like Llama3.1-70B using TT-Studio. You will need access to both `tt-studio` and `tt-inference-server` repositories to complete the setup.
 
 ## Prerequisites
 
