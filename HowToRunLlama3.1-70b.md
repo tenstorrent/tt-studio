@@ -33,7 +33,7 @@ git clone https://github.com/tenstorrent/tt-inference-server
 
 ### 2. Set Up TT Inference for Llama
 
-Navigate to the directory in `tt-inference-server` corresponding to the specific model you’re setting up (e.g., `Llama 3.1 70B`).
+Navigate to the directory in `tt-inference-server` corresponding to the specific model you’re setting up (e.g., `Llama3.1-70B`).
 
 ```bash
 cd /path/to/tt-inference-server/vllm-tt-metal-llama3-70b
