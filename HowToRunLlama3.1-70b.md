@@ -126,7 +126,7 @@ Here’s the revised version of step 8 with clear instructions:
 Once the setup is complete and the persistent volume is correctly configured, you’re ready to deploy the model and start running inference in TT Studio. Follow these steps:
 
 1. **Start TT Studio**: Run TT Studio by executing the startup command or accessing it through your chosen method.
-2. **Access Model Weights**: In the TT Studio interface, navigate to the model weights section.
+2. **Access Model Weights**: In the TT-Studio interface, navigate to the model weights section.
 
 3. **Select Custom Weights**: Choose the option to use custom weights.
 
