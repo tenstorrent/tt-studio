@@ -5,7 +5,7 @@ This guide provides a step-by-step process to set up and deploy models like Llam
 ## Prerequisites
 
 1. **Docker**: Make sure Docker is installed on your system. Follow the [Docker installation guide](https://docs.docker.com/engine/install/).
-2. **Model Access**: Register with Meta to access models such as Llama 3.1 Instruct. Download links can be found on Meta's official site: [Llama Downloads](https://www.llama.com/llama-downloads/). You will need to download model weights from this site for use in TT Studio.
+2. **Model Access**: Register with Meta to access models such as Llama3.1 Instruct. Download links can be found on Meta's official site: [Llama Downloads](https://www.llama.com/llama-downloads/). You will need to download model weights from this site for use in TT-Studio.
 
 ---
 
