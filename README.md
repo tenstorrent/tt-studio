@@ -103,17 +103,7 @@ To use the startup script, run:
 | `--cleanup`     | Stop and remove all Docker services.                          |
 | `--tt-hardware` | Enable Tenstorrent hardware support in Docker Compose.        |
 
-To understand more about the setup script, see [Setting Up a Tenstorrent Device](#setting-up-a-tenstorrent-device).
-| Option          | Description                                                   |
-| --------------- | ------------------------------------------------------------- |
-| `--help`        | Display help message with usage details.                      |
-| `--setup`       | Run the `setup.sh` script with sudo privileges for all steps. |
-| `--cleanup`     | Stop and remove all Docker services.                          |
-| `--tt-hardware` | Enable Tenstorrent hardware support in Docker Compose.        |
-
-To understand more about the setup script, see [Setting Up a Tenstorrent Device](#setting-up-a-tenstorrent-device).
-
-To display more detailed help:
+To display more detailed help in the terminal one can run:
 
 ```bash
 ./startup.sh --help
