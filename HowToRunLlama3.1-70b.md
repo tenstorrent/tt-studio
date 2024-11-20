@@ -69,7 +69,7 @@ Here’s an example of what the setup dialogue might look like:
 
 ```bash
 REPO_ROOT: /path/to/tt-inference-server
-MODEL_PATH: /path/to/tt-inference-server/tt-metal-llama3-70b
+MODEL_PATH: /path/to/tt-inference-server/vllm-tt-metal-llama3-70b
 ENV_FILE: /path/to/tt-inference-server/tt-metal-llama3-70b/.env
 Overwriting the .env file...
 Enter your PERSISTENT_VOLUME_ROOT: /path/to/tt-studio/tt_studio_persistent_volume
