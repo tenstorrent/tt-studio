@@ -168,17 +168,28 @@ else
     docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up --build -d
 fi
 
-# Final message
-echo "============================================="
-echo "          🎉 TT Studio Setup Complete!          "
-echo "============================================="
+
+# Final message to the user with instructions on where to access the app
+echo -e "\e[1;32m=====================================================\e[0m"
+echo -e "\e[1;32m          🎉 TT Studio Setup Complete! 🎉           \e[0m"
+echo -e "\e[1;32m=====================================================\e[0m"
 echo
-echo "🚀 The app is now accessible at: http://localhost:3000"
+echo -e "\e[1;32m🚀 The application is now accessible at:\e[0m \e[4mhttp://localhost:3000\e[0m"
+
+# Let user know if TT hardware support is enabled
+if [[ "$RUN_TT_HARDWARE" = true ]]; then
+    echo
+    echo -e "\e[1;34m=====================================================\e[0m"
+    echo -e "\e[1;34m             🔧  Tenstorrent Device: MOUNTED         \e[0m"
+    echo -e "\e[1;34m=====================================================\e[0m"
+    echo -e "\e[1;34m🔧 Tenstorrent device has been successfully mounted and enabled in this setup.\e[0m"
+fi
+
 echo
-echo "============================================="
-echo "           🧹 Cleanup Instructions             "
-echo "============================================="
+echo -e "\e[1;33m=====================================================\e[0m"
+echo -e "\e[1;33m            🧹 Cleanup Instructions 🧹              \e[0m"
+echo -e "\e[1;33m=====================================================\e[0m"
 echo
-echo "🛑 To stop the app and the services, run: './startup.sh --cleanup'"
+echo -e "\e[1;33m🛑 To stop the app and services, run:\e[0m \e[1;33m'./startup.sh --cleanup'\e[0m"
 echo
-echo "============================================="
+echo -e "\e[1;33m=====================================================\e[0m"
