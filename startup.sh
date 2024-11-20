@@ -173,7 +173,7 @@ echo "============================================="
 echo "          🎉 TT Studio Setup Complete!          "
 echo "============================================="
 echo
-echo -e "🚀 The app is now accessible at: \e[1;32mhttp://localhost:3000\e[0m"
+echo "🚀 The app is now accessible at: http://localhost:3000"
 echo
 echo "============================================="
 echo "           🧹 Cleanup Instructions             "
