@@ -9,10 +9,11 @@ services:
     hostname: tt-studio-backend-api
     image: ghcr.io/tenstorrent/tt-studio/api:v0.0.0
     build: ./api
-    #! DEV: Uncomment devices to use Tenstorrent hardware
-    # devices:
+    #* DEV: Uncomment devices to use Tenstorrent hardware
+    #! devices:
     #* mounts all tenstorrent devices to backend container
-    #   - /dev/tenstorrent:/dev/tenstorrent
+    #!   - /dev/tenstorrent:/dev/tenstorrent
+
     # note that `network_mode: host` does not work on mac OS
     networks:
       - llm_studio_network
