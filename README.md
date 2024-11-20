@@ -1,6 +1,6 @@
 # TT Studio
 
-TT Studio enables rapid deployment of LLM inference servers locally and is optimized for Tenstorrent hardware. This guide explains how to set up and use TT Studio in both standard and development modes. It also guides users through setting up a new Tenstorrent device, including steps for driver installation, firmware flashing, and related configurations.
+TT Studio enables rapid deployment of LLM inference servers locally and is optimized for Tenstorrent hardware. This guide explains how to set up and use TT Studio in both standard and development modes.
 
 ## Table of Contents
 
@@ -14,8 +14,7 @@ TT Studio enables rapid deployment of LLM inference servers locally and is optim
 4. [Setting Up a Tenstorrent Device Using `setup.sh`](#setting-up-a-tenstorrent-device)
    - [Overview](#setup-overview)
    - [Steps](#steps)
-5. [Hardware Configuration](#hardware-configuration)
-6. [Documentation](#documentation)
+5. [Documentation](#documentation)
 
 ---
 
@@ -34,51 +33,88 @@ To set up TT Studio:
 
 2. **Run the Startup Script**:
 
-   - Run the `startup.sh` script:
-     ```bash
-     ./startup.sh
-     ```
-     See this [section](#command-line-options) for more information on command-line arguments available within the script.
+   Run the `startup.sh` script:
+
+   ```bash
+   ./startup.sh
+   ```
+
+   #### See this [section](#command-line-options) for more information on command-line arguments available within the startup script.
 
 3. **Access the Application**:
 
-   - The app will be available at [http://localhost:3000](http://localhost:3000). 🚀
+   The app will be available at [http://localhost:3000](http://localhost:3000).
 
 4. **Cleanup**:
    - To stop and remove Docker services, run:
      ```bash
      ./startup.sh --cleanup
      ```
+5. Running on a Remote Machine
 
-> **Note**: To use Tenstorrent hardware, use the `--tt-hardware` flag with the `startup.sh` script. This will enable the necessary hardware configurations automatically without manual changes to `docker-compose.yml`. See the [Hardware Configuration](#hardware-configuration) section for details.
-> **Note**: To use Tenstorrent hardware, use the `--tt-hardware` flag with the `startup.sh` script. This will enable the necessary hardware configurations automatically without manual changes to `docker-compose.yml`. See the [Hardware Configuration](#hardware-configuration) section for details.
+   To forward traffic between your local machine and a remote server, enabling you to access the frontend application in your local browser, follow these steps:
+
+   Use the following SSH command to port forward both the frontend and backend ports:
+
+   ```bash
+   # Port forward frontend (3000) to allow local access from the remote server
+   ssh -L 3000:localhost:3000 <username>@<remote_server>
+   ```
+
+> ⚠️ **Note**: To use Tenstorrent hardware, use the `--tt-hardware` flag with the `startup.sh` script. This will enable the necessary hardware configurations automatically without manual changes to `docker-compose.yml`.
 
 ---
 
 ### For Developers
 
-Developers can control container behavior directly with `docker-compose`:
+Developers can control and run the app directly via `docker-compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
 
-1. **Run in Development Mode**:
+1.  **Run in Development Mode**:
 
-   ```bash
-   cd tt-studio/app
-   docker-compose up --build
-   ```
+    ```bash
+    cd tt-studio/app
+    docker-compose up --build
+    ```
 
-2. **Stop the Services**:
+2.  **Stop the Services**:
 
-   ```bash
-   docker-compose down
-   ```
+    ```bash
+    docker-compose down
+    ```
 
-3. **Using the Echo Model**:
-   - For local testing, you can use the provided `echo` model, which repeats the prompt.
-     Build the Docker image with:
-     ```bash
-     cd models/dummy_echo_model
-     docker build -t dummy_echo_model:v0.0.1 .
-     ```
+3.  **Using the Echo Model**:
+    - For local testing, you can use the provided `echo` model, which repeats the prompt.
+      Build the Docker image with:
+      ```bash
+      cd models/dummy_echo_model
+      docker build -t dummy_echo_model:v0.0.1 .
+      ```
+4.  **Running on a Machine with Tenstorrent Hardware**:
+
+    To run TT-STUDIO on a device with Tenstorrent hardware, you need to uncomment specific lines in the `app/docker-compose.yml` file. Follow these steps:
+
+    1.  Navigate to the `app` directory:
+
+        ```bash
+        cd app/
+        ```
+
+    2.  Open the `docker-compose.yml` file in an editor (e.g., `vim` or a code editor like `VS CODE` ):
+
+        ```bash
+        vim docker-compose.yml
+        # or
+        code docker-compose.yml
+        ```
+
+    3.  Uncomment the following lines that have a `! flag` in front of them to enable Tenstorrent hardware support:
+        ```yaml
+        #* DEV: Uncomment devices to use Tenstorrent hardware
+        #! devices:
+        #* mounts all Tenstorrent devices to the backend container
+        #!   - /dev/tenstorrent:/dev/tenstorrent
+        ```
+        By uncommenting these lines, Docker will mount the Tenstorrent device (`/dev/tenstorrent`) to the backend container. This allows the docker container to utilize the Tenstorrent hardware for running machine learning models directly on the card.
 
 ---
 
@@ -103,7 +139,7 @@ To use the startup script, run:
 | `--cleanup`     | Stop and remove all Docker services.                          |
 | `--tt-hardware` | Enable Tenstorrent hardware support in Docker Compose.        |
 
-To display more detailed help in the terminal one can run:
+To display the same help section in the terminal, one can run:
 
 ```bash
 ./startup.sh --help
@@ -116,5 +152,3 @@ To display more detailed help in the terminal one can run:
 - **Frontend Documentation**: [app/frontend/README.md](app/frontend/README.md)
 - **Backend API Documentation**: [app/api/README.md](app/api/README.md)
 - **Model Implementations Documentation**: [models/README.md](models/README.md)
-
----
