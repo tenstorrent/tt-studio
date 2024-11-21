@@ -4,8 +4,6 @@ TT Studio enables rapid deployment of LLM inference servers locally and is optim
 
 ## Table of Contents
 
-## Table of Contents
-
 1. [Prerequisites](#prerequisites)
 2. [Overview](#overview)
 3. [Quick Start](#quick-start)
