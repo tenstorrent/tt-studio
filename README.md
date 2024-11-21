@@ -4,20 +4,28 @@ TT Studio enables rapid deployment of LLM inference servers locally and is optim
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Quick Start](#quick-start)
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Overview](#overview)
+3. [Quick Start](#quick-start)
    - [For General Users](#for-general-users)
    - [For Developers](#for-developers)
-3. [Using `startup.sh`](#using-startupsh)
+4. [Using `startup.sh`](#using-startupsh)
    - [Basic Usage](#basic-usage)
    - [Command-Line Options](#command-line-options)
-4. [Setting Up a Tenstorrent Device Using `setup.sh`](#setting-up-a-tenstorrent-device)
-   - [Overview](#setup-overview)
-   - [Steps](#steps)
+   - [Automatic Tenstorrent Hardware Detection](#automatic-tenstorrent-hardware-detection)
 5. [Documentation](#documentation)
+   - [Frontend Documentation](#frontend-documentation)
+   - [Backend API Documentation](#backend-api-documentation)
+   - [Running Llama3.1-70B in TT-Studio](#running-llama31-70b-in-tt-studio)
+
 
 ---
+## Prerequisites
+1. Docker: Ensure that Docker is installed on your machine. You can refer to the installation guide [here](https://docs.docker.com/engine/install/).
 
+---
 ## Quick Start
 
 ### For General Users
@@ -144,11 +152,25 @@ To display the same help section in the terminal, one can run:
 ```bash
 ./startup.sh --help
 ```
+##### Automatic Tenstorrent Hardware Detection
+
+If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt you to enable mount the Tenstorrent device, even if the script is run without the `--tt-hardware` flag. This allows you to easily opt in to use the hardware during setup without needing to restart or rerun the script, ensuring a seamless experience.
 
 ---
 
 ## Documentation
 
-- **Frontend Documentation**: [app/frontend/README.md](app/frontend/README.md)
-- **Backend API Documentation**: [app/api/README.md](app/api/README.md)
-- **Model Implementations Documentation**: [models/README.md](models/README.md)
+- **Frontend Documentation**: [app/frontend/README.md](app/frontend/README.md)  
+  Detailed documentation about the frontend of TT Studio, including setup, development, and customization guides.
+
+- **Backend API Documentation**: [app/api/README.md](app/api/README.md)  
+  Information on the backend API, powered by Django Rest Framework, including available endpoints and integration details.
+
+- **Running Llama3.1-70B in TT-Studio**: [HowToRunLlama3.1-70b.md](HowToRunLlama3.1-70b.md)  
+  Step-by-step instructions on how to configure and run the Llama3.1-70B model using TT Studio.
+
+- **Contribution Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)  
+  If you’re interested in contributing to the project, please refer to our contribution guidelines. This includes setting up a development environment, code standards, and the process for submitting pull requests.
+
+- **Frequently Asked Questions (FAQ)**: [FAQ.md](FAQ.md)  
+  A compilation of frequently asked questions to help users quickly solve common issues and understand key features of TT Studio.
