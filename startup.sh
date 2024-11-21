@@ -110,6 +110,22 @@ if [[ ! -f "${ENV_FILE_PATH}" && -f "${ENV_FILE_DEFAULT}" ]]; then
     cp "${ENV_FILE_DEFAULT}" "${ENV_FILE_PATH}"
 fi
 
+# run a simple command to check if /dev/tenstorrent exists 
+if [[ -e "/dev/tenstorrent" ]]; then
+    echo "🖥️ Tenstorrent device detected at /dev/tenstorrent."
+
+    # Prompt user for enabling TT hardware support
+    if [[ "$RUN_TT_HARDWARE" = false ]]; then
+        read -p "Do you want to mount Tenstorrent hardware? (y/n): " enable_hardware
+        if [[ "$enable_hardware" =~ ^[Yy]$ ]]; then
+            RUN_TT_HARDWARE=true
+            echo "Enabling Tenstorrent hardware support..."
+        fi
+    fi
+else
+    echo "⛔ No Tenstorrent device found at /dev/tenstorrent. Skipping Mounting hardware setup."
+fi
+
 # Update TT_STUDIO_ROOT and ENABLE_TT_HARDWARE in the .env file
 if [[ -f "${ENV_FILE_PATH}" ]]; then
     # Check OS and set sed command accordingly
