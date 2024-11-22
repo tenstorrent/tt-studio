@@ -33,8 +33,11 @@ export const runInference = async (
     console.log("Rendered Prompt:", prompt);
 
     // Prepare the request body for the API
-    const API_URL = "/models-api/inference/";
-    const AUTH_TOKEN = "";
+    // const API_URL = "/models-api/inference/";
+    // const AUTH_TOKEN = "";
+
+    const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
+    const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -45,7 +48,8 @@ export const runInference = async (
     // the model needs to be the deployed vLLM model name
     // future UI exposable params: temperature, top_k, top_p, max_tokens
     const requestBody = {
-      deploy_id: request.deploy_id,
+      // deploy_id: request.deploy_id,
+      model: "meta-llama/Llama-3.1-70B-Instruct",
       prompt: prompt,
       temperature: 1,
       top_k: 20,
