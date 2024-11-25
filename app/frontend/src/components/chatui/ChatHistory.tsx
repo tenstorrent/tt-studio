@@ -111,14 +111,17 @@ export default function ChatHistory({
                         ? "bg-TT-green-accent text-white text-left"
                         : "bg-TT-slate text-white text-left"
                     } p-3 rounded-lg mb-1`}
-                    style={{ wordBreak: "break-word", whiteSpace: "pre-wrap" }}
                   >
-                    <StreamingMessage
-                      content={message.text}
-                      isStreamFinished={
-                        !isStreaming || index !== chatHistory.length - 1
-                      }
-                    />
+                    {message.sender === "assistant" ? (
+                      <StreamingMessage
+                        content={message.text}
+                        isStreamFinished={
+                          !isStreaming || index !== chatHistory.length - 1
+                        }
+                      />
+                    ) : (
+                      <p>{message.text}</p>
+                    )}
                   </div>
                   {message.sender === "assistant" && message.inferenceStats && (
                     <InferenceStats stats={message.inferenceStats} />

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+import React from "react";
 import type { CodeToHtmlOptions } from "@llm-ui/code";
 import {
   loadHighlighter,
@@ -7,7 +8,6 @@ import {
   allLangs,
   allLangsAlias,
 } from "@llm-ui/code";
-import { LLMOutputComponent } from "@llm-ui/react";
 import parseHtml from "html-react-parser";
 import { getHighlighterCore } from "shiki/core";
 import { bundledLanguagesInfo } from "shiki/langs";
@@ -27,15 +27,32 @@ const codeToHtmlOptions: CodeToHtmlOptions = {
   theme: "github-dark",
 };
 
-const CodeBlock: LLMOutputComponent = ({ blockMatch }) => {
+interface CodeBlockProps {
+  blockMatch: {
+    output: string;
+    language: string;
+  };
+}
+
+const CodeBlock: React.FC<CodeBlockProps> = ({ blockMatch }) => {
+  // Normalize language name and provide fallback
+  const normalizeLanguage = (lang: string): string => {
+    const normalized = lang.toLowerCase().trim();
+    if (normalized === "pytho" || normalized === "py") return "python";
+    // Add more language normalizations here if needed
+    return normalized;
+  };
+
+  const language = normalizeLanguage(blockMatch.language);
+
   const { html, code } = useCodeBlockToHtml({
-    markdownCodeBlock: blockMatch.output,
+    markdownCodeBlock: `\`\`\`${language}\n${blockMatch.output}\n\`\`\``,
     highlighter,
     codeToHtmlOptions,
   });
 
   if (!html) {
-    // Fallback to <pre> if Shiki is not loaded yet
+    // Fallback to <pre> if Shiki is not loaded yet or language is not recognized
     return (
       <pre className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">
         <code className="text-white text-sm">{code}</code>
