@@ -49,8 +49,11 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const lastMessageRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
-    if (lastMessageRef.current) {
-      lastMessageRef.current.scrollIntoView({ behavior: "smooth" });
+    if (viewportRef.current) {
+      viewportRef.current.scrollTo({
+        top: viewportRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
   }, []);
 
@@ -72,7 +75,16 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
   useEffect(() => {
     if (!isStreaming) {
-      scrollToBottom();
+      const viewport = viewportRef.current;
+      if (viewport) {
+        const { scrollTop, scrollHeight, clientHeight } = viewport;
+        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
+        if (isAtBottom) {
+          scrollToBottom();
+        } else {
+          setIsScrollButtonVisible(true);
+        }
+      }
     }
   }, [chatHistory, isStreaming, scrollToBottom]);
 
