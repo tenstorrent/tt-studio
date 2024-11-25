@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { User, ChevronDown } from "lucide-react";
 import { Button } from "../ui/button";
@@ -9,6 +9,7 @@ import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
 
 interface ChatMessage {
+  id: string;
   sender: "user" | "assistant";
   text: string;
   inferenceStats?: InferenceStats;
@@ -37,60 +38,60 @@ interface ChatHistoryProps {
   isStreaming: boolean;
 }
 
-export default function ChatHistory({
+const ChatHistory: React.FC<ChatHistoryProps> = ({
   chatHistory,
   logo,
   setTextInput,
   isStreaming,
-}: ChatHistoryProps) {
+}) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    if (viewportRef.current) {
-      viewportRef.current.scrollTo({
-        top: viewportRef.current.scrollHeight,
-        behavior: "smooth",
-      });
+  const scrollToBottom = useCallback(() => {
+    if (lastMessageRef.current) {
+      lastMessageRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  };
+  }, []);
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
       const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
       setIsScrollButtonVisible(!isAtBottom);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (viewportRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
-
-      if (isAtBottom) {
-        scrollToBottom();
-      }
+    const viewport = viewportRef.current;
+    if (viewport) {
+      viewport.addEventListener("scroll", handleScroll);
+      return () => viewport.removeEventListener("scroll", handleScroll);
     }
-  }, [chatHistory]);
+  }, [handleScroll]);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      scrollToBottom();
+    }
+  }, [chatHistory, isStreaming, scrollToBottom]);
 
   return (
     <div className="flex flex-col w-full flex-grow p-8 font-rmMono relative overflow-hidden">
-      {chatHistory.length === 0 && (
+      {chatHistory.length === 0 ? (
         <ChatExamples logo={logo} setTextInput={setTextInput} />
-      )}
-      {chatHistory.length > 0 && (
+      ) : (
         <ScrollArea.Root className="flex-grow h-full overflow-hidden">
           <ScrollArea.Viewport
             ref={viewportRef}
-            onScroll={handleScroll}
             className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
           >
             <div className="p-4 border rounded-lg">
               {chatHistory.map((message, index) => (
                 <div
-                  key={index}
-                  className={`chat ${message.sender === "user" ? "chat-end" : "chat-start"}`}
+                  key={message.id}
+                  ref={index === chatHistory.length - 1 ? lastMessageRef : null}
+                  className={`chat ${message.sender === "user" ? "chat-end" : "chat-start"} mb-4`}
                 >
                   <div className="chat-image avatar text-left">
                     <div className="w-10 rounded-full">
@@ -99,7 +100,7 @@ export default function ChatHistory({
                       ) : (
                         <img
                           src={logo}
-                          alt="Tenstorrent Logo"
+                          alt="Assistant Logo"
                           className="w-8 h-8 rounded-full mr-2"
                         />
                       )}
@@ -148,4 +149,6 @@ export default function ChatHistory({
       )}
     </div>
   );
-}
+};
+
+export default React.memo(ChatHistory);
