@@ -43,6 +43,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
         setRenderedContent(contentRef.current);
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
+          intervalRef.current = null;
         }
       } else {
         if (!intervalRef.current) {
@@ -65,7 +66,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
           intervalRef.current = null;
         }
       };
-    }, [content, isStreamFinished, renderNextChunk]);
+    }, [content, isStreamFinished, renderNextChunk, renderedContent]);
 
     return (
       <div className="relative">
