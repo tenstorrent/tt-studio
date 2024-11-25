@@ -19,12 +19,37 @@ logger.info(f"importing {__name__}")
 
 
 def test_deploy_echo_model():
-    impl = model_implmentations["0"]
+    impl = model_implmentations["id_dummy_echo_modelv0.0.1"]
     json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
     encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
     # 1. run container
     logger.info(f"using impl:={impl}")
     status = run_container(impl)
+    logger.info(f"status:={status}")
+    assert status["status"] == "success"
+    # 2. make valid API call to container
+    container_id = status["container_id"]
+    service_port = impl.service_port
+    service_route = status["service_route"]
+    host = status["container_name"]
+    api_url = f"http://{host}:{service_port}{service_route}"
+    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+    assert valid_api_call(api_url, headers)
+    # 3. stop container
+    logger.info(f"stop deployed container: container_id={container_id}")
+    stop_status = stop_container(container_id)
+    logger.info(f"status:={stop_status}")
+    assert stop_status["status"] == "success"
+
+
+def test_deploy_llama3_model():
+    impl = model_implmentations["id_tt-metal-llama-3.1-70b-instructv0.0.1"]
+    json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
+    encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
+    # 1. run container
+    logger.info(f"using impl:={impl}")
+    weights_id = impl.docker_config["environment"]["MODEL_WEIGHTS_ID"]
+    status = run_container(impl, weights_id)
     logger.info(f"status:={status}")
     assert status["status"] == "success"
     # 2. make valid API call to container
