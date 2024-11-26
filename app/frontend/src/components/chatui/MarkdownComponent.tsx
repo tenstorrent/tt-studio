@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
+import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { LLMOutputComponent } from "@llm-ui/react";
+import CodeBlock from "./CodeBlock";
 
-const MarkdownComponent: LLMOutputComponent = ({ blockMatch }) => {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
+interface MarkdownComponentProps {
+  children: string;
+}
+
+const MarkdownComponent: React.FC<MarkdownComponentProps> = React.memo(
+  ({ children }) => {
+    const components: Partial<Components> = useMemo(
+      () => ({
         h1: ({ children }) => (
           <h1 className="text-2xl font-bold mb-2">{children}</h1>
         ),
@@ -41,11 +45,37 @@ const MarkdownComponent: LLMOutputComponent = ({ blockMatch }) => {
             {children}
           </a>
         ),
-      }}
-    >
-      {blockMatch.output}
-    </ReactMarkdown>
-  );
-};
+        code: ({ inline, className, children, ...props }) => {
+          const match = /language-(\w+)/.exec(className || "");
+          if (!inline && match) {
+            return (
+              <CodeBlock
+                blockMatch={{
+                  output: String(children).replace(/\n$/, ""),
+                  language: match[1],
+                }}
+              />
+            );
+          }
+          return (
+            <code
+              className={`${className} bg-gray-800 rounded px-1`}
+              {...props}
+            >
+              {children}
+            </code>
+          );
+        },
+      }),
+      [],
+    );
+
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {children}
+      </ReactMarkdown>
+    );
+  },
+);
 
 export default MarkdownComponent;
