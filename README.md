@@ -67,8 +67,7 @@ To set up TT Studio:
    ssh -L 3000:localhost:3000 <username>@<remote_server>
    ```
 
-> ⚠️ **Note**: To use Tenstorrent hardware, use the `--tt-hardware` flag with the `startup.sh` script. This will enable the necessary hardware configurations automatically without manual changes to `docker-compose.yml`.
-
+> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script and select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker-compose.yml.
 ---
 
 ### For Developers
@@ -143,7 +142,6 @@ To use the startup script, run:
 | `--help`        | Display help message with usage details.                      |
 | `--setup`       | Run the `setup.sh` script with sudo privileges for all steps. |
 | `--cleanup`     | Stop and remove all Docker services.                          |
-| `--tt-hardware` | Enable Tenstorrent hardware support in Docker Compose.        |
 
 To display the same help section in the terminal, one can run:
 
@@ -152,7 +150,7 @@ To display the same help section in the terminal, one can run:
 ```
 ##### Automatic Tenstorrent Hardware Detection
 
-If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt you to enable mount the Tenstorrent device, even if the script is run without the `--tt-hardware` flag. This allows you to easily opt in to use the hardware during setup without needing to restart or rerun the script, ensuring a seamless experience.
+If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt you to enable mount the Tenstorrent device.
 
 ---
 

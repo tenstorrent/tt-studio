@@ -24,13 +24,12 @@ usage() {
     echo -e "  --help              ❓ Show this help message and exit."
     echo -e "  --setup             🔧 Run the setup script with sudo and all steps before executing main steps."
     echo -e "  --cleanup           🧹 Stop and remove Docker services."
-    echo -e "  --tt-hardware       🖥️  Configure for TT hardware support in Docker Compose."
     echo
     echo -e "Examples:"
-    echo -e "  ./startup.sh --setup             # Run setup steps as sudo, then main steps"
+    #! TODO add back in support once setup scripts are merged in
+    # echo -e "  ./startup.sh --setup             # Run setup steps as sudo, then main steps" phase this out for now .
     echo -e "  ./startup.sh                     # Run the main setup steps directly"
     echo -e "  ./startup.sh --cleanup           # Stop and clean up Docker services"
-    echo -e "  ./startup.sh --tt-hardware       # Run with TT hardware configuration"
     echo -e "  ./startup.sh --help              # Display this help message"
     exit 0
 }
