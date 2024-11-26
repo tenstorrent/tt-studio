@@ -39,7 +39,7 @@ interface ChatHistoryProps {
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
-  chatHistory,
+  chatHistory = [],
   logo,
   setTextInput,
   isStreaming,

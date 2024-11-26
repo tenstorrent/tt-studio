@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "../ui/card";
 import { useLocation } from "react-router-dom";
 import logo from "../../assets/tt_logo.svg";
