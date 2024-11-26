@@ -150,7 +150,7 @@ To display the same help section in the terminal, one can run:
 ```
 ##### Automatic Tenstorrent Hardware Detection
 
-If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt you to enable mount the Tenstorrent device.
+If a Tenstorrent device (/dev/tenstorrent) is detected, the script will prompt you to mount it.
 
 ---
 
