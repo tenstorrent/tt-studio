@@ -12,6 +12,7 @@ import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
 import { InferenceRequest, RagDataSource, ChatMessage, Model } from "./types";
 import { runInference } from "./runInference";
+import { v4 as uuidv4 } from "uuid";
 
 export default function ChatComponent() {
   const location = useLocation();
@@ -51,6 +52,7 @@ export default function ChatComponent() {
     if (textInput.trim() === "" || !modelID) return;
 
     const userMessage: ChatMessage = {
+      id: uuidv4(),
       sender: "user",
       text: textInput,
     };
@@ -68,7 +70,26 @@ export default function ChatComponent() {
       inferenceRequest,
       ragDatasource,
       updatedChatHistory,
-      setChatHistory,
+      (newHistory) => {
+        setChatHistory((prevHistory) => {
+          const currentHistory =
+            typeof newHistory === "function"
+              ? newHistory(prevHistory)
+              : newHistory;
+          const lastMessage = currentHistory[currentHistory.length - 1];
+          if (
+            lastMessage &&
+            lastMessage.sender === "assistant" &&
+            !lastMessage.id
+          ) {
+            return [
+              ...currentHistory.slice(0, -1),
+              { ...lastMessage, id: uuidv4() },
+            ];
+          }
+          return currentHistory;
+        });
+      },
       setIsStreaming,
     );
 

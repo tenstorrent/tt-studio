@@ -47,3 +47,10 @@ export interface StreamingMessageProps {
   content: string;
   isStreamFinished: boolean;
 }
+
+export interface ChatMessage {
+  id: string;
+  sender: "user" | "assistant";
+  text: string;
+  inferenceStats?: InferenceStats;
+}

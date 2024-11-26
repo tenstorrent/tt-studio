@@ -60,7 +60,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const handleScroll = useCallback(() => {
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1; // Changed from 100 to 1 for more precise detection
       setIsScrollButtonVisible(!isAtBottom);
     }
   }, []);
@@ -78,12 +78,11 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       const viewport = viewportRef.current;
       if (viewport) {
         const { scrollTop, scrollHeight, clientHeight } = viewport;
-        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
+        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
         if (isAtBottom) {
           scrollToBottom();
-        } else {
-          setIsScrollButtonVisible(true);
         }
+        setIsScrollButtonVisible(!isAtBottom);
       }
     }
   }, [chatHistory, isStreaming, scrollToBottom]);
@@ -97,6 +96,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           <ScrollArea.Viewport
             ref={viewportRef}
             className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+            onScroll={handleScroll}
           >
             <div className="p-4 border rounded-lg">
               {chatHistory.map((message, index) => (
@@ -154,7 +154,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       {isScrollButtonVisible && (
         <Button
           className="absolute bottom-4 right-4 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
-          onClick={scrollToBottom}
+          onClick={() => {
+            scrollToBottom();
+            setIsScrollButtonVisible(false);
+          }}
         >
           <ChevronDown className="h-6 w-6 animate-bounce" />
         </Button>

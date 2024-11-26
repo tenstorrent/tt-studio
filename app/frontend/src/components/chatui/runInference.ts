@@ -4,6 +4,7 @@
 import { InferenceRequest, RagDataSource, ChatMessage } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
+import { v4 as uuidv4 } from "uuid"; // Make sure to install and import uuid
 
 export const runInference = async (
   request: InferenceRequest,
@@ -24,7 +25,6 @@ export const runInference = async (
       console.log("RAG context fetched:", ragContext);
     }
 
-    // Add a console.log statement before calling generatePrompt to verify the RAG context
     console.log("RAG context being passed to generatePrompt:", ragContext);
 
     // Step 2: Generate the prompt using the new generatePrompt function
@@ -81,10 +81,10 @@ export const runInference = async (
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
 
-    // Add a placeholder for the assistant's response
+    // Add a placeholder for the assistant's response with a unique id
     setChatHistory((prevHistory) => [
       ...prevHistory,
-      { sender: "assistant", text: "" },
+      { id: uuidv4(), sender: "assistant", text: "" },
     ]);
 
     if (reader) {
@@ -121,7 +121,10 @@ export const runInference = async (
                 // Update chat history in real-time with the current assistant's response
                 setChatHistory((prevHistory) => {
                   const updatedHistory = [...prevHistory];
-                  updatedHistory[updatedHistory.length - 1].text += content;
+                  const lastMessage = updatedHistory[updatedHistory.length - 1];
+                  if (lastMessage.sender === "assistant") {
+                    lastMessage.text += content;
+                  }
                   return updatedHistory;
                 });
               } catch (error) {
