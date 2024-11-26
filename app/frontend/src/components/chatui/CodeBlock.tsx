@@ -34,15 +34,60 @@ interface CodeBlockProps {
   };
 }
 
-const CodeBlock: React.FC<CodeBlockProps> = ({ blockMatch }) => {
-  // Normalize language name and provide fallback
-  const normalizeLanguage = (lang: string): string => {
-    const normalized = lang.toLowerCase().trim();
-    if (normalized === "pytho" || normalized === "py") return "python";
-    // Add more language normalizations here if needed
-    return normalized;
-  };
+const normalizeLanguage = (lang: string): string => {
+  const normalized = lang.toLowerCase().trim();
+  switch (normalized) {
+    case "pyt":
+    case "pytho":
+    case "py":
+    case "python":
+      return "python";
+    case "js":
+    case "javascript":
+      return "javascript";
+    case "ts":
+    case "typescript":
+      return "typescript";
+    case "html":
+    case "htm":
+      return "html";
+    case "css":
+      return "css";
+    case "json":
+      return "json";
+    case "java":
+      return "java";
+    case "cpp":
+    case "c++":
+      return "cpp";
+    case "c#":
+    case "csharp":
+    case "cs":
+      return "csharp";
+    case "go":
+    case "golang":
+      return "go";
+    case "rust":
+    case "rs":
+      return "rust";
+    case "swift":
+      return "swift";
+    case "kotlin":
+    case "kt":
+      return "kotlin";
+    case "ruby":
+    case "rb":
+      return "ruby";
+    case "php":
+      return "php";
+    // Add more language mappings as needed
+    default:
+      // If the language is not recognized, default to 'plaintext'
+      return "plaintext";
+  }
+};
 
+const CodeBlock: React.FC<CodeBlockProps> = ({ blockMatch }) => {
   const language = normalizeLanguage(blockMatch.language);
 
   const { html, code } = useCodeBlockToHtml({
@@ -51,19 +96,22 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ blockMatch }) => {
     codeToHtmlOptions,
   });
 
-  if (!html) {
-    // Fallback to <pre> if Shiki is not loaded yet or language is not recognized
+  const renderCode = () => {
+    if (html) {
+      return parseHtml(html);
+    }
+    // Fallback to plain text rendering if HTML generation fails
     return (
-      <pre className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">
-        <code className="text-white text-sm">{code}</code>
+      <pre className="text-white text-sm">
+        <code>{code}</code>
       </pre>
     );
-  }
+  };
 
   return (
     <div className="relative group">
       <div className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">
-        {parseHtml(html)}
+        {renderCode()}
       </div>
       <button
         className="absolute top-2 right-2 bg-gray-700 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity"
