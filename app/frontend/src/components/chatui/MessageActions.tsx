@@ -13,10 +13,7 @@ import CustomToaster, { customToast } from "../CustomToaster";
 
 interface MessageActionsProps {
   messageId: string;
-  onCopy: () => void;
-  onThumbsUp: () => void;
-  onThumbsDown: () => void;
-  onRender: (messageId: string) => void;
+  onReRender: (messageId: string) => void;
   onContinue: (messageId: string) => void;
   isReRendering: boolean;
   isStreaming: boolean;
@@ -24,48 +21,39 @@ interface MessageActionsProps {
 
 const MessageActions: React.FC<MessageActionsProps> = ({
   messageId,
-  onCopy,
-  onThumbsUp,
-  onThumbsDown,
-  onRender,
+  onReRender,
   onContinue,
   isReRendering,
   isStreaming,
 }) => {
+  const handleCopy = () => {
+    // Implement copy logic here
+    customToast.success("Message copied to clipboard");
+  };
+
+  const handleThumbsUp = () => {
+    // Implement thumbs up logic here
+    customToast.success("Thanks for the feedback!");
+  };
+
+  const handleThumbsDown = () => {
+    // Implement thumbs down logic here
+    customToast.error("Thanks for the feedback :(");
+  };
+
   return (
     <>
       <CustomToaster />
       <div className="flex items-center gap-2 mt-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            onCopy();
-            customToast.success("Message copied to clipboard");
-          }}
-        >
+        <Button variant="ghost" size="icon" onClick={handleCopy}>
           <Clipboard className="h-4 w-4" />
           <span className="sr-only">Copy message</span>
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            onThumbsUp();
-            customToast.success("Thanks for the feedback!");
-          }}
-        >
+        <Button variant="ghost" size="icon" onClick={handleThumbsUp}>
           <ThumbsUp className="h-4 w-4" />
           <span className="sr-only">Thumbs up</span>
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            onThumbsDown();
-            customToast.error("Thanks for the feedback :(");
-          }}
-        >
+        <Button variant="ghost" size="icon" onClick={handleThumbsDown}>
           <ThumbsDown className="h-4 w-4" />
           <span className="sr-only">Thumbs down</span>
         </Button>
@@ -73,7 +61,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
           variant="ghost"
           size="icon"
           onClick={() => {
-            onRender(messageId);
+            onReRender(messageId);
             customToast.info("Re-rendering message");
           }}
           disabled={isReRendering || isStreaming}

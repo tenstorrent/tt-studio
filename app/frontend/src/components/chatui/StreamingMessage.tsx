@@ -3,7 +3,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import MarkdownComponent from "./MarkdownComponent";
-import MessageActions from "./MessageActions";
 
 interface StreamingMessageProps {
   content: string;
@@ -69,26 +68,6 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
       };
     }, [content, isStreamFinished, renderNextChunk, renderedContent]);
 
-    const handleCopy = () => {
-      navigator.clipboard.writeText(renderedContent);
-      // You might want to add a toast or some visual feedback here
-    };
-
-    const handleThumbsUp = () => {
-      // Implement thumbs up logic
-      console.log("Thumbs up clicked");
-    };
-
-    const handleThumbsDown = () => {
-      // Implement thumbs down logic
-      console.log("Thumbs down clicked");
-    };
-
-    const handleRender = () => {
-      // Implement render logic
-      console.log("Render clicked");
-    };
-
     return (
       <div className="relative">
         <MarkdownComponent>{renderedContent}</MarkdownComponent>
@@ -102,14 +81,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
             ▋
           </motion.span>
         )}
-        {isStreamFinished && (
-          <MessageActions
-            onCopy={handleCopy}
-            onThumbsUp={handleThumbsUp}
-            onThumbsDown={handleThumbsDown}
-            onRender={handleRender}
-          />
-        )}
+        {/* {isStreamFinished} */}
       </div>
     );
   },

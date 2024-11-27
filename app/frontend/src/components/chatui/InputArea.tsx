@@ -9,7 +9,7 @@ import { Spinner } from "../ui/spinner";
 interface InputAreaProps {
   textInput: string;
   setTextInput: (text: string) => void;
-  handleInference: () => void;
+  handleInference: (input: string) => void;
   isStreaming: boolean;
 }
 
@@ -28,7 +28,7 @@ export default function InputArea({
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleInference();
+      handleInference(textInput);
     }
   };
 
@@ -61,7 +61,7 @@ export default function InputArea({
         />
         <Button
           className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
-          onClick={handleInference}
+          onClick={() => handleInference(textInput)}
           disabled={isStreaming || !textInput.trim()}
         >
           {isStreaming ? <Spinner /> : <Send className="h-5 w-5" />}

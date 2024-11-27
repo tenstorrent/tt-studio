@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card } from "../ui/card";
 import { useLocation } from "react-router-dom";
 import logo from "../../assets/tt_logo.svg";
@@ -51,93 +51,139 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
-  const handleInference = async (
-    input: string,
-    continuationMessageId: string | null = null,
-  ) => {
-    if (input.trim() === "" || !modelID) return;
+  const handleInference = useCallback(
+    (continuationMessageId: string | null = null) => {
+      if (textInput.trim() === "" || !modelID) return;
 
-    let updatedChatHistory: ChatMessage[];
+      let updatedChatHistory: ChatMessage[];
 
-    if (continuationMessageId) {
-      // If continuing, find the message to continue and update it
-      updatedChatHistory = chatHistory.map((msg) =>
-        msg.id === continuationMessageId
-          ? { ...msg, text: msg.text + " [Continuing...] " }
-          : msg,
-      );
-    } else {
-      // If not continuing, add a new user message
-      const userMessage: ChatMessage = {
-        id: uuidv4(),
-        sender: "user",
-        text: input,
+      if (continuationMessageId) {
+        updatedChatHistory = chatHistory.map((msg) =>
+          msg.id === continuationMessageId
+            ? { ...msg, text: msg.text + " [Continuing...] " }
+            : msg,
+        );
+      } else {
+        const userMessage: ChatMessage = {
+          id: uuidv4(),
+          sender: "user",
+          text: textInput,
+        };
+        updatedChatHistory = [...chatHistory, userMessage];
+      }
+
+      setChatHistory(updatedChatHistory);
+
+      const inferenceRequest: InferenceRequest = {
+        deploy_id: modelID,
+        text: continuationMessageId ? `Continue: ${textInput}` : textInput,
       };
-      updatedChatHistory = [...chatHistory, userMessage];
-    }
 
-    setChatHistory(updatedChatHistory);
+      setIsStreaming(true);
 
-    const inferenceRequest: InferenceRequest = {
-      deploy_id: modelID,
-      text: continuationMessageId ? `Continue: ${input}` : input,
-    };
+      runInference(
+        inferenceRequest,
+        ragDatasource,
+        updatedChatHistory,
+        (newHistory) => {
+          setChatHistory((prevHistory) => {
+            const currentHistory =
+              typeof newHistory === "function"
+                ? newHistory(prevHistory)
+                : newHistory;
+            const lastMessage = currentHistory[currentHistory.length - 1];
+            if (
+              lastMessage &&
+              lastMessage.sender === "assistant" &&
+              !lastMessage.id
+            ) {
+              return [
+                ...currentHistory.slice(0, -1),
+                { ...lastMessage, id: uuidv4() },
+              ];
+            }
+            return currentHistory;
+          });
+        },
+        setIsStreaming,
+      );
 
-    setIsStreaming(true);
+      setTextInput("");
+      setReRenderingMessageId(null);
+    },
+    [chatHistory, modelID, ragDatasource, textInput],
+  );
 
-    // Run inference
-    await runInference(
-      inferenceRequest,
-      ragDatasource,
-      updatedChatHistory,
-      (newHistory) => {
-        setChatHistory((prevHistory) => {
-          const currentHistory =
-            typeof newHistory === "function"
-              ? newHistory(prevHistory)
-              : newHistory;
-          const lastMessage = currentHistory[currentHistory.length - 1];
-          if (
-            lastMessage &&
-            lastMessage.sender === "assistant" &&
-            !lastMessage.id
-          ) {
-            return [
-              ...currentHistory.slice(0, -1),
-              { ...lastMessage, id: uuidv4() },
-            ];
-          }
-          return currentHistory;
-        });
-      },
-      setIsStreaming,
-    );
+  const handleReRender = useCallback(
+    async (messageId: string) => {
+      const messageToReRender = chatHistory.find((msg) => msg.id === messageId);
+      if (
+        !messageToReRender ||
+        messageToReRender.sender !== "assistant" ||
+        !modelID
+      )
+        return;
 
-    setTextInput("");
-    setReRenderingMessageId(null);
-  };
+      const userMessage = chatHistory.find(
+        (msg) =>
+          msg.sender === "user" &&
+          chatHistory.indexOf(msg) < chatHistory.indexOf(messageToReRender),
+      );
+      if (!userMessage) return;
 
-  const handleReRender = async (messageId: string) => {
-    const messageToReRender = chatHistory.find((msg) => msg.id === messageId);
-    if (!messageToReRender || messageToReRender.sender !== "assistant") return;
+      setReRenderingMessageId(messageId);
+      setIsStreaming(true);
 
-    const userMessage = chatHistory.find(
-      (msg) =>
-        msg.sender === "user" &&
-        chatHistory.indexOf(msg) < chatHistory.indexOf(messageToReRender),
-    );
-    if (!userMessage) return;
+      const inferenceRequest: InferenceRequest = {
+        deploy_id: modelID,
+        text: userMessage.text,
+      };
 
-    setReRenderingMessageId(messageId);
-    await handleInference(userMessage.text);
-  };
+      await runInference(
+        inferenceRequest,
+        ragDatasource,
+        chatHistory,
+        (
+          newHistory:
+            | ChatMessage[]
+            | ((prevHistory: ChatMessage[]) => ChatMessage[]),
+        ) => {
+          setChatHistory((prevHistory) => {
+            const currentHistory = Array.isArray(newHistory)
+              ? newHistory
+              : newHistory(prevHistory);
+            return prevHistory.map((msg) => {
+              if (msg.id === messageId) {
+                const updatedMessage =
+                  currentHistory[currentHistory.length - 1];
+                return {
+                  ...msg,
+                  text: updatedMessage.text,
+                  inferenceStats: updatedMessage.inferenceStats,
+                };
+              }
+              return msg;
+            });
+          });
+        },
+        setIsStreaming,
+      );
 
-  const handleContinue = async (messageId: string) => {
-    const messageToContinue = chatHistory.find((msg) => msg.id === messageId);
-    if (!messageToContinue || messageToContinue.sender !== "assistant") return;
+      setReRenderingMessageId(null);
+    },
+    [chatHistory, modelID, ragDatasource],
+  );
 
-    setTextInput(`Continue from: "${messageToContinue.text}"`);
-  };
+  const handleContinue = useCallback(
+    (messageId: string) => {
+      const messageToContinue = chatHistory.find((msg) => msg.id === messageId);
+      if (!messageToContinue || messageToContinue.sender !== "assistant")
+        return;
+
+      setTextInput(`Continue from: "${messageToContinue.text}"`);
+    },
+    [chatHistory],
+  );
 
   return (
     <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden">
@@ -163,7 +209,7 @@ export default function ChatComponent() {
         <InputArea
           textInput={textInput}
           setTextInput={setTextInput}
-          handleInference={handleInference}
+          handleInference={() => handleInference(null)}
           isStreaming={isStreaming}
         />
       </Card>
