@@ -144,10 +144,14 @@ export function VoiceInput({
             <div className="relative inline-flex rounded-full h-3 w-3 bg-[#7C68FA]"></div>
           </div>
           {isSpeaking && (
-            <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 flex gap-1">
-              <div className="w-1 h-3 bg-[#7C68FA] rounded-full animate-sound-wave-1"></div>
-              <div className="w-1 h-3 bg-[#7C68FA] rounded-full animate-sound-wave-2"></div>
-              <div className="w-1 h-3 bg-[#7C68FA] rounded-full animate-sound-wave-3"></div>
+            <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 flex items-center justify-center w-24 h-8 bg-[#7C68FA]/10 rounded-full overflow-hidden">
+              <div className="flex gap-1 items-end">
+                <div className="w-1 bg-[#7C68FA] rounded-full animate-sound-wave-1"></div>
+                <div className="w-1 bg-[#7C68FA] rounded-full animate-sound-wave-2"></div>
+                <div className="w-1 bg-[#7C68FA] rounded-full animate-sound-wave-3"></div>
+                <div className="w-1 bg-[#7C68FA] rounded-full animate-sound-wave-2"></div>
+                <div className="w-1 bg-[#7C68FA] rounded-full animate-sound-wave-1"></div>
+              </div>
             </div>
           )}
         </>
