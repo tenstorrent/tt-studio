@@ -96,7 +96,7 @@ Developers can control and run the app directly via `docker-compose`, keeping th
       ```
 4.  **Running on a Machine with Tenstorrent Hardware**:
 
-    To run TT-STUDIO on a device with Tenstorrent hardware, you need to uncomment specific lines in the `app/docker-compose.yml` file. Follow these steps:
+    To run TT-Studio on a device with Tenstorrent hardware, you need to uncomment specific lines in the `app/docker-compose.yml` file. Follow these steps:
 
     1.  Navigate to the `app` directory:
 
