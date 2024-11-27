@@ -29,6 +29,9 @@ export default function ChatComponent() {
   const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
+  const [reRenderingMessageId, setReRenderingMessageId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     if (location.state) {
@@ -48,25 +51,42 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
-  const handleInference = () => {
-    if (textInput.trim() === "" || !modelID) return;
+  const handleInference = async (
+    input: string,
+    continuationMessageId: string | null = null,
+  ) => {
+    if (input.trim() === "" || !modelID) return;
 
-    const userMessage: ChatMessage = {
-      id: uuidv4(),
-      sender: "user",
-      text: textInput,
-    };
+    let updatedChatHistory: ChatMessage[];
 
-    const updatedChatHistory = [...chatHistory, userMessage];
+    if (continuationMessageId) {
+      // If continuing, find the message to continue and update it
+      updatedChatHistory = chatHistory.map((msg) =>
+        msg.id === continuationMessageId
+          ? { ...msg, text: msg.text + " [Continuing...] " }
+          : msg,
+      );
+    } else {
+      // If not continuing, add a new user message
+      const userMessage: ChatMessage = {
+        id: uuidv4(),
+        sender: "user",
+        text: input,
+      };
+      updatedChatHistory = [...chatHistory, userMessage];
+    }
+
     setChatHistory(updatedChatHistory);
 
     const inferenceRequest: InferenceRequest = {
       deploy_id: modelID,
-      text: textInput,
+      text: continuationMessageId ? `Continue: ${input}` : input,
     };
 
+    setIsStreaming(true);
+
     // Run inference
-    runInference(
+    await runInference(
       inferenceRequest,
       ragDatasource,
       updatedChatHistory,
@@ -94,6 +114,29 @@ export default function ChatComponent() {
     );
 
     setTextInput("");
+    setReRenderingMessageId(null);
+  };
+
+  const handleReRender = async (messageId: string) => {
+    const messageToReRender = chatHistory.find((msg) => msg.id === messageId);
+    if (!messageToReRender || messageToReRender.sender !== "assistant") return;
+
+    const userMessage = chatHistory.find(
+      (msg) =>
+        msg.sender === "user" &&
+        chatHistory.indexOf(msg) < chatHistory.indexOf(messageToReRender),
+    );
+    if (!userMessage) return;
+
+    setReRenderingMessageId(messageId);
+    await handleInference(userMessage.text);
+  };
+
+  const handleContinue = async (messageId: string) => {
+    const messageToContinue = chatHistory.find((msg) => msg.id === messageId);
+    if (!messageToContinue || messageToContinue.sender !== "assistant") return;
+
+    setTextInput(`Continue from: "${messageToContinue.text}"`);
   };
 
   return (
@@ -113,6 +156,9 @@ export default function ChatComponent() {
           logo={logo}
           setTextInput={setTextInput}
           isStreaming={isStreaming}
+          onReRender={handleReRender}
+          onContinue={handleContinue}
+          reRenderingMessageId={reRenderingMessageId}
         />
         <InputArea
           textInput={textInput}

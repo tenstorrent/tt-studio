@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { User, ChevronDown } from "lucide-react";
+import { User, ChevronDown} from "lucide-react";
 import { Button } from "../ui/button";
 import InferenceStats from "./InferenceStats";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
+import MessageActions from "./MessageActions";
 
 interface ChatMessage {
   id: string;
@@ -36,6 +37,9 @@ interface ChatHistoryProps {
   logo: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
   isStreaming: boolean;
+  onReRender: (messageId: string) => void;
+  onContinue: (messageId: string) => void;
+  reRenderingMessageId: string | null;
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
@@ -43,6 +47,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   logo,
   setTextInput,
   isStreaming,
+  onReRender,
+  onContinue,
+  reRenderingMessageId,
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
@@ -60,7 +67,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const handleScroll = useCallback(() => {
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1; // Changed from 100 to 1 for more precise detection
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
       setIsScrollButtonVisible(!isAtBottom);
     }
   }, []);
@@ -125,6 +132,27 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                         : "bg-TT-slate text-white text-left"
                     } p-3 rounded-lg mb-1`}
                   >
+                    {message.sender === "assistant" &&
+                      reRenderingMessageId === message.id && (
+                        <div className="text-yellow-300 font-bold mb-2 flex items-center">
+                          <span className="mr-2">1</span>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="animate-spin"
+                          >
+                            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                          </svg>
+                          <span className="ml-2">2</span>
+                        </div>
+                      )}
                     {message.sender === "assistant" ? (
                       <StreamingMessage
                         content={message.text}
@@ -138,6 +166,24 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   </div>
                   {message.sender === "assistant" && message.inferenceStats && (
                     <InferenceStats stats={message.inferenceStats} />
+                  )}
+                  {message.sender === "assistant" && (
+                    <MessageActions
+                      messageId={message.id}
+                      onCopy={() => {
+                        /* Implement copy logic */
+                      }}
+                      onThumbsUp={() => {
+                        /* Implement thumbs up logic */
+                      }}
+                      onThumbsDown={() => {
+                        /* Implement thumbs down logic */
+                      }}
+                      onRender={onReRender}
+                      onContinue={onContinue}
+                      isReRendering={reRenderingMessageId === message.id}
+                      isStreaming={isStreaming}
+                    />
                   )}
                 </div>
               ))}
