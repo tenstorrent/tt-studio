@@ -186,7 +186,7 @@ fi
 
 # Final message to the user with instructions on where to access the app
 echo -e "\e[1;32m=====================================================\e[0m"
-echo -e "\e[1;32m          🎉 TT Studio Setup Complete! 🎉           \e[0m"
+echo -e "\e[1;32m          🎉 TT-Studio Setup Complete! 🎉           \e[0m"
 echo -e "\e[1;32m=====================================================\e[0m"
 echo
 echo -e "\e[1;32m🚀 The application is now accessible at:\e[0m \e[4mhttp://localhost:3000\e[0m"
