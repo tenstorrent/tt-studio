@@ -28,7 +28,7 @@ TT-Studio enables rapid deployment of LLM inference servers locally and is optim
 
 ### For General Users
 
-To set up TT Studio:
+To set up TT-Studio:
 
 1. **Clone the Repository**:
 
