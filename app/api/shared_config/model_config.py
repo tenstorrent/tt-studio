@@ -152,17 +152,18 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
-        model_name="echo",
-        model_id="id_dummy_echo_modelv0.0.1",
-        image_name="dummy_echo_model",
-        image_tag="v0.0.1",
+        model_name="mock",
+        model_id="id_mock_vllm_modelv0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
+        image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
         device_configurations={DeviceConfigurations.CPU},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
         shm_size="1G",
         service_port=7000,
-        service_route="/inference/dummy_echo",
+        service_route="/v1/completions",
+        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
     ModelImpl(
         model_name="Falcon-7B-Instruct",
