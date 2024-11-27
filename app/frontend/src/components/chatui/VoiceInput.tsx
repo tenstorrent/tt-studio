@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "../ui/button";
 import { Mic, MicOff } from "lucide-react";
-import { SpeechRecognition, SpeechRecognitionEvent } from "./types";
+import type {
+  SpeechRecognition,
+  SpeechRecognitionEvent,
+  SpeechRecognitionErrorEvent,
+} from "./types";
 
 interface VoiceInputProps {
   onTranscript: (transcript: string) => void;
@@ -13,24 +16,53 @@ interface VoiceInputProps {
 export function VoiceInput({ onTranscript }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [recognition, setRecognition] = useState<SpeechRecognition | null>(
-    null,
-  );
-  const transcriptRef = useRef("");
-  const lastFinalizedTranscriptRef = useRef("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const processedPhrasesRef = useRef<string[]>([]); // Track each processed phrase uniquely
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const SpeechRecognition =
-        window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognitionInstance = new SpeechRecognition();
+  const cleanTranscript = (text: string): string => {
+    // Remove extra spaces
+    const cleaned = text.replace(/\s+/g, " ").trim();
 
-        recognitionInstance.continuous = true;
-        recognitionInstance.interimResults = true;
-        recognitionInstance.lang = "en-US";
+    // Split into words and remove consecutive duplicates
+    const words = cleaned.split(" ");
+    const uniqueWords = words.filter((word, index) => {
+      const prevWord = words[index - 1];
+      return word !== prevWord;
+    });
 
-        recognitionInstance.onresult = (event: SpeechRecognitionEvent) => {
+    return uniqueWords.join(" ");
+  };
+
+  const startListening = useCallback(() => {
+    if (!recognitionRef.current) {
+      try {
+        const SpeechRecognitionConstructor =
+          (
+            window as unknown as {
+              SpeechRecognition?: new () => SpeechRecognition;
+              webkitSpeechRecognition?: new () => SpeechRecognition;
+            }
+          ).SpeechRecognition ||
+          (
+            window as unknown as {
+              SpeechRecognition?: new () => SpeechRecognition;
+              webkitSpeechRecognition?: new () => SpeechRecognition;
+            }
+          ).webkitSpeechRecognition;
+
+        if (!SpeechRecognitionConstructor) {
+          throw new Error(
+            "SpeechRecognition is not supported in this browser.",
+          );
+        }
+
+        recognitionRef.current = new SpeechRecognitionConstructor();
+        recognitionRef.current.continuous = true;
+        recognitionRef.current.interimResults = true;
+        recognitionRef.current.lang = "en-US";
+
+        recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
           let interimTranscript = "";
           let finalTranscript = "";
 
@@ -43,59 +75,72 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
           }
 
           if (finalTranscript) {
-            transcriptRef.current = (
-              transcriptRef.current +
-              " " +
-              finalTranscript
-            ).trim();
+            // Clean and only add new content that hasn't been processed
+            const cleanedContent = cleanTranscript(finalTranscript.trim());
 
-            const newContent = transcriptRef.current
-              .replace(lastFinalizedTranscriptRef.current, "")
-              .trim();
+            if (!processedPhrasesRef.current.includes(cleanedContent)) {
+              // Add cleaned content to the processed list
+              processedPhrasesRef.current.push(cleanedContent);
 
-            if (newContent) {
-              onTranscript(newContent);
-              lastFinalizedTranscriptRef.current = transcriptRef.current;
+              // Send the complete concatenated transcript
+              onTranscript(processedPhrasesRef.current.join(" "));
             }
-
             setIsSpeaking(false);
           } else if (interimTranscript) {
             setIsSpeaking(true);
           }
         };
 
-        recognitionInstance.onend = () => {
-          if (isListening) {
-            recognitionInstance.start();
-          }
-          setIsSpeaking(false);
-        };
-
-        recognitionInstance.onerror = (event) => {
+        recognitionRef.current.onerror = (
+          event: SpeechRecognitionErrorEvent,
+        ) => {
           console.error("Speech recognition error", event.error);
+          setErrorMessage(`Error: ${event.error}`);
+          setIsListening(false);
           setIsSpeaking(false);
         };
 
-        setRecognition(recognitionInstance);
+        recognitionRef.current.onend = () => {
+          setIsListening(false);
+          setIsSpeaking(false);
+        };
+      } catch (error) {
+        console.error("Speech recognition not supported", error);
+        setErrorMessage("Speech recognition is not supported in this browser.");
+        return;
       }
     }
-  }, [onTranscript, isListening]);
+
+    try {
+      processedPhrasesRef.current = []; // Reset on start
+      recognitionRef.current?.start();
+      setIsListening(true);
+      setErrorMessage(null);
+    } catch (error) {
+      console.error("Error starting speech recognition", error);
+      setErrorMessage("Error starting speech recognition. Please try again.");
+    }
+  }, [onTranscript]);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+    setIsSpeaking(false);
+  }, []);
 
   const toggleListening = useCallback(() => {
     if (isListening) {
-      recognition?.stop();
-      transcriptRef.current = "";
-      lastFinalizedTranscriptRef.current = "";
-      setIsSpeaking(false);
+      stopListening();
     } else {
-      recognition?.start();
+      startListening();
     }
-    setIsListening(!isListening);
-  }, [isListening, recognition]);
+  }, [isListening, startListening, stopListening]);
 
-  if (!recognition) {
-    return null;
-  }
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
 
   return (
     <div className="relative">
@@ -114,13 +159,10 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
       </Button>
       {isListening && (
         <>
-          {/* Pulsing dot indicator */}
           <div className="absolute -top-1 -right-1 w-3 h-3">
             <div className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7C68FA] opacity-75"></div>
             <div className="relative inline-flex rounded-full h-3 w-3 bg-[#7C68FA]"></div>
           </div>
-
-          {/* Sound wave animation */}
           {isSpeaking && (
             <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 flex gap-1">
               <div className="w-1 h-3 bg-[#7C68FA] rounded-full animate-sound-wave-1"></div>
@@ -129,6 +171,9 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
             </div>
           )}
         </>
+      )}
+      {errorMessage && (
+        <p className="text-red-500 text-sm mt-2">{errorMessage}</p>
       )}
     </div>
   );
