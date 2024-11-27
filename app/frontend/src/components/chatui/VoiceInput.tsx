@@ -12,11 +12,12 @@ interface VoiceInputProps {
 
 export function VoiceInput({ onTranscript }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [recognition, setRecognition] = useState<SpeechRecognition | null>(
     null,
   );
-  const finalTranscriptRef = useRef("");
-  const interimTranscriptRef = useRef("");
+  const transcriptRef = useRef("");
+  const lastFinalizedTranscriptRef = useRef("");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -42,16 +43,37 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
           }
 
           if (finalTranscript) {
-            finalTranscriptRef.current += " " + finalTranscript;
-            onTranscript(finalTranscriptRef.current.trim());
+            transcriptRef.current = (
+              transcriptRef.current +
+              " " +
+              finalTranscript
+            ).trim();
+
+            const newContent = transcriptRef.current
+              .replace(lastFinalizedTranscriptRef.current, "")
+              .trim();
+
+            if (newContent) {
+              onTranscript(newContent);
+              lastFinalizedTranscriptRef.current = transcriptRef.current;
+            }
+
+            setIsSpeaking(false);
+          } else if (interimTranscript) {
+            setIsSpeaking(true);
           }
-          interimTranscriptRef.current = interimTranscript;
         };
 
         recognitionInstance.onend = () => {
           if (isListening) {
             recognitionInstance.start();
           }
+          setIsSpeaking(false);
+        };
+
+        recognitionInstance.onerror = (event) => {
+          console.error("Speech recognition error", event.error);
+          setIsSpeaking(false);
         };
 
         setRecognition(recognitionInstance);
@@ -62,8 +84,9 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
   const toggleListening = useCallback(() => {
     if (isListening) {
       recognition?.stop();
-      finalTranscriptRef.current = "";
-      interimTranscriptRef.current = "";
+      transcriptRef.current = "";
+      lastFinalizedTranscriptRef.current = "";
+      setIsSpeaking(false);
     } else {
       recognition?.start();
     }
@@ -71,7 +94,7 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
   }, [isListening, recognition]);
 
   if (!recognition) {
-    return null; // Or render a message that voice input is not supported
+    return null;
   }
 
   return (
@@ -84,16 +107,28 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
         }`}
       >
         {isListening ? (
-          <MicOff className="h-5 w-5" />
-        ) : (
           <Mic className="h-5 w-5" />
+        ) : (
+          <MicOff className="h-5 w-5" />
         )}
       </Button>
       {isListening && (
-        <div className="absolute -top-1 -right-1 w-3 h-3">
-          <div className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7C68FA] opacity-75"></div>
-          <div className="relative inline-flex rounded-full h-3 w-3 bg-[#7C68FA]"></div>
-        </div>
+        <>
+          {/* Pulsing dot indicator */}
+          <div className="absolute -top-1 -right-1 w-3 h-3">
+            <div className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7C68FA] opacity-75"></div>
+            <div className="relative inline-flex rounded-full h-3 w-3 bg-[#7C68FA]"></div>
+          </div>
+
+          {/* Sound wave animation */}
+          {isSpeaking && (
+            <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 flex gap-1">
+              <div className="w-1 h-3 bg-[#7C68FA] rounded-full animate-sound-wave-1"></div>
+              <div className="w-1 h-3 bg-[#7C68FA] rounded-full animate-sound-wave-2"></div>
+              <div className="w-1 h-3 bg-[#7C68FA] rounded-full animate-sound-wave-3"></div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
