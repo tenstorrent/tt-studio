@@ -169,4 +169,4 @@ If a Tenstorrent device (/dev/tenstorrent) is detected, the script will prompt y
   If you’re interested in contributing to the project, please refer to our contribution guidelines. This includes setting up a development environment, code standards, and the process for submitting pull requests.
 
 - **Frequently Asked Questions (FAQ)**: [FAQ.md](FAQ.md)  
-  A compilation of frequently asked questions to help users quickly solve common issues and understand key features of TT Studio.
+  A compilation of frequently asked questions to help users quickly solve common issues and understand key features of TT-Studio.
