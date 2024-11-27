@@ -187,7 +187,7 @@ export default function ChatComponent() {
   );
 
   return (
-    <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden">
+    <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden p-2">
       <Card className="flex flex-col w-full h-full">
         <Header
           modelName={modelName}
