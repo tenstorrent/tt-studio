@@ -1,0 +1,4 @@
+services:
+  tt_studio_backend:
+    devices:
+      - /dev/tenstorrent:/dev/tenstorrent
