@@ -49,6 +49,19 @@ def run_container(impl, weights_id):
         run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
             impl.model_container_weights_dir, weights_id
         )
+        env_file = impl.env_file()
+        with open(env_file, 'r') as file:
+            for line in file:
+                # Strip leading/trailing whitespace and ignore comments/empty lines
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                # Split on the first '='
+                key, _, value = line.partition('=')
+                key, value = key.strip(), value.strip()
+                run_kwargs["environment"][key] = value
+                
         logger.info(f"run_kwargs:= {run_kwargs}")
         container = client.containers.run(impl.image_version, **run_kwargs)
         verify_container(impl, run_kwargs, container)

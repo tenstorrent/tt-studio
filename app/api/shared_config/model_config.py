@@ -45,6 +45,11 @@ class ModelImpl:
             self.docker_config["environment"]["WH_ARCH_YAML"] = "wormhole_b0_80_arch_eth_dispatch.yaml"
 
     @property
+    def env_file(self) -> str:
+        return Path(backend_config.host_peristent_storage_volume).joinpath("volume_"+ self.model_id + "/.env") 
+    
+
+    @property
     def image_version(self) -> str:
         return f"{self.image_name}:{self.image_tag}"
 
