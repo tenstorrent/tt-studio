@@ -163,7 +163,7 @@ If a Tenstorrent device (/dev/tenstorrent) is detected, the script will prompt y
   Information on the backend API, powered by Django Rest Framework, including available endpoints and integration details.
 
 - **Running Llama3.1-70B in TT-Studio**: [HowToRunLlama3.1-70b.md](HowToRunLlama3.1-70b.md)  
-  Step-by-step instructions on how to configure and run the Llama3.1-70B model using TT Studio.
+  Step-by-step instructions on how to configure and run the Llama3.1-70B model using TT-Studio.
 
 - **Contribution Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)  
   If you’re interested in contributing to the project, please refer to our contribution guidelines. This includes setting up a development environment, code standards, and the process for submitting pull requests.
