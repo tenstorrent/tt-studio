@@ -14,7 +14,7 @@ OS_NAME="$(uname)"
 usage() {
     echo -e "🤖 Usage: ./startup.sh [options]"
     echo
-    echo -e "This script sets up the TT Studio environment by performing the following steps:"
+    echo -e "This script sets up the TT-Studio environment by performing the following steps:"
     echo -e "  1. 🧭 Detects the OS."
     echo -e "  2. 🛠️  Sets the TT_STUDIO_ROOT variable in .env based on the running directory."
     echo -e "  3. 🌐 Checks for and creates a Docker network named 'llm_studio_network' if not present."
