@@ -125,7 +125,7 @@ Developers can control and run the app directly via `docker-compose`, keeping th
 
 ## Using `startup.sh`
 
-The `startup.sh` script automates the TT Studio setup process. It can be run with or without Docker, depending on your usage scenario.
+The `startup.sh` script automates the TT-Studio setup process. It can be run with or without Docker, depending on your usage scenario.
 
 ### Basic Usage
 
