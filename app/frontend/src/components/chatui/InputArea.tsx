@@ -10,6 +10,8 @@ interface InputAreaProps {
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
   handleInference: (input: string) => void;
   isStreaming: boolean;
+  isListening: boolean;
+  setIsListening: (isListening: boolean) => void;
 }
 
 export default function InputArea({
@@ -17,6 +19,8 @@ export default function InputArea({
   setTextInput,
   handleInference,
   isStreaming,
+  isListening,
+  setIsListening,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -51,7 +55,7 @@ export default function InputArea({
   };
 
   const handleVoiceInput = (transcript: string) => {
-    setTextInput((prevInput: string) => prevInput + " " + transcript);
+    setTextInput((prevInput) => prevInput + " " + transcript);
   };
 
   return (
@@ -80,7 +84,11 @@ export default function InputArea({
             >
               <Paperclip className="h-5 w-5" />
             </Button>
-            <VoiceInput onTranscript={handleVoiceInput} />
+            <VoiceInput
+              onTranscript={handleVoiceInput}
+              isListening={isListening}
+              setIsListening={setIsListening}
+            />
           </div>
           <Button
             onClick={() => handleInference(textInput)}

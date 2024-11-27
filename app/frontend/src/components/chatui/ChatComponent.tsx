@@ -32,6 +32,7 @@ export default function ChatComponent() {
   const [reRenderingMessageId, setReRenderingMessageId] = useState<
     string | null
   >(null);
+  const [isListening, setIsListening] = useState<boolean>(false);
 
   useEffect(() => {
     if (location.state) {
@@ -211,6 +212,8 @@ export default function ChatComponent() {
           setTextInput={setTextInput}
           handleInference={() => handleInference(null)}
           isStreaming={isStreaming}
+          isListening={isListening}
+          setIsListening={setIsListening}
         />
       </Card>
     </div>

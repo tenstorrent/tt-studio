@@ -11,26 +11,26 @@ import type {
 
 interface VoiceInputProps {
   onTranscript: (transcript: string) => void;
+  isListening: boolean;
+  setIsListening: (isListening: boolean) => void;
 }
 
-export function VoiceInput({ onTranscript }: VoiceInputProps) {
-  const [isListening, setIsListening] = useState(false);
+export function VoiceInput({
+  onTranscript,
+  isListening,
+  setIsListening,
+}: VoiceInputProps) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const processedPhrasesRef = useRef<string[]>([]); // Track each processed phrase uniquely
 
   const cleanTranscript = (text: string): string => {
-    // Remove extra spaces
     const cleaned = text.replace(/\s+/g, " ").trim();
-
-    // Split into words and remove consecutive duplicates
     const words = cleaned.split(" ");
     const uniqueWords = words.filter((word, index) => {
       const prevWord = words[index - 1];
       return word !== prevWord;
     });
-
     return uniqueWords.join(" ");
   };
 
@@ -38,18 +38,7 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
     if (!recognitionRef.current) {
       try {
         const SpeechRecognitionConstructor =
-          (
-            window as unknown as {
-              SpeechRecognition?: new () => SpeechRecognition;
-              webkitSpeechRecognition?: new () => SpeechRecognition;
-            }
-          ).SpeechRecognition ||
-          (
-            window as unknown as {
-              SpeechRecognition?: new () => SpeechRecognition;
-              webkitSpeechRecognition?: new () => SpeechRecognition;
-            }
-          ).webkitSpeechRecognition;
+          window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (!SpeechRecognitionConstructor) {
           throw new Error(
@@ -75,16 +64,8 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
           }
 
           if (finalTranscript) {
-            // Clean and only add new content that hasn't been processed
             const cleanedContent = cleanTranscript(finalTranscript.trim());
-
-            if (!processedPhrasesRef.current.includes(cleanedContent)) {
-              // Add cleaned content to the processed list
-              processedPhrasesRef.current.push(cleanedContent);
-
-              // Send the complete concatenated transcript
-              onTranscript(processedPhrasesRef.current.join(" "));
-            }
+            onTranscript(cleanedContent);
             setIsSpeaking(false);
           } else if (interimTranscript) {
             setIsSpeaking(true);
@@ -112,7 +93,6 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
     }
 
     try {
-      processedPhrasesRef.current = []; // Reset on start
       recognitionRef.current?.start();
       setIsListening(true);
       setErrorMessage(null);
@@ -120,13 +100,13 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
       console.error("Error starting speech recognition", error);
       setErrorMessage("Error starting speech recognition. Please try again.");
     }
-  }, [onTranscript]);
+  }, [onTranscript, setIsListening]);
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
     setIsListening(false);
     setIsSpeaking(false);
-  }, []);
+  }, [setIsListening]);
 
   const toggleListening = useCallback(() => {
     if (isListening) {
