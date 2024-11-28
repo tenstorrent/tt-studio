@@ -146,6 +146,7 @@ def base_docker_config():
         "environment": {
             "JWT_SECRET": backend_config.jwt_secret,
             "CACHE_ROOT": backend_config.model_container_cache_root,
+            "HF_TOKEN": backend_config.hf_token,
         },
     }
 
@@ -154,7 +155,7 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
-        model_name="mock",
+        model_name="Mock-Llama-3.1-70B-Instruct",
         model_id="id_mock_vllm_modelv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
         image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
@@ -166,7 +167,6 @@ model_implmentations_list = [
         shm_size="1G",
         service_port=7000,
         service_route="/v1/completions",
-        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
     ModelImpl(
         model_name="Falcon-7B-Instruct",
