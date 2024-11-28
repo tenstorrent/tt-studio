@@ -41,6 +41,7 @@ class ModelImpl:
     model_id: str
     image_name: str
     image_tag: str
+    hf_model_path: str
     device_configurations: Set["DeviceConfigurations"]
     docker_config: Dict[str, Any]
     user_uid: int  # user inside docker container uid (for file permissions)
@@ -53,6 +54,7 @@ class ModelImpl:
     def __post_init__(self):
         self.docker_config.update({"volumes": self.get_volume_mounts()})
         self.docker_config["shm_size"] = self.shm_size
+        self.docker_config["environment"]["HF_MODEL_PATH"] = self.hf_model_path
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
@@ -156,6 +158,7 @@ model_implmentations_list = [
         model_id="id_mock_vllm_modelv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
         image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
+        hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
         device_configurations={DeviceConfigurations.CPU},
         docker_config=base_docker_config(),
         user_uid=1000,
@@ -170,6 +173,7 @@ model_implmentations_list = [
         model_id="id_tt-metal-falcon-7bv0.0.13",
         image_name="tt-metal-falcon-7b",
         image_tag="v0.0.13",
+        hf_model_path="tiiuae/falcon-7b-instruct",
         device_configurations={DeviceConfigurations.N150},
         docker_config=base_docker_config(),
         user_uid=1000,
@@ -179,10 +183,11 @@ model_implmentations_list = [
         service_route="/inference/falcon7b",
     ),
     ModelImpl(
-        model_name="meta-llama/Llama-3.1-70B-Instruct",
+        model_name="Llama-3.1-70B-Instruct",
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
         image_tag="v0.0.2-tt-metal-385904186f81-384f1790c3be",
+        hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
         device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         user_uid=1000,
@@ -197,6 +202,7 @@ model_implmentations_list = [
         model_id="id_tt-metal-mistral-7bv0.0.2",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-mistral-7b-src-base",
         image_tag="v0.0.3-tt-metal-v0.52.0-rc33",
+        hf_model_path="mistralai/Mistral-7B-Instruct-v0.2",
         device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         user_uid=1000,
@@ -211,6 +217,7 @@ model_implmentations_list = [
     #     model_id="", #? Add the model id for the vLLM model based on persistent storage
     #     image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
     #     image_tag="v0.0.1-tt-metal-685ef1303b5a-54b9157d852b",
+    #     hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
     #     device_configurations={DeviceConfigurations.N300x4},
     #     docker_config=base_docker_config(),
     #     user_uid=1000,

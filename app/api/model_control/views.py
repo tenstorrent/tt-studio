@@ -33,7 +33,7 @@ class InferenceView(APIView):
             internal_url = "http://" + deploy["internal_url"]
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
-            data["model"] = deploy["model_impl"].model_name
+            data["model"] = deploy["model_impl"].hf_model_path
             response_stream = stream_response_from_external_api(internal_url, data)
             return StreamingHttpResponse(response_stream, content_type="text/plain")
         else:
@@ -59,7 +59,6 @@ class DeployedModelsView(APIView):
 
 class ModelWeightsView(APIView):
     def get(self, request, *args, **kwargs):
-        # TODO: add serializer
         data = request.query_params
         logger.info(f"request.query_params:={data}")
         serializer = ModelWeightsSerializer(data=data)
