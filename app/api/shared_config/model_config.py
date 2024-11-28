@@ -4,7 +4,7 @@
 
 import os
 from dataclasses import dataclass, asdict
-from typing import Set, Dict, Any
+from typing import Set, Dict, Any, Union
 from pathlib import Path
 
 from shared_config.device_config import DeviceConfigurations
@@ -13,6 +13,22 @@ from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+
+def load_dotenv_dict(env_path: Union[str, Path]) -> Dict[str, str]:
+    env_path = Path(env_path)
+    if not env_path.exists():
+        logger.error(f"Env file not found: {env_path}")
+    env_dict = {}
+    with open(env_path) as f:
+        lines = f.readlines()
+    for line in lines:
+        if line.strip() and not line.startswith('#'):
+            key, value = line.strip().split('=', 1)
+            # expand any $VAR or ${VAR} and ~
+            value = os.path.expandvars(value)
+            env_dict[key] = value
+    return env_dict
 
 
 @dataclass(frozen=True)
@@ -32,6 +48,7 @@ class ModelImpl:
     shm_size: str
     service_port: int
     service_route: str
+    env_file: str = ""
 
     def __post_init__(self):
         self.docker_config.update({"volumes": self.get_volume_mounts()})
@@ -44,10 +61,13 @@ class ModelImpl:
         if DeviceConfigurations.N150 in self.device_configurations or DeviceConfigurations.N300x4 in self.device_configurations:
             self.docker_config["environment"]["WH_ARCH_YAML"] = "wormhole_b0_80_arch_eth_dispatch.yaml"
 
-    @property
-    def env_file(self) -> str:
-        return Path(backend_config.host_peristent_storage_volume).joinpath("volume_"+ self.model_id + "/.env") 
-    
+        if self.env_file:
+            logger.info(f"Using env file: {self.env_file}")
+            # env file should be in persistent volume mounted
+            env_dict = load_dotenv_dict(self.env_file)
+            # env file overrides any existing docker environment variables
+            self.docker_config["environment"].update(env_dict)
+      
 
     @property
     def image_version(self) -> str:
@@ -132,17 +152,18 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
-        model_name="echo",
-        model_id="id_dummy_echo_modelv0.0.1",
-        image_name="dummy_echo_model",
-        image_tag="v0.0.1",
+        model_name="mock",
+        model_id="id_mock_vllm_modelv0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
+        image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
         device_configurations={DeviceConfigurations.CPU},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
         shm_size="1G",
         service_port=7000,
-        service_route="/inference/dummy_echo",
+        service_route="/v1/completions",
+        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
     ModelImpl(
         model_name="Falcon-7B-Instruct",
@@ -158,7 +179,7 @@ model_implmentations_list = [
         service_route="/inference/falcon7b",
     ),
     ModelImpl(
-        model_name="meta-llama/Meta-Llama-3.1-70B",
+        model_name="meta-llama/Llama-3.1-70B-Instruct",
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
         image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
@@ -169,6 +190,7 @@ model_implmentations_list = [
         shm_size="32G",
         service_port=7000,
         service_route="/v1/completions",
+        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
     ModelImpl(
         model_name="Mistral7B-instruct-v0.2",
@@ -183,20 +205,21 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/inference/mistral7b",
     ),
-        #! Add new model vLLM model implementations here
-        ModelImpl(
-        model_name="", #? Add the model name for the vLLM model based on persistent storage
-        model_id="", #? Add the model id for the vLLM model based on persistent storage
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
-        image_tag="v0.0.1-tt-metal-685ef1303b5a-54b9157d852b",
-        device_configurations={DeviceConfigurations.N300x4},
-        docker_config=base_docker_config(),
-        user_uid=1000,
-        user_gid=1000,
-        shm_size="32G",
-        service_port=7000,
-        service_route="/inference/**",  #? Add the correct route for the vLLM model
-    )
+    #! Add new model vLLM model implementations here
+    #     ModelImpl(
+    #     model_name="", #? Add the model name for the vLLM model based on persistent storage
+    #     model_id="", #? Add the model id for the vLLM model based on persistent storage
+    #     image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
+    #     image_tag="v0.0.1-tt-metal-685ef1303b5a-54b9157d852b",
+    #     device_configurations={DeviceConfigurations.N300x4},
+    #     docker_config=base_docker_config(),
+    #     user_uid=1000,
+    #     user_gid=1000,
+    #     shm_size="32G",
+    #     service_port=7000,
+    #     service_route="/inference/**",  #? Add the correct route for the vLLM model
+    #     env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
+    # )
 ]
 
 def validate_model_implemenation_config(impl):

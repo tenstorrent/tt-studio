@@ -37,13 +37,14 @@ services:
       - HOST_PERSISTENT_STORAGE_VOLUME
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
       - BACKEND_API_HOSTNAME
+      - VLLM_LLAMA31_ENV_FILE
       - JWT_SECRET
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # for development mount api changes
-      - ./api:/api
+      # - ./api:/api
 
     healthcheck:
       # On first application load resources for transformers/etc 
