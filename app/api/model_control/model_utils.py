@@ -45,11 +45,12 @@ def stream_response_from_external_api(url, json_data):
         json_data["temperature"] = 1
         json_data["top_k"] = 20
         json_data["top_p"] = 0.9
-        json_data["max_tokens"] = 512
+        json_data["max_tokens"] = 64
         json_data["stream_options"] = {"include_usage": True,
                                         "continuous_usage_stats":
                                                  True
                                             }
+        json_data["model"] = "meta-llama/Meta-Llama-3.1-70B"
         logger.info(f"added extra token and temp:={json_data}")
 
         ttft = 0
@@ -86,13 +87,7 @@ def stream_response_from_external_api(url, json_data):
                             num_token_gen += 1
                             tpot += (1/num_token_gen) * (time.time() - tpot_start - tpot) # udpate average
                             tpot_start = time.time()
-                    else: # streaming chunks is complete 
-                        stats = {"ttft": ttft, "tpot": tpot, "tokens_decoded": num_token_gen, 
-                                    "tokens_prefilled": prompt_tokens, 
-                                    "context_length": prompt_tokens + num_token_gen}
-                        logger.info(f"ttft and tpot stats: {stats}")
-                        # allow stats to be streamed before [DONE] chunk
-                        yield "data: "+ str(stats) 
+                    # else: # streaming chunks is complete 
 
 
 
@@ -100,6 +95,13 @@ def stream_response_from_external_api(url, json_data):
 
             # TODO: ttft e2e and batch size 
             # TODO: what if max context len is hit 
+
+            stats = {"ttft": ttft, "tpot": tpot, "tokens_decoded": num_token_gen, 
+                    "tokens_prefilled": prompt_tokens, 
+                    "context_length": prompt_tokens + num_token_gen}
+            logger.info(f"ttft and tpot stats: {stats}")
+            # allow stats to be streamed before [DONE] chunk
+            yield "data: "+ str(stats) 
 
             yield "<<END_OF_STREAM>>"  # Custom marker to signal end of stream
 
