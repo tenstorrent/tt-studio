@@ -238,7 +238,7 @@ export default function ChatComponent() {
             setChatThreads((prevThreads) =>
               prevThreads.map((thread, i) =>
                 i === index
-                  ? [{ ...thread[0], text: newTitle }, ...thread.slice(1)]
+                  ? [{ ...thread[0], title: newTitle }, ...thread.slice(1)]
                   : thread,
               ),
             );
