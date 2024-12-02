@@ -32,6 +32,7 @@ export function VoiceInput({
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const barsRef = useRef<(HTMLDivElement | null)[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const cleanTranscript = useCallback((text: string): string => {
     const cleaned = text.replace(/\s+/g, " ").trim();
@@ -55,6 +56,13 @@ export function VoiceInput({
     if (audioContextRef.current) {
       audioContextRef.current.close();
       audioContextRef.current = null;
+    }
+    if (analyserRef.current) {
+      analyserRef.current.disconnect();
+      analyserRef.current = null;
+    }
+    if (dataArrayRef.current) {
+      dataArrayRef.current = null;
     }
   }, []);
 
@@ -81,7 +89,9 @@ export function VoiceInput({
 
   const startAudioAnalysis = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
       const AudioContextConstructor =
         window.AudioContext || (window as WindowWithWebkit).webkitAudioContext;
       if (!AudioContextConstructor) {
@@ -89,8 +99,9 @@ export function VoiceInput({
       }
       audioContextRef.current = new AudioContextConstructor();
       analyserRef.current = audioContextRef.current.createAnalyser();
-      sourceRef.current =
-        audioContextRef.current.createMediaStreamSource(stream);
+      sourceRef.current = audioContextRef.current.createMediaStreamSource(
+        streamRef.current,
+      );
       sourceRef.current.connect(analyserRef.current);
       analyserRef.current.fftSize = 32;
       const bufferLength = analyserRef.current.frequencyBinCount;
@@ -140,12 +151,12 @@ export function VoiceInput({
           console.error("Speech recognition error", event.error);
           setErrorMessage(`Error: ${event.error}`);
           setIsListening(false);
-          stopAudioAnalysis();
+          cleanupResources();
         };
 
         recognitionRef.current.onend = () => {
           setIsListening(false);
-          stopAudioAnalysis();
+          cleanupResources();
         };
       } catch (error) {
         console.error("Speech recognition not supported", error);
@@ -163,19 +174,35 @@ export function VoiceInput({
       console.error("Error starting speech recognition", error);
       setErrorMessage("Error starting speech recognition. Please try again.");
     }
-  }, [
-    onTranscript,
-    setIsListening,
-    cleanTranscript,
-    startAudioAnalysis,
-    stopAudioAnalysis,
-  ]);
+  }, [onTranscript, setIsListening, cleanTranscript, startAudioAnalysis]);
+
+  const cleanupResources = useCallback(() => {
+    // Stop speech recognition
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current = null;
+    }
+
+    // Stop audio analysis and clean up resources
+    stopAudioAnalysis();
+
+    // Release all media tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    // Reset state
+    setIsListening(false);
+    setErrorMessage(null);
+  }, [setIsListening, stopAudioAnalysis]);
 
   const stopListening = useCallback(() => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-    stopAudioAnalysis();
-  }, [setIsListening, stopAudioAnalysis]);
+    cleanupResources();
+  }, [cleanupResources]);
 
   const toggleListening = useCallback(() => {
     if (isListening) {
@@ -187,10 +214,9 @@ export function VoiceInput({
 
   useEffect(() => {
     return () => {
-      recognitionRef.current?.stop();
-      stopAudioAnalysis();
+      cleanupResources();
     };
-  }, [stopAudioAnalysis]);
+  }, [cleanupResources]);
 
   return (
     <div className="relative inline-flex items-center">
