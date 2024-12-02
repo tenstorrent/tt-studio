@@ -10,9 +10,11 @@ import { fetchCollections } from "@/src/components/rag";
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
+import { HistoryPanel } from "./HistoryPanel";
 import { InferenceRequest, RagDataSource, ChatMessage, Model } from "./types";
 import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
+import { usePersistentState } from "./usePersistentState";
 
 export default function ChatComponent() {
   const location = useLocation();
@@ -24,7 +26,12 @@ export default function ChatComponent() {
     queryFn: fetchCollections,
     initialData: [],
   });
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [chatThreads, setChatThreads] = usePersistentState<ChatMessage[][]>(
+    "chat_threads",
+    [[]],
+  );
+  const [currentThreadIndex, setCurrentThreadIndex] =
+    usePersistentState<number>("current_thread_index", 0);
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
@@ -59,7 +66,7 @@ export default function ChatComponent() {
       let updatedChatHistory: ChatMessage[];
 
       if (continuationMessageId) {
-        updatedChatHistory = chatHistory.map((msg) =>
+        updatedChatHistory = chatThreads[currentThreadIndex].map((msg) =>
           msg.id === continuationMessageId
             ? { ...msg, text: msg.text + " [Continuing...] " }
             : msg,
@@ -70,10 +77,14 @@ export default function ChatComponent() {
           sender: "user",
           text: textInput,
         };
-        updatedChatHistory = [...chatHistory, userMessage];
+        updatedChatHistory = [...chatThreads[currentThreadIndex], userMessage];
       }
 
-      setChatHistory(updatedChatHistory);
+      setChatThreads((prevThreads) => {
+        const newThreads = [...prevThreads];
+        newThreads[currentThreadIndex] = updatedChatHistory;
+        return newThreads;
+      });
 
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID,
@@ -87,10 +98,11 @@ export default function ChatComponent() {
         ragDatasource,
         updatedChatHistory,
         (newHistory) => {
-          setChatHistory((prevHistory) => {
+          setChatThreads((prevThreads) => {
+            const newThreads = [...prevThreads];
             const currentHistory =
               typeof newHistory === "function"
-                ? newHistory(prevHistory)
+                ? newHistory(newThreads[currentThreadIndex])
                 : newHistory;
             const lastMessage = currentHistory[currentHistory.length - 1];
             if (
@@ -98,12 +110,14 @@ export default function ChatComponent() {
               lastMessage.sender === "assistant" &&
               !lastMessage.id
             ) {
-              return [
+              newThreads[currentThreadIndex] = [
                 ...currentHistory.slice(0, -1),
                 { ...lastMessage, id: uuidv4() },
               ];
+            } else {
+              newThreads[currentThreadIndex] = currentHistory;
             }
-            return currentHistory;
+            return newThreads;
           });
         },
         setIsStreaming,
@@ -112,12 +126,21 @@ export default function ChatComponent() {
       setTextInput("");
       setReRenderingMessageId(null);
     },
-    [chatHistory, modelID, ragDatasource, textInput],
+    [
+      chatThreads,
+      currentThreadIndex,
+      modelID,
+      ragDatasource,
+      textInput,
+      setChatThreads,
+    ],
   );
 
   const handleReRender = useCallback(
     async (messageId: string) => {
-      const messageToReRender = chatHistory.find((msg) => msg.id === messageId);
+      const messageToReRender = chatThreads[currentThreadIndex].find(
+        (msg) => msg.id === messageId,
+      );
       if (
         !messageToReRender ||
         messageToReRender.sender !== "assistant" ||
@@ -125,10 +148,11 @@ export default function ChatComponent() {
       )
         return;
 
-      const userMessage = chatHistory.find(
+      const userMessage = chatThreads[currentThreadIndex].find(
         (msg) =>
           msg.sender === "user" &&
-          chatHistory.indexOf(msg) < chatHistory.indexOf(messageToReRender),
+          chatThreads[currentThreadIndex].indexOf(msg) <
+            chatThreads[currentThreadIndex].indexOf(messageToReRender),
       );
       if (!userMessage) return;
 
@@ -143,17 +167,14 @@ export default function ChatComponent() {
       await runInference(
         inferenceRequest,
         ragDatasource,
-        chatHistory,
-        (
-          newHistory:
-            | ChatMessage[]
-            | ((prevHistory: ChatMessage[]) => ChatMessage[]),
-        ) => {
-          setChatHistory((prevHistory) => {
+        chatThreads[currentThreadIndex],
+        (newHistory) => {
+          setChatThreads((prevThreads) => {
+            const newThreads = [...prevThreads];
             const currentHistory = Array.isArray(newHistory)
               ? newHistory
-              : newHistory(prevHistory);
-            return prevHistory.map((msg) => {
+              : newHistory(newThreads[currentThreadIndex]);
+            newThreads[currentThreadIndex] = currentHistory.map((msg) => {
               if (msg.id === messageId) {
                 const updatedMessage =
                   currentHistory[currentHistory.length - 1];
@@ -165,6 +186,7 @@ export default function ChatComponent() {
               }
               return msg;
             });
+            return newThreads;
           });
         },
         setIsStreaming,
@@ -172,49 +194,74 @@ export default function ChatComponent() {
 
       setReRenderingMessageId(null);
     },
-    [chatHistory, modelID, ragDatasource],
+    [chatThreads, currentThreadIndex, modelID, ragDatasource, setChatThreads],
   );
 
   const handleContinue = useCallback(
     (messageId: string) => {
-      const messageToContinue = chatHistory.find((msg) => msg.id === messageId);
+      const messageToContinue = chatThreads[currentThreadIndex].find(
+        (msg) => msg.id === messageId,
+      );
       if (!messageToContinue || messageToContinue.sender !== "assistant")
         return;
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [chatHistory],
+    [chatThreads, currentThreadIndex],
   );
 
   return (
     <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden p-2">
-      <Card className="flex flex-col w-full h-full">
-        <Header
-          modelName={modelName}
-          modelsDeployed={modelsDeployed}
-          setModelID={setModelID}
-          setModelName={setModelName}
-          ragDataSources={ragDataSources}
-          ragDatasource={ragDatasource}
-          setRagDatasource={setRagDatasource}
+      <Card className="flex flex-row w-full h-full">
+        <HistoryPanel
+          conversations={chatThreads.map((thread, index) => ({
+            id: index.toString(),
+            title: thread[0]?.text.substring(0, 30) || `New Chat ${index + 1}`,
+          }))}
+          currentConversationId={currentThreadIndex.toString()}
+          onSelectConversation={(id) => setCurrentThreadIndex(parseInt(id))}
+          onCreateNewConversation={() => {
+            setChatThreads((prevThreads) => [...prevThreads, []]);
+            setCurrentThreadIndex(chatThreads.length);
+          }}
+          onDeleteConversation={(id) => {
+            const index = parseInt(id);
+            setChatThreads((prevThreads) =>
+              prevThreads.filter((_, i) => i !== index),
+            );
+            if (currentThreadIndex === index) {
+              setCurrentThreadIndex(0);
+            }
+          }}
         />
-        <ChatHistory
-          chatHistory={chatHistory}
-          logo={logo}
-          setTextInput={setTextInput}
-          isStreaming={isStreaming}
-          onReRender={handleReRender}
-          onContinue={handleContinue}
-          reRenderingMessageId={reRenderingMessageId}
-        />
-        <InputArea
-          textInput={textInput}
-          setTextInput={setTextInput}
-          handleInference={() => handleInference(null)}
-          isStreaming={isStreaming}
-          isListening={isListening}
-          setIsListening={setIsListening}
-        />
+        <div className="flex flex-col flex-grow">
+          <Header
+            modelName={modelName}
+            modelsDeployed={modelsDeployed}
+            setModelID={setModelID}
+            setModelName={setModelName}
+            ragDataSources={ragDataSources}
+            ragDatasource={ragDatasource}
+            setRagDatasource={setRagDatasource}
+          />
+          <ChatHistory
+            chatHistory={chatThreads[currentThreadIndex]}
+            logo={logo}
+            setTextInput={setTextInput}
+            isStreaming={isStreaming}
+            onReRender={handleReRender}
+            onContinue={handleContinue}
+            reRenderingMessageId={reRenderingMessageId}
+          />
+          <InputArea
+            textInput={textInput}
+            setTextInput={setTextInput}
+            handleInference={() => handleInference(null)}
+            isStreaming={isStreaming}
+            isListening={isListening}
+            setIsListening={setIsListening}
+          />
+        </div>
       </Card>
     </div>
   );
