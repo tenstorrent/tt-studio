@@ -7,13 +7,8 @@ import type {
   SpeechRecognition,
   SpeechRecognitionEvent,
   SpeechRecognitionErrorEvent,
+  VoiceInputProps,
 } from "./types";
-
-interface VoiceInputProps {
-  onTranscript: (transcript: string) => void;
-  isListening: boolean;
-  setIsListening: (isListening: boolean) => void;
-}
 
 interface WindowWithWebkit extends Window {
   webkitAudioContext?: typeof AudioContext;
@@ -34,15 +29,18 @@ export function VoiceInput({
   const barsRef = useRef<(HTMLDivElement | null)[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const cleanTranscript = useCallback((text: string): string => {
-    const cleaned = text.replace(/\s+/g, " ").trim();
-    const words = cleaned.split(" ");
-    const uniqueWords = words.filter((word, index) => {
-      const prevWord = words[index - 1];
-      return word !== prevWord;
-    });
-    return uniqueWords.join(" ");
-  }, []);
+  const cleanTranscript: (text: string) => string = useCallback(
+    (text: string): string => {
+      const cleaned = text.replace(/\s+/g, " ").trim();
+      const words = cleaned.split(" ");
+      const uniqueWords = words.filter((word, index) => {
+        const prevWord = words[index - 1];
+        return word !== prevWord;
+      });
+      return uniqueWords.join(" ");
+    },
+    [],
+  );
 
   const stopAudioAnalysis = useCallback(() => {
     if (rafIdRef.current) {
@@ -112,6 +110,30 @@ export function VoiceInput({
     }
   }, [updateBars]);
 
+  const cleanupResources = useCallback(() => {
+    // Stop speech recognition
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current = null;
+    }
+
+    // Stop audio analysis and clean up resources
+    stopAudioAnalysis();
+
+    // Release all media tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    // Reset state
+    setIsListening(false);
+    setErrorMessage(null);
+  }, [setIsListening, stopAudioAnalysis, setErrorMessage]);
+
   const startListening = useCallback(() => {
     if (!recognitionRef.current) {
       try {
@@ -174,31 +196,13 @@ export function VoiceInput({
       console.error("Error starting speech recognition", error);
       setErrorMessage("Error starting speech recognition. Please try again.");
     }
-  }, [onTranscript, setIsListening, cleanTranscript, startAudioAnalysis]);
-
-  const cleanupResources = useCallback(() => {
-    // Stop speech recognition
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onend = null;
-      recognitionRef.current = null;
-    }
-
-    // Stop audio analysis and clean up resources
-    stopAudioAnalysis();
-
-    // Release all media tracks
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-
-    // Reset state
-    setIsListening(false);
-    setErrorMessage(null);
-  }, [setIsListening, stopAudioAnalysis]);
+  }, [
+    onTranscript,
+    setIsListening,
+    cleanTranscript,
+    startAudioAnalysis,
+    cleanupResources,
+  ]);
 
   const stopListening = useCallback(() => {
     cleanupResources();

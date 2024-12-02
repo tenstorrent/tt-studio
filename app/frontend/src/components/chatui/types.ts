@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 export interface InferenceRequest {
   deploy_id: string;
   text: string;
@@ -13,6 +14,7 @@ export interface RagDataSource {
 }
 
 export interface ChatMessage {
+  id: string;
   sender: "user" | "assistant";
   text: string;
   inferenceStats?: InferenceStats;
@@ -38,43 +40,16 @@ export interface InferenceStats {
   batch_size: number;
   context_length: number;
 }
-export interface StreamingMessageProps {
-  content: string; // The actual content of the message (text or code)
-  isStreamFinished: boolean; // Indicates whether the streaming of the message is complete
-}
 
 export interface StreamingMessageProps {
   content: string;
   isStreamFinished: boolean;
 }
 
-export interface ChatMessage {
-  id: string;
-  sender: "user" | "assistant";
-  text: string;
-  inferenceStats?: InferenceStats;
-}
-
-//  Voice input types
-export interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: (event: SpeechRecognitionEvent) => void;
-  onerror: (event: SpeechRecognitionErrorEvent) => void;
-  onend: () => void;
-  start: () => void;
-  stop: () => void;
-}
-
-export interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-export interface SpeechRecognitionResultList {
-  [index: number]: SpeechRecognitionResult;
-  length: number;
+// Voice input types
+export interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
 }
 
 export interface SpeechRecognitionResult {
@@ -83,14 +58,36 @@ export interface SpeechRecognitionResult {
   length: number;
 }
 
-export interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
+export interface SpeechRecognitionResultList {
+  [index: number]: SpeechRecognitionResult;
+  length: number;
+}
+
+export interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
 }
 
 export interface SpeechRecognitionErrorEvent extends Event {
   error: string;
   message: string;
+}
+
+export interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+export interface VoiceInputProps {
+  onTranscript: (transcript: string) => void;
+  isListening: boolean;
+  setIsListening: (isListening: boolean) => void;
 }
 
 declare global {
