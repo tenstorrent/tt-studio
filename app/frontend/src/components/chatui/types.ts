@@ -90,6 +90,13 @@ export interface VoiceInputProps {
   setIsListening: (isListening: boolean) => void;
 }
 
+export interface HistoryPanelProps {
+  chatHistory: ChatMessage[][];
+  onSelectThread: (index: number) => void;
+  onDeleteThread: (index: number) => void;
+  onCreateNewThread: () => void;
+}
+
 declare global {
   interface Window {
     SpeechRecognition: new () => SpeechRecognition;

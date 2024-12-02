@@ -233,6 +233,16 @@ export default function ChatComponent() {
               setCurrentThreadIndex(0);
             }
           }}
+          onEditConversationTitle={(id, newTitle) => {
+            const index = parseInt(id);
+            setChatThreads((prevThreads) =>
+              prevThreads.map((thread, i) =>
+                i === index
+                  ? [{ ...thread[0], text: newTitle }, ...thread.slice(1)]
+                  : thread,
+              ),
+            );
+          }}
         />
         <div className="flex flex-col flex-grow">
           <Header
