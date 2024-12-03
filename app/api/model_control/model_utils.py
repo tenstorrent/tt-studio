@@ -34,6 +34,19 @@ def get_deploy_cache():
     data = get_all_records()
     return data
 
+
+def health_check(url, json_data, timeout=5):
+    logger.info(f"calilng health_url:= {url}")
+    try:
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        response = requests.get(url, json=json_data, headers=headers, timeout=5)
+        response.raise_for_status()
+        return True, response.json() if response.content else {}
+    except requests.RequestException as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return False, str(e)
+
+
 def stream_response_from_external_api(url, json_data):
     logger.info(f"stream_response_from_external_api to: url={url}")
     try:

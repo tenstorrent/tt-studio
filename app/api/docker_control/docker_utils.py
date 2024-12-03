@@ -208,6 +208,9 @@ def update_deploy_cache():
             con["internal_url"] = (
                 f"{hostname}:{model_impl.service_port}{model_impl.service_route}"
             )
+            con["health_url"] = (
+                f"{hostname}:{model_impl.service_port}{model_impl.health_route}"
+            )
             caches[backend_config.django_deploy_cache_name].set(con_id, con, timeout=None)
             # TODO: validation
 

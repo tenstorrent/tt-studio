@@ -50,6 +50,7 @@ class ModelImpl:
     service_port: int
     service_route: str
     env_file: str = ""
+    health_route: str = "/health"
 
     def __post_init__(self):
         self.docker_config.update({"volumes": self.get_volume_mounts()})
