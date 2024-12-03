@@ -184,8 +184,6 @@ pytest --log-cli-level=INFO docker_control/test_echo_model_deploy.py
 
 ```
 
-http://mock.vllm.openai.api_p8003:7000/health
-
 ## Ubuntu user file permissions
 
 The `user` user within the model containers is UID=1000, GID=1000:
