@@ -96,7 +96,7 @@ export default function Header({
   setIsHistoryPanelOpen,
 }: HeaderProps) {
   return (
-    <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center border border-gray-200 dark:border-[#7C68FA]/20">
+    <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
       <Button
         variant="ghost"
         size="icon"

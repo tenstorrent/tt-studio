@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { useLocation } from "react-router-dom";
 import logo from "../../assets/tt_logo.svg";
@@ -214,41 +215,59 @@ export default function ChatComponent() {
   return (
     <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden p-2">
       <Card className="flex flex-row w-full h-full">
-        {isHistoryPanelOpen && (
-          <HistoryPanel
-            conversations={chatThreads.map((thread, index) => ({
-              id: index.toString(),
-              title:
-                thread[0]?.text.substring(0, 30) || `New Chat ${index + 1}`,
-            }))}
-            currentConversationId={currentThreadIndex.toString()}
-            onSelectConversation={(id) => setCurrentThreadIndex(parseInt(id))}
-            onCreateNewConversation={() => {
-              setChatThreads((prevThreads) => [...prevThreads, []]);
-              setCurrentThreadIndex(chatThreads.length);
-            }}
-            onDeleteConversation={(id) => {
-              const index = parseInt(id);
-              setChatThreads((prevThreads) =>
-                prevThreads.filter((_, i) => i !== index),
-              );
-              if (currentThreadIndex === index) {
-                setCurrentThreadIndex(0);
-              }
-            }}
-            onEditConversationTitle={(id, newTitle) => {
-              const index = parseInt(id);
-              setChatThreads((prevThreads) =>
-                prevThreads.map((thread, i) =>
-                  i === index
-                    ? [{ ...thread[0], title: newTitle }, ...thread.slice(1)]
-                    : thread,
-                ),
-              );
-            }}
-          />
-        )}
-        <div className="flex flex-col flex-grow">
+        <AnimatePresence>
+          {isHistoryPanelOpen && (
+            <motion.div
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: "30%", opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <HistoryPanel
+                conversations={chatThreads.map((thread, index) => ({
+                  id: index.toString(),
+                  title:
+                    thread[0]?.text.substring(0, 30) || `New Chat ${index + 1}`,
+                }))}
+                currentConversationId={currentThreadIndex.toString()}
+                onSelectConversation={(id) =>
+                  setCurrentThreadIndex(parseInt(id))
+                }
+                onCreateNewConversation={() => {
+                  setChatThreads((prevThreads) => [...prevThreads, []]);
+                  setCurrentThreadIndex(chatThreads.length);
+                }}
+                onDeleteConversation={(id) => {
+                  const index = parseInt(id);
+                  setChatThreads((prevThreads) =>
+                    prevThreads.filter((_, i) => i !== index),
+                  );
+                  if (currentThreadIndex === index) {
+                    setCurrentThreadIndex(0);
+                  }
+                }}
+                onEditConversationTitle={(id, newTitle) => {
+                  const index = parseInt(id);
+                  setChatThreads((prevThreads) =>
+                    prevThreads.map((thread, i) =>
+                      i === index
+                        ? [
+                            { ...thread[0], title: newTitle },
+                            ...thread.slice(1),
+                          ]
+                        : thread,
+                    ),
+                  );
+                }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div
+          className="flex flex-col flex-grow"
+          style={{ width: isHistoryPanelOpen ? "70%" : "100%" }}
+        >
           <Header
             modelName={modelName}
             modelsDeployed={modelsDeployed}
