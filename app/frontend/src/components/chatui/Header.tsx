@@ -29,6 +29,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
+import { Button } from "../ui/button";
+import { Menu } from "lucide-react";
 
 interface HeaderProps {
   modelName: string | null;
@@ -38,6 +40,8 @@ interface HeaderProps {
   ragDataSources: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource) => void;
+  isHistoryPanelOpen: boolean;
+  setIsHistoryPanelOpen: (isOpen: boolean) => void;
 }
 
 interface RagDataSource {
@@ -88,9 +92,19 @@ export default function Header({
   ragDataSources,
   ragDatasource,
   setRagDatasource,
+  isHistoryPanelOpen,
+  setIsHistoryPanelOpen,
 }: HeaderProps) {
   return (
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center border border-gray-200 dark:border-[#7C68FA]/20">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setIsHistoryPanelOpen(!isHistoryPanelOpen)}
+        className="mr-2"
+      >
+        <Menu className="h-4 w-4" />
+      </Button>
       <Breadcrumb className="flex items-center">
         <BreadcrumbList className="flex gap-2 text-sm">
           <BreadcrumbItem>

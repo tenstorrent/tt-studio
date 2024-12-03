@@ -40,6 +40,7 @@ export default function ChatComponent() {
     string | null
   >(null);
   const [isListening, setIsListening] = useState<boolean>(false);
+  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
 
   useEffect(() => {
     if (location.state) {
@@ -213,37 +214,40 @@ export default function ChatComponent() {
   return (
     <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden p-2">
       <Card className="flex flex-row w-full h-full">
-        <HistoryPanel
-          conversations={chatThreads.map((thread, index) => ({
-            id: index.toString(),
-            title: thread[0]?.text.substring(0, 30) || `New Chat ${index + 1}`,
-          }))}
-          currentConversationId={currentThreadIndex.toString()}
-          onSelectConversation={(id) => setCurrentThreadIndex(parseInt(id))}
-          onCreateNewConversation={() => {
-            setChatThreads((prevThreads) => [...prevThreads, []]);
-            setCurrentThreadIndex(chatThreads.length);
-          }}
-          onDeleteConversation={(id) => {
-            const index = parseInt(id);
-            setChatThreads((prevThreads) =>
-              prevThreads.filter((_, i) => i !== index),
-            );
-            if (currentThreadIndex === index) {
-              setCurrentThreadIndex(0);
-            }
-          }}
-          onEditConversationTitle={(id, newTitle) => {
-            const index = parseInt(id);
-            setChatThreads((prevThreads) =>
-              prevThreads.map((thread, i) =>
-                i === index
-                  ? [{ ...thread[0], title: newTitle }, ...thread.slice(1)]
-                  : thread,
-              ),
-            );
-          }}
-        />
+        {isHistoryPanelOpen && (
+          <HistoryPanel
+            conversations={chatThreads.map((thread, index) => ({
+              id: index.toString(),
+              title:
+                thread[0]?.text.substring(0, 30) || `New Chat ${index + 1}`,
+            }))}
+            currentConversationId={currentThreadIndex.toString()}
+            onSelectConversation={(id) => setCurrentThreadIndex(parseInt(id))}
+            onCreateNewConversation={() => {
+              setChatThreads((prevThreads) => [...prevThreads, []]);
+              setCurrentThreadIndex(chatThreads.length);
+            }}
+            onDeleteConversation={(id) => {
+              const index = parseInt(id);
+              setChatThreads((prevThreads) =>
+                prevThreads.filter((_, i) => i !== index),
+              );
+              if (currentThreadIndex === index) {
+                setCurrentThreadIndex(0);
+              }
+            }}
+            onEditConversationTitle={(id, newTitle) => {
+              const index = parseInt(id);
+              setChatThreads((prevThreads) =>
+                prevThreads.map((thread, i) =>
+                  i === index
+                    ? [{ ...thread[0], title: newTitle }, ...thread.slice(1)]
+                    : thread,
+                ),
+              );
+            }}
+          />
+        )}
         <div className="flex flex-col flex-grow">
           <Header
             modelName={modelName}
@@ -253,6 +257,8 @@ export default function ChatComponent() {
             ragDataSources={ragDataSources}
             ragDatasource={ragDatasource}
             setRagDatasource={setRagDatasource}
+            isHistoryPanelOpen={isHistoryPanelOpen}
+            setIsHistoryPanelOpen={setIsHistoryPanelOpen}
           />
           <ChatHistory
             chatHistory={chatThreads[currentThreadIndex]}
