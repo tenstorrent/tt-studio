@@ -213,16 +213,16 @@ export default function ChatComponent() {
   );
 
   return (
-    <div className="flex flex-col w-10/12 mx-auto h-screen overflow-hidden p-2">
-      <Card className="flex flex-row w-full h-full">
-        <AnimatePresence>
+    <div className="flex flex-col w-full max-w-[1600px] mx-auto h-screen overflow-hidden p-6">
+      <Card className="flex flex-row w-full h-full overflow-hidden min-w-0">
+        <AnimatePresence initial={false} mode="wait">
           {isHistoryPanelOpen && (
             <motion.div
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: "30%", opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
+              initial={{ width: 0 }}
+              animate={{ width: "300px", maxWidth: "30%" }}
+              exit={{ width: 0 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="overflow-hidden"
+              className="h-full overflow-hidden border-r border-gray-200 dark:border-gray-700"
             >
               <HistoryPanel
                 conversations={chatThreads.map((thread, index) => ({
@@ -264,10 +264,7 @@ export default function ChatComponent() {
             </motion.div>
           )}
         </AnimatePresence>
-        <div
-          className="flex flex-col flex-grow"
-          style={{ width: isHistoryPanelOpen ? "70%" : "100%" }}
-        >
+        <div className={`flex flex-col flex-grow min-w-0 w-0`}>
           <Header
             modelName={modelName}
             modelsDeployed={modelsDeployed}

@@ -43,7 +43,7 @@ export function HistoryPanel({
   );
 
   return (
-    <div className="max-w-xl rounded-lg border border-slate-300 bg-white dark:bg-[#2A2A2A] py-8 dark:border-[#7C68FA]/20">
+    <div className="max-w-xl h-full rounded-lg border border-slate-300 bg-[#1C1C1C] dark:bg-[#1C1C1C] py-8 dark:border-[#7C68FA]/20">
       <div className="flex items-start px-5">
         <h2 className="text-lg font-medium text-slate-800 dark:text-slate-200">
           Chats
@@ -56,21 +56,21 @@ export function HistoryPanel({
         <div className="relative">
           <Input
             type="text"
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 p-3 pr-10 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            className="w-full rounded-lg border-0 bg-[#2A2A2A] p-3 pr-10 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] placeholder:text-slate-400"
             placeholder="Search chats"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           <Button
             type="button"
-            className="absolute bottom-2 right-2.5 rounded-lg p-2 text-sm text-slate-500 hover:text-[#7C68FA] focus:outline-none sm:text-base"
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded-lg p-2 text-sm text-slate-400 hover:text-[#7C68FA] focus:outline-none"
           >
             <Search className="h-5 w-5" />
             <span className="sr-only">Search chats</span>
           </Button>
         </div>
       </div>
-      <ScrollArea className="my-4 h-80 px-2">
+      <ScrollArea className="flex-1 px-2 my-4">
         {filteredConversations.map((conversation) => (
           <div
             key={conversation.id}
@@ -95,8 +95,23 @@ export function HistoryPanel({
                   autoFocus
                 />
               ) : (
-                <span className="truncate text-gray-800 dark:text-gray-200">
-                  {conversation.title}
+                <span className="truncate text-slate-200">
+                  {searchQuery &&
+                  conversation.title
+                    .toLowerCase()
+                    .includes(searchQuery.toLowerCase())
+                    ? conversation.title
+                        .split(new RegExp(`(${searchQuery})`, "gi"))
+                        .map((part, i) =>
+                          part.toLowerCase() === searchQuery.toLowerCase() ? (
+                            <span key={i} className="bg-[#7C68FA]/30">
+                              {part}
+                            </span>
+                          ) : (
+                            part
+                          ),
+                        )
+                    : conversation.title}
                 </span>
               )}
             </div>
