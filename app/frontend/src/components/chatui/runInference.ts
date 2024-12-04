@@ -42,7 +42,8 @@ export const runInference = async (
     if (AUTH_TOKEN) {
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
-    // the model needs to be the deployed vLLM model name
+    // the hf_model_path needs to be the deployed vLLM model name
+    // this is added in backend when routing to the correct model container
     // future UI exposable params: temperature, top_k, top_p, max_tokens
     const requestBody = {
       deploy_id: request.deploy_id,
