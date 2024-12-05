@@ -49,7 +49,7 @@ export const runInference = async (
     // the model needs to be the deployed vLLM model name
     // future UI exposable params: temperature, top_k, top_p, max_tokens
     const requestBody = {
-      model: "meta-llama/Llama-3.1-70B-Instruct",
+      deploy_id: request.deploy_id || "meta-llama/Llama-3.1-70B-Instruct",
       prompt: prompt,
       temperature: 1,
       top_k: 20,
