@@ -4,7 +4,7 @@
 import { InferenceRequest, RagDataSource, ChatMessage } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
-import { v4 as uuidv4 } from "uuid"; // Make sure to install and import uuid
+import { v4 as uuidv4 } from "uuid";
 
 export const runInference = async (
   request: InferenceRequest,
@@ -18,7 +18,6 @@ export const runInference = async (
 
     let ragContext: { documents: string[] } | null = null;
 
-    // Step 1: Get the RAG context if available
     if (ragDatasource) {
       console.log("Fetching RAG context for the given request...");
       ragContext = await getRagContext(request, ragDatasource);
@@ -27,7 +26,6 @@ export const runInference = async (
 
     console.log("RAG context being passed to generatePrompt:", ragContext);
 
-    // Step 2: Generate the prompt using the new generatePrompt function
     const prompt = generatePrompt(
       chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
       ragContext ? { documents: ragContext.documents } : null,
@@ -36,7 +34,6 @@ export const runInference = async (
 
     console.log("Generated Prompt:", prompt);
 
-    // Prepare the request body for the API
     const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
@@ -81,57 +78,53 @@ export const runInference = async (
     const reader = response.body?.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
+    let accumulatedText = "";
 
-    // Add a placeholder for the assistant's response with a unique id
+    const newMessageId = uuidv4();
     setChatHistory((prevHistory) => [
       ...prevHistory,
-      { id: uuidv4(), sender: "assistant", text: "" },
+      { id: newMessageId, sender: "assistant", text: "" },
     ]);
 
     if (reader) {
-      let done = false;
-      while (!done) {
-        const { done: streamDone, value } = await reader.read();
-        done = streamDone;
+      while (true) {
+        const { done, value } = await reader.read();
 
-        if (value) {
-          // Decode value into text
-          buffer += decoder.decode(value, { stream: true });
-          console.log("Decoded buffer:", buffer);
+        if (done) {
+          console.log("Stream complete");
+          break;
+        }
 
-          // Split the buffer into lines
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || ""; // Keep the incomplete line in the buffer
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-          for (const line of lines) {
-            const trimmedLine = line.trim();
-            console.log("Processing line:", trimmedLine);
-
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith("data: ")) {
             if (trimmedLine === "data: [DONE]") {
-              console.log("Received [DONE] signal, ending stream.");
-              done = true;
-              break;
+              console.log("Received [DONE] signal");
+              continue;
             }
 
-            if (trimmedLine.startsWith("data: ")) {
-              try {
-                const jsonData = trimmedLine.slice(6); // Remove "data: " prefix
-                const json = JSON.parse(jsonData);
-                const content = json.choices[0]?.text || "";
+            try {
+              const jsonData = JSON.parse(trimmedLine.slice(5));
+              const content = jsonData.choices[0]?.text || "";
 
-                // Update chat history in real-time with the current assistant's response
+              if (content) {
+                accumulatedText += content;
                 setChatHistory((prevHistory) => {
                   const updatedHistory = [...prevHistory];
                   const lastMessage = updatedHistory[updatedHistory.length - 1];
-                  if (lastMessage.sender === "assistant") {
-                    lastMessage.text += content;
+                  if (lastMessage.id === newMessageId) {
+                    lastMessage.text = accumulatedText;
                   }
                   return updatedHistory;
                 });
-              } catch (error) {
-                console.error("Failed to parse JSON:", error);
-                console.error("Problematic JSON string:", trimmedLine.slice(6));
               }
+            } catch (error) {
+              console.error("Failed to parse JSON:", error);
+              console.error("Problematic JSON string:", trimmedLine.slice(5));
             }
           }
         }

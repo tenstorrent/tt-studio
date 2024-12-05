@@ -11,12 +11,10 @@ interface StreamingMessageProps {
 
 const cleanContent = (content: string): string => {
   return content
-    .replace(/<\|eot_id\|>/g, "")
-    .replace(/<\|start_header_id\|>assistant/g, "")
-    .replace(/<\|end_header_id\|>/g, "")
-    .replace(/<\|start_header_id\|>/g, "")
-    .replace(/\bassistant\b/g, "")
-    .replace(/\buser\b/g, "")
+    .replace(/<\|.*?\|>(&gt;)?/g, "")
+    .replace(/\b(assistant|user)\b/gi, "")
+    .replace(/[<>]/g, "")
+    .replace(/&(lt|gt);/g, "")
     .trim();
 };
 
@@ -24,17 +22,22 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
   function StreamingMessage({ content, isStreamFinished }) {
     const [renderedContent, setRenderedContent] = useState("");
     const contentRef = useRef(cleanContent(content));
-    const intervalRef = useRef<NodeJS.Timeout | null>(null);
+    const intervalRef = useRef<number | null>(null);
+    const lastChunkRef = useRef("");
 
     const renderNextChunk = useCallback(() => {
-      setRenderedContent((prev) => {
-        const nextChunk = contentRef.current.slice(
-          prev.length,
-          prev.length + 10,
-        );
-        return prev + nextChunk;
-      });
-    }, []);
+      const currentContent = contentRef.current;
+      const currentRenderedLength = renderedContent.length;
+      const nextChunk = currentContent.slice(
+        currentRenderedLength,
+        currentRenderedLength + 10
+      );
+
+      if (nextChunk !== lastChunkRef.current) {
+        lastChunkRef.current = nextChunk;
+        setRenderedContent(currentContent.slice(0, currentRenderedLength + 10));
+      }
+    }, [renderedContent]);
 
     useEffect(() => {
       contentRef.current = cleanContent(content);
@@ -47,7 +50,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
         }
       } else {
         if (!intervalRef.current) {
-          intervalRef.current = setInterval(() => {
+          intervalRef.current = window.setInterval(() => {
             if (renderedContent.length < contentRef.current.length) {
               renderNextChunk();
             } else {
@@ -81,13 +84,12 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
             ▋
           </motion.span>
         )}
-        {/* {isStreamFinished} */}
       </div>
     );
   },
   (prevProps, nextProps) =>
     prevProps.isStreamFinished === nextProps.isStreamFinished &&
-    prevProps.content === nextProps.content,
+    prevProps.content === nextProps.content
 );
 
 export default StreamingMessage;
