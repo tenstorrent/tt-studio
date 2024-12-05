@@ -57,7 +57,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
           <ThumbsDown className="h-4 w-4" />
           <span className="sr-only">Thumbs down</span>
         </Button>
-        <Button
+        {/* <Button
           variant="ghost"
           size="icon"
           onClick={() => {
@@ -82,7 +82,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
         >
           <MoreHorizontal className="h-4 w-4" />
           <span className="sr-only">Continue from previous response</span>
-        </Button>
+        </Button> */}
       </div>
     </>
   );
