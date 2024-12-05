@@ -3,7 +3,8 @@
 
 import { InferenceRequest, RagDataSource, ChatMessage } from "./types";
 import { getRagContext } from "./getRagContext";
-import { renderPrompt } from "./templateRenderer";
+import { generatePrompt } from "./templateRenderer";
+import { v4 as uuidv4 } from "uuid"; // Make sure to install and import uuid
 
 export const runInference = async (
   request: InferenceRequest,
@@ -15,26 +16,29 @@ export const runInference = async (
   try {
     setIsStreaming(true);
 
+    let ragContext: { documents: string[] } | null = null;
+
     // Step 1: Get the RAG context if available
     if (ragDatasource) {
       console.log("Fetching RAG context for the given request...");
-      request.rag_context = await getRagContext(request, ragDatasource);
-      console.log("RAG context fetched:", request.rag_context);
+      ragContext = await getRagContext(request, ragDatasource);
+      console.log("RAG context fetched:", ragContext);
     }
 
-    // Step 2: Render the prompt using Nunjucks with the updated chat history
-    const prompt = renderPrompt(
-      chatHistory.map((message) => ({
-        role: message.sender,
-        content: message.text,
-      })),
+    console.log("RAG context being passed to generatePrompt:", ragContext);
+
+    // Step 2: Generate the prompt using the new generatePrompt function
+    const prompt = generatePrompt(
+      chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
+      ragContext ? { documents: ragContext.documents } : null,
+      true,
     );
 
-    console.log("Rendered Prompt:", prompt);
+    console.log("Generated Prompt:", prompt);
 
     // Prepare the request body for the API
-    const API_URL = "/models-api/inference/";
-    const AUTH_TOKEN = "";
+    const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
+    const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -46,7 +50,7 @@ export const runInference = async (
     // this is added in backend when routing to the correct model container
     // future UI exposable params: temperature, top_k, top_p, max_tokens
     const requestBody = {
-      deploy_id: request.deploy_id,
+      deploy_id: request.deploy_id || "meta-llama/Llama-3.1-70B-Instruct",
       prompt: prompt,
       temperature: 1,
       top_k: 20,
@@ -78,10 +82,10 @@ export const runInference = async (
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
 
-    // Add a placeholder for the assistant's response
+    // Add a placeholder for the assistant's response with a unique id
     setChatHistory((prevHistory) => [
       ...prevHistory,
-      { sender: "assistant", text: "" },
+      { id: uuidv4(), sender: "assistant", text: "" },
     ]);
 
     if (reader) {
@@ -112,21 +116,16 @@ export const runInference = async (
             if (trimmedLine.startsWith("data: ")) {
               try {
                 const jsonData = trimmedLine.slice(6); // Remove "data: " prefix
-                // console.log("Extracted JSON string:", jsonData);
                 const json = JSON.parse(jsonData);
-                // console.log("Parsed JSON:", JSON.stringify(json, null, 2));
                 const content = json.choices[0]?.text || "";
-
-                // console.log("Parsed content from model:", content);
 
                 // Update chat history in real-time with the current assistant's response
                 setChatHistory((prevHistory) => {
                   const updatedHistory = [...prevHistory];
-                  updatedHistory[updatedHistory.length - 1].text += content;
-                  // console.log(
-                  //   "Updated chat history:",
-                  //   JSON.stringify(updatedHistory, null, 2),
-                  // );
+                  const lastMessage = updatedHistory[updatedHistory.length - 1];
+                  if (lastMessage.sender === "assistant") {
+                    lastMessage.text += content;
+                  }
                   return updatedHistory;
                 });
               } catch (error) {

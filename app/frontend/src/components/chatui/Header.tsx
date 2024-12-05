@@ -29,6 +29,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
+import { Button } from "../ui/button";
+import { Menu } from "lucide-react";
 
 interface HeaderProps {
   modelName: string | null;
@@ -38,6 +40,8 @@ interface HeaderProps {
   ragDataSources: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource) => void;
+  isHistoryPanelOpen: boolean;
+  setIsHistoryPanelOpen: (isOpen: boolean) => void;
 }
 
 interface RagDataSource {
@@ -88,66 +92,78 @@ export default function Header({
   ragDataSources,
   ragDatasource,
   setRagDatasource,
+  isHistoryPanelOpen,
+  setIsHistoryPanelOpen,
 }: HeaderProps) {
   return (
-    <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center border border-gray-200 dark:border-[#7C68FA]/20">
-      <Breadcrumb className="flex items-center">
-        <BreadcrumbList className="flex gap-2 text-sm">
-          <BreadcrumbItem>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <BreadcrumbLink
-                    href="/models-deployed"
-                    className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
-                  >
-                    Models Deployed
-                  </BreadcrumbLink>
-                </TooltipTrigger>
-                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <p>View all deployed models</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator className="mx-2 text-white/40 dark:text-white/40">
-            /
-          </BreadcrumbSeparator>
-          <BreadcrumbItem>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <ModelSelector
-                    modelsDeployed={modelsDeployed}
-                    setModelID={setModelID}
-                    setModelName={setModelName}
-                  />
-                </TooltipTrigger>
-                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <p>Select a different model</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator className="mx-2 text-white/40 dark:text-white/40">
-            /
-          </BreadcrumbSeparator>
-          <BreadcrumbItem>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <BreadcrumbPage className="text-[#7C68FA] dark:text-[#7C68FA] font-bold hover:text-[#7C68FA]/80 dark:hover:text-[#7C68FA]/80 transition-colors duration-300">
-                    {modelName}
-                  </BreadcrumbPage>
-                </TooltipTrigger>
-                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <p>Current selected model</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+    <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
+      <div className="flex items-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setIsHistoryPanelOpen(!isHistoryPanelOpen)}
+          className="mr-2"
+        >
+          <Menu className="h-4 w-4" />
+        </Button>
+        <Breadcrumb className="flex items-center">
+          <BreadcrumbList className="flex gap-2 text-sm">
+            <BreadcrumbItem>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <BreadcrumbLink
+                      href="/models-deployed"
+                      className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
+                    >
+                      Models Deployed
+                    </BreadcrumbLink>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                    <p>View all deployed models</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator className="mx-2 text-white/40 dark:text-white/40">
+              /
+            </BreadcrumbSeparator>
+            <BreadcrumbItem>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ModelSelector
+                      modelsDeployed={modelsDeployed}
+                      setModelID={setModelID}
+                      setModelName={setModelName}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                    <p>Select a different model</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator className="mx-2 text-white/40 dark:text-white/40">
+              /
+            </BreadcrumbSeparator>
+            <BreadcrumbItem>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <BreadcrumbPage className="text-[#7C68FA] dark:text-[#7C68FA] font-bold hover:text-[#7C68FA]/80 dark:hover:text-[#7C68FA]/80 transition-colors duration-300">
+                      {modelName}
+                    </BreadcrumbPage>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                    <p>Current selected model</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      </div>
       <div className="flex items-center">
         <Select
           onValueChange={(v) => {
