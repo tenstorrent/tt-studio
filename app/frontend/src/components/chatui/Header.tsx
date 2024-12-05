@@ -84,6 +84,23 @@ const ModelSelector = React.forwardRef<
 
 ModelSelector.displayName = "ModelSelector";
 
+const ForwardedSelect = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof Select>
+>((props, ref) => (
+  <Select {...props}>
+    <SelectTrigger
+      ref={ref}
+      className="w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white"
+    >
+      <SelectValue placeholder="Select RAG context" />
+    </SelectTrigger>
+    {props.children}
+  </Select>
+));
+
+ForwardedSelect.displayName = "ForwardedSelect";
+
 export default function Header({
   modelName,
   modelsDeployed,
@@ -168,7 +185,7 @@ export default function Header({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Select
+              <ForwardedSelect
                 value={ragDatasource ? ragDatasource.name : ""}
                 onValueChange={(v) => {
                   if (v === "remove") {
@@ -183,9 +200,6 @@ export default function Header({
                   }
                 }}
               >
-                <SelectTrigger className="w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <SelectValue placeholder="Select RAG context" />
-                </SelectTrigger>
                 <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                   {ragDataSources.map((c) => (
                     <SelectItem
@@ -208,7 +222,7 @@ export default function Header({
                     </SelectItem>
                   )}
                 </SelectContent>
-              </Select>
+              </ForwardedSelect>
             </TooltipTrigger>
             <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
               <p>
