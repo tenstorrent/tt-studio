@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Button } from "../ui/button";
-import { Menu } from "lucide-react";
+import { Menu, X } from "lucide-react";
 
 interface HeaderProps {
   modelName: string | null;
@@ -39,7 +39,7 @@ interface HeaderProps {
   setModelName: (name: string) => void;
   ragDataSources: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
-  setRagDatasource: (datasource: RagDataSource) => void;
+  setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
 }
@@ -165,31 +165,60 @@ export default function Header({
         </Breadcrumb>
       </div>
       <div className="flex items-center">
-        <Select
-          onValueChange={(v) => {
-            const dataSource = ragDataSources.find((rds) => rds.name === v);
-            if (dataSource) {
-              setRagDatasource(dataSource);
-            }
-          }}
-        >
-          <SelectTrigger className="w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-            <SelectValue
-              placeholder={ragDatasource?.name ?? "Select RAG Datasource"}
-            />
-          </SelectTrigger>
-          <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
-            {ragDataSources.map((c) => (
-              <SelectItem
-                key={c.id}
-                value={c.name}
-                className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Select
+                value={ragDatasource ? ragDatasource.name : ""}
+                onValueChange={(v) => {
+                  if (v === "remove") {
+                    setRagDatasource(undefined);
+                  } else {
+                    const dataSource = ragDataSources.find(
+                      (rds) => rds.name === v
+                    );
+                    if (dataSource) {
+                      setRagDatasource(dataSource);
+                    }
+                  }
+                }}
               >
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+                <SelectTrigger className="w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                  <SelectValue placeholder="Select RAG context" />
+                </SelectTrigger>
+                <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
+                  {ragDataSources.map((c) => (
+                    <SelectItem
+                      key={c.id}
+                      value={c.name}
+                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                    >
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                  {ragDatasource && (
+                    <SelectItem
+                      value="remove"
+                      className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
+                    >
+                      <span className="flex items-center">
+                        <X className="mr-2 h-4 w-4" />
+                        Remove RAG context
+                      </span>
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </TooltipTrigger>
+            <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+              <p>
+                {ragDatasource
+                  ? "Change or remove RAG context"
+                  : "Select RAG context"}
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     </div>
   );

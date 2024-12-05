@@ -39,7 +39,7 @@ export function HistoryPanel({
   };
 
   const filteredConversations = conversations.filter((conversation) =>
-    conversation.title.toLowerCase().includes(searchQuery.toLowerCase()),
+    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -109,7 +109,7 @@ export function HistoryPanel({
                             </span>
                           ) : (
                             part
-                          ),
+                          )
                         )
                     : conversation.title}
                 </span>
