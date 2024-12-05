@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { User, ChevronDown } from "lucide-react";
 import { Button } from "../ui/button";
 import InferenceStats from "./InferenceStats";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
+import MessageActions from "./MessageActions";
 
 interface ChatMessage {
+  id: string;
   sender: "user" | "assistant";
   text: string;
   inferenceStats?: InferenceStats;
@@ -35,62 +37,80 @@ interface ChatHistoryProps {
   logo: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
   isStreaming: boolean;
+  onReRender: (messageId: string) => void;
+  onContinue: (messageId: string) => void;
+  reRenderingMessageId: string | null;
 }
 
-export default function ChatHistory({
-  chatHistory,
+const ChatHistory: React.FC<ChatHistoryProps> = ({
+  chatHistory = [],
   logo,
   setTextInput,
   isStreaming,
-}: ChatHistoryProps) {
+  onReRender,
+  onContinue,
+  reRenderingMessageId,
+}) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     if (viewportRef.current) {
       viewportRef.current.scrollTo({
         top: viewportRef.current.scrollHeight,
         behavior: "smooth",
       });
     }
-  };
+  }, []);
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (viewportRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
       setIsScrollButtonVisible(!isAtBottom);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (viewportRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
+    const viewport = viewportRef.current;
+    if (viewport) {
+      viewport.addEventListener("scroll", handleScroll);
+      return () => viewport.removeEventListener("scroll", handleScroll);
+    }
+  }, [handleScroll]);
 
-      if (isAtBottom) {
-        scrollToBottom();
+  useEffect(() => {
+    if (!isStreaming) {
+      const viewport = viewportRef.current;
+      if (viewport) {
+        const { scrollTop, scrollHeight, clientHeight } = viewport;
+        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
+        if (isAtBottom) {
+          scrollToBottom();
+        }
+        setIsScrollButtonVisible(!isAtBottom);
       }
     }
-  }, [chatHistory]);
+  }, [chatHistory, isStreaming, scrollToBottom]);
 
   return (
     <div className="flex flex-col w-full flex-grow p-8 font-rmMono relative overflow-hidden">
-      {chatHistory.length === 0 && (
+      {chatHistory.length === 0 ? (
         <ChatExamples logo={logo} setTextInput={setTextInput} />
-      )}
-      {chatHistory.length > 0 && (
+      ) : (
         <ScrollArea.Root className="flex-grow h-full overflow-hidden">
           <ScrollArea.Viewport
             ref={viewportRef}
-            onScroll={handleScroll}
             className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+            onScroll={handleScroll}
           >
             <div className="p-4 border rounded-lg">
               {chatHistory.map((message, index) => (
                 <div
-                  key={index}
-                  className={`chat ${message.sender === "user" ? "chat-end" : "chat-start"}`}
+                  key={message.id}
+                  ref={index === chatHistory.length - 1 ? lastMessageRef : null}
+                  className={`chat ${message.sender === "user" ? "chat-end" : "chat-start"} mb-4`}
                 >
                   <div className="chat-image avatar text-left">
                     <div className="w-10 rounded-full">
@@ -99,7 +119,7 @@ export default function ChatHistory({
                       ) : (
                         <img
                           src={logo}
-                          alt="Tenstorrent Logo"
+                          alt="Assistant Logo"
                           className="w-8 h-8 rounded-full mr-2"
                         />
                       )}
@@ -111,17 +131,51 @@ export default function ChatHistory({
                         ? "bg-TT-green-accent text-white text-left"
                         : "bg-TT-slate text-white text-left"
                     } p-3 rounded-lg mb-1`}
-                    style={{ wordBreak: "break-word", whiteSpace: "pre-wrap" }}
                   >
-                    <StreamingMessage
-                      content={message.text}
-                      isStreamFinished={
-                        !isStreaming || index !== chatHistory.length - 1
-                      }
-                    />
+                    {message.sender === "assistant" && (
+                      <>
+                        {reRenderingMessageId === message.id && (
+                          <div className="text-yellow-300 font-bold mb-2 flex items-center">
+                            <span className="mr-2">Re-rendering</span>
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="animate-spin"
+                            >
+                              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                            </svg>
+                          </div>
+                        )}
+                        <StreamingMessage
+                          content={message.text}
+                          isStreamFinished={
+                            !isStreaming ||
+                            (reRenderingMessageId !== message.id &&
+                              index !== chatHistory.length - 1)
+                          }
+                        />
+                      </>
+                    )}
+                    {message.sender === "user" && <p>{message.text}</p>}
                   </div>
                   {message.sender === "assistant" && message.inferenceStats && (
                     <InferenceStats stats={message.inferenceStats} />
+                  )}
+                  {message.sender === "assistant" && (
+                    <MessageActions
+                      messageId={message.id}
+                      onReRender={onReRender}
+                      onContinue={onContinue}
+                      isReRendering={reRenderingMessageId === message.id}
+                      isStreaming={isStreaming}
+                    />
                   )}
                 </div>
               ))}
@@ -138,11 +192,16 @@ export default function ChatHistory({
       {isScrollButtonVisible && (
         <Button
           className="absolute bottom-4 right-4 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
-          onClick={scrollToBottom}
+          onClick={() => {
+            scrollToBottom();
+            setIsScrollButtonVisible(false);
+          }}
         >
           <ChevronDown className="h-6 w-6 animate-bounce" />
         </Button>
       )}
     </div>
   );
-}
+};
+
+export default React.memo(ChatHistory);
