@@ -15,6 +15,7 @@ const cleanContent = (content: string): string => {
     .replace(/\b(assistant|user)\b/gi, "")
     .replace(/[<>]/g, "")
     .replace(/&(lt|gt);/g, "")
+    .replace(/\|(?:eot_id|start_header_id)\|/g, "")
     .trim();
 };
 
