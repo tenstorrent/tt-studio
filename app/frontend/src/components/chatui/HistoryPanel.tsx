@@ -43,7 +43,7 @@ export function HistoryPanel({
   );
 
   return (
-    <div className="max-w-xl h-full rounded-lg border border-slate-300 bg-[#1C1C1C] dark:bg-[#1C1C1C] py-8 dark:border-[#7C68FA]/20">
+    <div className="max-w-xl h-full rounded-lg p-4  border border-slate-300 bg-[#1C1C1C] dark:bg-[#1C1C1C] py-8 dark:border-[#7C68FA]/20">
       <div className="flex items-start px-5">
         <h2 className="text-lg font-medium text-slate-800 dark:text-slate-200">
           Chats

@@ -61,6 +61,19 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setIsHistoryPanelOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    handleResize(); // Call it initially
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const handleInference = useCallback(
     (continuationMessageId: string | null = null) => {
       if (textInput.trim() === "" || !modelID) return;
@@ -221,16 +234,16 @@ export default function ChatComponent() {
   );
 
   return (
-    <div className="flex flex-col w-full max-w-[1600px] mx-auto h-screen overflow-hidden p-6">
+    <div className="flex flex-col w-full max-w-[1600px] mx-auto h-screen overflow-hidden p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0">
         <AnimatePresence initial={false} mode="wait">
           {isHistoryPanelOpen && (
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: "300px", maxWidth: "30%" }}
+              animate={{ width: "350px", maxWidth: "35%" }}
               exit={{ width: 0 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="h-full overflow-hidden border-r border-gray-200 dark:border-gray-700"
+              className="h-full overflow-hidden border-r border-gray-200 dark:border-gray-700 hidden md:block p-4"
             >
               <HistoryPanel
                 conversations={chatThreads.map((thread, index) => ({
@@ -272,7 +285,7 @@ export default function ChatComponent() {
             </motion.div>
           )}
         </AnimatePresence>
-        <div className={`flex flex-col flex-grow min-w-0 w-0`}>
+        <div className={`flex flex-col flex-grow min-w-0 w-0 p-4`}>
           <Header
             modelName={modelName}
             modelsDeployed={modelsDeployed}
