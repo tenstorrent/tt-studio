@@ -25,7 +25,7 @@ export const RefreshProvider = ({ children }: { children: ReactNode }) => {
 };
 
 export const useRefresh = () => {
-  // console.log("useRefresh called");
+  console.log("useRefresh called");
   const context = useContext(RefreshContext);
   if (!context) {
     throw new Error("useRefresh must be used within a RefreshProvider");

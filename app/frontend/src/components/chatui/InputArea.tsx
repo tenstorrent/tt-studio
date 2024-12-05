@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useEffect, useRef } from "react";
+import { Textarea } from "../ui/textarea";
 import { Button } from "../ui/button";
-import { Paperclip, Send } from "lucide-react";
-import { VoiceInput } from "./VoiceInput";
+import { Send } from "lucide-react";
+import { Spinner } from "../ui/spinner";
 
 interface InputAreaProps {
   textInput: string;
-  setTextInput: React.Dispatch<React.SetStateAction<string>>;
-  handleInference: (input: string) => void;
+  setTextInput: (text: string) => void;
+  handleInference: () => void;
   isStreaming: boolean;
-  isListening: boolean;
-  setIsListening: (isListening: boolean) => void;
 }
 
 export default function InputArea({
@@ -19,9 +18,20 @@ export default function InputArea({
   setTextInput,
   handleInference,
   isStreaming,
-  isListening,
-  setIsListening,
 }: InputAreaProps) {
+  const handleTextAreaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    e.target.style.height = "auto";
+    e.target.style.height = `${e.target.scrollHeight}px`;
+    setTextInput(e.target.value);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleInference();
+    }
+  };
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -30,75 +40,32 @@ export default function InputArea({
     }
   }, [isStreaming]);
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      adjustTextareaHeight();
-    }
-  }, [textInput]);
-
-  const adjustTextareaHeight = () => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  };
-
-  const handleTextAreaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setTextInput(e.target.value);
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleInference(textInput);
-    }
-  };
-
-  const handleVoiceInput = (transcript: string) => {
-    setTextInput((prevInput) => prevInput + " " + transcript);
-  };
-
   return (
-    <div className="flex-shrink-0 w-full">
-      <div className="relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl border border-gray-200 dark:border-[#7C68FA]/20">
-        <textarea
+    <div className="flex-shrink-0 p-4">
+      <div className="relative w-full">
+        <Textarea
           ref={textareaRef}
+          autoFocus
           value={textInput}
-          onChange={handleTextAreaInput}
+          onInput={handleTextAreaInput}
           onKeyDown={handleKeyPress}
-          placeholder="Enter your prompt"
-          className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-base overflow-y-auto"
+          placeholder="Enter text for inference"
+          className="px-4 py-2 pr-16 border rounded-lg shadow-md w-full box-border font-rmMono"
           disabled={isStreaming}
           rows={1}
           style={{
-            minHeight: "24px",
-            maxHeight: "200px",
+            resize: "none",
+            maxHeight: "150px",
+            overflowY: "auto",
           }}
         />
-        <div className="flex justify-between items-center mt-2">
-          <div className="flex gap-2 items-center">
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-            >
-              <Paperclip className="h-5 w-5" />
-            </Button>
-            <VoiceInput
-              onTranscript={handleVoiceInput}
-              isListening={isListening}
-              setIsListening={setIsListening}
-            />
-          </div>
-          <Button
-            onClick={() => handleInference(textInput)}
-            disabled={isStreaming || !textInput.trim()}
-            className="bg-[#7C68FA] hover:bg-[#7C68FA]/80 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-300"
-          >
-            Generate
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+        <Button
+          className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
+          onClick={handleInference}
+          disabled={isStreaming || !textInput.trim()}
+        >
+          {isStreaming ? <Spinner /> : <Send className="h-5 w-5" />}
+        </Button>
       </div>
     </div>
   );

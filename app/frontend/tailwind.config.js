@@ -139,25 +139,10 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "sound-wave-1": {
-          "0%, 100%": { height: "8px" },
-          "50%": { height: "16px" },
-        },
-        "sound-wave-2": {
-          "0%, 100%": { height: "12px" },
-          "50%": { height: "24px" },
-        },
-        "sound-wave-3": {
-          "0%, 100%": { height: "8px" },
-          "50%": { height: "16px" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "sound-wave-1": "sound-wave-1 0.8s infinite",
-        "sound-wave-2": "sound-wave-2 0.8s infinite 0.2s",
-        "sound-wave-3": "sound-wave-3 0.8s infinite 0.4s",
       },
     },
   },

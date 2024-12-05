@@ -55,7 +55,7 @@ export const fetchModels = async (): Promise<Model[]> => {
       statusURl,
     );
     const data = response.data;
-    // console.log("Data fetched for tables:", data);/
+    console.log("Data fetched for tables:", data);
 
     const models: Model[] = Object.keys(data).map((key) => {
       const container = data[key];
