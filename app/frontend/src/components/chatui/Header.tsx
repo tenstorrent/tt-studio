@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Button } from "../ui/button";
-import { Menu, X } from "lucide-react";
+import { PanelRight, X } from "lucide-react";
 
 interface HeaderProps {
   modelName: string | null;
@@ -121,7 +121,7 @@ export default function Header({
           onClick={() => setIsHistoryPanelOpen(!isHistoryPanelOpen)}
           className="mr-2"
         >
-          <Menu className="h-4 w-4" />
+          <PanelRight className="h-4 w-4" />
         </Button>
         <Breadcrumb className="flex items-center">
           <BreadcrumbList className="flex gap-2 text-sm">
