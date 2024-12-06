@@ -12,7 +12,13 @@ import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
 import { HistoryPanel } from "./HistoryPanel";
-import { InferenceRequest, RagDataSource, ChatMessage, Model } from "./types";
+import {
+  InferenceRequest,
+  RagDataSource,
+  ChatMessage,
+  Model,
+  InferenceStats,
+} from "./types";
 import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
@@ -212,10 +218,15 @@ export default function ChatComponent() {
               if (msg.id === messageId) {
                 const updatedMessage =
                   currentHistory[currentHistory.length - 1];
+                console.log(
+                  "Inference stats received:",
+                  updatedMessage.inferenceStats,
+                );
                 return {
                   ...msg,
                   text: updatedMessage.text,
-                  inferenceStats: updatedMessage.inferenceStats,
+                  inferenceStats:
+                    updatedMessage.inferenceStats as InferenceStats,
                 };
               }
               return msg;
@@ -251,6 +262,20 @@ export default function ChatComponent() {
     },
     [setCurrentThreadIndex, setRagDatasource],
   );
+
+  useEffect(() => {
+    const currentThread = chatThreads[currentThreadIndex];
+    if (currentThread) {
+      const lastMessage = currentThread[currentThread.length - 1];
+      if (
+        lastMessage &&
+        lastMessage.sender === "assistant" &&
+        lastMessage.inferenceStats
+      ) {
+        console.log("Inference stats updated:", lastMessage.inferenceStats);
+      }
+    }
+  }, [chatThreads, currentThreadIndex]);
 
   return (
     <div className="flex flex-col w-full max-w-[1600px] mx-auto h-screen overflow-hidden p-4 md:p-6">

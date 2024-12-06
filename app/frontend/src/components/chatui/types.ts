@@ -28,16 +28,8 @@ export interface Model {
 export interface InferenceStats {
   user_ttft_ms: number;
   user_tps: number;
-  user_ttft_e2e_ms: number;
-  prefill: {
-    tokens_prefilled: number;
-    tps: number;
-  };
-  decode: {
-    tokens_decoded: number;
-    tps: number;
-  };
-  batch_size: number;
+  tokens_decoded: number;
+  tokens_prefilled: number;
   context_length: number;
 }
 

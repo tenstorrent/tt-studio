@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-import { InferenceRequest, RagDataSource, ChatMessage } from "./types";
+import {
+  InferenceRequest,
+  RagDataSource,
+  ChatMessage,
+  InferenceStats,
+} from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
@@ -11,7 +16,7 @@ export const runInference = async (
   ragDatasource: RagDataSource | undefined,
   chatHistory: ChatMessage[],
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>
+  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
 ) => {
   try {
     setIsStreaming(true);
@@ -29,7 +34,7 @@ export const runInference = async (
     const prompt = generatePrompt(
       chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
       ragContext ? { documents: ragContext.documents } : null,
-      true
+      true,
     );
 
     console.log("Generated Prompt:", prompt);
@@ -43,9 +48,7 @@ export const runInference = async (
     if (AUTH_TOKEN) {
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
-    // the hf_model_path needs to be the deployed vLLM model name
-    // this is added in backend when routing to the correct model container
-    // future UI exposable params: temperature, top_k, top_p, max_tokens
+
     const requestBody = {
       deploy_id: request.deploy_id,
       prompt: prompt,
@@ -59,7 +62,7 @@ export const runInference = async (
 
     console.log(
       "Sending request to model:",
-      JSON.stringify(requestBody, null, 2)
+      JSON.stringify(requestBody, null, 2),
     );
 
     const response = await fetch(API_URL, {
@@ -86,7 +89,10 @@ export const runInference = async (
       { id: newMessageId, sender: "assistant", text: "" },
     ]);
 
+    let inferenceStats: InferenceStats | undefined;
+
     if (reader) {
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
 
@@ -107,10 +113,29 @@ export const runInference = async (
               continue;
             }
 
+            if (trimmedLine.startsWith("data: <<END_OF_STREAM>>")) {
+              console.log("End of stream marker received");
+              continue;
+            }
+
             try {
               const jsonData = JSON.parse(trimmedLine.slice(5));
-              const content = jsonData.choices[0]?.text || "";
 
+              // Handle statistics separately after [DONE]
+              if (jsonData.ttft && jsonData.tpot) {
+                inferenceStats = {
+                  user_ttft_ms: jsonData.ttft,
+                  user_tps: jsonData.tpot,
+                  tokens_decoded: jsonData.tokens_decoded,
+                  tokens_prefilled: jsonData.tokens_prefilled,
+                  context_length: jsonData.context_length,
+                };
+                console.log("Final Inference Stats received:", inferenceStats);
+                continue; // Skip processing this chunk as part of the generated text
+              }
+
+              // Handle the generated text
+              const content = jsonData.choices[0]?.text || "";
               if (content) {
                 accumulatedText += content;
                 setChatHistory((prevHistory) => {
@@ -133,6 +158,22 @@ export const runInference = async (
 
     console.log("Inference stream ended.");
     setIsStreaming(false);
+
+    // Update chat history with inference stats after streaming is fully completed
+    if (inferenceStats) {
+      console.log(
+        "Updating chat history with inference stats:",
+        inferenceStats,
+      );
+      setChatHistory((prevHistory) => {
+        const updatedHistory = [...prevHistory];
+        const lastMessage = updatedHistory[updatedHistory.length - 1];
+        if (lastMessage.id === newMessageId) {
+          lastMessage.inferenceStats = inferenceStats;
+        }
+        return updatedHistory;
+      });
+    }
   } catch (error) {
     console.error("Error running inference:", error);
     setIsStreaming(false);
