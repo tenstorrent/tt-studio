@@ -29,7 +29,7 @@ export default function ChatComponent() {
   });
   const [chatThreads, setChatThreads] = usePersistentState<ChatMessage[][]>(
     "chat_threads",
-    [[]]
+    [[]],
   );
   const [currentThreadIndex, setCurrentThreadIndex] =
     usePersistentState<number>("current_thread_index", 0);
@@ -74,9 +74,25 @@ export default function ChatComponent() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  useEffect(() => {
+    if (chatThreads.length === 0) {
+      setChatThreads([[]]);
+      setCurrentThreadIndex(0);
+    }
+  }, [chatThreads, setChatThreads, setCurrentThreadIndex]);
+
   const handleInference = useCallback(
     (continuationMessageId: string | null = null) => {
       if (textInput.trim() === "" || !modelID) return;
+
+      // Ensure the current thread exists
+      if (!chatThreads[currentThreadIndex]) {
+        setChatThreads((prevThreads) => {
+          const newThreads = [...prevThreads];
+          newThreads[currentThreadIndex] = [];
+          return newThreads;
+        });
+      }
 
       let updatedChatHistory: ChatMessage[];
 
@@ -84,7 +100,7 @@ export default function ChatComponent() {
         updatedChatHistory = chatThreads[currentThreadIndex].map((msg) =>
           msg.id === continuationMessageId
             ? { ...msg, text: msg.text + " [Continuing...] " }
-            : msg
+            : msg,
         );
       } else {
         const userMessage: ChatMessage = {
@@ -92,7 +108,10 @@ export default function ChatComponent() {
           sender: "user",
           text: textInput,
         };
-        updatedChatHistory = [...chatThreads[currentThreadIndex], userMessage];
+        updatedChatHistory = [
+          ...(chatThreads[currentThreadIndex] || []),
+          userMessage,
+        ];
       }
 
       setChatThreads((prevThreads) => {
@@ -117,7 +136,7 @@ export default function ChatComponent() {
             const newThreads = [...prevThreads];
             const currentHistory =
               typeof newHistory === "function"
-                ? newHistory(newThreads[currentThreadIndex])
+                ? newHistory(newThreads[currentThreadIndex] || [])
                 : newHistory;
             const lastMessage = currentHistory[currentHistory.length - 1];
             if (
@@ -135,7 +154,7 @@ export default function ChatComponent() {
             return newThreads;
           });
         },
-        setIsStreaming
+        setIsStreaming,
       );
 
       setTextInput("");
@@ -148,13 +167,13 @@ export default function ChatComponent() {
       ragDatasource,
       textInput,
       setChatThreads,
-    ]
+    ],
   );
 
   const handleReRender = useCallback(
     async (messageId: string) => {
-      const messageToReRender = chatThreads[currentThreadIndex].find(
-        (msg) => msg.id === messageId
+      const messageToReRender = chatThreads[currentThreadIndex]?.find(
+        (msg) => msg.id === messageId,
       );
       if (
         !messageToReRender ||
@@ -163,11 +182,11 @@ export default function ChatComponent() {
       )
         return;
 
-      const userMessage = chatThreads[currentThreadIndex].find(
+      const userMessage = chatThreads[currentThreadIndex]?.find(
         (msg) =>
           msg.sender === "user" &&
           chatThreads[currentThreadIndex].indexOf(msg) <
-            chatThreads[currentThreadIndex].indexOf(messageToReRender)
+            chatThreads[currentThreadIndex].indexOf(messageToReRender),
       );
       if (!userMessage) return;
 
@@ -182,13 +201,13 @@ export default function ChatComponent() {
       await runInference(
         inferenceRequest,
         ragDatasource,
-        chatThreads[currentThreadIndex],
+        chatThreads[currentThreadIndex] || [],
         (newHistory) => {
           setChatThreads((prevThreads) => {
             const newThreads = [...prevThreads];
             const currentHistory = Array.isArray(newHistory)
               ? newHistory
-              : newHistory(newThreads[currentThreadIndex]);
+              : newHistory(newThreads[currentThreadIndex] || []);
             newThreads[currentThreadIndex] = currentHistory.map((msg) => {
               if (msg.id === messageId) {
                 const updatedMessage =
@@ -204,25 +223,25 @@ export default function ChatComponent() {
             return newThreads;
           });
         },
-        setIsStreaming
+        setIsStreaming,
       );
 
       setReRenderingMessageId(null);
     },
-    [chatThreads, currentThreadIndex, modelID, ragDatasource, setChatThreads]
+    [chatThreads, currentThreadIndex, modelID, ragDatasource, setChatThreads],
   );
 
   const handleContinue = useCallback(
     (messageId: string) => {
-      const messageToContinue = chatThreads[currentThreadIndex].find(
-        (msg) => msg.id === messageId
+      const messageToContinue = chatThreads[currentThreadIndex]?.find(
+        (msg) => msg.id === messageId,
       );
       if (!messageToContinue || messageToContinue.sender !== "assistant")
         return;
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [chatThreads, currentThreadIndex]
+    [chatThreads, currentThreadIndex],
   );
 
   const handleSelectConversation = useCallback(
@@ -230,7 +249,7 @@ export default function ChatComponent() {
       setCurrentThreadIndex(parseInt(id));
       setRagDatasource(undefined);
     },
-    [setCurrentThreadIndex, setRagDatasource]
+    [setCurrentThreadIndex, setRagDatasource],
   );
 
   return (
@@ -243,7 +262,7 @@ export default function ChatComponent() {
               animate={{ width: "350px", maxWidth: "35%" }}
               exit={{ width: 0 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="h-full overflow-hidden border-r border-gray-200 dark:border-gray-700 hidden md:block p-4"
+              className="h-full overflow-hidden border-r border-gray-200 dark:border-gray-900 hidden md:block p-4"
             >
               <HistoryPanel
                 conversations={chatThreads.map((thread, index) => ({
@@ -261,7 +280,7 @@ export default function ChatComponent() {
                 onDeleteConversation={(id) => {
                   const index = parseInt(id);
                   setChatThreads((prevThreads) =>
-                    prevThreads.filter((_, i) => i !== index)
+                    prevThreads.filter((_, i) => i !== index),
                   );
                   if (currentThreadIndex === index) {
                     setCurrentThreadIndex(0);
@@ -277,8 +296,8 @@ export default function ChatComponent() {
                             { ...thread[0], title: newTitle },
                             ...thread.slice(1),
                           ]
-                        : thread
-                    )
+                        : thread,
+                    ),
                   );
                 }}
               />
@@ -298,7 +317,7 @@ export default function ChatComponent() {
             setIsHistoryPanelOpen={setIsHistoryPanelOpen}
           />
           <ChatHistory
-            chatHistory={chatThreads[currentThreadIndex]}
+            chatHistory={chatThreads[currentThreadIndex] || []}
             logo={logo}
             setTextInput={setTextInput}
             isStreaming={isStreaming}
