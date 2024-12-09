@@ -18,7 +18,7 @@ logger.info(f"importing {__name__}")
 def load_dotenv_dict(env_path: Union[str, Path]) -> Dict[str, str]:
     env_path = Path(env_path)
     if not env_path.exists():
-        logger.error(f"Env file not found: {self.env_file}")
+        logger.error(f"Env file not found: {env_path}")
     env_dict = {}
     with open(env_path) as f:
         lines = f.readlines()
