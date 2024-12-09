@@ -16,6 +16,7 @@ import {
   BotMessageSquare,
   Notebook,
   FileText,
+  Eye,
 } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
@@ -292,6 +293,40 @@ export default function NavBar() {
                       : "Deploy a model to use Chat UI"}
                   </TooltipContent>
                 </Tooltip>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <NavLink
+                  to="/object-detection"
+                  className={({ isActive }) => getNavLinkClass(isActive)}
+                >
+                  {isChatUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Eye
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Object Detection</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <Eye
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Object Detection</span>
+                    </>
+                  )}
+                </NavLink>
               </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
