@@ -39,38 +39,40 @@ export function HistoryPanel({
   };
 
   const filteredConversations = conversations.filter((conversation) =>
-    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
+    conversation.title.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
-    <div className="max-w-xl h-full rounded-lg p-4  border border-slate-300 bg-[#1C1C1C] dark:bg-[#1C1C1C] py-8 dark:border-[#7C68FA]/20">
-      <div className="flex items-start px-5">
-        <h2 className="text-lg font-medium text-slate-800 dark:text-slate-200">
-          Chats
-        </h2>
-        <span className="ml-2 rounded-full bg-[#7C68FA] px-2 py-1 text-xs text-slate-200">
-          {conversations.length}
-        </span>
-      </div>
-      <div className="mx-2 mt-8">
-        <div className="relative">
-          <Input
-            type="text"
-            className="w-full rounded-lg border-0 bg-[#2A2A2A] p-3 pr-10 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] placeholder:text-slate-400"
-            placeholder="Search chats"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          <Button
-            type="button"
-            className="absolute right-1 top-1/2 -translate-y-1/2 rounded-lg p-2 text-sm text-slate-400 hover:text-[#7C68FA] focus:outline-none"
-          >
-            <Search className="h-5 w-5" />
-            <span className="sr-only">Search chats</span>
-          </Button>
+    <div className="flex flex-col max-w-xl h-full rounded-lg border border-slate-300 bg-[#1C1C1C] dark:bg-[#1C1C1C] dark:border-[#7C68FA]/20">
+      <div className="flex-none p-4">
+        <div className="flex items-start px-5">
+          <h2 className="text-lg font-medium text-slate-800 dark:text-slate-200">
+            Chats
+          </h2>
+          <span className="ml-2 rounded-full bg-[#7C68FA] px-2 py-1 text-xs text-slate-200">
+            {conversations.length}
+          </span>
+        </div>
+        <div className="mx-2 mt-8">
+          <div className="relative">
+            <Input
+              type="text"
+              className="w-full rounded-lg border-0 bg-[#2A2A2A] p-3 pr-10 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] placeholder:text-slate-400"
+              placeholder="Search chats"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <Button
+              type="button"
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded-lg p-2 text-sm text-slate-400 hover:text-[#7C68FA] focus:outline-none"
+            >
+              <Search className="h-5 w-5" />
+              <span className="sr-only">Search chats</span>
+            </Button>
+          </div>
         </div>
       </div>
-      <ScrollArea className="flex-1 px-2 my-4">
+      <ScrollArea className="flex-grow px-2 my-4">
         {filteredConversations.map((conversation) => (
           <div
             key={conversation.id}
@@ -109,7 +111,7 @@ export function HistoryPanel({
                             </span>
                           ) : (
                             part
-                          )
+                          ),
                         )
                     : conversation.title}
                 </span>
@@ -142,7 +144,7 @@ export function HistoryPanel({
           </div>
         ))}
       </ScrollArea>
-      <div className="mx-2 mt-8">
+      <div className="flex-none p-4 mt-auto">
         <Button
           onClick={onCreateNewConversation}
           className="flex w-full justify-center items-center rounded-lg bg-[#7C68FA] p-4 text-sm font-medium text-white transition-colors duration-200 hover:bg-[#7C68FA]/90 focus:outline-none"

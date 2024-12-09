@@ -4,33 +4,10 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { User, ChevronDown } from "lucide-react";
 import { Button } from "../ui/button";
-import InferenceStats from "./InferenceStats";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
 import MessageActions from "./MessageActions";
-
-interface ChatMessage {
-  id: string;
-  sender: "user" | "assistant";
-  text: string;
-  inferenceStats?: InferenceStats;
-}
-
-interface InferenceStats {
-  user_ttft_ms: number;
-  user_tps: number;
-  user_ttft_e2e_ms: number;
-  prefill: {
-    tokens_prefilled: number;
-    tps: number;
-  };
-  decode: {
-    tokens_decoded: number;
-    tps: number;
-  };
-  batch_size: number;
-  context_length: number;
-}
+import { ChatMessage } from "./types";
 
 interface ChatHistoryProps {
   chatHistory: ChatMessage[];
@@ -165,9 +142,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                     )}
                     {message.sender === "user" && <p>{message.text}</p>}
                   </div>
-                  {message.sender === "assistant" && message.inferenceStats && (
+                  {/* {message.sender === "assistant" && message.inferenceStats && (
                     <InferenceStats stats={message.inferenceStats} />
-                  )}
+                  )} */}
                   {message.sender === "assistant" && (
                     <MessageActions
                       messageId={message.id}
@@ -175,6 +152,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       onContinue={onContinue}
                       isReRendering={reRenderingMessageId === message.id}
                       isStreaming={isStreaming}
+                      inferenceStats={message.inferenceStats}
                     />
                   )}
                 </div>

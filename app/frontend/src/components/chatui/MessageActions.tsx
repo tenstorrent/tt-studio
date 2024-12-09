@@ -2,14 +2,10 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React from "react";
 import { Button } from "../ui/button";
-import {
-  Clipboard,
-  ThumbsUp,
-  ThumbsDown,
-  RefreshCw,
-  MoreHorizontal,
-} from "lucide-react";
+import { Clipboard, ThumbsUp, ThumbsDown } from "lucide-react";
 import CustomToaster, { customToast } from "../CustomToaster";
+import InferenceStats from "./InferenceStats";
+import { InferenceStats as InferenceStatsType } from "./types";
 
 interface MessageActionsProps {
   messageId: string;
@@ -17,6 +13,7 @@ interface MessageActionsProps {
   onContinue: (messageId: string) => void;
   isReRendering: boolean;
   isStreaming: boolean;
+  inferenceStats?: InferenceStatsType;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -25,6 +22,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onContinue,
   isReRendering,
   isStreaming,
+  inferenceStats,
 }) => {
   const handleCopy = () => {
     // Implement copy logic here
@@ -44,45 +42,37 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   return (
     <>
       <CustomToaster />
-      <div className="flex items-center gap-2 mt-2">
-        <Button variant="ghost" size="icon" onClick={handleCopy}>
-          <Clipboard className="h-4 w-4" />
-          <span className="sr-only">Copy message</span>
-        </Button>
-        <Button variant="ghost" size="icon" onClick={handleThumbsUp}>
-          <ThumbsUp className="h-4 w-4" />
-          <span className="sr-only">Thumbs up</span>
-        </Button>
-        <Button variant="ghost" size="icon" onClick={handleThumbsDown}>
-          <ThumbsDown className="h-4 w-4" />
-          <span className="sr-only">Thumbs down</span>
-        </Button>
-        {/* <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            onReRender(messageId);
-            customToast.info("Re-rendering message");
-          }}
-          disabled={isReRendering || isStreaming}
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${isReRendering ? "animate-spin" : ""}`}
-          />
-          <span className="sr-only">Re-render message</span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            onContinue(messageId);
-            customToast.info("Continuing from previous response");
-          }}
-          disabled={isStreaming}
-        >
-          <MoreHorizontal className="h-4 w-4" />
-          <span className="sr-only">Continue from previous response</span>
-        </Button> */}
+      <div className="flex items-center justify-between w-full mt-2 gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleCopy}
+            className="h-8 w-8 p-0"
+          >
+            <Clipboard className="h-4 w-4" />
+            <span className="sr-only">Copy message</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleThumbsUp}
+            className="h-8 w-8 p-0"
+          >
+            <ThumbsUp className="h-4 w-4" />
+            <span className="sr-only">Thumbs up</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleThumbsDown}
+            className="h-8 w-8 p-0"
+          >
+            <ThumbsDown className="h-4 w-4" />
+            <span className="sr-only">Thumbs down</span>
+          </Button>
+          {inferenceStats && <InferenceStats stats={inferenceStats} />}
+        </div>
       </div>
     </>
   );

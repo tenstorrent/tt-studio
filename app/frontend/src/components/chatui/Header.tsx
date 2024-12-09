@@ -192,7 +192,7 @@ export default function Header({
                     setRagDatasource(undefined);
                   } else {
                     const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v
+                      (rds) => rds.name === v,
                     );
                     if (dataSource) {
                       setRagDatasource(dataSource);

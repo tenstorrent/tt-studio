@@ -60,7 +60,7 @@ export default function InputArea({
 
   return (
     <div className="flex-shrink-0 w-full">
-      <div className="relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl border border-gray-200 dark:border-[#7C68FA]/20">
+      <div className="relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl border border-gray-200 dark:border-[#7C68FA]/20 overflow-hidden">
         <textarea
           ref={textareaRef}
           value={textInput}
@@ -99,6 +99,11 @@ export default function InputArea({
             <Send className="h-4 w-4" />
           </Button>
         </div>
+        {isStreaming && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-[#7C68FA] to-[#7C68FA] animate-pulse-ripple-x" />
+          </div>
+        )}
       </div>
     </div>
   );
