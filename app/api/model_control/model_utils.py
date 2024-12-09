@@ -58,7 +58,7 @@ def stream_response_from_external_api(url, json_data):
         json_data["temperature"] = 1
         json_data["top_k"] = 20
         json_data["top_p"] = 0.9
-        json_data["max_tokens"] = 64
+        json_data["max_tokens"] = 512
         json_data["stream_options"] = {"include_usage": True,
                                        "continuous_usage_stats": True}
         logger.info(f"added extra token and temp:={json_data}")
