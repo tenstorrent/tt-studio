@@ -14,7 +14,6 @@ const ObjectDetectionPage = () => {
           }}
         ></div>
         <div className="flex flex-grow justify-center items-center w-full h-screen">
-          {/* COMPONENT GOES HERE */}
           <ObjectDetectionComponent />
         </div>
       </div>
