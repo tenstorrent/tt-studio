@@ -195,7 +195,7 @@ model_implmentations_list = [
         user_gid=1000,
         shm_size="32G",
         service_port=7000,
-        service_route="/v1/completions",
+        service_route="v1/chat/completions",
         env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
     ModelImpl(
