@@ -5,6 +5,8 @@ from django.urls import path
 from .views import ListLogsView, GetLogView
 
 urlpatterns = [
-    path('', ListLogsView.as_view(), name='list_logs'),
-    path('<path:filename>/', GetLogView.as_view(), name='get_log'),  # Use <path:filename> for multi-directory paths
+    path("", ListLogsView.as_view(), name="list_logs"),
+    path(
+        "<path:filename>/", GetLogView.as_view(), name="get_log"
+    ),  # Use <path:filename> for multi-directory paths
 ]

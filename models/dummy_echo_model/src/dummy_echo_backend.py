@@ -140,16 +140,18 @@ class DummyEchoBackend:
         user_ids = [user.user_id for user in self.users if user is not None]
         if len(user_ids) != len(set(user_ids)):
             logger.warning(f"WARNING: Duplicate user ids: {user_ids}")
-   
+
     def decode(self):
         # simulate TPS of a real LLM
         chars_per_token = 3
         tokens_per_second = 12.0
-        time.sleep(1.0/tokens_per_second)
+        time.sleep(1.0 / tokens_per_second)
         for idx, user in enumerate(self.users):
             if user is None:
                 continue
-            self.outputs[idx] = user.prompt[user.position_id:user.position_id+chars_per_token]
+            self.outputs[idx] = user.prompt[
+                user.position_id : user.position_id + chars_per_token
+            ]
             user.position_id += chars_per_token
             if user.position_id >= len(user.prompt):
                 self.users[idx].decode_complete = True
@@ -169,7 +171,7 @@ class DummyEchoBackend:
 
     def update_users(self):
         for idx, user in enumerate(self.users):
-        # for i, token_id in enumerate(self.decode_ids):
+            # for i, token_id in enumerate(self.decode_ids):
             if user is None:
                 continue
 

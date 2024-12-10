@@ -87,9 +87,7 @@ class ModelWeightsView(APIView):
             model_id = data.get("model_id")
             impl = model_implmentations[model_id]
             weights_dir = impl.backend_weights_dir
-            assert (
-                weights_dir.exists()
-            ), f"weights_dir:={weights_dir} does not exist. Check models API initiliazation."
+            assert weights_dir.exists(), f"weights_dir:={weights_dir} does not exist. Check models API initiliazation."
             weights = [
                 {"weights_id": f"id_{w.name}", "name": w.name}
                 for w in weights_dir.iterdir()
