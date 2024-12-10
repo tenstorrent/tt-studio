@@ -29,6 +29,7 @@ export const runInference = async (
       console.log("RAG context fetched:", ragContext);
     }
 
+    console.log("RAG context being passed to generatePrompt:", ragContext);
     const messages = generatePrompt(
       chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
       ragContext,
@@ -132,7 +133,7 @@ export const runInference = async (
               }
 
               // Handle the generated text
-              const content = jsonData.choices[0]?.text || "";
+              const content = jsonData.choices[0]?.delta?.content || "";
               if (content) {
                 accumulatedText += content;
                 setChatHistory((prevHistory) => {
