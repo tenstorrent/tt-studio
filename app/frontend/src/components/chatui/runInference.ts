@@ -48,8 +48,8 @@ export const runInference = async (
     }
 
     const requestBody = {
-      // deploy_id: request.deploy_id,
-      model: "meta-llama/Llama-3.1-70B-Instruct",
+      deploy_id: request.deploy_id,
+      // model: "meta-llama/Llama-3.1-70B-Instruct",
       messages: messages,
       max_tokens: 512,
       stream: true,
