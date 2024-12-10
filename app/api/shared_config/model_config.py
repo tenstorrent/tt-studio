@@ -167,7 +167,7 @@ model_implmentations_list = [
         user_gid=1000,
         shm_size="1G",
         service_port=7000,
-        service_route="/v1/completions",
+        service_route="/v1/chat/completions",
     ),
     ModelImpl(
         model_name="Falcon-7B-Instruct",
@@ -187,7 +187,7 @@ model_implmentations_list = [
         model_name="Llama-3.1-70B-Instruct",
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
-        image_tag="v0.0.2-tt-metal-385904186f81-384f1790c3be",
+        image_tag="v0.0.3-tt-metal-385904186f81-384f1790c3be",
         hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
         device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
@@ -195,7 +195,7 @@ model_implmentations_list = [
         user_gid=1000,
         shm_size="32G",
         service_port=7000,
-        service_route="/v1/completions",
+        service_route="/v1/chat/completions",
         env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
     ModelImpl(
