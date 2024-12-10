@@ -29,15 +29,12 @@ export const runInference = async (
       console.log("RAG context fetched:", ragContext);
     }
 
-    console.log("RAG context being passed to generatePrompt:", ragContext);
-
-    const prompt = generatePrompt(
+    const messages = generatePrompt(
       chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-      ragContext ? { documents: ragContext.documents } : null,
-      true,
+      ragContext,
     );
 
-    console.log("Generated Prompt:", prompt);
+    console.log("Generated messages:", messages);
 
     const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
@@ -50,14 +47,14 @@ export const runInference = async (
     }
 
     const requestBody = {
-      deploy_id: request.deploy_id,
-      prompt: prompt,
-      temperature: 1,
-      top_k: 20,
-      top_p: 0.9,
+      // deploy_id: request.deploy_id,
+      model: "meta-llama/Llama-3.1-70B-Instruct",
+      messages: messages,
       max_tokens: 512,
       stream: true,
-      stop: ["<|eot_id|>"],
+      stream_options: {
+        include_usage: true,
+      },
     };
 
     console.log(
