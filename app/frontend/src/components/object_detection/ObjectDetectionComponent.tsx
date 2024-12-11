@@ -22,7 +22,7 @@ export const ObjectDetectionComponent = () => {
   ]);
 
   return (
-    <div className="flex flex-col h-full gap-8 w-3/4 mx-auto max-w-7xl px-4 md:px-8 py-10">
+    <div className="flex flex-col overflow-scroll h-full gap-8 w-3/4 mx-auto max-w-7xl px-4 md:px-8 py-10">
       <Card className="border-2 p-4 rounded-md space-y-4">
         {/* Tabs for File Picker and Webcam */}
         <Tabs defaultValue="file" className="w-full">
