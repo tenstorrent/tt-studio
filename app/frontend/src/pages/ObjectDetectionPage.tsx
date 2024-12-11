@@ -13,7 +13,10 @@ const ObjectDetectionPage = () => {
               "radial-gradient(ellipse at center, transparent 45%, black 100%)",
           }}
         ></div>
-        <div className="flex flex-grow overflow-scroll justify-center items-center w-full h-screen">
+        <div
+          className="flex flex-grow justify-center items-center w-full h-screen"
+          // hack to prevent maskImage from applying to neighbour div
+          style={{zIndex: 1}}>
           <ObjectDetectionComponent />
         </div>
       </div>
