@@ -40,7 +40,7 @@ export const ObjectDetectionComponent = () => {
 
         {/* Image Display */}
         {image && (
-          <Card className="flex overflow-hidden items-center justify-center border-dashed border-2 border-gray-300 h-64 mt-4">
+          <Card className="flex overflow-hidden items-center justify-center border-dashed border-2 border-gray-300 mt-4">
             <img
               src={image}
               alt="Uploaded"
