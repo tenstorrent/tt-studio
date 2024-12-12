@@ -132,6 +132,19 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
+        model_name="yolov4",
+        model_id="id_yolov4v0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
+        image_tag="v0.0.1-tt-metal-65d246482b3f",
+        device_configurations={DeviceConfigurations.N150},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="32G",
+        service_port=7000,
+        service_route="/inference/yolov4",
+    ),
+    ModelImpl(
         model_name="echo",
         model_id="id_dummy_echo_modelv0.0.1",
         image_name="dummy_echo_model",
