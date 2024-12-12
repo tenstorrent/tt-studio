@@ -1,17 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
 import { useState } from "react";
-import {
-  BarChart2,
-  Clock,
-  Zap,
-  Hash,
-  AlignJustify,
-  FileText,
-  Maximize,
-  Minimize,
-} from "lucide-react";
+import { BarChart2, Clock, Zap, Hash, AlignJustify, FileText, Maximize2, Minimize2, Gauge } from 'lucide-react';
 import { Button } from "../ui/button";
 import {
   Tooltip,
@@ -22,7 +12,6 @@ import {
 import { InferenceStatsProps } from "./types";
 
 export default function Component({ stats }: InferenceStatsProps) {
-  console.log(stats);
   const [showFullText, setShowFullText] = useState(false);
 
   if (!stats) return null;
@@ -32,6 +21,10 @@ export default function Component({ stats }: InferenceStatsProps) {
   const formatValue = (value: number | undefined, decimals: number = 2) => {
     return typeof value === "number" ? value.toFixed(decimals) : "N/A";
   };
+
+  const userTPS = typeof stats.user_tpot === 'number' 
+    ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(2)
+    : "N/A";
 
   const statItems = [
     {
@@ -45,6 +38,12 @@ export default function Component({ stats }: InferenceStatsProps) {
       abbr: "TPOT",
       full: "Time Per Output Token",
       value: `${formatValue(stats.user_tpot, 6)}s`,
+    },
+    {
+      icon: <Gauge className="h-4 w-4" />,
+      abbr: "User TPS",
+      full: "User Tokens Per Second",
+      value: userTPS,
     },
     {
       icon: <Hash className="h-4 w-4" />,
@@ -106,9 +105,9 @@ export default function Component({ stats }: InferenceStatsProps) {
                         }
                       >
                         {showFullText ? (
-                          <Minimize className="h-4 w-4" />
+                          <Minimize2 className="h-4 w-4" />
                         ) : (
-                          <Maximize className="h-4 w-4" />
+                          <Maximize2 className="h-4 w-4" />
                         )}
                       </Button>
                     </TooltipTrigger>
