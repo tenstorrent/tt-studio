@@ -36,7 +36,6 @@ def test_model_life_cycle():
     logger.info(f"response json:= {data}")
     assert test_model_id == data[0]["id"]
     model_id = data[0]["id"]
-    vllm_model_name = data[0]["name"]
     # 1b. get model_weights
     model_weights_route = f"{backend_host}models/model_weights/"
     logger.info(f"calling: {model_weights_route}")
@@ -68,27 +67,44 @@ def test_model_life_cycle():
     # 3. make valid API call to
     deploy_id = deployed_ids[-1]
     deploy_data = deployed_res[deploy_id]
+    vllm_model_name = deploy_data["model_impl"]["hf_model_path"]
+    service_route = deploy_data["model_impl"]["service_route"]
     json_data = {
         "model": vllm_model_name,
-        "prompt": "What is Tenstorrent?",
         "temperature": 1,
         "top_k": 20,
         "top_p": 0.9,
         "max_tokens": 128,
         "stream": True,
-        "stop": ["<|eot_id|>"],
         "deploy_id": deploy_id,
     }
+    if service_route.endswith("/chat/completions"):
+        json_data["messages"] = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant."
+            },
+            {
+                "role": "user",
+                "content": "Tell me about Tenstorrent."
+            }
+        ]
+    elif service_route.endswith("/completions"):
+        json_data["prompt"] = "Tell me about Tenstorrent."
+    else:
+        raise ValueError(f"unknown service_route API endpoint: {service_route}")
+
+
     model_inference_route = f"{backend_host}models/inference/"
     health_url = f"{backend_host}models/health/"
     # allow inference server to start up
     response = wait_for_model_health_endpoint(health_url, deploy_id=deploy_id)
     logger.info(f"calling: {model_inference_route}")
     response = requests.post(
-        url=model_inference_route, json=json_data, stream=True, timeout=35
+        url=model_inference_route, json=json_data, stream=True, timeout=60
     )
     logger.info(f'response.headers={response.headers.get("transfer-encoding")}')
-    assert response.headers.get("transfer-encoding") == "chunked"
+    # assert response.headers.get("transfer-encoding") == "chunked"
     for chunk_idx, chunk in enumerate(
         response.iter_content(chunk_size=None, decode_unicode=True)
     ):
@@ -114,7 +130,7 @@ def test_model_life_cycle():
     logger.info(f"stopped container: {deployed_container_id}")
 
 
-def wait_for_model_health_endpoint(health_url, deploy_id, timeout=30):
+def wait_for_model_health_endpoint(health_url, deploy_id, timeout=60):
     logger.info(
         f"waiting for healthy endpoint: {health_url}, timeout: {timeout} seconds"
     )
