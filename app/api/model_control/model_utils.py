@@ -42,6 +42,7 @@ def health_check(url, json_data, timeout=5):
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         response = requests.get(url, json=json_data, headers=headers, timeout=5)
         response.raise_for_status()
+        logger.info(f"Health check passed: {response.status_code}")
         return True, response.json() if response.content else {}
     except requests.RequestException as e:
         logger.error(f"Health check failed: {str(e)}")

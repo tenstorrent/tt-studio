@@ -8,7 +8,7 @@ interface HealthBadgeProps {
   deployId: string
 }
 
-type HealthStatus = 'healthy' | 'unhealthy' | 'unknown'
+type HealthStatus = 'healthy' | 'unavailable' | 'unhealthy' | 'unknown'
 
 const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
   console.log('HealthBadge component rendered', deployId)
@@ -17,18 +17,14 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
 
   const fetchHealth = async () => {
     try {
-      const response = await fetch('/models/health/', {
+      const response = await fetch(`/models-api/health/?deploy_id=${deployId}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Deploy-Id': deployId,
-        }
       })
 
       if (response.status === 200) {
         setHealth('healthy')
       } else if (response.status === 503) {
-        setHealth('unhealthy')
+        setHealth('unavailable')
       } else {
         setHealth('unknown')
       }
@@ -41,7 +37,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
 
   useEffect(() => {
     fetchHealth()
-    const intervalId = setInterval(fetchHealth, 360000) // 6 minutes
+    const intervalId = setInterval(fetchHealth, 5000) // 5 seconds
     return () => clearInterval(intervalId)
   }, [deployId])
 
