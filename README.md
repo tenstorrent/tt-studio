@@ -88,7 +88,7 @@ Developers can control and run the app directly via `docker-compose`, keeping th
     ```
 
 3.  **Using the Mock vLLM Model**:
-    - For local testing, you can use the `Mock vLLM` model, which spits out random set of characters back . Instructions to run it are [here](app/frontend/HowToRun_vLLM_Models.md)  
+    - For local testing, you can use the `Mock vLLM` model, which spits out random set of characters back . Instructions to run it are [here](HowToRun_vLLM_Models.md)  
 
 
 4.  **Running on a Machine with Tenstorrent Hardware**:
@@ -147,7 +147,7 @@ To display the same help section in the terminal, one can run:
 ```
 ##### Automatic Tenstorrent Hardware Detection
 
-If a Tenstorrent device (/dev/tenstorrent) is detected, the script will prompt you to mount it.
+If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt you to mount it.
 
 ---
 
