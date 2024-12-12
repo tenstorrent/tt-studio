@@ -42,20 +42,22 @@ class InferenceView(APIView):
 
 class ModelHealthView(APIView):
     def get(self, request, *args, **kwargs):
-        data = request.data
+        data = request.query_params
         logger.info(f"HealthView data:={data}")
         serializer = InferenceSerializer(data=data)
         if serializer.is_valid():
-            deploy_id = data.pop("deploy_id")
+            deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
             health_url = "http://" + deploy["health_url"]
             logger.info(f"health_url:= {health_url}")
-            check_passed, data = health_check(health_url, json_data=None)
+            check_passed, health_content = health_check(health_url, json_data=None)
             if check_passed:
                 ret_status = status.HTTP_200_OK
+                content = {"message": "Healthy", "details": health_content}
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
-            return Response(data, status=ret_status)
+                content = {"message": "Unavaliable", "details": health_content}
+            return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
