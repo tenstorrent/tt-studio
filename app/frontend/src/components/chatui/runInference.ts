@@ -122,11 +122,11 @@ export const runInference = async (
               // Handle statistics separately after [DONE]
               if (jsonData.ttft && jsonData.tpot) {
                 inferenceStats = {
-                  user_ttft_ms: jsonData.ttft,
-                  user_tps: jsonData.tpot,
+                  user_ttft_s: jsonData.ttft,
+                  user_tpot: jsonData.tpot,
                   tokens_decoded: jsonData.tokens_decoded,
                   tokens_prefilled: jsonData.tokens_prefilled,
-                  context_length: jsonData.context_length,
+                  context_length: jsonData.context_length
                 };
                 console.log("Final Inference Stats received:", inferenceStats);
                 continue; // Skip processing this chunk as part of the generated text
