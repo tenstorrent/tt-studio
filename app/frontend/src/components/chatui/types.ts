@@ -26,12 +26,17 @@ export interface Model {
 }
 
 export interface InferenceStats {
-  user_ttft_s: number;    // Time to First Token in seconds
-  user_tpot: number;      // Time Per Output Token in seconds
+  user_ttft_s: number; // Time to First Token in seconds
+  user_tpot: number; // Time Per Output Token in seconds
   tokens_decoded: number; // Number of tokens decoded
   tokens_prefilled: number; // Number of tokens prefilled
-  context_length: number;  // Context length
+  context_length: number; // Context length
 }
+
+export interface InferenceStatsProps {
+  stats: InferenceStats | undefined;
+}
+
 export interface StreamingMessageProps {
   content: string;
   isStreamFinished: boolean;
