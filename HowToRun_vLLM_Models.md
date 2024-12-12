@@ -74,60 +74,11 @@ git clone https://github.com/tenstorrent/tt-inference-server
    ```
    HF_TOKEN=hf_********
    ````
-
 ---
 
 ## 4. Run the Setup Script (vLLM Llama3.1-70B only)
 
-Navigate to the model folder within tt-inference-server
-
-```bash
-cd /path/to/tt-inference-server/vllm-tt-metal-llama3-70b
-```
-Run the setup script and select the desired model:
-
-```bash
-sudo ./setup.sh llama-3-70b-instruct
-```
-
-### Run the Setup Script
-
-The `setup.sh` script within tt-inference-server will handle all required downloads and configurations. Run it to initiate the setup, then select the desired model when prompted.
-
-```bash
-sudo ./setup.sh llama-3-70b-instruct
-```
-
-- **Overwrite Prompt**: When prompted to overwrite the `.env` file, confirm with `y`.
-- **Persistent Storage Path**: Enter the path to your persistent volume where model data will be stored, which should align with `tt_studio_persistent_volume`.
-
-> **Example**:
->
-> ```bash
-> Enter your PERSISTENT_VOLUME_ROOT [default: /path/to/tt-inference-server/persistent_volume]: /path/to/tt-studio/tt_studio_persistent_volume
-> ```
-
-Ensure the directory path you specify matches the expected format. This will enable TT-Studio to access the model weights and configurations seamlessly.
-
-### Additional Configuration Details
-
-During setup, you’ll be prompted to provide the following information:
-
-- **Model Repository Clone Path**: Specify where the Llama model repository should be cloned (default: `/path/to/llama-models`).
-- **JWT_SECRET**: For local usage, you can enter any valid JWT token.
-
-Here’s an example of what the setup dialogue might look like:
-
-```bash
-REPO_ROOT: /path/to/tt-inference-server
-MODEL_PATH: /path/to/tt-inference-server/vllm-tt-metal-llama3-70b
-ENV_FILE: /path/to/tt-inference-server/vllm-tt-metal-llama3-70b/.env
-Overwriting the .env file...
-Enter your PERSISTENT_VOLUME_ROOT: /path/to/tt-studio/tt_studio_persistent_volume
-Enter the path to clone the Llama model repository: /path/to/llama-models
-Enter your JWT_SECRET:
-```
-
+Navigate to the `model` folder within the `tt-inference-server` and run the automated setup script. You can find step-by-step instructions [here](https://github.com/tenstorrent/tt-inference-server/tree/main/vllm-tt-metal-llama3-70b#5-automated-setup-environment-variables-and-weights-files:~:text=70b/docs/development-,5.%20Automated%20Setup%3A%20environment%20variables%20and%20weights%20files,-The%20script%20vllm).
 ---
 
 ## 5. Folder Structure for Model Weights
