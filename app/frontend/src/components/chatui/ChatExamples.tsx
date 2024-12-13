@@ -80,19 +80,19 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({ logo, setTextInput }) => {
           ),
         ];
       });
-    }, 15000); // Cycle time in milliseconds
+    }, 15000);
 
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[28rem] p-4 transition-colors duration-200">
+    <div className="flex flex-col items-center justify-center min-h-[28rem] p-4 bg-white dark:bg-black transition-colors duration-200">
       <img
         src={logo}
         alt="Tenstorrent Logo"
         className="w-16 h-16 mb-6 transform transition duration-300 hover:scale-110"
       />
-      <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-gray-200 transition-colors duration-200">
+      <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white transition-colors duration-200">
         Start a conversation with LLM Studio Chat...
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-4xl">
@@ -100,10 +100,10 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({ logo, setTextInput }) => {
           <Button
             key={index}
             variant="outline"
-            className={`h-auto py-4 px-6 flex flex-col items-center justify-center text-center space-y-2 transition-all duration-300 
-                        bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 
-                        border border-gray-200 dark:border-gray-600
-                        text-gray-800 dark:text-gray-200`}
+            className="h-auto py-4 px-6 flex flex-col items-center justify-center text-center space-y-2
+                     bg-gray-100 dark:bg-[#2A2A2A] hover:bg-gray-200 dark:hover:bg-[#333333] 
+                     border border-gray-300 dark:border-[#7C68FA]/20 hover:border-gray-400 dark:hover:border-[#7C68FA]/40
+                     text-gray-800 dark:text-white group transition-all duration-300"
             onClick={() => setTextInput(example.text)}
           >
             <span className={`${example.color} transition-colors duration-200`}>

@@ -6,6 +6,7 @@ import json
 import time
 
 import requests
+from requests.exceptions import RequestException
 import jwt
 
 from shared_config.backend_config import backend_config
@@ -22,40 +23,38 @@ if on_bridge_network:
 else:
     backend_host = "http://0.0.0.0:8000/"
 
-# enabled when running on gunicorn
-streaming_enabled = False
-
 
 def test_model_life_cycle():
     json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
     encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
+    test_model_id = "id_mock_vllm_modelv0.0.1"
     # 1. get list of models
     get_containers_route = f"{backend_host}docker/get_containers/"
     logger.info(f"calling: {get_containers_route}")
     response = requests.get(get_containers_route)
     data = response.json()
     logger.info(f"response json:= {data}")
-    assert data[0]["name"] == "echo"
+    assert test_model_id == data[0]["id"]
     model_id = data[0]["id"]
+    vllm_model_name = data[0]["name"]
     # 1b. get model_weights
     model_weights_route = f"{backend_host}models/model_weights/"
     logger.info(f"calling: {model_weights_route}")
-    response = requests.get(model_weights_route, json={"model_id": model_id})
+    response = requests.get(model_weights_route, params={"model_id": model_id})
     data = response.json()
-    logger.info(f"response json:= {data}")
-    # assert data[0]["name"] == "echo"
+    logger.info(f"weights response json:= {data}")
     # 2. deploy echo model
     deploy_route = f"{backend_host}docker/deploy/"
     logger.info(f"calling: {deploy_route}")
     # 2a. test 400 on bad weights
     response = requests.post(
-        deploy_route, json={"model_id": model_id, "weights_id": "test_fail"}
+        deploy_route, json={"model_id": model_id, "weights_id": "test_fail_weights"}
     )
     assert response.status_code == 400
     # 2b. test default weights
     response = requests.post(deploy_route, json={"model_id": model_id})
     data = response.json()
-    # logger.info(f"response json:= {data}")
+    logger.info(f"response json:= {data}")
     assert data["status"] == "success"
     deployed_container_id = data["container_id"]
     logger.info(f"deployed container: {deployed_container_id}")
@@ -70,25 +69,26 @@ def test_model_life_cycle():
     deploy_id = deployed_ids[-1]
     deploy_data = deployed_res[deploy_id]
     json_data = {
-        "text": "What is in Austin Texas?",
+        "model": vllm_model_name,
+        "prompt": "What is Tenstorrent?",
         "temperature": 1,
-        "top_k": 10,
+        "top_k": 20,
         "top_p": 0.9,
-        "max_tokens": 32,
-        "stop_sequence": None,
-        "return_prompt": None,
+        "max_tokens": 128,
+        "stream": True,
+        "stop": ["<|eot_id|>"],
         "deploy_id": deploy_id,
     }
     model_inference_route = f"{backend_host}models/inference/"
+    health_url = f"{backend_host}models/health/"
     # allow inference server to start up
-    time.sleep(1)
+    response = wait_for_model_health_endpoint(health_url, deploy_id=deploy_id)
     logger.info(f"calling: {model_inference_route}")
-    response = requests.post(url=model_inference_route, json=json_data, stream=True)
+    response = requests.post(
+        url=model_inference_route, json=json_data, stream=True, timeout=35
+    )
     logger.info(f'response.headers={response.headers.get("transfer-encoding")}')
-    if streaming_enabled:
-        assert response.headers.get("transfer-encoding") == "chunked"
-    all_chunks = ""
-    logger.info("processing chunks ...")
+    assert response.headers.get("transfer-encoding") == "chunked"
     for chunk_idx, chunk in enumerate(
         response.iter_content(chunk_size=None, decode_unicode=True)
     ):
@@ -96,9 +96,6 @@ def test_model_life_cycle():
         all_chunks += chunk
     logger.info(f"processed {chunk_idx} chunks.")
     logger.info(f"all_chunks:={all_chunks}")
-    if streaming_enabled:
-        assert chunk_idx > 1
-    assert all_chunks == json_data["text"] + "<|endoftext|>"
     # 4. get status -> container id
     status_route = f"{backend_host}docker/status/"
     logger.info(f"calling: {status_route}")
@@ -115,3 +112,31 @@ def test_model_life_cycle():
     # logger.info(f"response json:= {data}")
     assert data["status"] == "success"
     logger.info(f"stopped container: {deployed_container_id}")
+
+
+def wait_for_model_health_endpoint(health_url, deploy_id, timeout=30):
+    logger.info(
+        f"waiting for healthy endpoint: {health_url}, timeout: {timeout} seconds"
+    )
+    start_time = time.time()
+    while True:
+        try:
+            response = requests.get(
+                health_url, json={"deploy_id": deploy_id}, timeout=10
+            )
+            response.raise_for_status()
+            return response  # Success case
+
+        except RequestException as e:
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                raise TimeoutError(
+                    f"Health check failed after {timeout} seconds: {str(e)}"
+                )
+
+            # Wait 1 second before retrying
+            time.sleep(1)
+
+
+if __name__ == "__main__":
+    test_model_life_cycle()

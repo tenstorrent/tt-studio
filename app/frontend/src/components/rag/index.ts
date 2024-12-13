@@ -6,7 +6,7 @@ const collectionsAPIURL = "/collections-api";
 
 export const fetchCollections = async () => {
   const response = await axios.get(`${collectionsAPIURL}/`);
-  console.log(response);
+  // console.log(response);
   if (response?.data) {
     return response.data;
   }
