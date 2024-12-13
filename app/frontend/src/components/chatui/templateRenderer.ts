@@ -8,15 +8,16 @@ export interface ChatMessage {
 
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
-  ragContext: { documents: string[] } | null = null,
+  ragContext: { documents: string[] } | null = null
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
-  // Add system message
-  messages.push({
-    role: "system",
-    content: "You are a helpful assistant.",
-  });
+  if (!ragContext || ragContext.documents.length === 0) {
+    messages.push({
+      role: "system",
+      content: "You are a helpful assistant.",
+    });
+  }
 
   // Add RAG context if available
   if (ragContext && ragContext.documents.length > 0) {
