@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { User, ChevronDown } from "lucide-react";
+import { User, ChevronDown, Bot } from "lucide-react";
 import { Button } from "../ui/button";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
@@ -94,11 +94,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       {message.sender === "user" ? (
                         <User className="h-6 w-6 mr-2 text-left" />
                       ) : (
-                        <img
-                          src={logo}
-                          alt="Assistant Logo"
-                          className="w-8 h-8 rounded-full mr-2"
-                        />
+                        <Bot className="w-8 h-8 rounded-full mr-2" />
                       )}
                     </div>
                   </div>
