@@ -1,6 +1,6 @@
-# Running Llama3.1-70B and Mock vLLM Model in TT-Studio
+# Running Llama3.1-70B and Mock vLLM Models in TT-Studio
 
-This guide provides a step-by-step instructions on setting up and deploying Llama3.1-70B, vLLM Mock models using TT-Studio. 
+This guide provides step-by-step instructions on setting up and deploying vLLM Llama3.1-70B and vLLM Mock models using TT-Studio.
 
 ---
 
@@ -15,19 +15,19 @@ This guide provides a step-by-step instructions on setting up and deploying Llam
 
 ## Instructions Overview
 
-**For Mock vLLM Model:**
+### **For Mock vLLM Model:**
 1. [Clone repositories](#1-clone-required-repositories)
 2. [Pull the mock model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)
 3. [Set up the Hugging Face (HF) token](#3-set-up-environment-variables-and-hugging-face-token)
 4. [Run the mock vLLM model via the GUI](#7-deploy-and-run-the-model)
 
-**For vLLM Llama3.1-70B Model:**
+### **For vLLM Llama3.1-70B Model:**
 1. [Clone repositories](#1-clone-required-repositories)
 2. [Pull the model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)
-3. [Set up the Hugging Face (HF) token in the TT-Studio ```env``` file](#3-set-up-environment-variables-and-hugging-face-token)
-5. [Run the model setup script](#5-run-the-setup-script-llama31-70b-only)
-6. [Update the vLLM Environment Variable in Environment File](#6-add-the-vllm-environment-variable-in-environment-file--copy-the-file-over-to-tt-studio-persistent-volume)
-7. [Deploy and run inference for the Llama3.1-70B model via the GUI](#7-deploy-and-run-the-model)
+3. [Set up the Hugging Face (HF) token in the TT-Studio `.env` file](#3-set-up-environment-variables-and-hugging-face-token)
+4. [Run the model setup script](#4-run-the-setup-script-vllm-llama31-70b-only)
+5. [Update the vLLM Environment Variable in Environment File](#6-add-the-vllm-environment-variable-in-environment-file--copy-the-file-over-to-tt-studio-persistent-volume)
+6. [Deploy and run inference for the Llama3.1-70B model via the GUI](#7-deploy-and-run-the-model)
 
 ---
 
@@ -53,12 +53,12 @@ git clone https://github.com/tenstorrent/tt-inference-server
 ## 2. Pull the Desired Model Docker Images Using Docker GitHub Registry
 
 1. **Navigate to the Docker Images:**
-   - Visit [TT-Inference GitHub Packages](https://github.com/orgs/tenstorrent/packages?repo_name=tt-inference-server).
+   - Visit [TT-Inference-Server GitHub Packages](https://github.com/orgs/tenstorrent/packages?repo_name=tt-inference-server).
 
 2. **Pull the Docker Image:**
    ```bash
-   docker pull ghcr.io/tenstorrent/tt-inference-server:<image-tag>
-   ````
+   docker pull ghcr.io/tenstorrent/tt-inference-server:<image-tag>     
+   ```
 
 3. **Authenticate Your Terminal (Optional):**
    ```bash
@@ -69,23 +69,25 @@ git clone https://github.com/tenstorrent/tt-inference-server
 
 ## 3. Set Up Environment Variables and Hugging Face Token
 
-**Add the Hugging Face Token:**
-- Within the `.env` file in the `tt-studio/app/` directory add the token to the ```HF_TOKEN``` variable:
-   ```
-   HF_TOKEN=hf_********
-   ````
+Add the Hugging Face Token within the `.env` file in the `tt-studio/app/` directory.
+
+```bash
+HF_TOKEN=hf_********
+```
+
 ---
 
 ## 4. Run the Setup Script (vLLM Llama3.1-70B only)
 
 Navigate to the `model` folder within the `tt-inference-server` and run the automated setup script. You can find step-by-step instructions [here](https://github.com/tenstorrent/tt-inference-server/tree/main/vllm-tt-metal-llama3-70b#5-automated-setup-environment-variables-and-weights-files:~:text=70b/docs/development-,5.%20Automated%20Setup%3A%20environment%20variables%20and%20weights%20files,-The%20script%20vllm).
+
 ---
 
 ## 5. Folder Structure for Model Weights
 
 Verify that the weights are correctly stored in the following structure:
 
-```
+```bash
 /path/to/tt-studio/tt_studio_persistent_volume/
 └── volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/
     ├── layers_0-4.pth
@@ -93,42 +95,53 @@ Verify that the weights are correctly stored in the following structure:
     ├── params.json
     └── tokenizer.model
 ```
-**What to Look For**:
 
+**What to Look For:**
 - Ensure all expected weight files (e.g., `layers_0-4.pth`, `params.json`, `tokenizer.model`) are present.
 - If any files are missing, re-run the `setup.sh` script to complete the download.
 
 This folder structure allows TT Studio to automatically recognize and access models without further configuration adjustments. For each model, verify that the weights are correctly copied to this directory to ensure proper access by TT Studio.
 
 
-## 6. Add the VLLM Environment Variable in Environment File + Copy the file over to TT-Studio persistent volume
+## 6. Copy the Environment File and Point to it in TT-Studio
 
-During the model weights download process, an `.env` file will be automatically created. The path to the ```env``` file might resemble the following example:
+### Step 1: Copy the Environment File
+During the model weights download process, an `.env` file will be automatically created. The path to the `.env` file might resemble the following example:
+
 ```
 /path/to/tt-inference-server/vllm-tt-metal-llama3-70b/.env
 ```
-*To ensure the model can be deployed via the TT-Studio GUI, copy over the `.env` file to the model's persistent storage location*. For example:
-```
-tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/copied_env
-```
-This ensures the environment file remains accessible to the container once it is run.
 
-#### i. Update the VLLM Environment Variable in Environment File
-Update the `VLLM_LLAMA31_ENV_FILE` variable within the `.env` file in the TT-Studio root path (`tt-studio/app/.env`) to point to the new location of the environment file. This ensures that the container references the correct path for accessing required environment variables.
+To ensure the model can be deployed via the TT-Studio GUI, copy this `.env` file to the model's persistent storage location. For example:
 
-**Example Configuration:**
+```bash
+/path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/copied_env
 ```
+
+Following command can be used as a reference (*replace paths as necessary*):
+
+```bash
+cp /$USR/tt-inference-server/vllm-tt-metal-llama3-70b/.env /$USR/tt_studio/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/**copied_env
+```
+
+---
+
+### Step 2: Update the TT-Studio Environment File
+After copying the `.env` file, update the `VLLM_LLAMA31_ENV_FILE` variable in the `tt-studio/app/.env` file to point to the **copied file path**. This ensures TT-Studio uses the correct environment configuration for the model.
+
+```bash
 VLLM_LLAMA31_ENV_FILE="/path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/copied_env"
 ```
 
-#### ii. Example Environment Example Configuration
+---
 Here is an example of a complete `.env` file configuration for reference:
-```
+
+```bash
 TT_STUDIO_ROOT=/Users/**username**/tt-studio
 HOST_PERSISTENT_STORAGE_VOLUME=${TT_STUDIO_ROOT}/tt_studio_persistent_volume
 INTERNAL_PERSISTENT_STORAGE_VOLUME=/tt_studio_persistent_volume
 BACKEND_API_HOSTNAME="tt-studio-backend-api"
-VLLM_LLAMA31_ENV_FILE="/path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/env
+VLLM_LLAMA31_ENV_FILE="/path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/**copied_env
 # SECURITY WARNING: keep these secret in production!
 JWT_SECRET=test-secret-456
 DJANGO_SECRET_KEY=django-insecure-default
@@ -137,7 +150,7 @@ HF_TOKEN=hf_****
 
 ---
 
-### 7. Deploy and Run the Model
+## 7. Deploy and Run the Model
 
 1. **Start TT-Studio:** Run TT-Studio using the startup command.
 2. **Access Model Weights:** In the TT-Studio interface, navigate to the model weights section.
@@ -160,7 +173,7 @@ docker logs -f <container_id>
 
 During container initialization, you may encounter log entries like the following, which indicate that the vLLM server has started successfully:
 
-```
+```bash
 INFO 12-11 08:10:36 tt_executor.py:67] # TT blocks: 2068, # CPU blocks: 0
 INFO 12-11 08:10:36 tt_worker.py:66] Allocating kv caches
 INFO 12-11 08:10:36 api_server.py:232] vLLM to use /tmp/tmp3ki28i0p as PROMETHEUS_MULTIPROC_DIR
