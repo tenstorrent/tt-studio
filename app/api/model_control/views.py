@@ -14,6 +14,7 @@ from .serializers import InferenceSerializer, ModelWeightsSerializer
 from model_control.model_utils import (
     get_deploy_cache,
     stream_response_from_external_api,
+    health_check,
 )
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
@@ -31,8 +32,32 @@ class InferenceView(APIView):
             deploy_id = data.pop("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
+            logger.info(f"internal_url:= {internal_url}")
+            logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
+            data["model"] = deploy["model_impl"].hf_model_path
             response_stream = stream_response_from_external_api(internal_url, data)
             return StreamingHttpResponse(response_stream, content_type="text/plain")
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ModelHealthView(APIView):
+    def get(self, request, *args, **kwargs):
+        data = request.query_params
+        logger.info(f"HealthView data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            deploy = get_deploy_cache()[deploy_id]
+            health_url = "http://" + deploy["health_url"]
+            logger.info(f"health_url:= {health_url}")
+            check_passed, health_content = health_check(health_url, json_data=None)
+            if check_passed:
+                ret_status = status.HTTP_200_OK
+                content = {"message": "Healthy", "details": health_content}
+            else:
+                ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
+                content = {"message": "Unavaliable", "details": health_content}
+            return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -57,7 +82,6 @@ class DeployedModelsView(APIView):
 
 class ModelWeightsView(APIView):
     def get(self, request, *args, **kwargs):
-        # TODO: add serializer
         data = request.query_params
         logger.info(f"request.query_params:={data}")
         serializer = ModelWeightsSerializer(data=data)

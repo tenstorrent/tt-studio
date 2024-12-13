@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-// import { fontFamily } from "tailwindcss/defaultTheme";
 import svgToDataUri from "mini-svg-data-uri";
 import flattenColorPalette from "tailwindcss/lib/util/flattenColorPalette";
-// import colors from "tailwindcss/colors";
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: "class", // Note: "class" should not be in an array unless specifically using multiple modes.
+  darkMode: "class",
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -98,7 +96,6 @@ export default {
           black: "#202020", // Black
           white: "#FFFFFF", // White
         },
-        // Other color schemes
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
@@ -139,14 +136,34 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "sound-wave-1": {
+          "0%, 100%": { height: "8px" },
+          "50%": { height: "16px" },
+        },
+        "sound-wave-2": {
+          "0%, 100%": { height: "12px" },
+          "50%": { height: "24px" },
+        },
+        "sound-wave-3": {
+          "0%, 100%": { height: "8px" },
+          "50%": { height: "16px" },
+        },
+        "pulse-ripple-x": {
+          "0%": { transform: "scaleX(0)", opacity: "1" },
+          "100%": { transform: "scaleX(1)", opacity: "0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "sound-wave-1": "sound-wave-1 0.8s infinite",
+        "sound-wave-2": "sound-wave-2 0.8s infinite 0.2s",
+        "sound-wave-3": "sound-wave-3 0.8s infinite 0.4s",
+        "pulse-ripple-x": "pulse-ripple-x 1s ease-out infinite",
+        ripple: "ripple 3s ease-out infinite",
       },
     },
   },
-
   plugins: [
     require("tailwindcss-animate"),
     addVariablesForColors,

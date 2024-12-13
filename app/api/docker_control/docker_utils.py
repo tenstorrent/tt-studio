@@ -199,14 +199,20 @@ def update_deploy_cache():
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl
-        hostname = con["networks"][backend_config.docker_bridge_network_name][
-            "DNSNames"
-        ][0]
-        con["internal_url"] = (
-            f"{hostname}:{model_impl.service_port}{model_impl.service_route}"
-        )
-        caches[backend_config.django_deploy_cache_name].set(con_id, con, timeout=None)
-        # TODO: validation
+        logger.info(f"con['networks']={con["networks"]}")
+        # handle containers not running within the tt-studio network
+        if backend_config.docker_bridge_network_name in con["networks"].keys():
+            hostname = con["networks"][backend_config.docker_bridge_network_name][
+                "DNSNames"
+            ][0]
+            con["internal_url"] = (
+                f"{hostname}:{model_impl.service_port}{model_impl.service_route}"
+            )
+            con["health_url"] = (
+                f"{hostname}:{model_impl.service_port}{model_impl.health_route}"
+            )
+            caches[backend_config.django_deploy_cache_name].set(con_id, con, timeout=None)
+            # TODO: validation
 
 
 def get_model_weights_path(weights_dir_path, weights_id):

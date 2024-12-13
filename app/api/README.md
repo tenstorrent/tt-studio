@@ -148,30 +148,21 @@ The environment variables MODEL_WEIGHTS_ID and MODEL_WEIGHTS_PATH are then set a
 docker build -t ghcr.io/tenstorrent/tt-studio/api:v0.0.0 .
 ```
 
-## Docker run
+## Developing and running tests
 
-Using docker-compose.yml is recommended for development, but `docker run` can be useful sometimes, here is an example:
+### Docker compose
+
 ```bash
-cd app
-source .env
-docker run \
-  --user user \
-  --rm \
-  --cap-add ALL \
-  --detach \
-  --env JWT_SECRET=test-secret-123 \
-  --env CACHE_ROOT=/home/user/cache_root \
-  --env HF_HOME=/home/user/cache_root/huggingface \
-  --volume ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME} \
-  --volume /dev/hugepages-1G:/dev/hugepages-1G:rw \
-  --volume <your-path>/tt-studio/models/tt-metal-falcon-7b/src:/home/user/tt-metal-falcon-7b/src:rw \
-  --shm-size 32G \
-  --device /dev/tenstorrent/0:/dev/tenstorrent/0 \
-  --publish 8001:7000 \
-  --network llm_studio_network \
-  --name tt-metal-falcon-7b_p8001 \
-  --hostname tt-metal-falcon-7b_p8001 \
-  ghcr.io/tenstorrent/tt-studio/tt-metal-falcon-7b:v0.0.13 sleep infinity
+# only start backend service, without deps
+docker compose up --no-deps tt_studio_backend tt_studio_chroma
+```
+
+### Run tests
+
+enter the container with another shell (e.g. using `docker exec`):
+```bash
+cd api
+pytest --log-cli-level=INFO docker_control/test_docker_utils.py::test_deploy_mock_model
 ```
 
 ## Development Notes
@@ -182,6 +173,7 @@ Gunicorn is used for production but does not allow for easily adding breakpoints
 # run with --noreload to stop auto reload
 ```
 
+docker ps -q | grep -v CONTAINER_ID | xargs -r docker stop
 # Testing
 
 ```bash

@@ -4,6 +4,7 @@
 
 import json
 import pickle
+import time 
 
 import requests
 import jwt
@@ -35,15 +36,39 @@ def get_deploy_cache():
     return data
 
 
+def health_check(url, json_data, timeout=5):
+    logger.info(f"calilng health_url:= {url}")
+    try:
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        response = requests.get(url, json=json_data, headers=headers, timeout=5)
+        response.raise_for_status()
+        logger.info(f"Health check passed: {response.status_code}")
+        return True, response.json() if response.content else {}
+    except requests.RequestException as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return False, str(e)
+
+
 def stream_response_from_external_api(url, json_data):
     logger.info(f"stream_response_from_external_api to: url={url}")
     try:
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         logger.info(f"stream_response_from_external_api headers:={headers}")
         logger.info(f"stream_response_from_external_api json_data:={json_data}")
+        # TODO: remove once vllm implementation can support different topk/temperature in same batch
         json_data["temperature"] = 1
-        json_data["max_tokens"] = 128
-        logger.info(f"added extra token and temp!:={json_data}")
+        json_data["top_k"] = 20
+        json_data["top_p"] = 0.9
+        json_data["max_tokens"] = 512
+        json_data["stream_options"] = {"include_usage": True,
+                                       "continuous_usage_stats": True}
+        logger.info(f"added extra token and temp:={json_data}")
+
+        ttft = 0
+        tpot = 0
+        num_token_gen = 0
+        prompt_tokens = 0
+        ttft_start = time.time()
 
         with requests.post(
             url, json=json_data, headers=headers, stream=True, timeout=None
@@ -58,11 +83,46 @@ def stream_response_from_external_api(url, json_data):
             # Stream chunks
             for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
                 logger.info(f"stream_response_from_external_api chunk:={chunk}")
-                yield chunk
+                if chunk.startswith("data: "):
+                    new_chunk = chunk[len("data: "):]  # slice out the JSON object/dictionary
+                    new_chunk = new_chunk.strip()
 
-            # Append the custom end marker after the last chunk
-            yield "<<END_OF_STREAM>>"  # Custom marker to signal end of stream
+                    if new_chunk == "[DONE]":
+                        # Yield [DONE] to signal that streaming is complete
+                        yield chunk
+
+                        # Now calculate and yield stats after [DONE]
+                        stats = {
+                            "ttft": ttft,
+                            "tpot": tpot,
+                            "tokens_decoded": num_token_gen,
+                            "tokens_prefilled": prompt_tokens,
+                            "context_length": prompt_tokens + num_token_gen
+                        }
+                        logger.info(f"ttft and tpot stats: {stats}")
+                        yield "data: " + json.dumps(stats) + "\n\n"
+
+                        # Send the custom end of stream marker
+                        yield "<<END_OF_STREAM>>"  # Custom marker to signal end of stream
+                        break
+
+                    elif new_chunk != "":
+                        chunk_dict = json.loads(new_chunk)
+                        if chunk_dict.get("usage", {}).get("completion_tokens", 0) == 1:
+                            ttft = time.time() - ttft_start  # if first token is created
+                            num_token_gen = 1
+                            tpot_start = time.time()
+                            prompt_tokens = chunk_dict["usage"]["prompt_tokens"]
+                        elif chunk_dict.get("usage", {}).get("completion_tokens", 0) > num_token_gen:
+                            num_token_gen += 1
+                            tpot += (1 / num_token_gen) * (time.time() - tpot_start - tpot)  # update average
+                            tpot_start = time.time()
+
+                    # Yield the current chunk
+                    yield chunk
 
             logger.info("stream_response_from_external done")
+
     except requests.RequestException as e:
-        yield str(e)
+        logger.error(f"RequestException: {str(e)}")
+        yield f"error: {str(e)}"
