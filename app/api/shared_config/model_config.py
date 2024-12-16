@@ -40,10 +40,10 @@ class ModelImpl:
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
 
-        # Set environment variable if N150 or N300x4 is in the device configurations
+        # Set environment variable if N150_WH_ARCH_YAML or N300x4_WH_ARCH_YAML is in the device configurations
         if (
-            DeviceConfigurations.N150 in self.device_configurations
-            or DeviceConfigurations.N300x4 in self.device_configurations
+            DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
+            or DeviceConfigurations.N300x4_WH_ARCH_YAML in self.device_configurations
         ):
             self.docker_config["environment"]["WH_ARCH_YAML"] = (
                 "wormhole_b0_80_arch_eth_dispatch.yaml"
@@ -142,7 +142,7 @@ model_implmentations_list = [
         user_gid=1000,
         shm_size="32G",
         service_port=7000,
-        service_route="/inference/yolov4",
+        service_route="/objdetection_v2",
     ),
     ModelImpl(
         model_name="echo",
@@ -162,7 +162,7 @@ model_implmentations_list = [
         model_id="id_tt-metal-falcon-7bv0.0.13",
         image_name="tt-metal-falcon-7b",
         image_tag="v0.0.13",
-        device_configurations={DeviceConfigurations.N150},
+        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
@@ -175,7 +175,7 @@ model_implmentations_list = [
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-inference",
         image_tag="v0.0.1-tt-metal-v0.52.0-rc31-9d3be887987b",
-        device_configurations={DeviceConfigurations.N300x4},
+        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
@@ -188,7 +188,7 @@ model_implmentations_list = [
         model_id="id_tt-metal-mistral-7bv0.0.2",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-mistral-7b-src-base",
         image_tag="v0.0.3-tt-metal-v0.52.0-rc33",
-        device_configurations={DeviceConfigurations.N300x4},
+        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,

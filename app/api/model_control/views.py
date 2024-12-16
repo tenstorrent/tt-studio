@@ -4,6 +4,9 @@
 
 # model_control/views.py
 from pathlib import Path
+import requests
+from PIL import Image
+import io
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -71,5 +74,32 @@ class ModelWeightsView(APIView):
                 for w in weights_dir.iterdir()
             ]
             return Response(weights, status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ObjectDetectionInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special inference view that performs special handling"""
+        data = request.data
+        logger.info(f"InferenceView data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            image = data.get("image").file  # we should only receive 1 file
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            # construct file to send
+            pil_image = Image.open(image)
+            pil_image = pil_image.resize((320, 320))  # Resize to target dimensions
+            buf = io.BytesIO()
+            pil_image.save(
+                buf,
+                format="JPEG",
+            )
+            byte_im = buf.getvalue()
+            file = {"file": byte_im}
+            inference_data = requests.post(internal_url, files=file, timeout=5)
+            return Response(inference_data.json(), status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
