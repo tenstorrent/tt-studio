@@ -80,34 +80,35 @@ export const ObjectDetectionComponent: React.FC = () => {
           </TabsContent>
           <TabsContent value="webcam" className="h-full">
             <div className="h-full flex flex-col">
-              <WebcamPicker
-                setDetections={handleSetDetections}
-                setLiveMode={handleSetLiveMode}
-                setIsLoading={setIsLoading}
-                setIsStreaming={setIsStreaming}
-                setIsCameraOn={setIsCameraOn}
-              />
-              {isLiveMode && (
-                <div className="flex-grow relative">
-                  {/* Bounding boxes will be rendered here */}
-                  {detections.map((detection, index) => (
-                    <div
-                      key={index}
-                      className="absolute border-2 border-red-500 pointer-events-none z-20"
-                      style={{
-                        left: `${detection.scaledXmin ?? detection.xmin}px`,
-                        top: `${detection.scaledYmin ?? detection.ymin}px`,
-                        width: `${detection.scaledWidth ?? detection.xmax - detection.xmin}px`,
-                        height: `${detection.scaledHeight ?? detection.ymax - detection.ymin}px`,
-                      }}
-                    >
-                      <span className="absolute top-0 left-0 bg-red-500 text-white text-xs px-1">
-                        {detection.name} ({detection.confidence.toFixed(4)})
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="relative w-full aspect-video">
+                <WebcamPicker
+                  setDetections={handleSetDetections}
+                  setLiveMode={handleSetLiveMode}
+                  setIsLoading={setIsLoading}
+                  setIsStreaming={setIsStreaming}
+                  setIsCameraOn={setIsCameraOn}
+                />
+                {isLiveMode && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {detections.map((detection, index) => (
+                      <div
+                        key={index}
+                        className="absolute border-2 border-red-500 z-20"
+                        style={{
+                          left: `${detection.scaledXmin ?? detection.xmin}px`,
+                          top: `${detection.scaledYmin ?? detection.ymin}px`,
+                          width: `${detection.scaledWidth ?? detection.xmax - detection.xmin}px`,
+                          height: `${detection.scaledHeight ?? detection.ymax - detection.ymin}px`,
+                        }}
+                      >
+                        <span className="absolute top-0 left-0 bg-red-500 text-white text-xs px-1">
+                          {detection.name} ({detection.confidence.toFixed(4)})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </TabsContent>
         </Tabs>
@@ -120,6 +121,8 @@ export const ObjectDetectionComponent: React.FC = () => {
           </div>
         )}
 
+        {/* Removed container for non-live mode images */}
+        {/*
         <div
           ref={containerRef}
           className="relative w-full aspect-video bg-black flex items-center justify-center"
@@ -132,6 +135,7 @@ export const ObjectDetectionComponent: React.FC = () => {
             />
           )}
         </div>
+        */}
 
         {detections.length > 0 && (
           <Card className="p-4 mt-4">

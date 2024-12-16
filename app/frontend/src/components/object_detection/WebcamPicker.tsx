@@ -37,7 +37,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       {isCapturing && (
         <video
           ref={videoRef}
-          className="w-full aspect-video object-cover"
+          className="w-full h-full object-cover"
           autoPlay
           playsInline
           muted
