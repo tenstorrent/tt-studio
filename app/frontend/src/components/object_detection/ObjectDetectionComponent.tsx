@@ -121,22 +121,6 @@ export const ObjectDetectionComponent: React.FC = () => {
           </div>
         )}
 
-        {/* Removed container for non-live mode images */}
-        {/*
-        <div
-          ref={containerRef}
-          className="relative w-full aspect-video bg-black flex items-center justify-center"
-        >
-          {!isLiveMode && image && (
-            <img
-              src={image}
-              alt="Uploaded"
-              className="absolute inset-0 w-full h-full object-contain z-10"
-            />
-          )}
-        </div>
-        */}
-
         {detections.length > 0 && (
           <Card className="p-4 mt-4">
             <Table>
