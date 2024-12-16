@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useState } from "react";
+import { useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { Card } from "../ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import SourcePicker from "./SourcePicker";
@@ -21,6 +22,17 @@ export const ObjectDetectionComponent = () => {
     { col1: "TEST2", col2: "TESTING2", index: 1 },
   ]);
 
+  const location = useLocation();
+  const [modelID, setModelID] = useState<string | null>(null);
+  const [modelName, setModelName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (location.state) {
+      setModelID(location.state.containerID);
+      setModelName(location.state.modelName);
+    }
+  }, [location.state, modelID, modelName]);
+
   return (
     <div className="flex flex-col overflow-scroll h-full gap-8 w-3/4 mx-auto max-w-7xl px-4 md:px-8 py-10">
       <Card className="border-2 p-4 rounded-md space-y-4">
@@ -31,7 +43,7 @@ export const ObjectDetectionComponent = () => {
             <TabsTrigger value="webcam">Webcam</TabsTrigger>
           </TabsList>
           <TabsContent value="file">
-            <SourcePicker setImage={setImage} />
+            <SourcePicker setImage={setImage} modelID={modelID} />
           </TabsContent>
           <TabsContent value="webcam">
             <WebcamPicker setImage={setImage} />

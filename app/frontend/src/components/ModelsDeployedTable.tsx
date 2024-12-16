@@ -22,9 +22,11 @@ import StatusBadge from "./StatusBadge";
 import HealthBadge from "./HealthBadge";
 import {
   fetchModels,
+  getModelTypeFromName,
   deleteModel,
   handleRedeploy,
   handleChatUI,
+  ModelType,
 } from "../api/modelsDeployedApis";
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { NoModelsDialog } from "./NoModelsDeployed";
@@ -42,6 +44,7 @@ import {
   Trash2,
   MessageSquare,
   AlertCircle,
+  Eye,
 } from "lucide-react";
 import {
   Tooltip,
@@ -260,8 +263,16 @@ export default function ModelsDeployedTable() {
                                 } rounded-lg`}
                                 disabled={!model.name}
                               >
-                                <MessageSquare className="w-4 h-4 mr-2" />
-                                ChatUI
+                                {getModelTypeFromName(model.name) ===
+                                ModelType.ChatModel ? (
+                                  <MessageSquare className="w-4 h-4 mr-2" />
+                                ) : (
+                                  <Eye className="w-4 h-4 mr-2" />
+                                )}
+                                {getModelTypeFromName(model.name) ===
+                                ModelType.ChatModel
+                                  ? "ChatUI"
+                                  : "ObjectDetection"}
                                 {isLLaMAModel(model.name || "") && (
                                   <AlertCircle className="w-4 h-4 ml-2 text-yellow-600" />
                                 )}

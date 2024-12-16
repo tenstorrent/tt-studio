@@ -49,6 +49,11 @@ interface StopResponse {
   };
 }
 
+export const ModelType = {
+  ChatModel: "ChatModel",
+  ObjectDetectionModel: "ObjectDetectionModel",
+};
+
 export const fetchModels = async (): Promise<Model[]> => {
   try {
     const response = await axios.get<{ [key: string]: ContainerData }>(
@@ -161,14 +166,36 @@ export const handleChatUI = (
   modelName: string,
   navigate: NavigateFunction,
 ): void => {
-  console.log(`ChatUI button clicked for model: ${modelID}`);
-  console.log(`Opening Chat UI for model: ${modelName}`);
+  const modelType = getModelTypeFromName(modelName);
+  const destination = getDestinationFromModelType(modelType);
+  console.log(`${modelType} button clicked for model: ${modelID}`);
+  console.log(`Opening ${modelType} for model: ${modelName}`);
   // customToast.success(`Chat UI for model:${modelName} opened.`);
-  customToast.success(`Chat UI page opened!`);
+  customToast.success(`${destination} page opened!`);
 
-  navigate("/chat-ui", {
+  navigate(destination, {
     state: { containerID: modelID, modelName: modelName },
   });
 
-  console.log("Navigated to chat-ui page");
+  console.log(`Navigated to ${destination} page`);
+};
+
+export const getDestinationFromModelType = (modelType: string): string => {
+  switch (modelType) {
+    case ModelType.ChatModel:
+      return "/chat-ui";
+    case ModelType.ObjectDetectionModel:
+      return "/object-detection";
+    default:
+      return "/chat-ui"; // /chat-ui is the default
+  }
+};
+
+export const getModelTypeFromName = (modelName: string): string => {
+  // TODO: remove this hack once we enumerate the types of models #<ISSUE_NUMBER>
+  // this should eventually become a switch-case statement
+  const modelType = modelName.includes("yolo")
+    ? ModelType.ObjectDetectionModel
+    : ModelType.ChatModel;
+  return modelType;
 };
