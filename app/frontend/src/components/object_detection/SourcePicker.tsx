@@ -2,23 +2,16 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import axios from "axios";
 import { FileUpload } from "../ui/file-upload";
-import { customToast } from "../CustomToaster";
 
 interface SourcePickerProps {
   setImage: (imageSrc: string | null) => void;
-  modelID: string | null;
+  modelID: string;
 }
 
 const SourcePicker: React.FC<SourcePickerProps> = ({ setImage, modelID }) => {
   // TODO: Extract into .ts function in separate file
   const handleFileUpload = async (files: File[]) => {
     const file = files[0];
-    if (!modelID) {
-      customToast.error(
-        "modelID is unavailable. Try navigating here from the Models Deployed tab",
-      );
-      return;
-    }
     if (file) {
       const imageUrl = URL.createObjectURL(file);
       setImage(imageUrl);
