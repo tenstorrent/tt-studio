@@ -35,7 +35,7 @@ const Sidebar = forwardRef((_, ref) => {
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
                 The "Home" page serves as your central hub for exploring the
-                various features of the LLM Studio app. Use the dropdown to
+                various features of the TT-Studio app. Use the dropdown to
                 browse and select from a list of available models, and click the
                 "Deploy" button to begin the process.
               </p>
