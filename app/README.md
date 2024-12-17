@@ -4,7 +4,7 @@ Manage your LLM inference server containers.
 
 ## Deployment
 
-The backend app uses docker-compose.yml to configure the connection with the host, this included the persistent storage volume, ports, etc
+The backend app uses docker compose.yml to configure the connection with the host, this included the persistent storage volume, ports, etc
 
 ```bash
 docker compose up

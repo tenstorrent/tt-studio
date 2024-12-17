@@ -65,13 +65,13 @@ done
 TT_STUDIO_ROOT="$(pwd)"
 echo "TT_STUDIO_ROOT is set to: ${TT_STUDIO_ROOT}"
 
-DOCKER_COMPOSE_FILE="${TT_STUDIO_ROOT}/app/docker-compose.yml"
-DOCKER_COMPOSE_TT_HARDWARE_FILE="${TT_STUDIO_ROOT}/app/docker-compose.tt-hardware.yml"
+DOCKER_COMPOSE_FILE="${TT_STUDIO_ROOT}/app/docker compose.yml"
+DOCKER_COMPOSE_TT_HARDWARE_FILE="${TT_STUDIO_ROOT}/app/docker compose.tt-hardware.yml"
 ENV_FILE_PATH="${TT_STUDIO_ROOT}/app/.env"
 ENV_FILE_DEFAULT="${TT_STUDIO_ROOT}/app/.env.default"
 
 if [[ ! -f "$DOCKER_COMPOSE_FILE" ]]; then
-    echo "⛔ Error: docker-compose.yml not found at $DOCKER_COMPOSE_FILE."
+    echo "⛔ Error: docker compose.yml not found at $DOCKER_COMPOSE_FILE."
     exit 1
 fi
 
@@ -177,10 +177,10 @@ fi
 # Step 4: Run Docker Compose with or without hardware support
 if [[ "$RUN_TT_HARDWARE" = true ]]; then
     echo "🚀 Running Docker Compose with TT hardware support..."
-    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" -f "${DOCKER_COMPOSE_TT_HARDWARE_FILE}" up --build -d
+    docker compose -f "${TT_STUDIO_ROOT}/app/docker compose.yml" -f "${DOCKER_COMPOSE_TT_HARDWARE_FILE}" up --build -d
 else
     echo "🚀 Running Docker Compose without TT hardware support..."
-    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up --build -d
+    docker compose -f "${TT_STUDIO_ROOT}/app/docker compose.yml" up --build -d
 fi
 
 

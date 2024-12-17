@@ -67,24 +67,24 @@ To set up TT-Studio:
    ssh -L 3000:localhost:3000 <username>@<remote_server>
    ```
 
-> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker-compose.yml.
+> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker compose.yml.
 ---
 
 ### For Developers
 
-Developers can control and run the app directly via `docker-compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
+Developers can control and run the app directly via `docker compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
 
 1.  **Run in Development Mode**:
 
     ```bash
     cd tt-studio/app
-    docker-compose up --build
+    docker compose up --build
     ```
 
 2.  **Stop the Services**:
 
     ```bash
-    docker-compose down
+    docker compose down
     ```
 
 3.  **Using the Mock vLLM Model**:
@@ -93,7 +93,7 @@ Developers can control and run the app directly via `docker-compose`, keeping th
 
 4.  **Running on a Machine with Tenstorrent Hardware**:
 
-    To run TT-Studio on a device with Tenstorrent hardware, you need to uncomment specific lines in the `app/docker-compose.yml` file. Follow these steps:
+    To run TT-Studio on a device with Tenstorrent hardware, you need to uncomment specific lines in the `app/docker compose.yml` file. Follow these steps:
 
     1.  Navigate to the `app` directory:
 
@@ -101,12 +101,12 @@ Developers can control and run the app directly via `docker-compose`, keeping th
         cd app/
         ```
 
-    2.  Open the `docker-compose.yml` file in an editor (e.g., `vim` or a code editor like `VS CODE` ):
+    2.  Open the `docker compose.yml` file in an editor (e.g., `vim` or a code editor like `VS CODE` ):
 
         ```bash
-        vim docker-compose.yml
+        vim docker compose.yml
         # or
-        code docker-compose.yml
+        code docker compose.yml
         ```
 
     3.  Uncomment the following lines that have a `! flag` in front of them to enable Tenstorrent hardware support:
