@@ -39,7 +39,9 @@ export const useWebcam = (
       };
 
       sendSnapshotInterval();
-      intervalRef.current = window.setInterval(sendSnapshotInterval, 1000); // send snapshots at 30FPS if possible
+      // Refactor this entire process so that we perform sequential, non-blocking invocations
+      // of sendSnapshot
+      intervalRef.current = window.setInterval(sendSnapshotInterval, 100);
     } catch (error) {
       console.error("Error accessing webcam:", error);
       setIsLoading(false);

@@ -21,6 +21,7 @@ import { updateBoxPositions } from "../object_detection/utlis/detectionUtlis";
 export const ObjectDetectionComponent: React.FC = () => {
   const [image, setImage] = useState<string | null>(null);
   const [detections, setDetections] = useState<Detection[]>([]);
+  const [scaledDetections, setScaledDetections] = useState<Detection[]>([]);
   const [metadata, setMetadata] = useState<DetectionMetadata | null>(null);
   const [isLiveMode, setIsLiveMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,27 +47,15 @@ export const ObjectDetectionComponent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let animationFrameId: number;
-
-    const updatePositions = () => {
-      setDetections((prevDetections) =>
-        updateBoxPositions(containerRef, null, metadata, prevDetections),
-      );
-
-      if (isLiveMode) {
-        animationFrameId = requestAnimationFrame(updatePositions);
-      }
-    };
-
     if (isLiveMode || detections.length > 0) {
-      updatePositions();
+      const updatedDetections = updateBoxPositions(
+        containerRef,
+        null,
+        metadata,
+        detections,
+      );
+      setScaledDetections(updatedDetections);
     }
-
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
   }, [isLiveMode, detections, metadata]);
 
   const location = useLocation();
@@ -99,35 +88,36 @@ export const ObjectDetectionComponent: React.FC = () => {
           </TabsContent>
           <TabsContent value="webcam" className="h-full">
             <div className="h-full flex flex-col">
-              <WebcamPicker
-                setDetections={handleSetDetections}
-                setLiveMode={handleSetLiveMode}
-                setIsLoading={setIsLoading}
-                setIsStreaming={setIsStreaming}
-                setIsCameraOn={setIsCameraOn}
-                modelID={modelID}
-              />
-              {isLiveMode && (
-                <div className="flex-grow relative">
-                  {/* Bounding boxes will be rendered here */}
-                  {detections.map((detection, index) => (
-                    <div
-                      key={index}
-                      className="absolute border-2 border-red-500 pointer-events-none z-20"
-                      style={{
-                        left: `${detection.scaledXmin ?? detection.xmin}px`,
-                        top: `${detection.scaledYmin ?? detection.ymin}px`,
-                        width: `${detection.scaledWidth ?? detection.xmax - detection.xmin}px`,
-                        height: `${detection.scaledHeight ?? detection.ymax - detection.ymin}px`,
-                      }}
-                    >
-                      <span className="absolute top-0 left-0 bg-red-500 text-white text-xs px-1">
-                        {detection.name} ({detection.confidence?.toFixed(4)})
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div ref={containerRef} className="relative w-full aspect-video">
+                <WebcamPicker
+                  setDetections={handleSetDetections}
+                  setLiveMode={handleSetLiveMode}
+                  setIsLoading={setIsLoading}
+                  setIsStreaming={setIsStreaming}
+                  setIsCameraOn={setIsCameraOn}
+                  modelID={modelID}
+                />
+                {isLiveMode && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {scaledDetections.map((detection, index) => (
+                      <div
+                        key={index}
+                        className="absolute border-2 border-red-500 z-20"
+                        style={{
+                          left: `${detection.scaledXmin ?? detection.xmin}px`,
+                          top: `${detection.scaledYmin ?? detection.ymin}px`,
+                          width: `${detection.scaledWidth ?? detection.xmax - detection.xmin}px`,
+                          height: `${detection.scaledHeight ?? detection.ymax - detection.ymin}px`,
+                        }}
+                      >
+                        <span className="absolute top-0 left-0 bg-red-500 text-white text-xs px-1">
+                          {detection.name} ({detection.confidence.toFixed(4)})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </TabsContent>
         </Tabs>
@@ -140,20 +130,7 @@ export const ObjectDetectionComponent: React.FC = () => {
           </div>
         )}
 
-        <div
-          ref={containerRef}
-          className="relative w-full aspect-video bg-black flex items-center justify-center"
-        >
-          {!isLiveMode && image && (
-            <img
-              src={image}
-              alt="Uploaded"
-              className="absolute inset-0 w-full h-full object-contain z-10"
-            />
-          )}
-        </div>
-
-        {detections.length > 0 && (
+        {scaledDetections.length > 0 && (
           <Card className="p-4 mt-4">
             <Table>
               <TableHeader>
@@ -169,7 +146,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {detections.map((detection, index) => (
+                {scaledDetections.map((detection, index) => (
                   <TableRow key={index}>
                     <TableCell>{index}</TableCell>
                     <TableCell>{detection.xmin?.toFixed(4)}</TableCell>
