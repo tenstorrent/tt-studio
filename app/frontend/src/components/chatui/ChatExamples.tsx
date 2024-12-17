@@ -86,14 +86,14 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({ logo, setTextInput }) => {
   }, []);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[28rem] p-4 bg-white dark:bg-black transition-colors duration-200">
+    <div className="flex flex-col items-center justify-center min-h-[28rem] p-4 bg-white dark:bg-inherit transition-colors duration-200">
       <img
         src={logo}
         alt="Tenstorrent Logo"
         className="w-16 h-16 mb-6 transform transition duration-300 hover:scale-110"
       />
       <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white transition-colors duration-200">
-        Start a conversation with LLM Studio Chat...
+        Start a conversation with TT Studio Chat...
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-4xl">
         {displayedExamples.map((example, index) => (
