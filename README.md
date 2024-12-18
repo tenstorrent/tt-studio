@@ -67,24 +67,24 @@ To set up TT-Studio:
    ssh -L 3000:localhost:3000 <username>@<remote_server>
    ```
 
-> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker-compose.yml.
+> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker compose.yml.
 ---
 
 ### For Developers
 
-Developers can control and run the app directly via `docker-compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
+Developers can control and run the app directly via `docker compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
 
 1.  **Run in Development Mode**:
 
     ```bash
     cd tt-studio/app
-    docker-compose up --build
+    docker compose up --build
     ```
 
 2.  **Stop the Services**:
 
     ```bash
-    docker-compose down
+    docker compose down
     ```
 
 3.  **Using the Mock vLLM Model**:
