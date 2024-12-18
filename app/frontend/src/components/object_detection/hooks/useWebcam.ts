@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, useRef, useCallback, useEffect } from "react";
-import {
-  startCapture,
-  stopCapture,
-  sendSnapshot,
-} from "../../object_detection/utlis/webcamUtlis";
+import { startCapture, stopCapture, sendSnapshot } from "../utlis/webcamUtlis";
 import { Detection, DetectionMetadata } from "../types/objectDetection";
 
 export const useWebcam = (
@@ -17,11 +13,29 @@ export const useWebcam = (
   setIsLoading: (isLoading: boolean) => void,
   setIsStreaming: (isStreaming: boolean) => void,
   setIsCameraOn: (isCameraOn: boolean) => void,
-  modelID: string,
+  modelID: string
 ) => {
   const [isCapturing, setIsCapturing] = useState(false);
-  const intervalRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const isLiveRef = useRef(false);
+  const processingRef = useRef(false);
+
+  const processFrame = useCallback(async () => {
+    if (!isLiveRef.current || processingRef.current || !videoRef.current)
+      return;
+
+    processingRef.current = true;
+    try {
+      await sendSnapshot(videoRef, setDetections, modelID);
+    } catch (error) {
+      console.error("Error sending snapshot:", error);
+    } finally {
+      processingRef.current = false;
+      if (isLiveRef.current) {
+        requestAnimationFrame(processFrame);
+      }
+    }
+  }, [setDetections, modelID]);
 
   const handleStartCapture = useCallback(async () => {
     setIsCapturing(true);
@@ -29,22 +43,16 @@ export const useWebcam = (
     setIsLoading(true);
     setIsStreaming(true);
     setIsCameraOn(true);
+    isLiveRef.current = true;
 
     try {
       await startCapture(videoRef, setDetections, setIsLoading);
       setIsLoading(false);
-
-      const sendSnapshotInterval = () => {
-        sendSnapshot(videoRef, setDetections, modelID);
-      };
-
-      sendSnapshotInterval();
-      // Refactor this entire process so that we perform sequential, non-blocking invocations
-      // of sendSnapshot
-      intervalRef.current = window.setInterval(sendSnapshotInterval, 100);
+      processFrame();
     } catch (error) {
       console.error("Error accessing webcam:", error);
       setIsLoading(false);
+      isLiveRef.current = false;
     }
   }, [
     setDetections,
@@ -52,7 +60,7 @@ export const useWebcam = (
     setIsLoading,
     setIsStreaming,
     setIsCameraOn,
-    modelID,
+    processFrame,
   ]);
 
   const handleStopCapture = useCallback(() => {
@@ -60,19 +68,14 @@ export const useWebcam = (
     setLiveMode(false);
     setIsStreaming(false);
     setIsCameraOn(false);
+    isLiveRef.current = false;
     stopCapture(videoRef);
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
   }, [setLiveMode, setIsStreaming, setIsCameraOn]);
 
   useEffect(() => {
     return () => {
+      isLiveRef.current = false;
       stopCapture(videoRef);
-      if (intervalRef.current !== null) {
-        clearInterval(intervalRef.current);
-      }
     };
   }, []);
 
