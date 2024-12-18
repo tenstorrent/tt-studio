@@ -19,6 +19,10 @@ export const startCapture = (
           videoRef.current.srcObject = stream;
           videoRef.current.onloadedmetadata = () => {
             setIsLoading(false);
+            setDetections({
+              boxes: [],
+              metadata: { width: 0, height: 0, inferenceTime: 0 },
+            });
             resolve();
           };
         }
