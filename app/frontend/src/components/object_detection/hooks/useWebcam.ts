@@ -19,6 +19,7 @@ export const useWebcam = (
   const videoRef = useRef<HTMLVideoElement>(null);
   const isLiveRef = useRef(false);
   const processingRef = useRef(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const processFrame = useCallback(async () => {
     if (!isLiveRef.current || processingRef.current || !videoRef.current)
@@ -68,16 +69,25 @@ export const useWebcam = (
     setLiveMode(false);
     setIsStreaming(false);
     setIsCameraOn(false);
-    isLiveRef.current = false;
     stopCapture(videoRef);
-  }, [setLiveMode, setIsStreaming, setIsCameraOn]);
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    isLiveRef.current = false;
+    // Reset detections
+    setDetections({
+      boxes: [],
+      metadata: { width: 0, height: 0, inferenceTime: 0 },
+    });
+  }, [setLiveMode, setIsStreaming, setIsCameraOn, setDetections]);
 
   useEffect(() => {
     return () => {
-      isLiveRef.current = false;
-      stopCapture(videoRef);
+      handleStopCapture();
     };
-  }, []);
+  }, [handleStopCapture]);
 
   return { isCapturing, handleStartCapture, handleStopCapture, videoRef };
 };
