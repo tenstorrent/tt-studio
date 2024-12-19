@@ -87,8 +87,11 @@ export const ObjectDetectionComponent: React.FC = () => {
             <SourcePicker setImage={handleSetImage} modelID={modelID} />
           </TabsContent>
           <TabsContent value="webcam" className="h-full">
-            <div className="h-full flex flex-col">
-              <div ref={containerRef} className="relative w-full aspect-video">
+            <div className="h-full flex flex-col items-center">
+              {/* aspect ratio must be 4:3 because that is source webcam resolution is */}
+              {/* if we don't constrain the aspect ratio of the container then the boxes */}
+              {/* will be scaled with an incorrect aspect ratio */}
+              <div ref={containerRef} className="relative w-[75%] aspect-[4/3]">
                 <WebcamPicker
                   setDetections={handleSetDetections}
                   setLiveMode={handleSetLiveMode}

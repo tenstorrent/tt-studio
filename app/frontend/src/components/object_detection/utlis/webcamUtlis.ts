@@ -68,13 +68,11 @@ export const sendSnapshot = async (
           headers: { "Content-Type": "multipart/form-data" },
         }
       );
-      console.log(response.data);
       const detectionMetadata: DetectionMetadata = {
         width: canvas.width,
         height: canvas.height,
         inferenceTime: response.data.inference_time || 33.333,
       };
-      console.log(detectionMetadata);
       const detections: Detection[] = response.data.map(
         (item: Array<number>) => {
           const [xmin, ymin, xmax, ymax, confidence, _, classId] = item;
