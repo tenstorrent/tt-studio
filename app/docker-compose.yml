@@ -16,7 +16,7 @@ services:
 
     # note that `network_mode: host` does not work on mac OS
     networks:
-      - llm_studio_network
+      - tt_studio_network
     ports:
       - "8000:8000"
     # command: bash
@@ -66,7 +66,7 @@ services:
       tt_studio_backend:
         condition: service_healthy
     networks:
-      - llm_studio_network
+      - tt_studio_network
     ports:
       - "3000:3000"
     # volumes:
@@ -100,12 +100,12 @@ services:
     container_name: tt_studio_chroma
 
     networks:
-      - llm_studio_network
+      - tt_studio_network
 
 networks:
-  llm_studio_network:
+  tt_studio_network:
     # need external flag to allow for the backend to manage the docker network
     # otherwise, docker compose will create an app_* network for the backend container
     # to avoid colliding existing docker networks
     external: true
-    name: llm_studio_network
+    name: tt_studio_network

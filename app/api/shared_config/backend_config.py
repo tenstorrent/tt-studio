@@ -32,7 +32,7 @@ backend_config = BackendConfig(
         "backend_volume"
     ),
     django_deploy_cache_name="deploy_cache",
-    docker_bridge_network_name="llm_studio_network",
+    docker_bridge_network_name="tt_studio_network",
     weights_dir="model_weights",
     model_container_cache_root="/home/user/cache_root",
     jwt_secret=os.environ["JWT_SECRET"],
