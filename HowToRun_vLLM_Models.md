@@ -79,7 +79,23 @@ HF_TOKEN=hf_********
 
 ## 4. Run the Setup Script (vLLM Llama3.1-70B only)
 
-Navigate to the `model` folder within the `tt-inference-server` and run the automated setup script. You can find step-by-step instructions [here](https://github.com/tenstorrent/tt-inference-server/tree/main/vllm-tt-metal-llama3-70b#5-automated-setup-environment-variables-and-weights-files:~:text=70b/docs/development-,5.%20Automated%20Setup%3A%20environment%20variables%20and%20weights%20files,-The%20script%20vllm).
+Follow these step-by-step instructions for a smooth automated process of model weights setup.
+
+1. **Navigate to the `vllm-tt-metal-llama3-70b/` folder** within the `tt-inference-server`. This folder contains the necessary files and scripts for model setup.
+
+2. **Run the automated setup script** as outlined in the [official documentation](https://github.com/tenstorrent/tt-inference-server/tree/main/vllm-tt-metal-llama3-70b#5-automated-setup-environment-variables-and-weights-files:~:text=70b/docs/development-,5.%20Automated%20Setup%3A%20environment%20variables%20and%20weights%20files,-The%20script%20vllm). This script handles key steps such as configuring environment variables, downloading weight files, repacking weights, and creating directories.
+
+**Note** During the setup process, you will see the following prompt:
+
+   ```
+   Enter your PERSISTENT_VOLUME_ROOT [default: tt-inference-server/tt_inference_server_persistent_volume]:
+   ```
+
+   **Do not accept the default path.** Instead, set the persistent volume path to `tt-studio/tt_studio_persistent_volume`. This ensures the configuration matches TT-Studio’s directory structure. Using the default path may result in incorrect configuration.
+
+By following these instructions, you will have a properly configured model infrastructure, ready for inference and further development.
+
+
 
 ---
 
@@ -112,18 +128,24 @@ During the model weights download process, an `.env` file will be automatically 
 /path/to/tt-inference-server/vllm-tt-metal-llama3-70b/.env
 ```
 
-To ensure the model can be deployed via the TT-Studio GUI, copy this `.env` file to the model's persistent storage location. For example:
+To ensure the model can be deployed via the TT-Studio GUI, this `.env` file must be copied to the model's persistent storage location. For example:
 
 ```bash
 /path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/copied_env
 ```
 
-Following command can be used as a reference (*replace paths as necessary*):
+The following command can be used as a reference (*replace paths as necessary*):
 
 ```bash
-cp /$USR/tt-inference-server/vllm-tt-metal-llama3-70b/.env /$USR/tt_studio/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/**copied_env
+sudo cp /$USR/tt-inference-server/vllm-tt-metal-llama3-70b/.env /$USR/tt_studio/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/.env
 ```
 
+### Step 2: Point to the Copied Environment File
+The `VLLM_LLAMA31_ENV_FILE` variable within the TT-Studio `$USR/tt-studio/app/.env` file must point to *this* copied `.env` file. This should be a **relative path**, for example it can be set as follows:
+
+```
+VLLM_LLAMA31_ENV_FILE="/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/.env"
+```
 ---
 
 ### Step 2: Update the TT-Studio Environment File
