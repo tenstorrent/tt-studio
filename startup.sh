@@ -17,7 +17,7 @@ usage() {
     echo -e "This script sets up the TT-Studio environment by performing the following steps:"
     echo -e "  1. 🧭 Detects the OS."
     echo -e "  2. 🛠️  Sets the TT_STUDIO_ROOT variable in .env based on the running directory."
-    echo -e "  3. 🌐 Checks for and creates a Docker network named 'llm_studio_network' if not present."
+    echo -e "  3. 🌐 Checks for and creates a Docker network named 'tt_studio_network' if not present."
     echo -e "  4. 🚀 Runs Docker Compose to start the TT Studio services."
     echo
     echo -e "Options:"
@@ -160,7 +160,7 @@ fi
 source "${ENV_FILE_PATH}"
 
 # Step 3: Check if the Docker network already exists
-NETWORK_NAME="llm_studio_network"
+NETWORK_NAME="tt_studio_network"
 if docker network ls | grep -qw "${NETWORK_NAME}"; then
     echo "Network '${NETWORK_NAME}' exists."
 else

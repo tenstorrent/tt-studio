@@ -56,7 +56,7 @@ example JSON response:
             ]
         },
         "networks": {
-            "llm_studio_network": {
+            "tt_studio_network": {
                 "DNSNames": [
                     "dummy_echo_model_p8013",
                     "1d1a274a7126"
