@@ -161,7 +161,7 @@ export const handleRedeploy = (modelName: string): void => {
   customToast.success(`Model ${modelName} has been redeployed.`);
 };
 
-export const handleChatUI = (
+export const handleModelNavigationClick = (
   modelID: string,
   modelName: string,
   navigate: NavigateFunction,
@@ -170,7 +170,6 @@ export const handleChatUI = (
   const destination = getDestinationFromModelType(modelType);
   console.log(`${modelType} button clicked for model: ${modelID}`);
   console.log(`Opening ${modelType} for model: ${modelName}`);
-  // customToast.success(`Chat UI for model:${modelName} opened.`);
   customToast.success(`${destination} page opened!`);
 
   navigate(destination, {

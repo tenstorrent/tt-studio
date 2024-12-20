@@ -25,8 +25,8 @@ import {
   getModelTypeFromName,
   deleteModel,
   handleRedeploy,
-  handleChatUI,
   ModelType,
+  handleModelNavigationClick,
 } from "../api/modelsDeployedApis";
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { NoModelsDialog } from "./NoModelsDeployed";
@@ -254,7 +254,11 @@ export default function ModelsDeployedTable() {
                               <Button
                                 onClick={() =>
                                   model.name &&
-                                  handleChatUI(model.id, model.name, navigate)
+                                  handleModelNavigationClick(
+                                    model.id,
+                                    model.name,
+                                    navigate,
+                                  )
                                 }
                                 className={`${
                                   theme === "dark"

@@ -33,7 +33,7 @@ import {
 } from "./ui/tooltip";
 import { useRefresh } from "../providers/RefreshContext";
 import { useModels } from "../providers/ModelsContext";
-import { handleChatUI } from "../api/modelsDeployedApis";
+import { handleModelNavigationClick } from "../api/modelsDeployedApis";
 
 export default function NavBar() {
   const location = useLocation();
@@ -73,17 +73,25 @@ export default function NavBar() {
     triggerRefresh();
   };
 
-  const handleChatUIClick = () => {
+  const handleNavigation = (route: string) => {
     if (models.length > 0) {
       const firstModel = models[0];
       if (firstModel.id && firstModel.name) {
-        handleChatUI(firstModel.id, firstModel.name, navigate);
+        handleModelNavigationClick(firstModel.id, firstModel.name, navigate);
       } else {
         console.error("Model ID or name is undefined");
       }
     } else {
-      navigate("/models-deployed");
+      navigate(route);
     }
+  };
+
+  const handleChatUIClick = () => {
+    handleNavigation("/models-deployed");
+  };
+
+  const handleObjectDetectionClick = () => {
+    handleNavigation("/object-detection");
   };
 
   useEffect(() => {
@@ -303,30 +311,26 @@ export default function NavBar() {
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
-                <NavLink
-                  to="/object-detection"
-                  className={({ isActive }) => getNavLinkClass(isActive)}
-                >
-                  {isChatUI ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Eye
-                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Object Detection</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleObjectDetectionClick}
+                      className={`${getNavLinkClass(false)} ${
+                        models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
+                      }`}
+                    >
                       <Eye
                         className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                       />
-                      <span>Object Detection</span>
-                    </>
-                  )}
-                </NavLink>
+                      {!isChatUI && <span>Chat UI</span>}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {models.length > 0
+                      ? "Open Object Detection"
+                      : "Deploy a model to use Object Detection"}
+                  </TooltipContent>
+                </Tooltip>
               </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>

@@ -2,19 +2,25 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import axios from "axios";
 import { FileUpload } from "../ui/file-upload";
+import { useCallback, useState } from "react";
 
 interface SourcePickerProps {
-  setImage: (imageSrc: string | null) => void;
   modelID: string;
 }
 
-const SourcePicker: React.FC<SourcePickerProps> = ({ setImage, modelID }) => {
+const SourcePicker: React.FC<SourcePickerProps> = ({ modelID }) => {
+  const [image, setImage] = useState<string | null>(null);
+
+  const handleSetImage = useCallback((imageSrc: string | null) => {
+    setImage(imageSrc);
+  }, []);
+
   // TODO: Extract into .ts function in separate file
   const handleFileUpload = async (files: File[]) => {
     const file = files[0];
     if (file) {
       const imageUrl = URL.createObjectURL(file);
-      setImage(imageUrl);
+      handleSetImage(imageUrl);
       // TODO: Get modelID from parent object-detection component
       const formData = new FormData();
       formData.append("image", file);
@@ -33,8 +39,15 @@ const SourcePicker: React.FC<SourcePickerProps> = ({ setImage, modelID }) => {
   };
 
   return (
-    <div className="flex justify-center items-center">
+    <div className="flex flex-col">
       <FileUpload onChange={handleFileUpload} />
+      {image && (
+        <img
+          src={image}
+          alt="uploaded"
+          className="inset-0 w-full h-full object-contain bg-background/95 rounded-lg"
+        />
+      )}
     </div>
   );
 };

@@ -19,7 +19,6 @@ import { Detection, DetectionMetadata } from "./types/objectDetection";
 import { updateBoxPositions } from "../object_detection/utlis/detectionUtlis";
 
 export const ObjectDetectionComponent: React.FC = () => {
-  const [image, setImage] = useState<string | null>(null);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [scaledDetections, setScaledDetections] = useState<Detection[]>([]);
   const [metadata, setMetadata] = useState<DetectionMetadata | null>(null);
@@ -29,10 +28,6 @@ export const ObjectDetectionComponent: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
-
-  const handleSetImage = useCallback((imageSrc: string | null) => {
-    setImage(imageSrc);
-  }, []);
 
   const handleSetDetections = useCallback(
     (data: { boxes: Detection[]; metadata: DetectionMetadata }) => {
@@ -64,14 +59,14 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   useEffect(() => {
     if (location.state) {
-      setModelID(location.state.containerID);
-      setModelName(location.state.modelName);
-      if (!modelID) {
+      if (!location.state.containerID) {
         customToast.error(
           "modelID is unavailable. Try navigating here from the Models Deployed tab",
         );
         return;
       }
+      setModelID(location.state.containerID);
+      setModelName(location.state.modelName);
     }
   }, [location.state, modelID, modelName]);
 
@@ -84,7 +79,9 @@ export const ObjectDetectionComponent: React.FC = () => {
             <TabsTrigger value="webcam">Webcam</TabsTrigger>
           </TabsList>
           <TabsContent value="file">
-            <SourcePicker setImage={handleSetImage} modelID={modelID} />
+            <div ref={containerRef} className="flex flex-col">
+              <SourcePicker modelID={modelID} />
+            </div>
           </TabsContent>
           <TabsContent value="webcam" className="h-full">
             <div className="h-full flex flex-col items-center">
