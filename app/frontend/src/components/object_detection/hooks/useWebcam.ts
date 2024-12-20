@@ -69,7 +69,7 @@ export const useWebcam = (
     setLiveMode(false);
     setIsStreaming(false);
     setIsCameraOn(false);
-    stopCapture(videoRef, setDetections);
+    stopCapture(videoRef);
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;

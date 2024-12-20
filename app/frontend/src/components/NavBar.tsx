@@ -322,7 +322,7 @@ export default function NavBar() {
                       <Eye
                         className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                       />
-                      {!isChatUI && <span>Chat UI</span>}
+                      {!isChatUI && <span>Object Detection</span>}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>
