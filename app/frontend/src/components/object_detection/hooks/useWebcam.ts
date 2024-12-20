@@ -13,7 +13,7 @@ export const useWebcam = (
   setIsLoading: (isLoading: boolean) => void,
   setIsStreaming: (isStreaming: boolean) => void,
   setIsCameraOn: (isCameraOn: boolean) => void,
-  modelID: string
+  modelID: string,
 ) => {
   const [isCapturing, setIsCapturing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -69,7 +69,7 @@ export const useWebcam = (
     setLiveMode(false);
     setIsStreaming(false);
     setIsCameraOn(false);
-    stopCapture(videoRef);
+    stopCapture(videoRef, setDetections);
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;

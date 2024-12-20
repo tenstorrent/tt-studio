@@ -32,3 +32,8 @@ export interface WebcamPickerProps {
   setIsCameraOn: (isCameraOn: boolean) => void;
   modelID: string;
 }
+
+export interface InferenceRequest {
+  deploy_id: string;
+  imageSource: Blob | File;
+}

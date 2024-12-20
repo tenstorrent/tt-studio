@@ -79,8 +79,14 @@ export const ObjectDetectionComponent: React.FC = () => {
             <TabsTrigger value="webcam">Webcam</TabsTrigger>
           </TabsList>
           <TabsContent value="file">
-            <div ref={containerRef} className="flex flex-col">
-              <SourcePicker modelID={modelID} />
+            <div className="relative flex flex-col ">
+              <SourcePicker
+                containerRef={containerRef}
+                setDetections={handleSetDetections}
+                setLiveMode={handleSetLiveMode}
+                scaledDetections={scaledDetections}
+                modelID={modelID}
+              />
             </div>
           </TabsContent>
           <TabsContent value="webcam" className="h-full">
@@ -131,18 +137,18 @@ export const ObjectDetectionComponent: React.FC = () => {
         )}
 
         {scaledDetections.length > 0 && (
-          <Card className="p-4 mt-4">
+          <div className="p-4 mt-4">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Index</TableHead>
-                  <TableHead>xmin</TableHead>
-                  <TableHead>ymin</TableHead>
-                  <TableHead>xmax</TableHead>
-                  <TableHead>ymax</TableHead>
+                  <TableHead></TableHead>
+                  <TableHead>x-min</TableHead>
+                  <TableHead>y-min</TableHead>
+                  <TableHead>x-max</TableHead>
+                  <TableHead>y-max</TableHead>
                   <TableHead>confidence</TableHead>
-                  <TableHead>class</TableHead>
-                  <TableHead>name</TableHead>
+                  <TableHead>class id</TableHead>
+                  <TableHead>class name</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -160,7 +166,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                 ))}
               </TableBody>
             </Table>
-          </Card>
+          </div>
         )}
       </Card>
     </div>
