@@ -55,12 +55,14 @@ export default function NavBar() {
   const navLinkClass = useMemo(
     () =>
       `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
-    [textColor],
+    [textColor]
   );
 
-  const getNavLinkClass = (isActive: boolean) =>
+  const getNavLinkClass = (isActive: boolean, isChatUIIcon: boolean = false) =>
     `${navLinkClass} ${
-      isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
+      isActive || (isChatUIIcon && location.pathname === "/chat-ui")
+        ? `border-2 ${activeBorderColor}`
+        : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
 
   const handleToggleSidebar = () => {
@@ -132,7 +134,7 @@ export default function NavBar() {
               <h4
                 className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
               >
-                LLM Studio
+                TT-Studio
               </h4>
             )}
           </a>
@@ -285,7 +287,7 @@ export default function NavBar() {
                   <TooltipTrigger asChild>
                     <button
                       onClick={handleChatUIClick}
-                      className={`${getNavLinkClass(false)} ${
+                      className={`${getNavLinkClass(false, true)} ${
                         models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
                       }`}
                     >

@@ -60,7 +60,6 @@ export const fetchModels = async (): Promise<Model[]> => {
       statusURl,
     );
     const data = response.data;
-    console.log("Data fetched for tables:", data);
 
     const models: Model[] = Object.keys(data).map((key) => {
       const container = data[key];
@@ -132,7 +131,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       );
     }
 
-    return response.data; // Ensure this is returning the correct response
+    return response.data; 
   } catch (error) {
     if (axios.isAxiosError(error)) {
       console.error("Error stopping the container:", error.response?.data);
@@ -157,7 +156,6 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
 };
 
 export const handleRedeploy = (modelName: string): void => {
-  console.log(`Redeploy button clicked for model: ${modelName}`);
   customToast.success(`Model ${modelName} has been redeployed.`);
 };
 

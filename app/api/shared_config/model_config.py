@@ -4,7 +4,7 @@
 
 import os
 from dataclasses import dataclass, asdict
-from typing import Set, Dict, Any
+from typing import Set, Dict, Any, Union
 from pathlib import Path
 
 from shared_config.device_config import DeviceConfigurations
@@ -13,6 +13,22 @@ from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+
+def load_dotenv_dict(env_path: Union[str, Path]) -> Dict[str, str]:
+    env_path = Path(env_path)
+    if not env_path.exists():
+        logger.error(f"Env file not found: {env_path}")
+    env_dict = {}
+    with open(env_path) as f:
+        lines = f.readlines()
+    for line in lines:
+        if line.strip() and not line.startswith('#'):
+            key, value = line.strip().split('=', 1)
+            # expand any $VAR or ${VAR} and ~
+            value = os.path.expandvars(value)
+            env_dict[key] = value
+    return env_dict
 
 
 @dataclass(frozen=True)
@@ -32,10 +48,14 @@ class ModelImpl:
     shm_size: str
     service_port: int
     service_route: str
+    env_file: str = ""
+    health_route: str = "/health"
+    hf_model_path: str = ""
 
     def __post_init__(self):
         self.docker_config.update({"volumes": self.get_volume_mounts()})
         self.docker_config["shm_size"] = self.shm_size
+        self.docker_config["environment"]["HF_MODEL_PATH"] = self.hf_model_path
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
@@ -48,6 +68,13 @@ class ModelImpl:
             self.docker_config["environment"]["WH_ARCH_YAML"] = (
                 "wormhole_b0_80_arch_eth_dispatch.yaml"
             )
+
+        if self.env_file:
+            logger.info(f"Using env file: {self.env_file}")
+            # env file should be in persistent volume mounted
+            env_dict = load_dotenv_dict(self.env_file)
+            # env file overrides any existing docker environment variables
+            self.docker_config["environment"].update(env_dict)
 
     @property
     def image_version(self) -> str:
@@ -124,6 +151,7 @@ def base_docker_config():
         "environment": {
             "JWT_SECRET": backend_config.jwt_secret,
             "CACHE_ROOT": backend_config.model_container_cache_root,
+            "HF_TOKEN": backend_config.hf_token,
         },
     }
 
@@ -145,17 +173,18 @@ model_implmentations_list = [
         service_route="/objdetection_v2",
     ),
     ModelImpl(
-        model_name="echo",
-        model_id="id_dummy_echo_modelv0.0.1",
-        image_name="dummy_echo_model",
-        image_tag="v0.0.1",
+        model_name="Mock-Llama-3.1-70B-Instruct",
+        model_id="id_mock_vllm_modelv0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
+        image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
+        hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
         device_configurations={DeviceConfigurations.CPU},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
         shm_size="1G",
         service_port=7000,
-        service_route="/inference/dummy_echo",
+        service_route="/v1/chat/completions",
     ),
     ModelImpl(
         model_name="Falcon-7B-Instruct",
@@ -163,6 +192,7 @@ model_implmentations_list = [
         image_name="tt-metal-falcon-7b",
         image_tag="v0.0.13",
         device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
+        hf_model_path="tiiuae/falcon-7b-instruct",
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
@@ -171,23 +201,26 @@ model_implmentations_list = [
         service_route="/inference/falcon7b",
     ),
     ModelImpl(
-        model_name="Llama3.1-70bv0.0.1-instruct",
+        model_name="Llama-3.1-70B-Instruct",
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-inference",
-        image_tag="v0.0.1-tt-metal-v0.52.0-rc31-9d3be887987b",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
+        image_tag="v0.0.3-tt-metal-385904186f81-384f1790c3be",
+        hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
         device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
         shm_size="32G",
         service_port=7000,
-        service_route="/inference/llama3-70b",
+        service_route="/v1/chat/completions",
+        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
     ModelImpl(
         model_name="Mistral7B-instruct-v0.2",
         model_id="id_tt-metal-mistral-7bv0.0.2",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-mistral-7b-src-base",
         image_tag="v0.0.3-tt-metal-v0.52.0-rc33",
+        hf_model_path="mistralai/Mistral-7B-Instruct-v0.2",
         device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
         docker_config=base_docker_config(),
         user_uid=1000,
@@ -196,8 +229,23 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/inference/mistral7b",
     ),
+    #! Add new model vLLM model implementations here
+    #     ModelImpl(
+    #     model_name="", #? Add the model name for the vLLM model based on persistent storage
+    #     model_id="", #? Add the model id for the vLLM model based on persistent storage
+    #     image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
+    #     image_tag="v0.0.1-tt-metal-685ef1303b5a-54b9157d852b",
+    #     hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
+    #     device_configurations={DeviceConfigurations.N300x4},
+    #     docker_config=base_docker_config(),
+    #     user_uid=1000,
+    #     user_gid=1000,
+    #     shm_size="32G",
+    #     service_port=7000,
+    #     service_route="/inference/**",  #? Add the correct route for the vLLM model
+    #     env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
+    # )
 ]
-
 
 def validate_model_implemenation_config(impl):
     # no / in model_id strings, model_id will be used in path names

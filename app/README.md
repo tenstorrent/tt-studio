@@ -10,7 +10,7 @@ The backend app uses docker-compose.yml to configure the connection with the hos
 docker compose up
 ```
 
-The `startup.sh` script automates the management of the environment variables and docker networks that must be conifgured outside of docker compose.
+The `startup.sh` script automates the management of the environment variables and docker networks that must be configured outside of docker compose.
 
 ### Environment variables
 

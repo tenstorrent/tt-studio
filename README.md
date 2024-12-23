@@ -1,6 +1,6 @@
 # TT-Studio
 
-TT-Studio enables rapid deployment of LLM inference servers locally and is optimized for Tenstorrent hardware. This guide explains how to set up and use TT-Studio in both standard and development modes.
+TT-Studio enables rapid deployment of TT Inference servers locally and is optimized for Tenstorrent hardware. This guide explains how to set up and use TT-Studio in both standard and development modes.
 
 ## Table of Contents
 
@@ -67,33 +67,30 @@ To set up TT-Studio:
    ssh -L 3000:localhost:3000 <username>@<remote_server>
    ```
 
-> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker-compose.yml.
+> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker compose.yml.
 ---
 
 ### For Developers
 
-Developers can control and run the app directly via `docker-compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
+Developers can control and run the app directly via `docker compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
 
 1.  **Run in Development Mode**:
 
     ```bash
     cd tt-studio/app
-    docker-compose up --build
+    docker compose up --build
     ```
 
 2.  **Stop the Services**:
 
     ```bash
-    docker-compose down
+    docker compose down
     ```
 
-3.  **Using the Echo Model**:
-    - For local testing, you can use the provided `echo` model, which repeats the prompt.
-      Build the Docker image with:
-      ```bash
-      cd models/dummy_echo_model
-      docker build -t dummy_echo_model:v0.0.1 .
-      ```
+3.  **Using the Mock vLLM Model**:
+    - For local testing, you can use the `Mock vLLM` model, which spits out random set of characters back . Instructions to run it are [here](HowToRun_vLLM_Models.md)  
+
+
 4.  **Running on a Machine with Tenstorrent Hardware**:
 
     To run TT-Studio on a device with Tenstorrent hardware, you need to uncomment specific lines in the `app/docker-compose.yml` file. Follow these steps:
@@ -150,7 +147,7 @@ To display the same help section in the terminal, one can run:
 ```
 ##### Automatic Tenstorrent Hardware Detection
 
-If a Tenstorrent device (/dev/tenstorrent) is detected, the script will prompt you to mount it.
+If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt you to mount it.
 
 ---
 
@@ -162,8 +159,8 @@ If a Tenstorrent device (/dev/tenstorrent) is detected, the script will prompt y
 - **Backend API Documentation**: [app/api/README.md](app/api/README.md)  
   Information on the backend API, powered by Django Rest Framework, including available endpoints and integration details.
 
-- **Running Llama3.1-70B in TT-Studio**: [HowToRunLlama3.1-70b.md](HowToRunLlama3.1-70b.md)  
-  Step-by-step instructions on how to configure and run the Llama3.1-70B model using TT-Studio.
+- **Running vLLM Llama3.1-70B and vLLM Mock Model(s) in TT-Studio**: [HowToRun_vLLM_Models.md](HowToRun_vLLM_Models.md)  
+  Step-by-step instructions on how to configure and run the vLLM model(s) using TT-Studio.
 
 - **Contribution Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)  
   If you’re interested in contributing to the project, please refer to our contribution guidelines. This includes setting up a development environment, code standards, and the process for submitting pull requests.
