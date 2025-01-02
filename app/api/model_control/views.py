@@ -15,6 +15,7 @@ from django.http import StreamingHttpResponse
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from model_control.model_utils import (
+    encoded_jwt,
     get_deploy_cache,
     stream_response_from_external_api,
     health_check,
@@ -123,7 +124,16 @@ class ObjectDetectionInferenceView(APIView):
             )
             byte_im = buf.getvalue()
             file = {"file": byte_im}
-            inference_data = requests.post(internal_url, files=file, timeout=5)
+            try:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+                inference_data.raise_for_status()
+            except requests.exceptions.HTTPError as http_err:
+                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                    return Response(status=status.HTTP_401_UNAUTHORIZED)
+                else:
+                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
             return Response(inference_data.json(), status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
