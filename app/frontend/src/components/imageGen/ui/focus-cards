@@ -1,0 +1,74 @@
+"use client"
+
+import Image from "next/image"
+import React, { useState } from "react"
+import { cn } from "@/lib/utils"
+
+export const Card = React.memo(
+  ({
+    image,
+    index,
+    hovered,
+    setHovered,
+  }: {
+    image: any
+    index: number
+    hovered: number | null
+    setHovered: React.Dispatch<React.SetStateAction<number | null>>
+  }) => (
+    <div
+      onMouseEnter={() => setHovered(index)}
+      onMouseLeave={() => setHovered(null)}
+      className={cn(
+        "relative border border-gray-300 dark:border-gray-700 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-all duration-300",
+        hovered !== null && hovered !== index && "blur-sm scale-[0.98]"
+      )}
+    >
+      <Image
+        src={image.url}
+        alt={image.title}
+        width={300}
+        height={200}
+        className="w-full h-48 object-cover"
+      />
+      <div className="p-4">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{image.title}</h2>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{image.description}</p>
+      </div>
+      <button
+        className="absolute bottom-4 left-4 px-4 py-2 bg-purple-500 text-white rounded-lg shadow hover:shadow-md transition duration-300"
+        onClick={() => alert(`Generating more like ${image.title}`)}
+      >
+        Generate Similar
+      </button>
+    </div>
+  )
+)
+
+Card.displayName = "Card"
+
+type Image = {
+  id: number
+  url: string
+  title: string
+  description: string
+}
+
+export function FocusCards({ images }: { images: Image[] }) {
+  const [hovered, setHovered] = useState<number | null>(null)
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      {images.map((image, index) => (
+        <Card
+          key={image.id}
+          image={image}
+          index={index}
+          hovered={hovered}
+          setHovered={setHovered}
+        />
+      ))}
+    </div>
+  )
+}
+

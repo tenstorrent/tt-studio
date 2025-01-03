@@ -10,6 +10,8 @@ import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
 import RagManagement from "../components/rag/RagManagement";
 import LogsPage from "../pages/LogsPage";
+import ImageGenPage from "../pages/ImageGenPage";
+import NotFoundPage from "../pages/NotFoundPage";
 
 const AppRouter = () => {
   return (
@@ -23,6 +25,8 @@ const AppRouter = () => {
             <Route path="/chat-ui" element={<ChatUI />} />
             <Route path="/rag-management" element={<RagManagement />} />
             <Route path="/logs" element={<LogsPage />} />
+            <Route path="/image-generation" element={<ImageGenPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Router>
       </ModelsProvider>
