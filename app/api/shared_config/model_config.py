@@ -160,7 +160,7 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
-        model_name="yolov4",
+        model_name="YOLOv4",
         model_id="id_yolov4v0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
         image_tag="v0.0.1-tt-metal-65d246482b3f",

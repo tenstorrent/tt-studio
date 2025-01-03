@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React from "react";
+import React, { useLayoutEffect } from "react";
 import { Button } from "../ui/button";
 import { useWebcam } from "./hooks/useWebcam";
 import { WebcamPickerProps } from "./types/objectDetection";
@@ -22,6 +22,15 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       setIsCameraOn,
       modelID,
     );
+
+  // stop capture on component unmount
+  // must use useLayoutEffect here so that cleanup function is
+  // called *before* the component is removed from the DOM
+  useLayoutEffect(() => {
+    return () => {
+      handleStopCapture();
+    };
+  }, [handleStopCapture]);
 
   return (
     <div className="flex flex-col bg-background/95 rounded-lg">

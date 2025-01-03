@@ -289,7 +289,12 @@ export default function ModelsDeployedTable() {
                                   an hour. Subsequent runs may take 5-7 minutes.
                                 </p>
                               ) : (
-                                <p>Open ChatUI for this model</p>
+                                <p>
+                                  {getModelTypeFromName(model.name) ===
+                                  ModelType.ChatModel
+                                    ? "Open ChatUI for this model"
+                                    : "Open ObjectDetection for this model"}
+                                </p>
                               )}
                             </TooltipContent>
                           </Tooltip>
