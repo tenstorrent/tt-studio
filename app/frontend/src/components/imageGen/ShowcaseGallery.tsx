@@ -58,6 +58,8 @@ const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({
       </div>
       <div className="w-full py-6 px-4 bg-gradient-to-t from-background to-transparent">
         <Button
+          variant="navbar"
+          size="icon"
           onClick={onStartGenerating}
           className="w-full px-8 py-4 text-lg bg-TT-purple-accent text-white hover:bg-TT-purple-accent/90 transition-colors"
         >
