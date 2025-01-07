@@ -1,99 +1,29 @@
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-// SPDX-License-Identifier: Apache-2.0
-
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
 import { User, Camera, ChevronDown, Download } from 'lucide-react';
 import { Skeleton } from "../ui/skeleton";
 import Header from './Header';
 import ImageInputArea from './ImageInputArea';
-
-interface Message {
-  id: string;
-  sender: "user" | "bot";
-  text: string;
-  image?: string;
-}
-
-interface StableDiffusionChatProps {
-  onBack: () => void;
-}
+import { StableDiffusionChatProps } from './types/chat';
+import { useChat } from './hooks/useChat';
 
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({ onBack }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: "1", sender: "bot", text: "Hello! I can generate images based on your descriptions. What would you like me to create?" },
-  ]);
-  const [textInput, setTextInput] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
+  const {
+    messages,
+    textInput,
+    setTextInput,
+    isGenerating,
+    isScrollButtonVisible,
+    setIsScrollButtonVisible,
+    viewportRef,
+    lastMessageRef,
+    sendMessage,
+    scrollToBottom,
+    handleScroll,
+  } = useChat();
+
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const lastMessageRef = useRef<HTMLDivElement>(null);
-
-  const generateImage = async (prompt: string) => {
-    console.log(`Generating an image based on: "${prompt}"`);
-    setIsGenerating(true);
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    const imageUrl = `https://picsum.photos/seed/${Math.random()}/512/512`;
-    setIsGenerating(false);
-    return imageUrl;
-  };
-
-  const sendMessage = async () => {
-    if (textInput.trim() !== "") {
-      const userMessage: Message = { id: Date.now().toString(), sender: "user", text: textInput };
-      setMessages(prev => [...prev, userMessage]);
-      setTextInput("");
-
-      const botMessage: Message = { id: (Date.now() + 1).toString(), sender: "bot", text: `Generating an image based on: "${textInput}"` };
-      setMessages(prev => [...prev, botMessage]);
-
-      const generatedImageUrl = await generateImage(textInput);
-      
-      const imageMessage: Message = { id: (Date.now() + 2).toString(), sender: "bot", text: "Here's the generated image:", image: generatedImageUrl };
-      setMessages(prev => [...prev, imageMessage]);
-    }
-  };
-
-  const scrollToBottom = useCallback(() => {
-    if (viewportRef.current) {
-      viewportRef.current.scrollTo({
-        top: viewportRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-  }, []);
-
-  const handleScroll = useCallback(() => {
-    if (viewportRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
-      setIsScrollButtonVisible(!isAtBottom);
-    }
-  }, []);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (viewport) {
-      viewport.addEventListener("scroll", handleScroll);
-      return () => viewport.removeEventListener("scroll", handleScroll);
-    }
-  }, [handleScroll]);
-
-  useEffect(() => {
-    if (!isGenerating) {
-      const viewport = viewportRef.current;
-      if (viewport) {
-        const { scrollTop, scrollHeight, clientHeight } = viewport;
-        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
-        if (isAtBottom) {
-          scrollToBottom();
-        }
-        setIsScrollButtonVisible(!isAtBottom);
-      }
-    }
-  }, [messages, isGenerating, scrollToBottom]);
 
   return (
     <div className="flex flex-col w-full h-full bg-[#0a0b0f]">
@@ -224,3 +154,4 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({ onBack }) => 
 };
 
 export default StableDiffusionChat;
+

@@ -48,7 +48,7 @@ interface HeaderProps {
                         href="#"
                         className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors duration-300 flex items-center"
                       >
-                        Image Generation
+                        Image Generation Chat
                       </BreadcrumbLink>
                     </TooltipTrigger>
                     <TooltipContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-white">
@@ -65,11 +65,11 @@ interface HeaderProps {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <BreadcrumbPage className="text-gray-900 dark:text-white font-bold">
-                        AI Image Generator
+                        Stable Diffusion
                       </BreadcrumbPage>
                     </TooltipTrigger>
                     <TooltipContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-white">
-                      <p>Current tool: AI Image Generator</p>
+                      <p>Generate Images using prompt text</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
