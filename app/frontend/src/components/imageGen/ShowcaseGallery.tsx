@@ -31,24 +31,39 @@ const showcaseImages = [
     title: "A steampunk-inspired mechanical dragon with brass and copper components",
     src: "https://assets.aceternity.com/the-first-rule.png",
   },
+  {
+    title: "A surreal floating island with waterfalls flowing into space",
+    src: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+  },
+  {
+    title: "An ancient temple covered in bioluminescent vines",
+    src: "https://images.unsplash.com/photo-1510798831971-661eb04b3739?w=800&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+  },
+  {
+    title: "A crystalline city emerging from a desert landscape",
+    src: "https://images.unsplash.com/photo-1579547621869-0d6d0d86b849?w=800&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+  },
 ];
 
 const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({
   onStartGenerating,
 }) => {
   return (
-    <div className="flex flex-col items-center gap-8 h-full w-full">
-      <div className="w-full px-4">
+    <div className="flex flex-col items-center w-full h-full overflow-x-hidden">
+      <div className="w-full flex-grow overflow-y-auto">
         <FocusCards cards={showcaseImages} />
       </div>
-      <Button
-        onClick={onStartGenerating}
-        className="px-8 py-4 text-lg bg-TT-purple-accent text-white hover:bg-TT-purple-accent/90 transition-colors"
-      >
-        Start Generating
-      </Button>
+      <div className="w-full py-6 px-4 bg-gradient-to-t from-background to-transparent">
+        <Button
+          onClick={onStartGenerating}
+          className="w-full px-8 py-4 text-lg bg-TT-purple-accent text-white hover:bg-TT-purple-accent/90 transition-colors"
+        >
+          Start Generating
+        </Button>
+      </div>
     </div>
   );
 };
 
 export default ShowcaseGallery;
+

@@ -6,7 +6,7 @@ type Card = {
   src: string;
 };
 
-export const Card = React.memo(
+const Card = React.memo(
   ({
     card,
     index,
@@ -22,8 +22,9 @@ export const Card = React.memo(
       onMouseEnter={() => setHovered(index)}
       onMouseLeave={() => setHovered(null)}
       className={cn(
-        "rounded-2xl relative bg-gray-100 dark:bg-neutral-900 overflow-hidden aspect-[4/3] transition-all duration-300 ease-out",
-        hovered !== null && hovered !== index && "blur-sm scale-[0.98]"
+        "rounded-2xl relative bg-gray-100 dark:bg-neutral-900 overflow-hidden aspect-[3/4] transition-all duration-300 ease-out h-full transform",
+        hovered !== null && hovered !== index && "blur-sm scale-[0.98]",
+        index % 2 === 0 ? "rotate-2" : "-rotate-2"
       )}
     >
       <img
@@ -51,16 +52,18 @@ export function FocusCards({ cards }: { cards: Card[] }) {
   const [hovered, setHovered] = useState<number | null>(null);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 p-4 w-full h-auto">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 lg:gap-10 p-4 md:p-6 lg:p-8 w-full">
       {cards.map((card, index) => (
-        <Card
-          key={card.title}
-          card={card}
-          index={index}
-          hovered={hovered}
-          setHovered={setHovered}
-        />
+        <div key={card.title} className="h-[300px] md:h-[400px] lg:h-[500px]">
+          <Card
+            card={card}
+            index={index}
+            hovered={hovered}
+            setHovered={setHovered}
+          />
+        </div>
       ))}
     </div>
   );
 }
+

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
+
 
 import { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -10,14 +10,7 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import {
-  Home,
-  Boxes,
-  BotMessageSquare,
-  Notebook,
-  FileText,
-  Image,
-} from "lucide-react";
+import { Home, Boxes, BotMessageSquare, Notebook, FileText, Image } from 'lucide-react';
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -92,14 +85,14 @@ export default function NavBar() {
     refreshModels();
   }, [refreshModels, refreshTrigger]);
 
-  const isChatUI = location.pathname === "/chat-ui";
+  const isVerticalLayout = location.pathname === "/chat-ui" || location.pathname === "/image-generation";
 
   return (
     <div>
       <TooltipProvider>
         <div
           className={`${
-            isChatUI
+            isVerticalLayout
               ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark rounded-r-3xl"
               : "relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl"
           } border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50`}
@@ -107,7 +100,7 @@ export default function NavBar() {
           <CustomToaster />
           <div
             className={`font-tt_a_mono flex ${
-              isChatUI
+              isVerticalLayout
                 ? "flex-col items-center"
                 : "items-center justify-between"
             } w-full px-4 py-2 sm:px-5 sm:py-3`}
@@ -117,7 +110,7 @@ export default function NavBar() {
               target="_blank"
               rel="noopener noreferrer"
               className={`flex items-center ${
-                isChatUI ? "mb-6 justify-center" : ""
+                isVerticalLayout ? "mb-6 justify-center" : ""
               }`}
             >
               <img
@@ -125,7 +118,7 @@ export default function NavBar() {
                 alt="Tenstorrent Logo"
                 className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
               />
-              {!isChatUI && (
+              {!isVerticalLayout && (
                 <h4
                   className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
                 >
@@ -133,22 +126,22 @@ export default function NavBar() {
                 </h4>
               )}
             </a>
-            <NavigationMenu className={`w-full ${isChatUI ? "mt-4" : ""}`}>
+            <NavigationMenu className={`w-full ${isVerticalLayout ? "mt-4" : ""}`}>
               <NavigationMenuList
                 className={`flex ${
-                  isChatUI
+                  isVerticalLayout
                     ? "flex-col items-center space-y-4"
                     : "justify-between"
                 }`}
               >
                 <NavigationMenuItem
-                  className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                 >
                   <NavLink
                     to="/"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isChatUI ? (
+                    {isVerticalLayout ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Home
@@ -169,20 +162,20 @@ export default function NavBar() {
                     )}
                   </NavLink>
                 </NavigationMenuItem>
-                {!isChatUI && (
+                {!isVerticalLayout && (
                   <Separator
                     className="h-6 w-px bg-zinc-400"
                     orientation="vertical"
                   />
                 )}
                 <NavigationMenuItem
-                  className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                 >
                   <NavLink
                     to="/rag-management"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isChatUI ? (
+                    {isVerticalLayout ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Notebook
@@ -203,20 +196,20 @@ export default function NavBar() {
                     )}
                   </NavLink>
                 </NavigationMenuItem>
-                {!isChatUI && (
+                {!isVerticalLayout && (
                   <Separator
                     className="h-6 w-px bg-zinc-400"
                     orientation="vertical"
                   />
                 )}
                 <NavigationMenuItem
-                  className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                 >
                   <NavLink
                     to="/models-deployed"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isChatUI ? (
+                    {isVerticalLayout ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Boxes
@@ -237,20 +230,20 @@ export default function NavBar() {
                     )}
                   </NavLink>
                 </NavigationMenuItem>
-                {!isChatUI && (
+                {!isVerticalLayout && (
                   <Separator
                     className="h-6 w-px bg-zinc-400"
                     orientation="vertical"
                   />
                 )}
                 <NavigationMenuItem
-                  className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                 >
                   <NavLink
                     to="/logs"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isChatUI ? (
+                    {isVerticalLayout ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <FileText
@@ -271,20 +264,20 @@ export default function NavBar() {
                     )}
                   </NavLink>
                 </NavigationMenuItem>
-                {!isChatUI && (
+                {!isVerticalLayout && (
                   <Separator
                     className="h-6 w-px bg-zinc-400"
                     orientation="vertical"
                   />
                 )}
                 <NavigationMenuItem
-                  className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                 >
                   <NavLink
                     to="/image-generation"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isChatUI ? (
+                    {isVerticalLayout ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Image
@@ -305,14 +298,14 @@ export default function NavBar() {
                     )}
                   </NavLink>
                 </NavigationMenuItem>
-                {!isChatUI && (
+                {!isVerticalLayout && (
                   <Separator
                     className="h-6 w-px bg-zinc-400"
                     orientation="vertical"
                   />
                 )}
                 <NavigationMenuItem
-                  className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                 >
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -327,7 +320,7 @@ export default function NavBar() {
                         <BotMessageSquare
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
-                        {!isChatUI && <span>Chat UI</span>}
+                        {!isVerticalLayout && <span>Chat UI</span>}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -339,7 +332,7 @@ export default function NavBar() {
                 </NavigationMenuItem>
               </NavigationMenuList>
             </NavigationMenu>
-            {!isChatUI && (
+            {!isVerticalLayout && (
               <div className={`flex items-center space-x-2 sm:space-x-4`}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -382,7 +375,7 @@ export default function NavBar() {
               </div>
             )}
           </div>
-          {isChatUI && (
+          {isVerticalLayout && (
             <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -422,3 +415,4 @@ export default function NavBar() {
     </div>
   );
 }
+
