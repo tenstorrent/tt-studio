@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-License-Identifier: Apache-2.0
+
 import React from "react";
 import { Button } from "../ui/button";
 import { FocusCards } from "../ui/focus-cards";

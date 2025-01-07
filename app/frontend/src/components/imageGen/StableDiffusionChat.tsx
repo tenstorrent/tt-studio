@@ -1,4 +1,5 @@
-"use client";
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-License-Identifier: Apache-2.0
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
