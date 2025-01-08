@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 // SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React, { useState } from "react";
-import { Card } from "../ui/card";
-import ShowcaseGallery from "./ShowcaseGallery";
-import StableDiffusionChat from "./StableDiffusionChat";
+import React, { useState } from 'react';
+import { Card } from '../ui/card';
+import ShowcaseGallery from './ShowcaseGallery';
+import StableDiffusionChat from './StableDiffusionChat';
 
 const ImageGenParentComponent: React.FC = () => {
   const [showChat, setShowChat] = useState(false);
@@ -27,4 +27,3 @@ const ImageGenParentComponent: React.FC = () => {
 };
 
 export default ImageGenParentComponent;
-

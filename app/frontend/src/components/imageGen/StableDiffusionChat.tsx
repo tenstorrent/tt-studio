@@ -1,14 +1,19 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React, { useState } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
-import { User, Camera, ChevronDown, Download } from 'lucide-react';
+import { User, Camera, ChevronDown, Download } from "lucide-react";
 import { Skeleton } from "../ui/skeleton";
-import Header from './Header';
-import ImageInputArea from './ImageInputArea';
-import { StableDiffusionChatProps } from './types/chat';
-import { useChat } from './hooks/useChat';
+import Header from "./Header";
+import ImageInputArea from "./ImageInputArea";
+import { StableDiffusionChatProps } from "./types/chat";
+import { useChat } from "./hooks/useChat";
 
-const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({ onBack }) => {
+const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
+  onBack,
+}) => {
   const {
     messages,
     textInput,
@@ -78,9 +83,10 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({ onBack }) => 
                           : "-left-2 bg-[#1a1c2a]"
                       }`}
                       style={{
-                        clipPath: message.sender === "user"
-                          ? "polygon(0 0, 0% 100%, 100% 0)"
-                          : "polygon(0 0, 100% 100%, 100% 0)"
+                        clipPath:
+                          message.sender === "user"
+                            ? "polygon(0 0, 0% 100%, 100% 0)"
+                            : "polygon(0 0, 100% 100%, 100% 0)",
                       }}
                     ></div>
                     <p className="text-white">{message.text}</p>
@@ -154,4 +160,3 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({ onBack }) => 
 };
 
 export default StableDiffusionChat;
-

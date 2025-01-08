@@ -1,8 +1,8 @@
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 // SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React, { useEffect, useRef } from "react";
-import { Button } from "../ui/button";
+import React, { useEffect, useRef } from 'react';
+import { Button } from '../ui/button';
 import { ImageIcon } from 'lucide-react';
 
 interface ImageInputAreaProps {
@@ -34,7 +34,7 @@ export default function ImageInputArea({
 
   const adjustTextareaHeight = () => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   };
@@ -44,7 +44,7 @@ export default function ImageInputArea({
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleGenerate(textInput);
     }
@@ -63,8 +63,8 @@ export default function ImageInputArea({
           disabled={isGenerating}
           rows={1}
           style={{
-            minHeight: "24px",
-            maxHeight: "200px",
+            minHeight: '24px',
+            maxHeight: '200px',
           }}
         />
         <div className="flex justify-end items-center mt-2">
@@ -92,4 +92,3 @@ export default function ImageInputArea({
     </div>
   );
 }
-
