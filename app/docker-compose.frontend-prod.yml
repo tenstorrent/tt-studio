@@ -1,0 +1,14 @@
+services:
+  tt_studio_frontend:
+    build:
+      context: ./frontend
+      args:
+        BUILD_ENV: development
+    # No command override => uses CMD ["npm", "run", "dev"] from Dockerfile
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
