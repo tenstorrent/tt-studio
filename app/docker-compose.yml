@@ -61,7 +61,10 @@ services:
     container_name: tt_studio_frontend
     hostname: tt-studio-frontend
     image: ghcr.io/tenstorrent/tt-studio/frontend:v0.0.0
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        BUILD_ENV: development
     depends_on:
       tt_studio_backend:
         condition: service_healthy
