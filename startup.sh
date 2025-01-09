@@ -190,10 +190,15 @@ docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1 || { echo "Docker pul
 # Step 5: Run Docker Compose with or without hardware support
 if [[ "$RUN_TT_HARDWARE" = true ]]; then
     echo "🚀 Running Docker Compose with TT hardware support..."
-    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" -f "${DOCKER_COMPOSE_TT_HARDWARE_FILE}" up --build -d
+    docker compose -f "${DOCKER_COMPOSE_FILE}" \
+                  -f "${DOCKER_COMPOSE_TT_HARDWARE_FILE}" \
+                  -f "${TT_STUDIO_ROOT}/app/docker-compose.frontend-prod.yml" \
+                  up --build -d
 else
     echo "🚀 Running Docker Compose without TT hardware support..."
-    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up --build -d
+    docker compose -f "${DOCKER_COMPOSE_FILE}" \
+                  -f "${TT_STUDIO_ROOT}/app/docker-compose.frontend-prod.yml" \
+                  up --build -d
 fi
 
 
