@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
@@ -34,9 +33,7 @@ export function DeployModelStep({
         try {
           const response = await axios.get(`/docker-api/get_containers/`);
           const models = response.data;
-          const model = models.find(
-            (m: { id: string; name: string }) => m.id === selectedModel,
-          );
+          const model = models.find((m: { id: string; name: string }) => m.id === selectedModel);
           if (model) {
             setModelName(model.name);
           }
@@ -94,9 +91,7 @@ export function DeployModelStep({
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-blue-400" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">
-                Model:
-              </span>
+              <span className="text-sm text-gray-800 dark:text-gray-400">Model:</span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {modelName}
               </span>
@@ -105,9 +100,7 @@ export function DeployModelStep({
           {(selectedWeight || customWeight) && (
             <div className="flex items-center space-x-2">
               <Sliders className="text-blue-400" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">
-                Weight:
-              </span>
+              <span className="text-sm text-gray-800 dark:text-gray-400">Weight:</span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {selectedWeight || (customWeight && customWeight.name)}
               </span>

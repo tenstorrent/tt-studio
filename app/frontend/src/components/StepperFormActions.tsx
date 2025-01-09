@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { Button } from "./ui/button";
 import { useStepper } from "./ui/stepper";
@@ -18,7 +17,7 @@ export function StepperFormActions<
   removeDynamicSteps,
   isSubmitting,
 }: {
-  form: UseFormReturn<TFieldValues, TContext>;
+  form: UseFormReturn<TFieldValues, TContext> | null;
   removeDynamicSteps: () => void;
   isSubmitting?: boolean;
 }) {
@@ -35,10 +34,7 @@ export function StepperFormActions<
 
   const customPrevStep = () => {
     const currentStepLabel = steps[activeStep]?.label;
-    if (
-      currentStepLabel === "Custom Step" ||
-      currentStepLabel === "Fine-Tune Step"
-    ) {
+    if (currentStepLabel === "Custom Step" || currentStepLabel === "Fine-Tune Step") {
       removeDynamicSteps();
     }
     removeDynamicSteps();

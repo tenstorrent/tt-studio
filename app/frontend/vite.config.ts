@@ -25,39 +25,23 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
       secure: true,
       // debug logging
       configure: (proxy: HttpProxy.Server) => {
-        proxy.on(
-          "error",
-          (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
-            console.log("proxy error", err);
-          },
-        );
+        proxy.on("error", (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
+          console.log("proxy error", err);
+        });
         proxy.on(
           "proxyReq",
-          (
-            proxyReq: ClientRequest,
-            req: IncomingMessage,
-            _res: ServerResponse,
-          ) => {
+          (proxyReq: ClientRequest, req: IncomingMessage, _res: ServerResponse) => {
             console.log("Sending Request to the Target:", req.method, req.url);
           },
         );
         proxy.on(
           "proxyRes",
-          (
-            proxyRes: IncomingMessage,
-            req: IncomingMessage,
-            _res: ServerResponse,
-          ) => {
-            console.log(
-              "Received Response from the Target:",
-              proxyRes.statusCode,
-              req.url,
-            );
+          (proxyRes: IncomingMessage, req: IncomingMessage, _res: ServerResponse) => {
+            console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
           },
         );
       },
-      rewrite: (path: string) =>
-        path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
+      rewrite: (path: string) => path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
     },
   ]),
 );
@@ -75,11 +59,7 @@ proxyConfig["/reset-board"] = {
       console.log("Sending Request to the Target:", req.method, req.url);
     });
     proxy.on("proxyRes", (proxyRes, req) => {
-      console.log(
-        "Received Response from the Target:",
-        proxyRes.statusCode,
-        req.url,
-      );
+      console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
     });
   },
 };
