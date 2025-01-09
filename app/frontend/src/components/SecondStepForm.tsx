@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -43,7 +43,7 @@ export function SecondStepForm({
   selectedModel: string | null;
   setFormError: (hasError: boolean) => void;
 }) {
-  const { nextStep } = useStepper();
+  const { nextStep, prevStep } = useStepper();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showHighlight, setShowHighlight] = useState(true);
 
@@ -53,6 +53,11 @@ export function SecondStepForm({
       weight: "Default Weights",
     },
   });
+
+  useEffect(() => {
+    removeDynamicSteps();
+    form.reset({ weight: "Default Weights" });
+  }, []);
 
   useEffect(() => {
     setFormError(!!form.formState.errors.weight);
@@ -83,6 +88,11 @@ export function SecondStepForm({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handlePrevStep = () => {
+    removeDynamicSteps();
+    prevStep();
   };
 
   return (
@@ -171,6 +181,7 @@ export function SecondStepForm({
           form={form}
           removeDynamicSteps={removeDynamicSteps}
           isSubmitting={isSubmitting}
+          onPrevStep={handlePrevStep}
         />
       </form>
     </Form>
