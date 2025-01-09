@@ -64,7 +64,7 @@ def stream_response_from_agent_api(url, json_data):
         # logger.info(f"added extra token and temp:={json_data}")
         new_json_data = {}
         new_json_data["thread_id"] = "12345"
-        new_json_data["message"] = json_data["messages"][0]["content"]
+        new_json_data["message"] = json_data["messages"][1]["content"]
 
         ttft = 0
         tpot = 0
@@ -73,6 +73,16 @@ def stream_response_from_agent_api(url, json_data):
         ttft_start = time.time()
 
         headers = {"Content-Type": "application/json"}
+
+        logger.info(f"stream_response_from_external_api headers:={headers}")
+        logger.info(f"stream_response_from_external_api json_data:={new_json_data}")
+
+        import json
+
+        logger.info(f"POST URL: {url}")
+        logger.info(f"POST Headers: {headers}")
+        logger.info(f"POST Data: {json.dumps(new_json_data, indent=2)}")
+
 
 
         with requests.post(
@@ -83,11 +93,13 @@ def stream_response_from_agent_api(url, json_data):
             logger.info(f"response.headers:={response.headers}")
             logger.info(f"response.encoding:={response.encoding}")
             # only allow HTTP 1.1 chunked encoding
-            assert response.headers.get("transfer-encoding") == "chunked"
+            # assert response.headers.get("transfer-encoding") == "chunked"
 
             # Stream chunks
             for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
                 logger.info(f"stream_response_from_external_api chunk:={chunk}")
+                new_chunk = "data: " + chunk
+                yield new_chunk 
                 if chunk.startswith("data: "):
                     new_chunk = chunk[len("data: "):]  # slice out the JSON object/dictionary
                     new_chunk = new_chunk.strip()

@@ -13,7 +13,7 @@ from django.http import StreamingHttpResponse
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from model_control.model_utils import (
     get_deploy_cache,
-    stream_response_from_external_api,
+    stream_response_from_agent_api,
     health_check,
 )
 from shared_config.model_config import model_implmentations
@@ -22,24 +22,24 @@ from shared_config.logger_config import get_logger
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
-# class InferenceAgentView(APIView):
-#     def post(self, request, *agrs, **kwargs):
-#         data = request.data 
-#         logger.info(f"InferenceAgentView data:={data}")
-#         serializer = InferenceSerializer(data=data)
-#         if serializer.is_valid():
-#             deploy_id = data.pop("deploy_id")
-#             deploy = get_deploy_cache()[deploy_id]
-#             internal_url = "http://" + deploy["internal_url"]
-#             logger.info(f"internal_url:= {internal_url}")
-#             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
-#             data["model"] = deploy["model_impl"].hf_model_path
-#             internal_url = "http://127.0.0.1:8080/poll_requests"
-#             logger.info(f"Using internal url: {internal_url}")
-#             response_stream = stream_response_from_external_api(internal_url, data)
-#             return StreamingHttpResponse(response_stream, content_type="text/plain")
-#         else:
-#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class InferenceAgentView(APIView):
+    def post(self, request, *agrs, **kwargs):
+        data = request.data 
+        logger.info(f"InferenceAgentView data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.pop("deploy_id")
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            logger.info(f"internal_url:= {internal_url}")
+            logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
+            data["model"] = deploy["model_impl"].hf_model_path
+            internal_url = "http://ai_agent_container:8080/poll_requests"
+            logger.info(f"Using internal url: {internal_url}")
+            response_stream = stream_response_from_agent_api(internal_url, data)
+            return StreamingHttpResponse(response_stream, content_type="text/plain")
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class InferenceView(APIView):
