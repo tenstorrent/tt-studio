@@ -21,7 +21,7 @@ services:
       - "8000:8000"
     # command: bash
     # dev server can be used for breakpoint debugging, does not support streaming
-    # command: ./manage.py runserver 0.0.0.0:8000
+    # command: python ./manage.py runserver 0.0.0.0:8000
     # gunicorn is used from production, supports streaming
 
     command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
@@ -52,7 +52,7 @@ services:
       # On first application load resources for transformers/etc
       # are downloaded. The UI should not start until these resources
       # have been downloaded. Adjust timeout if on a very slow connection
-      test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/up/" ]
       timeout: 120s
       interval: 10s
       retries: 5
@@ -93,7 +93,7 @@ services:
       - "8111:8111"
     healthcheck:
       # Adjust below to match your container port
-      test: ["CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat" ]
       interval: 10s
       timeout: 10s
       retries: 3
