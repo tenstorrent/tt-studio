@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 "use client";
 
 import { useCallback, useMemo, useEffect, useState } from "react";
@@ -9,7 +9,7 @@ import { Weight } from "./SelectionSteps";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../providers/ModelsContext";
 import { useRefresh } from "../providers/RefreshContext";
-import { Cpu, Sliders } from "lucide-react";
+import { Cpu, Sliders } from 'lucide-react';
 import axios from "axios";
 
 export function DeployModelStep({
@@ -115,7 +115,8 @@ export function DeployModelStep({
           )}
         </div>
       </div>
-      <StepperFormActions form={null} removeDynamicSteps={() => {}} />
+      <StepperFormActions removeDynamicSteps={() => {}} />
     </>
   );
 }
+

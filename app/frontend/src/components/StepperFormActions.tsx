@@ -18,7 +18,7 @@ export function StepperFormActions<
   removeDynamicSteps,
   isSubmitting,
 }: {
-  form: UseFormReturn<TFieldValues, TContext>;
+  form?: UseFormReturn<TFieldValues, TContext>;
   removeDynamicSteps: () => void;
   isSubmitting?: boolean;
 }) {
