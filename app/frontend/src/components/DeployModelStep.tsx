@@ -93,7 +93,7 @@ export function DeployModelStep({
         <div className="mt-6 flex flex-col items-start justify-center space-y-4">
           {modelName && (
             <div className="flex items-center space-x-2">
-              <Cpu className="text-blue-400" />
+              <Cpu className="text-TT-purple-accent" />
               <span className="text-sm text-gray-800 dark:text-gray-400">
                 Model:
               </span>
@@ -104,7 +104,7 @@ export function DeployModelStep({
           )}
           {(selectedWeight || customWeight) && (
             <div className="flex items-center space-x-2">
-              <Sliders className="text-blue-400" />
+              <Sliders className="text-TT-purple-accent" />
               <span className="text-sm text-gray-800 dark:text-gray-400">
                 Weight:
               </span>

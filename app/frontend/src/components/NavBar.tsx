@@ -10,14 +10,7 @@ import {
   NavigationMenuItem,
   NavigationMenuList,
 } from "./ui/navigation-menu";
-import {
-  Home,
-  Boxes,
-  BotMessageSquare,
-  Notebook,
-  FileText,
-  Eye,
-} from "lucide-react";
+import { Home, Notebook, Boxes, FileText, BotMessageSquare, type LucideIcon } from 'lucide-react';
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
 import { Separator } from "./ui/separator";
@@ -34,6 +27,22 @@ import {
 import { useRefresh } from "../providers/RefreshContext";
 import { useModels } from "../providers/ModelsContext";
 import { handleModelNavigationClick } from "../api/modelsDeployedApis";
+import { motion } from "framer-motion";
+
+interface AnimatedIconProps {
+  icon: LucideIcon;
+  className?: string;
+}
+
+const AnimatedIcon: React.FC<AnimatedIconProps> = ({ icon: Icon, ...props }) => (
+  <motion.div
+    whileHover={{ scale: 1.2 }}
+    whileTap={{ scale: 0.9 }}
+    transition={{ type: "spring", stiffness: 400, damping: 17 }}
+  >
+    <Icon {...props} />
+  </motion.div>
+);
 
 export default function NavBar() {
   const location = useLocation();
@@ -48,7 +57,7 @@ export default function NavBar() {
   const hoverTextColor =
     theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
   const activeBorderColor =
-    theme === "dark" ? "border-zinc-400" : "border-black";
+    theme === "dark" ? "border-TT-purple-accent" : "border-TT-purple-accent-2";
   const hoverBackgroundColor =
     theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
 
@@ -75,7 +84,7 @@ export default function NavBar() {
     triggerRefresh();
   };
 
-  const handleNavigation = (route: string) => {
+  const handleChatUIClick = () => {
     if (models.length > 0) {
       const firstModel = models[0];
       if (firstModel.id && firstModel.name) {
@@ -84,16 +93,8 @@ export default function NavBar() {
         console.error("Model ID or name is undefined");
       }
     } else {
-      navigate(route);
+      navigate("/models-deployed");
     }
-  };
-
-  const handleChatUIClick = () => {
-    handleNavigation("/models-deployed");
-  };
-
-  const handleObjectDetectionClick = () => {
-    handleNavigation("/object-detection");
   };
 
   useEffect(() => {
@@ -125,10 +126,12 @@ export default function NavBar() {
               isChatUI ? "mb-6 justify-center" : ""
             }`}
           >
-            <img
+            <motion.img
               src={logo}
               alt="Tenstorrent Logo"
-              className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
+              className="w-10 h-10 sm:w-14 sm:h-14"
+              whileHover={{ scale: 1.1, rotate: 360 }}
+              transition={{ type: "spring", stiffness: 300, damping: 10 }}
             />
             {!isChatUI && (
               <h4
@@ -147,30 +150,37 @@ export default function NavBar() {
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
-                <NavLink
-                  to="/"
-                  className={({ isActive }) => getNavLinkClass(isActive)}
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 >
-                  {isChatUI ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Home
+                  <NavLink
+                    to="/"
+                    className={({ isActive }) => getNavLinkClass(isActive)}
+                  >
+                    {isChatUI ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AnimatedIcon
+                            icon={Home}
+                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Home</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
+                        <AnimatedIcon
+                          icon={Home}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Home</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <>
-                      <Home
-                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                      />
-                      <span>Home</span>
-                    </>
-                  )}
-                </NavLink>
+                        <span>Home</span>
+                      </>
+                    )}
+                  </NavLink>
+                </motion.div>
               </NavigationMenuItem>
               {!isChatUI && (
                 <Separator
@@ -181,30 +191,37 @@ export default function NavBar() {
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
-                <NavLink
-                  to="/rag-management"
-                  className={({ isActive }) => getNavLinkClass(isActive)}
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 >
-                  {isChatUI ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Notebook
+                  <NavLink
+                    to="/rag-management"
+                    className={({ isActive }) => getNavLinkClass(isActive)}
+                  >
+                    {isChatUI ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AnimatedIcon
+                            icon={Notebook}
+                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Rag Management</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
+                        <AnimatedIcon
+                          icon={Notebook}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Rag Management</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <>
-                      <Notebook
-                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                      />
-                      <span>Rag Management</span>
-                    </>
-                  )}
-                </NavLink>
+                        <span>Rag Management</span>
+                      </>
+                    )}
+                  </NavLink>
+                </motion.div>
               </NavigationMenuItem>
               {!isChatUI && (
                 <Separator
@@ -215,30 +232,37 @@ export default function NavBar() {
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
-                <NavLink
-                  to="/models-deployed"
-                  className={({ isActive }) => getNavLinkClass(isActive)}
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 >
-                  {isChatUI ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Boxes
+                  <NavLink
+                    to="/models-deployed"
+                    className={({ isActive }) => getNavLinkClass(isActive)}
+                  >
+                    {isChatUI ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AnimatedIcon
+                            icon={Boxes}
+                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Models Deployed</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
+                        <AnimatedIcon
+                          icon={Boxes}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Models Deployed</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <>
-                      <Boxes
-                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                      />
-                      <span>Models Deployed</span>
-                    </>
-                  )}
-                </NavLink>
+                        <span>Models Deployed</span>
+                      </>
+                    )}
+                  </NavLink>
+                </motion.div>
               </NavigationMenuItem>
               {!isChatUI && (
                 <Separator
@@ -249,30 +273,37 @@ export default function NavBar() {
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
-                <NavLink
-                  to="/logs"
-                  className={({ isActive }) => getNavLinkClass(isActive)}
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 >
-                  {isChatUI ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <FileText
+                  <NavLink
+                    to="/logs"
+                    className={({ isActive }) => getNavLinkClass(isActive)}
+                  >
+                    {isChatUI ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AnimatedIcon
+                            icon={FileText}
+                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Logs</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
+                        <AnimatedIcon
+                          icon={FileText}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Logs</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <>
-                      <FileText
-                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                      />
-                      <span>Logs</span>
-                    </>
-                  )}
-                </NavLink>
+                        <span>Logs</span>
+                      </>
+                    )}
+                  </NavLink>
+                </motion.div>
               </NavigationMenuItem>
               {!isChatUI && (
                 <Separator
@@ -283,56 +314,32 @@ export default function NavBar() {
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
               >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={handleChatUIClick}
-                      className={`${getNavLinkClass(false, true)} ${
-                        models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
-                      }`}
-                    >
-                      <BotMessageSquare
-                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                      />
-                      {!isChatUI && <span>Chat UI</span>}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {models.length > 0
-                      ? "Open Chat UI"
-                      : "Deploy a model to use Chat UI"}
-                  </TooltipContent>
-                </Tooltip>
-              </NavigationMenuItem>
-              {!isChatUI && (
-                <Separator
-                  className="h-6 w-px bg-zinc-400"
-                  orientation="vertical"
-                />
-              )}
-              <NavigationMenuItem
-                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
-              >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={handleObjectDetectionClick}
-                      className={`${getNavLinkClass(false)} ${
-                        models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
-                      }`}
-                    >
-                      <Eye
-                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                      />
-                      {!isChatUI && <span>Object Detection</span>}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {models.length > 0
-                      ? "Open Object Detection"
-                      : "Deploy a model to use Object Detection"}
-                  </TooltipContent>
-                </Tooltip>
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleChatUIClick}
+                        className={`${getNavLinkClass(false, true)} ${
+                          models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
+                        }`}
+                      >
+                        <AnimatedIcon
+                          icon={BotMessageSquare}
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                        {!isChatUI && <span>Chat UI</span>}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {models.length > 0
+                        ? "Open Chat UI"
+                        : "Deploy a model to use Chat UI"}
+                    </TooltipContent>
+                  </Tooltip>
+                </motion.div>
               </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
@@ -340,9 +347,12 @@ export default function NavBar() {
             <div className={`flex items-center space-x-2 sm:space-x-4`}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div>
+                  <motion.div
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
                     <ModeToggle />
-                  </div>
+                  </motion.div>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Toggle Dark/Light Mode</p>
@@ -354,9 +364,12 @@ export default function NavBar() {
               />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div>
+                  <motion.div
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
                     <ResetIcon onReset={handleReset} />
-                  </div>
+                  </motion.div>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Reset Board</p>
@@ -368,11 +381,14 @@ export default function NavBar() {
               />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div>
+                  <motion.div
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
                     <HelpIcon toggleSidebar={handleToggleSidebar} />
-                  </div>
+                  </motion.div>
                 </TooltipTrigger>
-                <TooltipContent side="left" align="center">
+                <TooltipContent>
                   <p>Get Help</p>
                 </TooltipContent>
               </Tooltip>
@@ -383,9 +399,12 @@ export default function NavBar() {
           <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
             <Tooltip>
               <TooltipTrigger asChild>
-                <div>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
                   <ModeToggle />
-                </div>
+                </motion.div>
               </TooltipTrigger>
               <TooltipContent>
                 <p>Toggle Dark/Light Mode</p>
@@ -393,9 +412,12 @@ export default function NavBar() {
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
                   <ResetIcon onReset={handleReset} />
-                </div>
+                </motion.div>
               </TooltipTrigger>
               <TooltipContent>
                 <p>Reset Board</p>
@@ -403,9 +425,12 @@ export default function NavBar() {
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
                   <HelpIcon toggleSidebar={handleToggleSidebar} />
-                </div>
+                </motion.div>
               </TooltipTrigger>
               <TooltipContent>
                 <p>Get Help</p>
@@ -418,3 +443,4 @@ export default function NavBar() {
     </TooltipProvider>
   );
 }
+
