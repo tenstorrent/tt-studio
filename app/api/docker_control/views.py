@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
+    run_agent_container, 
     stop_container,
     get_container_status,
     perform_reset,
@@ -100,6 +101,7 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
+            run_agent_container(response["container_name"], impl)
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

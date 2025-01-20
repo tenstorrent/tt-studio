@@ -17,6 +17,7 @@ export const runInference = async (
   chatHistory: ChatMessage[],
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
+  isAgentSelected: boolean
 ) => {
   try {
     setIsStreaming(true);
@@ -37,7 +38,10 @@ export const runInference = async (
 
     console.log("Generated messages:", messages);
 
-    const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
+    const API_URL = isAgentSelected 
+    ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"  
+    : import.meta.env.VITE_API_URL || "/models-api/inference/"; 
+    
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
@@ -76,7 +80,9 @@ export const runInference = async (
     console.log("Response received. Status:", response.status);
     console.log("Response headers:", response.headers);
 
+    console.log("Testing response object: ", response); 
     const reader = response.body?.getReader();
+    console.log("Testing this: ", reader); 
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
     let accumulatedText = "";
@@ -93,6 +99,7 @@ export const runInference = async (
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
+        console.log("Value: ", value)
 
         if (done) {
           console.log("Stream complete");
@@ -100,12 +107,17 @@ export const runInference = async (
         }
 
         buffer += decoder.decode(value, { stream: true });
+        console.log("Buffer: ", buffer)
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
+        console.log("Popped Buffer: ", buffer);
+        console.log("Lines: ", lines); 
 
         for (const line of lines) {
           const trimmedLine = line.trim();
+          console.log("Trimmed Line works")
           if (trimmedLine.startsWith("data: ")) {
+            console.log("data: works")
             if (trimmedLine === "data: [DONE]") {
               console.log("Received [DONE] signal");
               continue;
@@ -119,7 +131,8 @@ export const runInference = async (
             try {
               const jsonData = JSON.parse(trimmedLine.slice(5));
 
-              // Handle statistics separately after [DONE]
+              if (!isAgentSelected) {
+              // // Handle statistics separately after [DONE]
               if (jsonData.ttft && jsonData.tpot) {
                 inferenceStats = {
                   user_ttft_s: jsonData.ttft,
@@ -131,9 +144,12 @@ export const runInference = async (
                 console.log("Final Inference Stats received:", inferenceStats);
                 continue; // Skip processing this chunk as part of the generated text
               }
+            } 
+              // TODO: Add an option for agent 
 
               // Handle the generated text
               const content = jsonData.choices[0]?.delta?.content || "";
+              console.log(content)
               if (content) {
                 accumulatedText += content;
                 setChatHistory((prevHistory) => {

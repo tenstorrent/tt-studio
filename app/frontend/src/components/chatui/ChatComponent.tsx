@@ -48,6 +48,7 @@ export default function ChatComponent() {
   >(null);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
+  const [isAgentSelected, setIsAgentSelected] = useState<boolean>(false);
 
   useEffect(() => {
     if (location.state) {
@@ -161,6 +162,7 @@ export default function ChatComponent() {
           });
         },
         setIsStreaming,
+        isAgentSelected
       );
 
       setTextInput("");
@@ -235,6 +237,7 @@ export default function ChatComponent() {
           });
         },
         setIsStreaming,
+        isAgentSelected
       );
 
       setReRenderingMessageId(null);
@@ -340,6 +343,8 @@ export default function ChatComponent() {
             setRagDatasource={setRagDatasource}
             isHistoryPanelOpen={isHistoryPanelOpen}
             setIsHistoryPanelOpen={setIsHistoryPanelOpen}
+            isAgentSelected={isAgentSelected} // Pass the state down
+            setIsAgentSelected={setIsAgentSelected} // Pass the setter down
           />
           <ChatHistory
             chatHistory={chatThreads[currentThreadIndex] || []}

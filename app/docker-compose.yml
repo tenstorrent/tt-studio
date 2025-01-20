@@ -41,6 +41,7 @@ services:
       - VLLM_LLAMA31_ENV_FILE
       - JWT_SECRET
       - HF_TOKEN
+      - TAVILY_API_KEY
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
@@ -102,20 +103,6 @@ services:
     networks:
       - tt_studio_network
 
-  ai_agent: 
-    build:
-      context: ~/projects/LLM_Agent
-      dockerfile: Dockerfile 
-    image: agent_iamge:v3 
-    command: "uvicorn agent:app --reload --host 0.0.0.0 --port 8080"
-    ports:
-      - 8080:8080
-    networks:
-      - tt_studio_network
-    environment:
-      TAVILY_API_KEY: ${TAVILY_API_KEY}
-      E2B_API_KEY: ${E2B_API_KEY}
-    container_name: ai_agent_container
 
 
 networks:

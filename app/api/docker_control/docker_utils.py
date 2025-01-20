@@ -20,6 +20,7 @@ CONFIG_PATH = "/root/.config/tenstorrent/reset_config.json"
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 client = docker.from_env()
+logger.info(f"THIS IS THE CLIENT: {client} ")
 
 # docker internal bridge network used for models and applications.
 networks = client.networks.list()
@@ -28,7 +29,26 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
         backend_config.docker_bridge_network_name, driver="bridge"
     )
 
-
+def run_agent_container(container_name, impl):
+    run_kwargs = copy.deepcopy(impl.docker_config)
+    run_kwargs = {
+    'name': 'ai_agent_container',  # Container name
+    'network': 'tt_studio_network',  # Docker network
+    'ports': {'8080/tcp': 8080},  # Mapping host port 8080 to container port 8080
+    'environment': {
+        'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
+        'LLM_CONTAINER_NAME': container_name,
+        'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET']
+    },  # Set the environment variables
+    'detach': True,  # Run the container in detached mode
+}
+    container = client.containers.run(
+    'agent_image:v6',
+    "uvicorn agent:app --reload --host 0.0.0.0 --port 8080",
+    auto_remove=True,
+    **run_kwargs
+)
+    
 def run_container(impl, weights_id):
     """Run a docker container from an image"""
     try:
