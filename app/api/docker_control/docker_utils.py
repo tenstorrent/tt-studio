@@ -20,7 +20,6 @@ CONFIG_PATH = "/root/.config/tenstorrent/reset_config.json"
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 client = docker.from_env()
-logger.info(f"THIS IS THE CLIENT: {client} ")
 
 # docker internal bridge network used for models and applications.
 networks = client.networks.list()
@@ -29,10 +28,11 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
         backend_config.docker_bridge_network_name, driver="bridge"
     )
 
-def run_agent_container(container_name, impl):
+def run_agent_container(container_name, port_bindings, impl):
     run_kwargs = copy.deepcopy(impl.docker_config)
+    llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
     run_kwargs = {
-    'name': 'ai_agent_container',  # Container name
+    'name': f'ai_agent_container_p{llm_host_port}',  # Container name
     'network': 'tt_studio_network',  # Docker network
     'ports': {'8080/tcp': 8080},  # Mapping host port 8080 to container port 8080
     'environment': {

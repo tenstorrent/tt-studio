@@ -25,7 +25,7 @@ logger.info(f"importing {__name__}")
 
 class AgentView(APIView):
     def post(self, request, *agrs, **kwargs):
-        logger.info(f"URL '/inference/' accessed via POST method by {request.META['REMOTE_ADDR']}")        
+        logger.info(f"URL '/agent/' accessed via POST method by {request.META['REMOTE_ADDR']}")        
         data = request.data 
         logger.info(f"AgentView data:={data}")
         serializer = InferenceSerializer(data=data)
@@ -33,7 +33,10 @@ class AgentView(APIView):
             deploy_id = data.pop("deploy_id")
             logger.info(f"Deploy ID: {deploy_id}")
             deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://ai_agent_container:8080/poll_requests"
+            colon_idx = deploy["internal_url"].rfind(":")
+            underscore_idx = deploy["internal_url"].rfind("_")
+            llm_host_port = deploy["internal_url"][underscore_idx +1: colon_idx]
+            internal_url = f"http://ai_agent_container_{llm_host_port}:8080/poll_requests"
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
             data["model"] = deploy["model_impl"].hf_model_path
