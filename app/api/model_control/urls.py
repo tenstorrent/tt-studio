@@ -7,7 +7,8 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path("inference/", views.InferenceAgentView.as_view()),
+    path("inference/", views.InferenceView.as_view()),
+    path("agent/", views.AgentView.as_view()),
     path("deployed/", views.DeployedModelsView.as_view()),
     path("model_weights/", views.ModelWeightsView.as_view()),
     path("health/", views.ModelHealthView.as_view()),
