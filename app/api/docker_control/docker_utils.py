@@ -29,6 +29,7 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
     )
 
 def run_agent_container(container_name, port_bindings, impl):
+    # runs agent container after associated llm container runs
     run_kwargs = copy.deepcopy(impl.docker_config)
     host_agent_port = get_host_agent_port()
     llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
