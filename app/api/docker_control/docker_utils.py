@@ -30,11 +30,12 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
 
 def run_agent_container(container_name, port_bindings, impl):
     run_kwargs = copy.deepcopy(impl.docker_config)
+    host_agent_port = get_host_agent_port()
     llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
     run_kwargs = {
     'name': f'ai_agent_container_p{llm_host_port}',  # Container name
     'network': 'tt_studio_network',  # Docker network
-    'ports': {'8080/tcp': 8080},  # Mapping host port 8080 to container port 8080
+    'ports': {'8080/tcp': host_agent_port},  # Mapping container port 8080 to host port 8080
     'environment': {
         'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
         'LLM_CONTAINER_NAME': container_name,
@@ -44,7 +45,7 @@ def run_agent_container(container_name, port_bindings, impl):
 }
     container = client.containers.run(
     'agent_image:v6',
-    "uvicorn agent:app --reload --host 0.0.0.0 --port 8080",
+    f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
     auto_remove=True,
     **run_kwargs
 )
@@ -134,6 +135,31 @@ def get_host_port(impl):
             return port
     logger.warning("Could not find an unused port in block: 8001-8100")
     return None
+
+def get_host_agent_port():
+    # used fixed block of ports starting at 8101 for agents 
+    agent_containers = get_agent_containers()
+    port_mappings = get_port_mappings(agent_containers)
+    used_host_agent_ports = get_used_host_ports(port_mappings)
+    logger.info(f"used_host_agent_ports={used_host_agent_ports}")
+    BASE_AGENT_PORT = 8101
+    for port in range(BASE_AGENT_PORT, BASE_AGENT_PORT+100):
+        if str(port) not in used_host_agent_ports:
+            return port
+    logger.warning("Could not find an unused port in block: 8101-8200")
+
+def get_agent_containers():
+    """
+    get all containers used by an ai agent 
+    """
+    running_containers = client.containers.list()
+    agent_containers = []
+    for container in running_containers:
+        if "ai_agent_container" in container.name: 
+            agent_containers.append(container)
+    return agent_containers
+
+
 
 
 def get_managed_containers():
