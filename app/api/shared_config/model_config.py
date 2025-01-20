@@ -198,20 +198,6 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
     ),
-    ModelImpl(
-        model_name="Mistral7B-instruct-v0.2",
-        model_id="id_tt-metal-mistral-7bv0.0.2",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-mistral-7b-src-base",
-        image_tag="v0.0.3-tt-metal-v0.52.0-rc33",
-        hf_model_path="mistralai/Mistral-7B-Instruct-v0.2",
-        device_configurations={DeviceConfigurations.N300x4},
-        docker_config=base_docker_config(),
-        user_uid=1000,
-        user_gid=1000,
-        shm_size="32G",
-        service_port=7000,
-        service_route="/inference/mistral7b",
-    ),
     #! Add new model vLLM model implementations here
     #     ModelImpl(
     #     model_name="", #? Add the model name for the vLLM model based on persistent storage
