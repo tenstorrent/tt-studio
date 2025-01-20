@@ -38,7 +38,7 @@ def run_agent_container(container_name, port_bindings, impl):
     'network': 'tt_studio_network',  # Docker network
     'ports': {'8080/tcp': host_agent_port},  # Mapping container port 8080 to host port 8080
     'environment': {
-        'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
+        'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'), # found in env file 
         'LLM_CONTAINER_NAME': container_name,
         'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET']
     },  # Set the environment variables
