@@ -143,11 +143,11 @@ def get_host_agent_port():
     port_mappings = get_port_mappings(agent_containers)
     used_host_agent_ports = get_used_host_ports(port_mappings)
     logger.info(f"used_host_agent_ports={used_host_agent_ports}")
-    BASE_AGENT_PORT = 8101
+    BASE_AGENT_PORT = 8201
     for port in range(BASE_AGENT_PORT, BASE_AGENT_PORT+100):
         if str(port) not in used_host_agent_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8101-8200")
+    logger.warning("Could not find an unused port in block: 8201-8300")
 
 def get_agent_containers():
     """

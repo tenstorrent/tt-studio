@@ -35,8 +35,9 @@ class AgentView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             colon_idx = deploy["internal_url"].rfind(":")
             underscore_idx = deploy["internal_url"].rfind("_")
-            llm_host_port = deploy["internal_url"][underscore_idx +1: colon_idx]
-            internal_url = f"http://ai_agent_container_{llm_host_port}:8080/poll_requests"
+            llm_host_port = deploy["internal_url"][underscore_idx + 2: colon_idx] # add 2 to remove the p
+            # agent port on host is 100 + the llm host port
+            internal_url = f"http://ai_agent_container_p{llm_host_port}:{int(llm_host_port) + 100}/poll_requests"
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
             data["model"] = deploy["model_impl"].hf_model_path
