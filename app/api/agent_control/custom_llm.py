@@ -105,7 +105,7 @@ class CustomLLM(BaseChatModel):
             "temperature": 1,
             "top_k": 20,
             "top_p": 0.9,
-            "max_tokens": 128,
+            "max_tokens": 512,
             "stream": True,
             "stop": ["<|eot_id|>"],
             }
