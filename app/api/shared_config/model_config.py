@@ -186,8 +186,8 @@ model_implmentations_list = [
     ModelImpl(
         model_name="Llama-3.1-70B-Instruct",
         model_id="id_tt-metal-llama-3.1-70b-instructv0.0.1",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
-        image_tag="v0.0.3-tt-metal-385904186f81-384f1790c3be",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm-ubuntu-20.04-amd64",
+        image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
         hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
         device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
