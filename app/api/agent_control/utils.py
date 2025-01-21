@@ -46,7 +46,7 @@ async def poll_requests(agent_executor, config, tools, memory, message):
             complete_output += content 
             if "Final Answer:" in complete_output:
                 complete_output = ""
-                if "[DONE]" in complete_output:
+                if "[DONE]" in content:
                     break 
             if content:
                 yield content
