@@ -44,8 +44,10 @@ async def poll_requests(agent_executor, config, tools, memory, message):
         if kind == "on_chat_model_stream":
             content = event["data"]["chunk"].content
             complete_output += content 
-            if "Chat History:" in complete_output:
-                break
+            if "Final Answer:" in complete_output:
+                complete_output = ""
+                if "[DONE]" in complete_output:
+                    break 
             if content:
                 yield content
             # if final_ans_recieved and content.strip().endswith("[DONE]"):
