@@ -23,6 +23,7 @@ export const runInference = async (
   }
 
   try {
+    const startTime = performance.now();
     const response = await axios.post(
       `/models-api/object-detection/`,
       formData,
@@ -30,6 +31,8 @@ export const runInference = async (
         headers: { "Content-Type": "multipart/form-data" },
       },
     );
+    const endTime = performance.now();
+    const requestLatency = endTime - startTime;
     // handle imageSourceElement types
     let width, height;
     if (imageSourceElement instanceof HTMLCanvasElement) {
@@ -42,7 +45,7 @@ export const runInference = async (
     const detectionMetadata: DetectionMetadata = {
       width: width,
       height: height,
-      inferenceTime: response.data.inference_time || 33.333,
+      inferenceTime: response.data.inference_time || (1/(requestLatency/1000)).toFixed(2),
     };
     const detections: Detection[] = response.data.map(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
