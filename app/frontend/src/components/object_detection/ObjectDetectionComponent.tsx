@@ -132,7 +132,7 @@ export const ObjectDetectionComponent: React.FC = () => {
           <div className="text-sm text-gray-500">
             Input image width and height: {metadata.width} x {metadata.height}
             <br />
-            Time to inference: {metadata.inferenceTime} sec
+            Frame Rate: {metadata.inferenceTime} FPS
           </div>
         )}
 

@@ -168,7 +168,7 @@ export const handleModelNavigationClick = (
   const destination = getDestinationFromModelType(modelType);
   console.log(`${modelType} button clicked for model: ${modelID}`);
   console.log(`Opening ${modelType} for model: ${modelName}`);
-  customToast.success(`${destination} page opened!`);
+  customToast.success(`${destination.slice(1)} page opened!`);
 
   navigate(destination, {
     state: { containerID: modelID, modelName: modelName },
