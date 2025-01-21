@@ -34,3 +34,18 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 - When merging from `staging` into `main`, we do **not** use squashing. This ensures that the full commit history between these branches is preserved.
 
 Please ensure that this process is followed when submitting PRs to keep the repository organized and maintainable.
+
+### Versioning Standards
+
+To ensure consistency in versioning, we follow the principles of **semantic versioning**:
+
+- **MAJOR**: Increment for incompatible or breaking changes to backend or frontend APIs or functionality:
+  - Removing or significantly altering existing features.
+  - Changing the current networking design.
+  - Altering backend API flows.
+  - Changing frontend API calls and/or redoing entire components.
+
+- **MINOR**: Increment when adding new features or capabilities in a backward-compatible manner:
+  - For example, supporting new models like YOLOv4 or adding new functionalities.
+
+- **PATCH**: Increment for bug fixes and minor improvements that are backward-compatible.
