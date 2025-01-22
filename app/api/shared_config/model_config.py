@@ -41,7 +41,6 @@ class ModelImpl:
     model_id: str
     image_name: str
     image_tag: str
-    hf_model_path: str
     device_configurations: Set["DeviceConfigurations"]
     docker_config: Dict[str, Any]
     user_uid: int  # user inside docker container uid (for file permissions)
@@ -51,6 +50,7 @@ class ModelImpl:
     service_route: str
     env_file: str = ""
     health_route: str = "/health"
+    hf_model_path: str = ""
 
     def __post_init__(self):
         self.docker_config.update({"volumes": self.get_volume_mounts()})
@@ -71,6 +71,38 @@ class ModelImpl:
             # env file overrides any existing docker environment variables
             self.docker_config["environment"].update(env_dict)
       
+
+        # Set environment variable if N150_WH_ARCH_YAML or N300x4_WH_ARCH_YAML is in the device configurations
+        if (
+            DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
+            or DeviceConfigurations.N300x4_WH_ARCH_YAML in self.device_configurations
+        ):
+            self.docker_config["environment"]["WH_ARCH_YAML"] = (
+                "wormhole_b0_80_arch_eth_dispatch.yaml"
+            )
+
+        if self.env_file:
+            logger.info(f"Using env file: {self.env_file}")
+            # env file should be in persistent volume mounted
+            env_dict = load_dotenv_dict(self.env_file)
+            # env file overrides any existing docker environment variables
+            self.docker_config["environment"].update(env_dict)
+
+        # Set environment variable if N150_WH_ARCH_YAML or N300x4_WH_ARCH_YAML is in the device configurations
+        if (
+            DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
+            or DeviceConfigurations.N300x4_WH_ARCH_YAML in self.device_configurations
+        ):
+            self.docker_config["environment"]["WH_ARCH_YAML"] = (
+                "wormhole_b0_80_arch_eth_dispatch.yaml"
+            )
+
+        if self.env_file:
+            logger.info(f"Using env file: {self.env_file}")
+            # env file should be in persistent volume mounted
+            env_dict = load_dotenv_dict(self.env_file)
+            # env file overrides any existing docker environment variables
+            self.docker_config["environment"].update(env_dict)
 
     @property
     def image_version(self) -> str:
@@ -156,6 +188,19 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
+        model_name="YOLOv4",
+        model_id="id_yolov4v0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
+        image_tag="v0.0.1-tt-metal-65d246482b3f",
+        device_configurations={DeviceConfigurations.N150},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="32G",
+        service_port=7000,
+        service_route="/objdetection_v2",
+    ),
+    ModelImpl(
         model_name="Mock-Llama-3.1-70B-Instruct",
         model_id="id_mock_vllm_modelv0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
@@ -174,8 +219,8 @@ model_implmentations_list = [
         model_id="id_tt-metal-falcon-7bv0.0.13",
         image_name="tt-metal-falcon-7b",
         image_tag="v0.0.13",
+        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
         hf_model_path="tiiuae/falcon-7b-instruct",
-        device_configurations={DeviceConfigurations.N150},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,
@@ -189,7 +234,7 @@ model_implmentations_list = [
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
         image_tag="v0.0.3-tt-metal-385904186f81-384f1790c3be",
         hf_model_path="meta-llama/Llama-3.1-70B-Instruct",
-        device_configurations={DeviceConfigurations.N300x4},
+        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
         docker_config=base_docker_config(),
         user_uid=1000,
         user_gid=1000,

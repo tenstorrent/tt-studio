@@ -16,6 +16,7 @@ import {
   BotMessageSquare,
   Notebook,
   FileText,
+  Eye,
 } from "lucide-react";
 import ModeToggle from "./DarkModeToggle";
 import HelpIcon from "./HelpIcon";
@@ -32,7 +33,7 @@ import {
 } from "./ui/tooltip";
 import { useRefresh } from "../providers/RefreshContext";
 import { useModels } from "../providers/ModelsContext";
-import { handleChatUI } from "../api/modelsDeployedApis";
+import { handleModelNavigationClick } from "../api/modelsDeployedApis";
 
 export default function NavBar() {
   const location = useLocation();
@@ -74,17 +75,25 @@ export default function NavBar() {
     triggerRefresh();
   };
 
-  const handleChatUIClick = () => {
+  const handleNavigation = (route: string) => {
     if (models.length > 0) {
       const firstModel = models[0];
       if (firstModel.id && firstModel.name) {
-        handleChatUI(firstModel.id, firstModel.name, navigate);
+        handleModelNavigationClick(firstModel.id, firstModel.name, navigate);
       } else {
         console.error("Model ID or name is undefined");
       }
     } else {
-      navigate("/models-deployed");
+      navigate(route);
     }
+  };
+
+  const handleChatUIClick = () => {
+    handleNavigation("/models-deployed");
+  };
+
+  const handleObjectDetectionClick = () => {
+    handleNavigation("/object-detection");
   };
 
   useEffect(() => {
@@ -292,6 +301,36 @@ export default function NavBar() {
                     {models.length > 0
                       ? "Open Chat UI"
                       : "Deploy a model to use Chat UI"}
+                  </TooltipContent>
+                </Tooltip>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleObjectDetectionClick}
+                      className={`${getNavLinkClass(false)} ${
+                        models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
+                      }`}
+                    >
+                      <Eye
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      {!isChatUI && <span>Object Detection</span>}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {models.length > 0
+                      ? "Open Object Detection"
+                      : "Deploy a model to use Object Detection"}
                   </TooltipContent>
                 </Tooltip>
               </NavigationMenuItem>
