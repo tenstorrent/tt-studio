@@ -59,18 +59,6 @@ class ModelImpl:
         self.docker_config["environment"]["HF_HOME"] = Path(
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
-        
-        # Set environment variable if N150 or N300x4 is in the device configurations
-        if DeviceConfigurations.N150 in self.device_configurations or DeviceConfigurations.N300x4 in self.device_configurations:
-            self.docker_config["environment"]["WH_ARCH_YAML"] = "wormhole_b0_80_arch_eth_dispatch.yaml"
-
-        if self.env_file:
-            logger.info(f"Using env file: {self.env_file}")
-            # env file should be in persistent volume mounted
-            env_dict = load_dotenv_dict(self.env_file)
-            # env file overrides any existing docker environment variables
-            self.docker_config["environment"].update(env_dict)
-      
 
         # Set environment variable if N150_WH_ARCH_YAML or N300x4_WH_ARCH_YAML is in the device configurations
         if (
@@ -226,6 +214,20 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/v1/chat/completions",
         env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
+    ),
+    ModelImpl(
+        model_name="Mistral7B-instruct-v0.2",
+        model_id="id_tt-metal-mistral-7bv0.0.2",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-mistral-7b-src-base",
+        image_tag="v0.0.3-tt-metal-v0.52.0-rc33",
+        hf_model_path="mistralai/Mistral-7B-Instruct-v0.2",
+        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        docker_config=base_docker_config(),
+        user_uid=1000,
+        user_gid=1000,
+        shm_size="32G",
+        service_port=7000,
+        service_route="/inference/mistral7b",
     ),
     #! Add new model vLLM model implementations here
     #     ModelImpl(
