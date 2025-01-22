@@ -88,6 +88,22 @@ class ModelImpl:
             # env file overrides any existing docker environment variables
             self.docker_config["environment"].update(env_dict)
 
+        # Set environment variable if N150_WH_ARCH_YAML or N300x4_WH_ARCH_YAML is in the device configurations
+        if (
+            DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
+            or DeviceConfigurations.N300x4_WH_ARCH_YAML in self.device_configurations
+        ):
+            self.docker_config["environment"]["WH_ARCH_YAML"] = (
+                "wormhole_b0_80_arch_eth_dispatch.yaml"
+            )
+
+        if self.env_file:
+            logger.info(f"Using env file: {self.env_file}")
+            # env file should be in persistent volume mounted
+            env_dict = load_dotenv_dict(self.env_file)
+            # env file overrides any existing docker environment variables
+            self.docker_config["environment"].update(env_dict)
+
     @property
     def image_version(self) -> str:
         return f"{self.image_name}:{self.image_tag}"
