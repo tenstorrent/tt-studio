@@ -4,12 +4,7 @@
 
 import { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import logo from "../assets/tt_logo.svg";
-import {
-  NavigationMenu,
-  NavigationMenuItem,
-  NavigationMenuList,
-} from "./ui/navigation-menu";
+import { motion } from "framer-motion";
 import {
   Home,
   Boxes,
@@ -17,31 +12,43 @@ import {
   Notebook,
   FileText,
   Eye,
+  type LucideIcon,
 } from "lucide-react";
-import ModeToggle from "./DarkModeToggle";
-import HelpIcon from "./HelpIcon";
+
+import logo from "../assets/tt_logo.svg";
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuList,
+} from "./ui/navigation-menu";
 import { Separator } from "./ui/separator";
-import Sidebar from "./SideBar";
-import { useTheme } from "../providers/ThemeProvider";
-import ResetIcon from "./ResetIcon";
-import CustomToaster from "./CustomToaster";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+
+import ModeToggle from "./DarkModeToggle";
+import HelpIcon from "./HelpIcon";
+import Sidebar from "./SideBar";
+import ResetIcon from "./ResetIcon";
+import CustomToaster from "./CustomToaster";
+
+import { useTheme } from "../providers/ThemeProvider";
 import { useRefresh } from "../providers/RefreshContext";
 import { useModels } from "../providers/ModelsContext";
 import { handleModelNavigationClick } from "../api/modelsDeployedApis";
-import { motion } from "framer-motion";
 
 interface AnimatedIconProps {
   icon: LucideIcon;
   className?: string;
 }
 
-const AnimatedIcon: React.FC<AnimatedIconProps> = ({ icon: Icon, ...props }) => (
+const AnimatedIcon: React.FC<AnimatedIconProps> = ({
+  icon: Icon,
+  ...props
+}) => (
   <motion.div
     whileHover={{ scale: 1.2 }}
     whileTap={{ scale: 0.9 }}
@@ -74,7 +81,7 @@ export default function NavBar() {
     [textColor]
   );
 
-  const getNavLinkClass = (isActive: boolean, isChatUIIcon: boolean = false) =>
+  const getNavLinkClass = (isActive: boolean, isChatUIIcon = false) =>
     `${navLinkClass} ${
       isActive || (isChatUIIcon && location.pathname === "/chat-ui")
         ? `border-2 ${activeBorderColor}`
@@ -137,9 +144,7 @@ export default function NavBar() {
             href="https://www.tenstorrent.com"
             target="_blank"
             rel="noopener noreferrer"
-            className={`flex items-center ${
-              isChatUI ? "mb-6 justify-center" : ""
-            }`}
+            className={`flex items-center ${isChatUI ? "mb-6 justify-center" : ""}`}
           >
             <motion.img
               src={logo}
@@ -158,9 +163,7 @@ export default function NavBar() {
           </a>
           <NavigationMenu className={`w-full ${isChatUI ? "mt-4" : ""}`}>
             <NavigationMenuList
-              className={`flex ${
-                isChatUI ? "flex-col items-center space-y-4" : "justify-between"
-              }`}
+              className={`flex ${isChatUI ? "flex-col items-center space-y-4" : "justify-between"}`}
             >
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
