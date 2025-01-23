@@ -137,3 +137,30 @@ class ObjectDetectionInferenceView(APIView):
             return Response(inference_data.json(), status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ImageGenerationInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special image generation inference view that performs special file handling"""
+        data = request.data
+        logger.info(f"InferenceView data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            image = data.get("prompt")  # we should only receive 1 prompt
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            breakpoint()
+            try:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+                inference_data.raise_for_status()
+            except requests.exceptions.HTTPError as http_err:
+                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                    return Response(status=status.HTTP_401_UNAUTHORIZED)
+                else:
+                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response(inference_data.json(), status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
