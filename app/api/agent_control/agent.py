@@ -10,6 +10,28 @@ import json
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
+from langchain.callbacks.streaming_stdout_final_only import FinalStreamingStdOutCallbackHandler
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+
+import sys
+
+class CallbackHandler(StreamingStdOutCallbackHandler):
+    def __init__(self):
+        self.content: str = ""
+        self.final_answer: bool = False
+
+    def on_llm_new_token(self, token: str, **kwargs: any) -> None:
+        self.content += token
+        if "\nFinal Answer: " in self.content:
+            # now we're in the final answer section, but don't print yet
+            self.final_answer = True
+            self.content = ""
+        if self.final_answer:
+            if '"action_input": "' in self.content:
+                if token not in ["}"]:
+                    sys.stdout.write(token)  # equal to `print(token, end="")`
+                    sys.stdout.flush()
+        return self.final_answer
 
 
 app = FastAPI()
@@ -23,7 +45,10 @@ class RequestPayload(BaseModel):
 
 
 llm_container_name = os.getenv("LLM_CONTAINER_NAME")
-llm = CustomLLM(server_url=f"http://{llm_container_name}:7000/v1/chat/completions", encoded_jwt=encoded_jwt)
+llm = CustomLLM(server_url=f"http://{llm_container_name}:7000/v1/chat/completions", encoded_jwt=encoded_jwt, 
+                callbacks=[CallbackHandler()],
+                streaming=True
+)
 memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
 

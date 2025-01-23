@@ -5,6 +5,10 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 async def poll_requests(agent_executor, config, tools, memory, message):
     complete_output = ""  # Initialize an empty string to accumulate output
     chat_history = memory.buffer_as_messages
+    final_answer = False
+    mainstring = "Final Answer: "
+    possible_substrings = await gen_substrings(mainstring)
+    first_final_response = False
     async for event in agent_executor.astream_events(
     {"input": message, "chat_history": chat_history}, version="v2", config=config
 ):
@@ -29,12 +33,19 @@ async def poll_requests(agent_executor, config, tools, memory, message):
         if kind == "on_chat_model_stream":
             content = event["data"]["chunk"].content
             complete_output += content 
-            if "Final Answer:" in complete_output:
+            if "Final Answer: " in complete_output:
+                final_answer = True
                 complete_output = ""
-                if "[DONE]" in content:
-                    break 
-            if content:
+                first_final_response =True
+            if final_answer and first_final_response:
+                for substring in possible_substrings:
+                    if substring in content:
+                        content = content.replace(substring, "", 1)
+                        first_final_response = False
+                        
+            if content and final_answer:
                 yield content
+                print(content, end="|", flush=True)
             # if final_ans_recieved and content.strip().endswith("[DONE]"):
             #     break 
         elif kind == "on_tool_start":
@@ -48,9 +59,8 @@ async def poll_requests(agent_executor, config, tools, memory, message):
             print("--")
 
 
-    # except KeyboardInterrupt:
-    #     print("\nExiting due to keyboard interrupt.")
-
+async def gen_substrings(string_to_check):
+    return [string_to_check[i:j] for i in range(len(string_to_check)) for j in range(len(string_to_check))]
 
 def setup_executer(llm, memory, tools):
     with open("./prompt_template.txt", "r") as f:
@@ -73,7 +83,7 @@ def setup_executer(llm, memory, tools):
         max_iterations=100,
         memory=memory,
         return_intermediate_steps=True,
-        handle_parsing_errors=True,
+        handle_parsing_errors=True
         )       
 
     return agent_executor

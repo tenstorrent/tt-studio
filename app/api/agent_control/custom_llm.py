@@ -19,7 +19,7 @@ from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_core.tools import BaseTool
 from langchain_core.runnables import Runnable
 from langchain_core.utils.function_calling import convert_to_openai_tool
-
+from langchain.callbacks.streaming_stdout_final_only import FinalStreamingStdOutCallbackHandler
 import requests
 import json 
 import os
@@ -56,11 +56,11 @@ class CustomLLM(BaseChatModel):
         """
         pass
 
-    def _stream(
+    async def _astream(
         self,
         messages: List[BaseMessage],
         stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = FinalStreamingStdOutCallbackHandler(),
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
         """Stream the output of the model.
@@ -91,7 +91,7 @@ class CustomLLM(BaseChatModel):
         if position != -1:
             template = filled_template[:position + len(end_of_template_substring)]
             user_content = filled_template[position + len(end_of_template_substring):]
-            content_position = user_content.find("Question:")
+            content_position = user_content.find("New input:")
             if content_position != -1:
                 user_content = user_content[content_position:]
         # message format for llama 3.1 70b chat endpoint 
@@ -127,11 +127,12 @@ class CustomLLM(BaseChatModel):
                     # new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["text"]))
                     # below format is used for v1/chat/completions endpoint
                     new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk["delta"]["content"]))
+                    # if run_manager:
+                        # This is optional in newer versions of LangChain
+                        # The on_llm_new_token will be called automatically
+                        # run_manager.on_llm_new_token(new_chunk.text, chunk=new_chunk)
+                        # print(f"RUN MANAGER: {run_manager.last_tokens_stripped}")
                     yield new_chunk
-                if run_manager:
-                    run_manager.on_llm_new_token(
-                        new_chunk.text, chunk=new_chunk
-                    )
 
 
     def bind_tools(
