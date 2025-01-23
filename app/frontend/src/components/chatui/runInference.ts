@@ -131,6 +131,7 @@ export const runInference = async (
             try {
               const jsonData = JSON.parse(trimmedLine.slice(5));
 
+              // TODO: check if this is needed
               if (!isAgentSelected) {
               // // Handle statistics separately after [DONE]
               if (jsonData.ttft && jsonData.tpot) {

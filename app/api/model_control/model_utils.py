@@ -99,12 +99,14 @@ def stream_response_from_agent_api(url, json_data):
             for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
                 json_chunk = {}
                 logger.info(f"stream_response_from_external_api chunk:={chunk}")
-                # new_chunk = "data: " + chunk
-                json_chunk["choices"] = [{"index": 0, "delta": {"content": chunk}}]
-                json_chunk =  json.dumps(json_chunk)
-                string = "data: " + json_chunk 
-                logger.info(f"streaming json object: {string}")
-                yield "data: " + json_chunk + "\n"
+                if chunk == "[DONE]":
+                    yield "data: " + chunk + "\n"
+                else: 
+                    json_chunk["choices"] = [{"index": 0, "delta": {"content": chunk}}]
+                    json_chunk =  json.dumps(json_chunk)
+                    string = "data: " + json_chunk 
+                    logger.info(f"streaming json object: {string}")
+                    yield "data: " + json_chunk + "\n"
                 # if chunk.startswith("data: "):
                 #     new_chunk = chunk[len("data: "):]  # slice out the JSON object/dictionary
                 #     new_chunk = new_chunk.strip()
