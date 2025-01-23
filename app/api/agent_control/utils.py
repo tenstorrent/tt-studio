@@ -63,18 +63,6 @@ async def gen_substrings(string_to_check):
     return [string_to_check[i:j] for i in range(len(string_to_check)) for j in range(len(string_to_check))]
 
 def setup_executer(llm, memory, tools):
-    with open("./prompt_template.txt", "r") as f:
-        template = f.read()
-
-    system = template
-    human = '''
-
-        {input}
-
-        {agent_scratchpad}
-        
-        (reminder to respond in a JSON blob no matter what)'''
-
     prompt = hub.pull("hwchase17/react-chat")
     agent = create_react_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(
