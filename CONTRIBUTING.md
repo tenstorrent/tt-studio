@@ -32,31 +32,47 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 ### **1. Main Branches:**
 
 - **`main`**: Holds production-ready code.
-- **`staging`**: A pre-production environment where selected features are tested together before deployment.
-- **`dev`**: The central branch where all feature branches are merged and validated before release preparation.
+
+  - **Rules:**
+
+    - No force pushes.
+
+    - Requires rebase and merge.
+
+- **`dev`**: The central branch where all feature branches are merged and validated before preparing for release cut branch.
+
+  - **Rules:**
+
+    - No force pushes.
+
+    - Requires squash merge.
 
 ---
 
-### **2. Feature Development Workflow:**
+### **2. Feature Development Workflow**
 
 #### **Development Process**
 
 - Developers create feature branches from `main` to work on new features or bug fixes.
-- Once a feature is completed and reviewed, it is squash merged into `dev` to maintain a clean history.
+- Once a feature is completed and reviewed, it is **squash merged** into `dev` to maintain a clean history.
 
 ---
 
 #### **Release Preparation**
 
-- When `dev` is stable and ready for pre-production, specific features are cherry-picked into `staging` for further validation and testing.
-- This selective cherry-picking allows control over which features are promoted for production readiness.
+- When `dev` is stable and ready for release, a **release cut branch** (e.g., `release-v1.xxx`) is created from `dev`.
+- Developers **cherry-pick** their completed and validated features from `dev` into the release branch.
+- The release branch is tested before deployment.
 
 ---
 
 #### **Final Deployment**
 
-- Once features in `dev` are validated, they are cherry-picked into `staging`, and subsequently brought into `main` for production deployment, following a PR approval process.
-- PR approval is required before merging changes into `main`,
+- Once the release branch is validated, it is merged into `main` for production deployment.
+- Merging to `main` requires **at least two approvals** to ensure code quality and stability.
+- After merging, the release is tagged following semantic versioning (e.g., `v1.0.0`).
+
+---
 
 #### Git Tagging
 
@@ -65,7 +81,6 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 - [Semantic versioning (e.g., v1.0.0) is used to track different versions.](#versioning-standards)
 
 ---
-
 
 ### Versioning Standards
 
@@ -85,5 +100,7 @@ To ensure consistency in versioning, we follow the principles of **semantic vers
 - **PATCH**: Increment for bug fixes and minor improvements that are backward-compatible.
 
 ---
+
 ### FlowChart for our Git Branching Strategy
+
 <img src="Git-management.png" alt="Git Branching Strategy" width="600" />
