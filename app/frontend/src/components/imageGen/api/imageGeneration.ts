@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 // Dummy image generation function
+import axios from "axios";
+
 export const dummyImageGeneration = async (prompt: string): Promise<string> => {
   console.log(`Generating dummy image based on: "${prompt}"`);
   await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -21,13 +23,14 @@ interface ImageGenerationOptions {
 //  Modify this to send the POST to the local hosted model server
 export const generateImage = async (
   prompt: string,
+  modelID: string,
   options: ImageGenerationOptions = {}
 ): Promise<string> => {
   const { useLocalModel = true, localModelUrl = "/models-api/image-generation/" } =
     options;
 
   if (useLocalModel) {
-    return generateImageLocal(prompt, localModelUrl);
+    return generateImageLocal(prompt, modelID, localModelUrl);
   } else {
     ///* this is currently using Stability AI, but you can modify this to use any local server
     return generateImageStabilityAI(prompt);
@@ -86,29 +89,33 @@ const generateImageStabilityAI = async (prompt: string): Promise<string> => {
 
 const generateImageLocal = async (
   prompt: string,
+  modelID: string,
   localModelUrl: string
 ): Promise<string> => {
   try {
-    const response = await fetch(localModelUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ prompt }),
-    });
+    // construct FormData to send to API
+    const formData = new FormData();
+    formData.append("deploy_id", modelID);
+    formData.append("prompt", prompt);
 
-    if (!response.ok) {
+    const response = await axios.post(
+      localModelUrl,
+      formData,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        responseType: "blob",
+      },
+    );
+
+    if (response.status < 200 && response.status > 299) {
       throw new Error(`Local model API error: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    // Create a URL for the Blob data received
+    const data = await response.data;
+    const imageURL = URL.createObjectURL(data);
+    return imageURL;
 
-    if (data && data.image) {
-      return data.image;
-    } else {
-      throw new Error("No image data in the local model response");
-    }
   } catch (error) {
     console.error("Error generating image with local model:", error);
     throw new Error("Failed to generate image with local model");
