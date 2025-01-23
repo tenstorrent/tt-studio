@@ -13,6 +13,7 @@ import { useChat } from "./hooks/useChat";
 
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   onBack,
+  modelID,
 }) => {
   const {
     messages,
@@ -26,7 +27,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
     sendMessage,
     scrollToBottom,
     handleScroll,
-  } = useChat();
+  } = useChat(modelID);
 
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
 
