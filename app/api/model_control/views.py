@@ -184,6 +184,8 @@ class ImageGenerationInferenceView(APIView):
             except requests.exceptions.HTTPError as http_err:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
                     return Response(status=status.HTTP_401_UNAUTHORIZED)
+                elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                    return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
                 else:
                     return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
