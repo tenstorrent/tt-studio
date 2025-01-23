@@ -1,25 +1,8 @@
-from langchain.agents import AgentExecutor, create_react_agent, create_structured_chat_agent
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain import hub
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 async def poll_requests(agent_executor, config, tools, memory, message):
-    # try:
-        # while True:
-            # message = input("\nSend a message\n ")
-    complete_output = ""
-    # final_ans_recieved = 0 
-
-    # if message.lower() in ["exit", "quit"]:
-    #     print("Exiting the program.")
-    #     break
-
-    # input_data = {
-    #     "input": message,
-    #     "agent_scratchpad": "",
-    #     "tools": "\n".join([tool.name for tool in tools]),  # Add tool descriptions
-    #     "tool_names": ", ".join([tool.name for tool in tools])  # Add tool names
-    # }
-
-    print(message)
     complete_output = ""  # Initialize an empty string to accumulate output
     chat_history = memory.buffer_as_messages
     async for event in agent_executor.astream_events(
@@ -73,43 +56,7 @@ def setup_executer(llm, memory, tools):
     with open("./prompt_template.txt", "r") as f:
         template = f.read()
 
-    system = '''Respond to the human as helpfully and accurately as possible. You have access to the following tools:
-
-    {tools}
-
-    Use a json blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
-
-    Valid "action" values: "Final Answer" or {tool_names}
-
-    Provide only ONE action per $JSON_BLOB, as shown:
-
-    ```
-    {{
-    "action": $TOOL_NAME,
-    "action_input": $INPUT
-    }}
-    ```
-
-    Follow this format:
-
-    Question: input question to answer
-    Thought: consider previous and subsequent steps
-    Action:
-    ```
-    $JSON_BLOB
-    ```
-    Observation: action result
-    ... (repeat Thought/Action/Observation N times)
-    Thought: I know what to respond
-    Action:
-    ```
-    {{
-    "action": "Final Answer",
-    "action_input": "Final response to human"
-    }}
-
-    Begin! Reminder to ALWAYS respond with a valid json blob of a single action. Use tools if necessary. Respond directly if appropriate. Format is Action:```$JSON_BLOB```then Observation'''
-
+    system = template
     human = '''
 
         {input}
@@ -118,20 +65,8 @@ def setup_executer(llm, memory, tools):
         
         (reminder to respond in a JSON blob no matter what)'''
 
-    
-
-    # prompt = ChatPromptTemplate.from_template(template)
-    prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", system),
-        MessagesPlaceholder("chat_history", optional=True),
-        ("human", human),
-    ]
-    )
-    from langchain import hub
     prompt = hub.pull("hwchase17/react-chat")
     agent = create_react_agent(llm, tools, prompt)
-    # agent = create_structured_chat_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(
         agent=agent,
         tools=tools,

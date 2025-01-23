@@ -24,7 +24,6 @@ class RequestPayload(BaseModel):
 
 llm_container_name = os.getenv("LLM_CONTAINER_NAME")
 llm = CustomLLM(server_url=f"http://{llm_container_name}:7000/v1/chat/completions", encoded_jwt=encoded_jwt)
-# llm = CustomLLM(server_url=f"http://model:7000/v1/chat/completions")
 memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
 
