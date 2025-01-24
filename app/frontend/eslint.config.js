@@ -7,6 +7,7 @@ import reactPlugin from "eslint-plugin-react";
 import reactRefreshPlugin from "eslint-plugin-react-refresh";
 import prettierPlugin from "eslint-plugin-prettier";
 import headersPlugin from "eslint-plugin-headers";
+import globals from "globals";
 
 export default [
   // JavaScript Standard Configurations
@@ -21,9 +22,13 @@ export default [
         ecmaFeatures: {
           jsx: true,
         },
-        ecmaVersion: 2021,
+        ecmaVersion: "latest",
         sourceType: "module",
         project: "./tsconfig.json",
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
       },
     },
     plugins: {
@@ -49,7 +54,7 @@ export default [
     rules: {
       ...reactPlugin.configs.recommended.rules,
       "react/react-in-jsx-scope": "off", // Disable if using React 17+
-      "no-console": "off",
+      "no-console": "off", // Allow console statements
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },
@@ -69,6 +74,7 @@ export default [
 
   // License Header Plugin Configuration
   {
+    files: ["**/*.{js,jsx,ts,tsx}"], // Apply to all JS/TS files
     plugins: {
       headers: headersPlugin,
     },
@@ -84,6 +90,17 @@ export default [
           style: "line", // Use single-line comments
         },
       ],
+    },
+  },
+
+  // Environment Configuration
+  {
+    files: ["**/*.{js,jsx,ts,tsx}"], // Apply to all JS/TS files
+    languageOptions: {
+      globals: {
+        ...globals.browser, // Include browser globals (e.g., console, setTimeout)
+        ...globals.node, // Include Node.js globals (e.g., require, module)
+      },
     },
   },
 
