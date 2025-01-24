@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
+import React from "react";
 import {
   InferenceRequest,
   RagDataSource,
@@ -90,7 +90,6 @@ export const runInference = async (
     let inferenceStats: InferenceStats | undefined;
 
     if (reader) {
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
 
@@ -126,7 +125,7 @@ export const runInference = async (
                   user_tpot: jsonData.tpot,
                   tokens_decoded: jsonData.tokens_decoded,
                   tokens_prefilled: jsonData.tokens_prefilled,
-                  context_length: jsonData.context_length
+                  context_length: jsonData.context_length,
                 };
                 console.log("Final Inference Stats received:", inferenceStats);
                 continue; // Skip processing this chunk as part of the generated text

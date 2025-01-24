@@ -3,7 +3,7 @@
 // This file incorporates work covered by the following copyright and permission notice:
 //  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
 //  SPDX-License-Identifier: MIT
-
+import React from "react";
 import { cn } from "../../lib/utils";
 
 function Skeleton({

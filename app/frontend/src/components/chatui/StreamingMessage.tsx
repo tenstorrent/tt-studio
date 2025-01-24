@@ -31,7 +31,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
       const currentRenderedLength = renderedContent.length;
       const nextChunk = currentContent.slice(
         currentRenderedLength,
-        currentRenderedLength + 10
+        currentRenderedLength + 10,
       );
 
       if (nextChunk !== lastChunkRef.current) {
@@ -90,7 +90,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
   },
   (prevProps, nextProps) =>
     prevProps.isStreamFinished === nextProps.isStreamFinished &&
-    prevProps.content === nextProps.content
+    prevProps.content === nextProps.content,
 );
 
 export default StreamingMessage;

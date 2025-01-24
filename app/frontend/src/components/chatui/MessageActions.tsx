@@ -17,11 +17,11 @@ interface MessageActionsProps {
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
-  messageId,
-  onReRender,
-  onContinue,
-  isReRendering,
-  isStreaming,
+  // messageId,
+  // onReRender,
+  // onContinue,
+  // isReRendering,
+  // isStreaming,
   inferenceStats,
 }) => {
   const handleCopy = () => {
