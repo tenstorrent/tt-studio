@@ -7,7 +7,6 @@ from utils import poll_requests, setup_executer
 from code_tool import CodeInterpreterFunctionTool
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools.tavily_search import TavilySearchResults
-import asyncio
 import os 
 import jwt
 import json
