@@ -49,21 +49,10 @@ def health_check(url, json_data, timeout=5):
         return False, str(e)
 
 def stream_response_from_agent_api(url, json_data):
-    # logger.info(f"stream_response_from_agent_api to: url={url}")
     try:
-        # headers = {"Authorization": f"Bearer {encoded_jwt}"}
-        # logger.info(f"stream_response_from_external_api headers:={headers}")
-        # logger.info(f"stream_response_from_external_api json_data:={json_data}")
-        # TODO: remove once vllm implementation can support different topk/temperature in same batch
-        # json_data["temperature"] = 1
-        # json_data["top_k"] = 20
-        # json_data["top_p"] = 0.9
-        # json_data["max_tokens"] = 512
-        # json_data["stream_options"] = {"include_usage": True,
-        #                                "continuous_usage_stats": True}
-        # logger.info(f"added extra token and temp:={json_data}")
         new_json_data = {}
-        new_json_data["thread_id"] = "12345"
+        # TODO: thread_id should be dynamic once there is support for multiple different chats with no shared context
+        new_json_data["thread_id"] = "abc123"
         new_json_data["message"] = json_data["messages"][-1]["content"]
 
         ttft = 0
