@@ -8,7 +8,7 @@ export interface ChatMessage {
 
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
-  ragContext: { documents: string[] } | null = null
+  ragContext: { documents: string[] } | null = null,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 

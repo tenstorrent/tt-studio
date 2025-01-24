@@ -202,7 +202,7 @@ export default function ModelsDeployedTable() {
                   {model.status ? <StatusBadge status={model.status} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
-                  {model.health ?<HealthBadge deployId={model.id} /> : "N/A"}
+                  {model.health ? <HealthBadge deployId={model.id} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
                   {model.ports ? <CopyableText text={model.ports} /> : "N/A"}

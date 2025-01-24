@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+import React from "react";
 import { Button } from "@/src/components/ui/button";
 import { useMutation, useQuery, useQueryClient } from "react-query";
 import { Card } from "@/src/components/ui/card";

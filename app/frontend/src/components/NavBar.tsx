@@ -55,7 +55,7 @@ export default function NavBar() {
   const navLinkClass = useMemo(
     () =>
       `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
-    [textColor]
+    [textColor],
   );
 
   const getNavLinkClass = (isActive: boolean, isChatUIIcon: boolean = false) =>

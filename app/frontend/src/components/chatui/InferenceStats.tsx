@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState } from "react";
-import { BarChart2, Clock, Zap, Hash, AlignJustify, FileText, Maximize2, Minimize2, Gauge } from 'lucide-react';
+import {
+  BarChart2,
+  Clock,
+  Zap,
+  Hash,
+  AlignJustify,
+  FileText,
+  Maximize2,
+  Minimize2,
+  Gauge,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Tooltip,
@@ -22,9 +32,10 @@ export default function Component({ stats }: InferenceStatsProps) {
     return typeof value === "number" ? value.toFixed(decimals) : "N/A";
   };
 
-  const userTPS = typeof stats.user_tpot === 'number' 
-    ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(2)
-    : "N/A";
+  const userTPS =
+    typeof stats.user_tpot === "number"
+      ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(2)
+      : "N/A";
 
   const statItems = [
     {

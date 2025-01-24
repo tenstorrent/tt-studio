@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
 export function parseLogFileName() {
-  return (name: string) => {
+  const LogFileName = (name: string) => {
     const parts = name.split("_");
     if (parts.length > 2) {
       const date = parts[0];
@@ -17,4 +16,7 @@ export function parseLogFileName() {
     }
     return name;
   };
+
+  LogFileName.displayName = "LogFileName";
+  return LogFileName;
 }

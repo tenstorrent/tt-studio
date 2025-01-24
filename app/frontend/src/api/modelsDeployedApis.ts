@@ -131,7 +131,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       );
     }
 
-    return response.data; 
+    return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
       console.error("Error stopping the container:", error.response?.data);

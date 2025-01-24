@@ -34,33 +34,32 @@ const Sidebar = forwardRef((_, ref) => {
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "Home" page serves as your central hub for exploring the
-                various features of the TT-Studio app. Use the dropdown to
-                browse and select from a list of available models, and click the
-                "Deploy" button to begin the process.
+                The &quot;Home&quot; page serves as your central hub for
+                exploring the various features of the TT-Studio app. Use the
+                dropdown to browse and select from a list of available models,
+                and click the &quot;Deploy&quot; button to begin the process.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
-                <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
-                  <li>
-                    <strong>Model Selection:</strong> Start by selecting a model
-                    from the dropdown menu. This is the first step in
-                    configuring your deployment.
-                  </li>
-                  <li>
-                    <strong>Weight Selection:</strong> After choosing a model,
-                    select the appropriate weights for your model to ensure
-                    optimal performance.
-                  </li>
-                  <li>
-                    <strong>Deploy Model:</strong> Once you’ve configured the
-                    model and selected the weights, click the "Deploy" button to
-                    initiate the deployment process.
-                  </li>
-                  <li>
-                    <strong>Navigation:</strong> Use the "Next" and "Previous"
-                    buttons at the bottom to move between these steps as needed.
-                  </li>
-                </ul>
+                <li>
+                  <strong>Model Selection:</strong> Start by selecting a model
+                  from the dropdown menu. This is the first step in configuring
+                  your deployment.
+                </li>
+                <li>
+                  <strong>Weight Selection:</strong> After choosing a model,
+                  select the appropriate weights for your model to ensure
+                  optimal performance.
+                </li>
+                <li>
+                  <strong>Deploy Model:</strong> Once you&apos;ve configured the
+                  model and selected the weights, click the &quot;Deploy&quot;
+                  button to initiate the deployment process.
+                </li>
+                <li>
+                  <strong>Navigation:</strong> Use the &quot;Next&quot; and
+                  &quot;Previous&quot; buttons at the bottom to move between
+                  these steps as needed.
+                </li>
               </ul>
             </CardContent>
           </Card>
@@ -74,17 +73,17 @@ const Sidebar = forwardRef((_, ref) => {
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "RAG Management" page allows you to create additional
-                Datasources to augment the responses provided by the models you
-                have deployed. You can select a datasource to use from the
-                dropdown menu at the top of the chat window.
+                The &quot;RAG Management&quot; page allows you to create
+                additional Datasources to augment the responses provided by the
+                models you have deployed. You can select a datasource to use
+                from the dropdown menu at the top of the chat window.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
                 <li>
                   <strong>Create New RAG Datasource:</strong> RAG datasources
                   must have a unique name of at least two characters and no
                   spaces. Enter the name of your datasource and click the create
-                  button to create the datasource.{" "}
+                  button to create the datasource.
                 </li>
                 <li>
                   <strong>Upload Document:</strong> Select a document to upload
@@ -98,7 +97,6 @@ const Sidebar = forwardRef((_, ref) => {
             </CardContent>
           </Card>
         ),
-
         "/chat-ui": (
           <Card className={baseStyles}>
             <CardHeader>
@@ -108,10 +106,10 @@ const Sidebar = forwardRef((_, ref) => {
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "ChatUI" page allows you to interact with your deployed
-                models in a conversational format. You can ask questions,
-                provide input, and receive responses from the models you have
-                deployed.
+                The &quot;ChatUI&quot; page allows you to interact with your
+                deployed models in a conversational format. You can ask
+                questions, provide input, and receive responses from the models
+                you have deployed.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
                 <li>
@@ -135,19 +133,19 @@ const Sidebar = forwardRef((_, ref) => {
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "Models Deployed" page gives you an overview of all models
-                currently running in your environment. From here, you can manage
-                your models, check their health status, and access specific
-                tools like the ChatUI.
+                The &quot;Models Deployed&quot; page gives you an overview of
+                all models currently running in your environment. From here, you
+                can manage your models, check their health status, and access
+                specific tools like the ChatUI.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
                 <li>
                   <strong>Monitoring Models:</strong> Each row displays a
-                  model's status and health indicators.
+                  model&apos;s status and health indicators.
                 </li>
                 <li>
-                  <strong>Actions:</strong> Use the "Delete" button to stop and
-                  remove a model.
+                  <strong>Actions:</strong> Use the &quot;Delete&quot; button to
+                  stop and remove a model.
                 </li>
               </ul>
             </CardContent>
@@ -198,5 +196,7 @@ const Sidebar = forwardRef((_, ref) => {
     </div>
   );
 });
+
+Sidebar.displayName = "Sidebar";
 
 export default Sidebar;

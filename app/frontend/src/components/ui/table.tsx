@@ -50,7 +50,7 @@ const TableFooter = React.forwardRef<
     ref={ref}
     className={cn(
       "border-t bg-stone-100/50 font-medium [&>tr]:last:border-b-0 dark:bg-stone-800/50",
-      className
+      className,
     )}
     {...props}
   />
@@ -65,7 +65,7 @@ const TableRow = React.forwardRef<
     ref={ref}
     className={cn(
       "border-b transition-colors hover:bg-stone-100/50 data-[state=selected]:bg-stone-100 dark:hover:bg-stone-800/50 dark:data-[state=selected]:bg-stone-800",
-      className
+      className,
     )}
     {...props}
   />
@@ -74,13 +74,13 @@ TableRow.displayName = "TableRow";
 
 const TableHead = React.forwardRef<
   HTMLTableCellElement,
-  React.ThHTMLAttributes<HTMLTableCellElement>
+  React.ThHTMLAttributes<HTMLTableCellElement> & { className?: string }
 >(({ className, ...props }, ref) => (
   <th
     ref={ref}
     className={cn(
-      "h-12 px-4 border-x text-left align-middle font-medium text-stone-500 [&:has([role=checkbox])]:pr-0 dark:text-stone-400",
-      className
+      "h-12 px-4 text-left align-middle font-medium text-stone-500 [&:has([role=checkbox])]:pr-0 dark:text-stone-400",
+      className,
     )}
     {...props}
   />
@@ -89,7 +89,7 @@ TableHead.displayName = "TableHead";
 
 const TableCell = React.forwardRef<
   HTMLTableCellElement,
-  React.TdHTMLAttributes<HTMLTableCellElement>
+  React.TdHTMLAttributes<HTMLTableCellElement> & { className?: string }
 >(({ className, ...props }, ref) => (
   <td
     ref={ref}
