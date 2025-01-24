@@ -1,7 +1,5 @@
-/**
- *  SPDX-License-Identifier: Apache-2.0
- *  SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
- */
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import js from "@eslint/js";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
@@ -50,7 +48,7 @@ export default [
     },
     rules: {
       ...reactPlugin.configs.recommended.rules,
-      "react/react-in-jsx-scope": "off",
+      "react/react-in-jsx-scope": "off", // Disable if using React 17+
       "no-console": "off",
       "react-refresh/only-export-components": [
         "warn",
@@ -80,9 +78,10 @@ export default [
         {
           source: "string",
           content: [
-            " SPDX-License-Identifier: Apache-2.0",
-            " SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC",
+            "SPDX-License-Identifier: Apache-2.0",
+            "SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC",
           ].join("\n"),
+          style: "line", // Use single-line comments
         },
       ],
     },
