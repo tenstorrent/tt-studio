@@ -1,0 +1,10 @@
+# .eslintignore
+
+# Ignore UI components with special headers
+src/components/ui/**
+
+# Standard ignores
+node_modules/
+dist/
+coverage/
+*.log
