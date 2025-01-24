@@ -97,6 +97,7 @@ class CustomLLM(BaseChatModel):
         # message format for llama 3.1 70b chat endpoint 
         message_payload = [{"role": "system", "content": template}, 
                            {"role": "user", "content": user_content}]
+        
 
         headers = {"Authorization": f"Bearer {self.encoded_jwt}"}
         json_data = {
