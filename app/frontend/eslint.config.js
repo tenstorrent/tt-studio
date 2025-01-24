@@ -91,6 +91,7 @@ export default [
           style: "line", // Use single-line comments
         },
       ],
+      "react/prop-types": "off", // Disable prop-types for TypeScript
     },
   },
 
