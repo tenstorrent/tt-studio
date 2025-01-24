@@ -8,6 +8,7 @@ import time
 
 import requests
 import jwt
+import json
 
 from django.core.cache import caches
 
@@ -54,20 +55,10 @@ def stream_response_from_agent_api(url, json_data):
         # TODO: thread_id should be dynamic once there is support for multiple different chats with no shared context
         new_json_data["thread_id"] = "abc123"
         new_json_data["message"] = json_data["messages"][-1]["content"]
-
-        ttft = 0
-        tpot = 0
-        num_token_gen = 0
-        prompt_tokens = 0
-        ttft_start = time.time()
-
         headers = {"Content-Type": "application/json"}
 
         logger.info(f"stream_response_from_external_api headers:={headers}")
         logger.info(f"stream_response_from_external_api json_data:={new_json_data}")
-
-        import json
-
         logger.info(f"POST URL: {url}")
         logger.info(f"POST Headers: {headers}")
         logger.info(f"POST Data: {json.dumps(new_json_data, indent=2)}")
