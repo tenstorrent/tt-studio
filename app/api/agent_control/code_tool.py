@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 from pydantic import BaseModel, Field
 from typing import List, Sequence, Tuple, Any
 from langchain_core.messages import BaseMessage

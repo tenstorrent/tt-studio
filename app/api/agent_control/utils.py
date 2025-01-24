@@ -1,6 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain import hub
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 async def poll_requests(agent_executor, config, tools, memory, message):
     complete_output = ""  # Initialize an empty string to accumulate output

@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 from pydantic.v1 import BaseModel
 from typing import (
     List,
@@ -22,7 +26,6 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain.callbacks.streaming_stdout_final_only import FinalStreamingStdOutCallbackHandler
 import requests
 import json 
-import os
 
 
 class CustomLLM(BaseChatModel):

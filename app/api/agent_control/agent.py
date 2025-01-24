@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 from custom_llm import CustomLLM
 from utils import poll_requests, setup_executer
 from code_tool import CodeInterpreterFunctionTool
