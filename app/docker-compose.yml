@@ -103,8 +103,6 @@ services:
     networks:
       - tt_studio_network
 
-
-
 networks:
   tt_studio_network:
     # need external flag to allow for the backend to manage the docker network
