@@ -1,5 +1,4 @@
 # IDE
-.vscode
 .DS_Store
 
 # Python
@@ -40,4 +39,5 @@ db.sqlite3
 !requirements.txt
 !app/frontend/third-party-licenses.txt
 !requirements-dev.txt
+!.vscode
 
