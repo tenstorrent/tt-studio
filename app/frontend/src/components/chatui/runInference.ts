@@ -131,7 +131,6 @@ export const runInference = async (
             try {
               const jsonData = JSON.parse(trimmedLine.slice(5));
 
-              // TODO: check if this is needed
               if (!isAgentSelected) {
               // // Handle statistics separately after [DONE]
               if (jsonData.ttft && jsonData.tpot) {
@@ -146,8 +145,6 @@ export const runInference = async (
                 continue; // Skip processing this chunk as part of the generated text
               }
             } 
-              // TODO: Add an option for agent 
-
               // Handle the generated text
               const content = jsonData.choices[0]?.delta?.content || "";
               console.log(content)
