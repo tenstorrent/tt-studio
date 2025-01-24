@@ -80,9 +80,7 @@ export const runInference = async (
     console.log("Response received. Status:", response.status);
     console.log("Response headers:", response.headers);
 
-    console.log("Testing response object: ", response); 
     const reader = response.body?.getReader();
-    console.log("Testing this: ", reader); 
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
     let accumulatedText = "";
@@ -99,7 +97,6 @@ export const runInference = async (
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
-        console.log("Value: ", value)
 
         if (done) {
           console.log("Stream complete");
@@ -107,17 +104,12 @@ export const runInference = async (
         }
 
         buffer += decoder.decode(value, { stream: true });
-        console.log("Buffer: ", buffer)
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-        console.log("Popped Buffer: ", buffer);
-        console.log("Lines: ", lines); 
 
         for (const line of lines) {
           const trimmedLine = line.trim();
-          console.log("Trimmed Line works")
           if (trimmedLine.startsWith("data: ")) {
-            console.log("data: works")
             if (trimmedLine === "data: [DONE]") {
               console.log("Received [DONE] signal");
               continue;
@@ -147,7 +139,6 @@ export const runInference = async (
             } 
               // Handle the generated text
               const content = jsonData.choices[0]?.delta?.content || "";
-              console.log(content)
               if (content) {
                 accumulatedText += content;
                 setChatHistory((prevHistory) => {
