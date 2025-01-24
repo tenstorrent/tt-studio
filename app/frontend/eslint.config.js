@@ -75,6 +75,7 @@ export default [
   // License Header Plugin Configuration
   {
     files: ["**/*.{js,jsx,ts,tsx}"], // Apply to all JS/TS files
+    ignores: ["**/ui/**"],
     plugins: {
       headers: headersPlugin,
     },
