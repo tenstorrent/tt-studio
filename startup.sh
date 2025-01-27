@@ -80,7 +80,7 @@ if [[ "$RUN_CLEANUP" = true ]]; then
     echo "🧹 Stopping and removing Docker services..."
     cd "${TT_STUDIO_ROOT}/app" && docker compose down
     if [[ $? -eq 0 ]]; then
-        echo "✅ Backend service stopped and removed."
+        echo "✅ Docker Services stopped and removed successfully."
     else
         echo "⛔ Failed to clean up backend service."
         exit 1
@@ -203,26 +203,21 @@ else
 fi
 
 # Final message to the user with instructions on where to access the app
-echo -e "\e[1;32m=====================================================\e[0m"
-echo -e "\e[1;32m          🎉 TT-Studio Setup Complete! 🎉           \e[0m"
-echo -e "\e[1;32m=====================================================\e[0m"
-echo
-echo -e "\e[1;32m🚀 The application is now accessible at:\e[0m \e[4mhttp://localhost:3000\e[0m"
+printf "\033[1;32m=====================================================\033[0m\n"
+printf "\033[1;32m          🎉 TT-Studio Setup Complete! 🎉           \033[0m\n"
+printf "\033[1;32m=====================================================\033[0m\n\n"
+printf "\033[1;32m🚀 The application is now accessible at:\033[0m \033[4mhttp://localhost:3000\033[0m\n\n"
 
 # Let user know if TT hardware support is enabled
 if [[ "$RUN_TT_HARDWARE" = true ]]; then
-    echo
-    echo -e "\e[1;34m=====================================================\e[0m"
-    echo -e "\e[1;34m             🔧  Tenstorrent Device: MOUNTED         \e[0m"
-    echo -e "\e[1;34m=====================================================\e[0m"
-    echo -e "\e[1;34m🔧 Tenstorrent device has been successfully mounted and enabled in this setup.\e[0m"
+    printf "\033[1;34m=====================================================\033[0m\n"
+    printf "\033[1;34m             🔧  Tenstorrent Device: MOUNTED         \033[0m\n"
+    printf "\033[1;34m=====================================================\033[0m\n"
+    printf "\033[1;34m🔧 Tenstorrent device has been successfully mounted and enabled in this setup.\033[0m\n\n"
 fi
 
-echo
-echo -e "\e[1;33m=====================================================\e[0m"
-echo -e "\e[1;33m            🧹 Cleanup Instructions 🧹              \e[0m"
-echo -e "\e[1;33m=====================================================\e[0m"
-echo
-echo -e "\e[1;33m🛑 To stop the app and services, run:\e[0m \e[1;33m'./startup.sh --cleanup'\e[0m"
-echo
-echo -e "\e[1;33m=====================================================\e[0m"
+printf "\033[1;33m=====================================================\033[0m\n"
+printf "\033[1;33m            🧹 Cleanup Instructions 🧹              \033[0m\n"
+printf "\033[1;33m=====================================================\033[0m\n\n"
+printf "\033[1;33m🛑 To stop the app and services, run:\033[0m \033[1;33m'./startup.sh --cleanup'\033[0m\n\n"
+printf "\033[1;33m=====================================================\033[0m\n"
