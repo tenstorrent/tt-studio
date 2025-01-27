@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import js from "@eslint/js";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
@@ -86,7 +86,7 @@ export default [
           source: "string",
           content: [
             "SPDX-License-Identifier: Apache-2.0",
-            "SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC",
+            "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC",
           ].join("\n"),
           style: "line", // Use single-line comments
         },
