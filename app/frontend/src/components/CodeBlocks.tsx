@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
+
+console.log('hello')
 import React from "react";
 import { CodeBlock, dracula } from "react-code-blocks";
 
