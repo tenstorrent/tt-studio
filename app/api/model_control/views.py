@@ -5,7 +5,6 @@
 # model_control/views.py
 from pathlib import Path
 import requests
-from PIL import Image
 import io
 import time
 
@@ -142,16 +141,7 @@ class ObjectDetectionInferenceView(APIView):
             image = data.get("image").file  # we should only receive 1 file
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
-            # construct file to send
-            pil_image = Image.open(image)
-            pil_image = pil_image.resize((320, 320))  # Resize to target dimensions
-            buf = io.BytesIO()
-            pil_image.save(
-                buf,
-                format="JPEG",
-            )
-            byte_im = buf.getvalue()
-            file = {"file": byte_im}
+            file = {"file": image.getvalue()}
             try:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
                 inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)

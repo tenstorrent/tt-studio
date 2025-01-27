@@ -4,6 +4,7 @@
 
 import json
 import pickle
+import threading
 import time 
 
 import requests
@@ -32,9 +33,23 @@ def get_deploy_cache():
             for k, v in caches[backend_config.django_deploy_cache_name]._cache.items()
         }
 
-    update_deploy_cache()
     data = get_all_records()
     return data
+
+
+def update_deploy_cache_periodically():
+    while True:
+        update_deploy_cache()
+        time.sleep(3)
+
+_thread = None
+
+def start_cache_updater():
+    global _thread
+    if _thread is None or not _thread.is_alive():
+        _thread = threading.Thread(target=update_deploy_cache_periodically)
+        _thread.daemon = True
+        _thread.start()
 
 
 def health_check(url, json_data, timeout=5):
