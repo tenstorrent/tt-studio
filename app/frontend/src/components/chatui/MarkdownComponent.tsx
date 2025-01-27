@@ -12,8 +12,6 @@ interface MarkdownComponentProps {
 
 interface CodeProps extends React.HTMLAttributes<HTMLElement> {
   inline?: boolean;
-  className?: string;
-  children: React.ReactNode;
 }
 
 const MarkdownComponent: React.FC<MarkdownComponentProps> = React.memo(
@@ -21,17 +19,20 @@ const MarkdownComponent: React.FC<MarkdownComponentProps> = React.memo(
     const components: Partial<Components> = useMemo(
       () => ({
         code: ({ inline, className, children, ...props }: CodeProps) => {
-          const match = /language-(\w+)/.exec(className || "");
-          if (!inline && match) {
+          const content = String(children ?? "").replace(/\n$/, "");
+          const language = className?.replace(/language-/, "");
+
+          if (!inline && language) {
             return (
               <CodeBlock
                 blockMatch={{
-                  output: String(children).replace(/\n$/, ""),
-                  language: match[1],
+                  output: content,
+                  language: language,
                 }}
               />
             );
           }
+
           return (
             <code
               className={`${className} bg-gray-800 rounded px-1`}
@@ -54,5 +55,4 @@ const MarkdownComponent: React.FC<MarkdownComponentProps> = React.memo(
 );
 
 MarkdownComponent.displayName = "MarkdownComponent";
-
 export default MarkdownComponent;
