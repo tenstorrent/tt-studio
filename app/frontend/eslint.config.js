@@ -34,9 +34,9 @@ export default [
     plugins: {
       "@typescript-eslint": tsPlugin,
     },
-    rules: {
-      ...tsPlugin.configs.recommended.rules,
-    },
+    // rules: {
+    //   ...tsPlugin.configs.recommended.rules,
+    // },
   },
 
   // React Plugin Configuration
