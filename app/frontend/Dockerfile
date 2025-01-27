@@ -23,13 +23,13 @@ RUN npm i
 # Define a build-time argument (default is 'development')
 ARG BUILD_ENV=development
 
-# Conditionally run the production build
+# Run production build if BUILD_ENV=production
 RUN if [ "$BUILD_ENV" = "production" ]; then \
       npm run build && \
-      echo "✅ Production build completed successfully"; \
+      echo "✅ Production build completed"; \
     else \
-      echo "⚙️  Skipping production build, dev environment assumed"; \
+      echo "⚙️  Skipping production build"; \
     fi
 
-# Default command -> Dev mode
+# Default command (for dev mode)
 CMD ["npm", "run", "dev"]

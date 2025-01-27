@@ -86,6 +86,12 @@ proxyConfig["/reset-board"] = {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: "/",
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    sourcemap: false,
+  },
   plugins: [react()],
   resolve: {
     alias: {

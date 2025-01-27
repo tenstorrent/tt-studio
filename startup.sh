@@ -175,6 +175,7 @@ else
 fi
 
 # Step 4: Run Docker Compose with or without hardware support
+
 if [[ "$RUN_TT_HARDWARE" = true ]]; then
     echo "🚀 Running Docker Compose with TT hardware support..."
     docker compose -f "${DOCKER_COMPOSE_FILE}" \
@@ -183,11 +184,23 @@ if [[ "$RUN_TT_HARDWARE" = true ]]; then
                   up --build -d
 else
     echo "🚀 Running Docker Compose without TT hardware support..."
+    # First collect static files
+    echo "📦 Collecting static files..."
+    docker compose -f "${DOCKER_COMPOSE_FILE}" \
+                  -f "${TT_STUDIO_ROOT}/app/docker-compose.frontend-prod.yml" \
+                  run --rm tt_studio_backend python manage.py collectstatic --noinput
+
+    # Then start services (ensure frontend builder runs first)
+    echo "🏗️ Building frontend production assets..."
+    docker compose -f "${DOCKER_COMPOSE_FILE}" \
+                  -f "${TT_STUDIO_ROOT}/app/docker-compose.frontend-prod.yml" \
+                  build tt_studio_frontend_builder
+
+    echo "🚀 Starting all services..."
     docker compose -f "${DOCKER_COMPOSE_FILE}" \
                   -f "${TT_STUDIO_ROOT}/app/docker-compose.frontend-prod.yml" \
                   up --build -d
 fi
-
 
 # Final message to the user with instructions on where to access the app
 echo -e "\e[1;32m=====================================================\e[0m"

@@ -1,14 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 services:
-  tt_studio_frontend:
+  tt_studio_nginx:
+    build: ./nginx # <-- Point to nginx directory
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html # Frontend build
+      - ./api/staticfiles:/usr/share/nginx/static # Django static
+    depends_on:
+      - tt_studio_backend
+    networks:
+      - tt_studio_network
+
+  tt_studio_frontend_builder:
     build:
       context: ./frontend
-      args:
-        BUILD_ENV: development
-    # No command override => uses CMD ["npm", "run", "dev"] from Dockerfile
-    ports:
-      - "3000:3000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/ || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      dockerfile: Dockerfile.prod
+    volumes:
+      - ./frontend/dist:/app/dist # Persist build output
+
+  tt_studio_backend:
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             gunicorn --workers 3 --bind 0.0.0.0:8000 api.wsgi:application"

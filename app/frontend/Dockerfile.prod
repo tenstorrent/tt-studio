@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
+FROM node:21-alpine3.18 AS builder
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --silent
+COPY . .
+RUN npm run build
