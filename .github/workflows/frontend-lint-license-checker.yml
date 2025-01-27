@@ -8,6 +8,8 @@ on:
     branches:
       - "main"
       - "staging"
+      - "dev"
+      - "github-actions-tester"
     types:
       - opened
       - reopened
