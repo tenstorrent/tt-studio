@@ -22,9 +22,11 @@ import StatusBadge from "./StatusBadge";
 import HealthBadge from "./HealthBadge";
 import {
   fetchModels,
+  getModelTypeFromName,
   deleteModel,
   handleRedeploy,
-  handleChatUI,
+  ModelType,
+  handleModelNavigationClick,
 } from "../api/modelsDeployedApis";
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { NoModelsDialog } from "./NoModelsDeployed";
@@ -42,6 +44,7 @@ import {
   Trash2,
   MessageSquare,
   AlertCircle,
+  Eye,
 } from "lucide-react";
 import {
   Tooltip,
@@ -251,7 +254,11 @@ export default function ModelsDeployedTable() {
                               <Button
                                 onClick={() =>
                                   model.name &&
-                                  handleChatUI(model.id, model.name, navigate)
+                                  handleModelNavigationClick(
+                                    model.id,
+                                    model.name,
+                                    navigate,
+                                  )
                                 }
                                 className={`${
                                   theme === "dark"
@@ -260,8 +267,16 @@ export default function ModelsDeployedTable() {
                                 } rounded-lg`}
                                 disabled={!model.name}
                               >
-                                <MessageSquare className="w-4 h-4 mr-2" />
-                                ChatUI
+                                {getModelTypeFromName(model.name) ===
+                                ModelType.ChatModel ? (
+                                  <MessageSquare className="w-4 h-4 mr-2" />
+                                ) : (
+                                  <Eye className="w-4 h-4 mr-2" />
+                                )}
+                                {getModelTypeFromName(model.name) ===
+                                ModelType.ChatModel
+                                  ? "ChatUI"
+                                  : "ObjectDetection"}
                                 {isLLaMAModel(model.name || "") && (
                                   <AlertCircle className="w-4 h-4 ml-2 text-yellow-600" />
                                 )}
@@ -274,7 +289,12 @@ export default function ModelsDeployedTable() {
                                   an hour. Subsequent runs may take 5-7 minutes.
                                 </p>
                               ) : (
-                                <p>Open ChatUI for this model</p>
+                                <p>
+                                  {getModelTypeFromName(model.name) ===
+                                  ModelType.ChatModel
+                                    ? "Open ChatUI for this model"
+                                    : "Open ObjectDetection for this model"}
+                                </p>
                               )}
                             </TooltipContent>
                           </Tooltip>
