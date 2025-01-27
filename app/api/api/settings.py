@@ -22,15 +22,20 @@ from shared_config.backend_config import backend_config
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
+# Security settings
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-default")
-
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
+# Static files configuration (WhiteNoise)
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Proxy configuration
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+# Host/Origin configuration
 ALLOWED_HOSTS = [
     "0.0.0.0",
     "127.0.0.1",
@@ -38,14 +43,13 @@ ALLOWED_HOSTS = [
     os.environ["BACKEND_API_HOSTNAME"],
 ]
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # Frontend server address
+    "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://0.0.0.0:3000",
 ]
 CORS_ALLOW_ALL_ORIGINS = False
 
 # Application definition
-
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -53,16 +57,19 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
+    "whitenoise.runserver_nostatic",  # Add WhiteNoise
     "docker_control",
     "model_control",
     "vector_db_control",
-    "corsheaders",
     "logs_control",
 ]
 
+# Middleware configuration with proper WhiteNoise placement
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # After SecurityMiddleware
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -104,8 +111,8 @@ CACHES = {
     backend_config.django_deploy_cache_name: {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": backend_config.django_deploy_cache_name,
-        "KEY_PREFIX": "",  # Set to an empty string to avoid using a prefix
-        "VERSION": "version",  # Set to string so it can be stripped
+        "KEY_PREFIX": "",
+        "VERSION": "version",
     },
 }
 
@@ -128,26 +135,17 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-# https://docs.djangoproject.com/en/4.2/topics/i18n/
-
 LANGUAGE_CODE = "en-us"
-
 TIME_ZONE = "UTC"
-
 USE_I18N = True
-
 USE_TZ = True
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/4.2/howto/static-files/
-
-STATIC_URL = "static/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# ChromaDB configuration
 CHROMA_DB_PORT = int(os.environ.get("CHROMA_DB_PORT", 8111))
 CHROMA_DB_HOST = os.environ.get("CHROMA_DB_HOST", "tt_studio_chromadb")
 CHROMA_DB_EMBED_MODEL = "all-MiniLM-L6-v2"
@@ -157,3 +155,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [],
     "UNAUTHENTICATED_USER": None,
 }
+
+# WhiteNoise compression and caching
+WHITENOISE_MANIFEST_STRICT = False
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_AUTOREFRESH = True

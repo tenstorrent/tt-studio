@@ -7,6 +7,7 @@ numpy==1.26.4
 pyjwt==2.7.0
 pypdf==4.3.1
 requests==2.29.0
+whitenoise==6.6.0
 
 # dev
 pytest==8.2.2
