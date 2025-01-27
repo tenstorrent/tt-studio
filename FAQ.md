@@ -1,41 +1,60 @@
 # Frequently Asked Questions
 
-## Table of Contents 
+## Table of Contents
+
 1. [Frontend Does Not Load](#frontend-does-not-load)
-2. [Module not found](#module-not-found-error)
+2. [Module Not Found Error](#module-not-found-error)
 
-## Frontend Does Not Load 
+---
 
-If the frontend app has not loaded despite running `docker compose up --build`, there is likely an issue with docker using cached files. Check if the `node_modules` directory has been created in `tt-studio/app/frontend`. If this directory is missing, this usually means that `npm (Node Package Manager)` did not successfully run and docker has skipped running this since it used layer caching. To resolve run the following: 
+## Frontend Does Not Load
+
+If the frontend app does not load despite running `docker compose up --build`, the issue is likely due to Docker using cached layers and skipping critical steps like installing dependencies.
+
+**Solution**:
 
 ```bash
+# Rebuild Docker containers without cache
 docker compose build --no-cache
 docker compose up
 ```
 
-## Module not found error
+**What this does**:
 
-This error often occurs due to missing or corrupted dependencies. Here's a quick fix:
+- Docker skips rebuilding layers it thinks are unchanged (e.g., `node_modules`).
+- `--no-cache` forces Docker to re-run all steps, including `npm install`.
 
-1. Delete `node_modules` and `package-lock.json`:
+---
 
+## Module Not Found Error
 
-```shellscript
-rm -rf node_modules package-lock.json
-```
+This error (`Cannot find module [X]`) typically occurs due to **missing, corrupted, or platform-mismatched dependencies**.
 
-2. Reinstall dependencies:
+### Quick Fix:
 
+1. **Delete corrupted dependencies**:
+   ```bash
+   rm -rf node_modules package-lock.json
+   ```
+2. **Clear npm cache** (optional but recommended):
+   ```bash
+   # go into the frontend folder
+   cd frontend
+   npm cache clean --force
+   ```
+3. **Reinstall dependencies**:
+   ```bash
+   cd frontend
+   npm install
+   ```
+4. **Rebuild Docker with fresh dependencies**:
+   ```bash
+   docker compose down
+   docker compose build --no-cache
+   docker compose up
+   ```
 
-```shellscript
-cd frontend
-npm i
-```
+### What this does:
 
-3. Re-run App using docker:
-
-
-```shellscript
-docker compose down
-docker compose up --build
-```
+- `node_modules` and `package-lock.json` often get corrupted due to npm bugs or OS-specific issues (e.g., Apple Silicon) or when new packages are introduced either via a bug fix or a new feature.
+- Rebuilding with `--no-cache` ensures Docker doesn’t reuse stale layers.
