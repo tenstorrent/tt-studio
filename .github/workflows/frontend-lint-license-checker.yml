@@ -32,10 +32,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'
+          node-version: "16"
 
       - name: Install dependencies
-        working-directory: app/frontend  
+        working-directory: app/frontend
         run: npm install
 
       - name: Run ESLint with Auto-fix
@@ -46,7 +46,7 @@ jobs:
 
       # Run ESLint and Capture Output
       - name: Run ESLint and Capture Output
-        working-directory: app/frontend  
+        working-directory: app/frontend
         id: run_eslint
         run: |
           set +e
@@ -114,7 +114,7 @@ jobs:
 
       # Comment on PR with ESLint Errors and LC Headers
       - name: Comment on PR with ESLint Errors and LC Headers
-        if: env.MISSING_LC_HEADERS == 'true'  # Ensure we only comment if there are missing license headers
+        if: env.MISSING_LC_HEADERS == 'true' # Ensure we only comment if there are missing license headers
         uses: actions/github-script@v7
         with:
           script: |
