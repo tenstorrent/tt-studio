@@ -248,7 +248,7 @@ cp -r /path/to/tt-inference-server/persistent_volume/model_envs /path/to/tt_stud
 Modify the [`tt-studio/app/.env` ](app/.env) file to reflect the new environment path:
 
 ```
-VLLM_LLAMA31_ENV_FILE="/tt_studio_persistent_volume/model_env_lammaXX.env"
+VLLM_LLAMA31_ENV_FILE="/tt_studio_persistent_volume/model_envs/llama-3.1-70b-instruct.env"
 ```
 
 **Note:**  
