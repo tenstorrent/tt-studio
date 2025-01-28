@@ -237,7 +237,7 @@ After the setup is complete, the `model_env` directory will be generated at:
 $USR/tt-inference-server/persistent_volume/model_env
 ```
 
-**Step 2: Copy the `model_env` directory**  
+**Step 2: Copy the `model_envs` directory**  
 Copy the entire `model_envs` structure to the TT-Studio persistent volume using the command:
 
 ```
