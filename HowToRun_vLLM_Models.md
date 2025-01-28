@@ -238,7 +238,7 @@ $USR/tt-inference-server/persistent_volume/model_env
 ```
 
 **Step 2: Copy the `model_env` directory**  
-Copy the entire `model_env` structure to the TT-Studio persistent volume using the command:
+Copy the entire `model_envs` structure to the TT-Studio persistent volume using the command:
 
 ```
 cp -r path/to/tt-inference-server/persistent_volume/model_env /path/to/tt_studio_persistent_volume/
