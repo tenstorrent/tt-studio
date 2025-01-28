@@ -10,6 +10,7 @@ import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
 import RagManagement from "../components/rag/RagManagement";
 import LogsPage from "../pages/LogsPage";
+import ObjectDetectionPage from "../pages/ObjectDetectionPage";
 
 const AppRouter = () => {
   return (
@@ -23,6 +24,7 @@ const AppRouter = () => {
             <Route path="/chat-ui" element={<ChatUI />} />
             <Route path="/rag-management" element={<RagManagement />} />
             <Route path="/logs" element={<LogsPage />} />
+            <Route path="/object-detection" element={<ObjectDetectionPage />} />
           </Routes>
         </Router>
       </ModelsProvider>
