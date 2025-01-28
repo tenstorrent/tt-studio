@@ -108,7 +108,7 @@ HF_TOKEN=hf_********
 You will see the following prompt:
 
 ```
-Enter your PERSISTENT_VOLUME_ROOT [default: tt-inference-server/tt_inference_server_persistent_volume]:
+Enter your PERSISTENT_VOLUME_ROOT [default: /path/to/tt-inference-server/tt_inference_server_persistent_volume]:
 ```
 
 **Important:**  
