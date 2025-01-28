@@ -146,7 +146,7 @@ Model weights already exist at: /path/to/persistent_volume/model_weights/repacke
 You can manually verify the contents using the command:
 
 ```
-ls -lh /path/to/persistent_volume/model_weights/repacked-llama-3.1-70b-instruct
+ls -lh /path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/model_weights/repacked-llama-3.1-70b-instruct
 ```
 
 Ensure that all necessary files (e.g., `.pth` weight files, `params.json`, `tokenizer.model`) are present.  
