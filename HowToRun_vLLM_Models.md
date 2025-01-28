@@ -24,7 +24,7 @@ This guide provides step-by-step instructions on setting up and deploying vLLM L
 1. [Clone repositories](#1-clone-required-repositories)
 2. [Pull the mock model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)
 3. [Set up the Hugging Face (HF) token](#3-set-up-environment-variables-and-hugging-face-token)
-4. [Run the mock vLLM model via the GUI](#7-deploy-and-run-the-model)
+4. [Run the mock vLLM model via the GUI](#6-deploy-and-run-the-model)
 
 ### **For vLLM Llama3.1-70B Model:**
 
