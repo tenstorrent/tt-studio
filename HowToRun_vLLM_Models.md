@@ -140,7 +140,7 @@ Use :hugging_face: Hugging Face authorization token for downloading models? Alte
 After setup, confirm that the model weights have been downloaded correctly by checking the directory contents. The setup script will output a message like:
 
 ```
-Model weights already exist at: /path/to/persistent_volume/model_weights/repacked-llama-3.1-70b-instruct
+Model weights already exist at: /path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/model_weights/repacked-llama-3.1-70b-instruct
 ```
 
 You can manually verify the contents using the command:
