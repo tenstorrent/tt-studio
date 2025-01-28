@@ -115,7 +115,7 @@ Enter your PERSISTENT_VOLUME_ROOT [default: /path/to/tt-inference-server/tt_infe
 **Do not accept the default path.** Instead, specify the path to your TT-Studio installation's persistent volume:
 
 ```
-tt-studio/tt_studio_persistent_volume
+/path/to/tt-studio/tt_studio_persistent_volume
 ```
 
 This ensures compatibility with the TT-Studio directory structure. Using the default path may result in misconfiguration and potential issues during model deployment.
