@@ -1,9 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import { useStepper } from "./ui/stepper";
 import { Button } from "./ui/button";
 import { Link } from "react-router-dom";
-import { RefreshCw, ExternalLink } from "lucide-react";
+import { RefreshCw, List } from 'lucide-react';
+import { motion } from "framer-motion";
+
+const RotatingIcon = () => (
+  <motion.div
+    whileHover={{ rotate: 360 }}
+    transition={{ duration: 0.5, ease: "easeInOut" }}
+    className="mr-2"
+  >
+    <RefreshCw className="w-5 h-5" />
+  </motion.div>
+);
+
+const ScalingIcon = () => (
+  <motion.div
+    whileHover={{ scale: 1.2 }}
+    transition={{ duration: 0.3, ease: "easeInOut" }}
+    className="ml-2"
+  >
+    <List className="w-5 h-5" />
+  </motion.div>
+);
 
 const StepperFooter = ({
   removeDynamicSteps,
@@ -22,26 +44,27 @@ const StepperFooter = ({
   }
 
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="mt-8 flex justify-center space-x-4 w-full">
       <Button
         onClick={handleReset}
-        className="flex items-center gap-2 px-4 py-2 text-gray-800 bg-gray-300 border border-gray-400 hover:bg-gray-400 hover:text-white rounded-lg dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600 dark:hover:text-white"
+        className="bg-white text-gray-900 hover:bg-gray-100 rounded-md py-2 px-4 text-base font-medium transition-colors flex items-center"
       >
-        Reset and Deploy Another Model!
-        <RefreshCw className="w-5 h-5 ml-2" />
+        <RotatingIcon />
+        Deploy Another
       </Button>
-
-      <Button className="flex items-center gap-2 px-4 py-2 text-gray-800 bg-gray-300 border border-gray-400 hover:bg-gray-400 hover:text-white rounded-lg dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600 dark:hover:text-white">
-        <Link
-          to={"/models-deployed"}
-          className="no-underline text-gray-800 hover:text-white dark:text-gray-300 dark:hover:text-white"
-        >
-          Models Deployed
+      <Button 
+        asChild 
+        variant="outline" 
+        className="bg-gray-800 text-white hover:bg-gray-700 border-gray-700 rounded-md py-2 px-4 text-base font-medium transition-colors flex items-center"
+      >
+        <Link to="/models-deployed" className="flex items-center">
+          View Deployed Models
+          <ScalingIcon />
         </Link>
-        <ExternalLink className="w-5 h-5 ml-2" />
       </Button>
     </div>
   );
 };
 
 export default StepperFooter;
+
