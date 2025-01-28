@@ -27,25 +27,80 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 - Pass the automated GitHub Actions workflow tests.
 - Pass any testing requirements specified by the relevant codeowners.
 
-### Pull Request Guidelines
+### **Git Branching Strategy Overview**
 
-- All PRs must first be merged into the `staging` branch. We use a squash merge strategy for this, meaning that all the individual commits from a feature branch are combined into a single commit when merged. This simplifies the commit history, ensuring that the feature is tracked as a single change while keeping the repository clean and manageable.
+### **1. Main Branches:**
 
-- When merging from `staging` into `main`, we do **not** use squashing. This ensures that the full commit history between these branches is preserved.
+- **`main`**: Holds production-ready code.
 
-Please ensure that this process is followed when submitting PRs to keep the repository organized and maintainable.
+  - **Rules:**
+
+    - No force pushes.
+
+    - Requires rebase and merge.
+
+- **`dev`**: The central branch where all feature branches are merged and validated before preparing for release cut branch.
+
+  - **Rules:**
+
+    - No force pushes.
+
+    - Requires squash merge.
+
+---
+
+### **2. Feature Development Workflow**
+
+#### **Development Process**
+
+- Developers create feature branches from `main` to work on new features or bug fixes.
+- Once a feature is completed and reviewed, it is **squash merged** into `dev` to maintain a clean history.
+
+---
+
+#### **Release Preparation**
+
+- When `dev` is stable and ready for release, a **release cut branch** (e.g., `release-v1.xxx`) is created from `dev`.
+- Developers **cherry-pick** their completed and validated features from `dev` into the release branch.
+- The release branch is tested before deployment.
+
+---
+
+#### **Final Deployment**
+
+- Once the release branch is validated, it is merged into `main` for production deployment.
+- Merging to `main` requires **at least two approvals** to ensure code quality and stability.
+- After merging, the release is tagged following semantic versioning (e.g., `v1.0.0`).
+
+---
+
+#### Git Tagging
+
+- Tags are created in main to mark production releases.
+
+- [Semantic versioning (e.g., v1.0.0) is used to track different versions.](#versioning-standards)
+
+---
 
 ### Versioning Standards
 
 To ensure consistency in versioning, we follow the principles of **semantic versioning**:
 
 - **MAJOR**: Increment for incompatible or breaking changes to backend or frontend APIs or functionality:
+
   - Removing or significantly altering existing features.
   - Changing the current networking design.
   - Altering backend API flows.
   - Changing frontend API calls and/or redoing entire components.
 
 - **MINOR**: Increment when adding new features or capabilities in a backward-compatible manner:
+
   - For example, supporting new models like YOLOv4 or adding new functionalities.
 
 - **PATCH**: Increment for bug fixes and minor improvements that are backward-compatible.
+
+---
+
+### FlowChart for our Git Branching Strategy
+
+<img src="Git-management.png" alt="Git Branching Strategy" width="600" />
