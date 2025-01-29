@@ -40,7 +40,6 @@ services:
       - BACKEND_API_HOSTNAME
       - VLLM_LLAMA31_ENV_FILE
       - JWT_SECRET
-      - HF_TOKEN
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
