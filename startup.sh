@@ -156,8 +156,16 @@ else
     exit 1
 fi
 
-# Step 2: Source env vars
+# Step 2: Source env vars, ensure directories
 source "${ENV_FILE_PATH}"
+# make persistent volume on host user user permissions
+if [ ! -d "$HOST_PERSISTENT_STORAGE_VOLUME" ]; then
+    mkdir "$HOST_PERSISTENT_STORAGE_VOLUME"
+    if [ $? -ne 0 ]; then
+        echo "⛔ Error: Failed to create directory $HOST_PERSISTENT_STORAGE_VOLUME"
+        exit 1
+    fi
+fi
 
 # Step 3: Check if the Docker network already exists
 NETWORK_NAME="tt_studio_network"
