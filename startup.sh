@@ -4,6 +4,8 @@
 # 
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+set -euo pipefail  # Exit on error, print commands, unset variables treated as errors, and exit on pipeline failure
+
 # Define setup script path
 SETUP_SCRIPT="./setup.sh"
 
