@@ -8,16 +8,7 @@ import { VoiceInput } from "./VoiceInput";
 import { FileUpload } from "../ui/file-upload";
 import { encodeFileToBase64, isImageFile, validateFile } from "./fileUtils";
 import { cn } from "../../lib/utils";
-
-interface FileData {
-  type: "text" | "image_url";
-  text?: string;
-  image_url?: {
-    url: string;
-  };
-  name: string;
-}
-
+import type { FileData } from "./types";
 interface InputAreaProps {
   textInput: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;

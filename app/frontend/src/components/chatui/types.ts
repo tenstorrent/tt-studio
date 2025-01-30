@@ -1,10 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+export interface ChatMessage {
+  id: string;
+  sender: "user" | "assistant";
+  text: string;
+  files?: FileData[];
+  inferenceStats?: InferenceStats;
+}
+export interface FileData {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: {
+    url: string;
+  };
+  name: string;
+}
+
 export interface InferenceRequest {
   deploy_id: string;
   text: string;
   rag_context?: { documents: string[] };
+  files?: FileData[];
+}
+
+export interface FileData {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: {
+    url: string;
+  };
+  name: string;
+  blob?: Blob;
 }
 
 export interface RagDataSource {
