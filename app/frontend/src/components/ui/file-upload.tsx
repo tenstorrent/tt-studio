@@ -41,6 +41,7 @@ export const FileUpload = ({
   onChange,
 }: {
   onChange?: (files: File[]) => void;
+  onClose?: () => void;
 }) => {
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
