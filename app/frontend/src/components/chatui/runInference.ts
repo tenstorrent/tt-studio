@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-import {
+import type {
   InferenceRequest,
   RagDataSource,
   ChatMessage,
@@ -23,6 +23,8 @@ export const runInference = async (
   try {
     setIsStreaming(true);
 
+    console.log("Uploaded files:", request.files);
+
     let ragContext: { documents: string[] } | null = null;
 
     if (ragDatasource) {
@@ -34,7 +36,7 @@ export const runInference = async (
     console.log("RAG context being passed to generatePrompt:", ragContext);
     const messages = generatePrompt(
       chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-      ragContext,
+      ragContext
     );
 
     console.log("Generated messages:", messages);
@@ -84,7 +86,7 @@ export const runInference = async (
  
     console.log(
       "Sending request to model:",
-      JSON.stringify(requestBody, null, 2),
+      JSON.stringify(requestBody, null, 2)
     );
 
     const response = await fetch(API_URL, {
@@ -151,7 +153,7 @@ export const runInference = async (
                   user_tpot: jsonData.tpot,
                   tokens_decoded: jsonData.tokens_decoded,
                   tokens_prefilled: jsonData.tokens_prefilled,
-                  context_length: jsonData.context_length
+                  context_length: jsonData.context_length,
                 };
                 console.log("Final Inference Stats received:", inferenceStats);
                 continue; // Skip processing this chunk as part of the generated text
@@ -186,7 +188,7 @@ export const runInference = async (
     if (inferenceStats) {
       console.log(
         "Updating chat history with inference stats:",
-        inferenceStats,
+        inferenceStats
       );
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
