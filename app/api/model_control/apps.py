@@ -19,4 +19,4 @@ class ModelControlConfig(AppConfig):
         # run once
         logger.info("Initializing models API")
         for model_id, impl in model_implmentations.items():
-            impl.init_volumes()
+            impl.setup()
