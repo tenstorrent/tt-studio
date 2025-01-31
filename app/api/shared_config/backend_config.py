@@ -18,7 +18,6 @@ class BackendConfig:
     weights_dir: str
     model_container_cache_root: str
     jwt_secret: str
-    hf_token: str
 
 
 # environment variables are ideally terminated on import to fail-fast and provide obvious
@@ -34,9 +33,8 @@ backend_config = BackendConfig(
     django_deploy_cache_name="deploy_cache",
     docker_bridge_network_name="tt_studio_network",
     weights_dir="model_weights",
-    model_container_cache_root="/home/user/cache_root",
+    model_container_cache_root="/home/container_app_user/cache_root",
     jwt_secret=os.environ["JWT_SECRET"],
-    hf_token=os.environ["HF_TOKEN"],
 )
 
 # make backend volume if not existing
