@@ -26,6 +26,14 @@ import {
   createCollection,
   uploadDocument,
 } from "@/src/components/rag";
+import {
+  FileText,
+  Trash2,
+  Upload,
+  Fingerprint,
+  User,
+  Settings,
+} from "lucide-react";
 
 interface RagDataSource {
   id: string;
@@ -155,14 +163,17 @@ export default function RagManagement() {
   }) => (
     <TableRow key={item.id}>
       <TableCell className="text-left">
-        <CopyableText text={item.name} />
-      </TableCell>
-      <TableCell className="text-left">
         <CopyableText text={item.id} />
       </TableCell>
       <TableCell className="text-left">
+        <CopyableText text={item.name} />
+      </TableCell>
+      <TableCell className="text-left">
         {item.metadata?.last_uploaded_document ? (
-          <CopyableText text={item.metadata.last_uploaded_document} />
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            <CopyableText text={item.metadata.last_uploaded_document} />
+          </div>
         ) : (
           "No file uploaded"
         )}
@@ -176,17 +187,19 @@ export default function RagManagement() {
             alertTrigger={
               <Button
                 disabled={isUploading}
-                className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg"
+                className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-2"
               >
+                <Trash2 className="w-4 h-4" />
                 Delete
               </Button>
             }
           />
           <Button
             disabled={isUploading}
-            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
+            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-2"
             onClick={() => onUploadClick(item)}
           >
+            <Upload className="w-4 h-4" />
             Upload Document
           </Button>
           <div className={`my-auto ${!isUploading && "invisible"}`}>
@@ -229,11 +242,30 @@ export default function RagManagement() {
                 <TableRow
                   className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
                 >
-                  {["Name", "ID", "File Name", "Manage"].map((f) => (
-                    <TableHead key={f} className="text-left">
-                      {f}
-                    </TableHead>
-                  ))}
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <Fingerprint className="w-4 h-4" />
+                      ID
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      Name
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4" />
+                      File Name
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <Settings className="w-4 h-4" />
+                      Manage
+                    </div>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
