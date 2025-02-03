@@ -8,15 +8,15 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
-} from '../ui/breadcrumb';
+} from "../ui/breadcrumb";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '../ui/tooltip';
-import { Button } from '../ui/button';
-import { ArrowLeft, PanelRight } from 'lucide-react';
+} from "../ui/tooltip";
+import { Button } from "../ui/button";
+import { ArrowLeft, PanelRight } from "lucide-react";
 
 interface HeaderProps {
   onBack: () => void;
@@ -30,7 +30,7 @@ export default function Header({
   setIsHistoryPanelOpen,
 }: HeaderProps) {
   return (
-    <div className="bg-white dark:bg-gray-900 p-4 shadow-lg sticky top-2 z-10 flex justify-between items-center border-b border-gray-200 dark:border-gray-800 transition-all duration-300 ease-in-out">
+    <div className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 p-4 shadow-lg sticky top-2 z-10 flex justify-between items-center border-b  transition-all duration-300 ease-in-out rounded-lg">
       <div className="flex items-center">
         <Button
           variant="ghost"
@@ -40,7 +40,7 @@ export default function Header({
         >
           <ArrowLeft className="h-6 w-6" />
         </Button>
-        <Breadcrumb className="flex items-center">
+        <Breadcrumb className="flex items-center rounded-lg">
           <BreadcrumbList className="flex gap-2 text-sm">
             <BreadcrumbItem>
               <TooltipProvider>
@@ -93,7 +93,7 @@ export default function Header({
               </Button>
             </TooltipTrigger>
             <TooltipContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-white">
-              <p>{isHistoryPanelOpen ? 'Close' : 'Open'} history panel</p>
+              <p>{isHistoryPanelOpen ? "Close" : "Open"} history panel</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
