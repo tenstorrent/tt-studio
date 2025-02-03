@@ -17,6 +17,7 @@ export const runInference = async (
   chatHistory: ChatMessage[],
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
+  isAgentSelected: boolean
 ) => {
   try {
     setIsStreaming(true);
@@ -37,7 +38,10 @@ export const runInference = async (
 
     console.log("Generated messages:", messages);
 
-    const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
+    const API_URL = isAgentSelected 
+    ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"  
+    : import.meta.env.VITE_API_URL || "/models-api/inference/"; 
+    
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
@@ -119,7 +123,8 @@ export const runInference = async (
             try {
               const jsonData = JSON.parse(trimmedLine.slice(5));
 
-              // Handle statistics separately after [DONE]
+              if (!isAgentSelected) {
+              // // Handle statistics separately after [DONE]
               if (jsonData.ttft && jsonData.tpot) {
                 inferenceStats = {
                   user_ttft_s: jsonData.ttft,
@@ -131,7 +136,7 @@ export const runInference = async (
                 console.log("Final Inference Stats received:", inferenceStats);
                 continue; // Skip processing this chunk as part of the generated text
               }
-
+            } 
               // Handle the generated text
               const content = jsonData.choices[0]?.delta?.content || "";
               if (content) {
