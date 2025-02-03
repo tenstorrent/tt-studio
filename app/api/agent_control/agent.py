@@ -36,15 +36,8 @@ search = TavilySearchResults(
     max_results=2,
     include_answer=True,
     include_raw_content=True)
-
-# TODO: enable code agent
-# os.environ["E2B_API_KEY"] = os.getenv("E2B_API_KEY")
-# code_interpreter = CodeInterpreterFunctionTool()
-# code_interpreter_tool = code_interpreter.to_langchain_tool()
 tools = [search]
 agent_executer = setup_executer(llm, memory, tools)
-config = {"configurable": {"thread_id": "abc-123"}}
-# asyncio.run(poll_requests(agent_executer, config, tools, memory)) # TODO: enable to run without server 
 
 @app.post("/poll_requests")
 async def handle_requests(payload: RequestPayload):
