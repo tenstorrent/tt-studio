@@ -66,7 +66,29 @@ def run_container(impl, weights_id):
     except docker.errors.ContainerError as e:
         return {"status": "error", "message": str(e)}
 
-
+def run_agent_container(container_name, port_bindings, impl):
+    # runs agent container after associated llm container runs
+    run_kwargs = copy.deepcopy(impl.docker_config)
+    host_agent_port = get_host_agent_port()
+    llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
+    run_kwargs = {
+    'name': f'ai_agent_container_p{llm_host_port}',  # Container name
+    'network': 'tt_studio_network',  # Docker network
+    'ports': {'8080/tcp': host_agent_port},  # Mapping container port 8080 to host port (host port dependent on LLM port)
+    'environment': {
+        'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'), # found in env file 
+        'LLM_CONTAINER_NAME': container_name,
+        'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET']
+    },  # Set the environment variables
+    'detach': True,  # Run the container in detached mode
+}
+    container = client.containers.run(
+    'agent_image:v1',
+    f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
+    auto_remove=True,
+    **run_kwargs
+)
+    
 def stop_container(container_id):
     """Stop a specific docker container"""
     try:
@@ -121,6 +143,28 @@ def get_host_port(impl):
     logger.warning("Could not find an unused port in block: 8001-8100")
     return None
 
+def get_host_agent_port():
+    # used fixed block of ports starting at 8101 for agents 
+    agent_containers = get_agent_containers()
+    port_mappings = get_port_mappings(agent_containers)
+    used_host_agent_ports = get_used_host_ports(port_mappings)
+    logger.info(f"used_host_agent_ports={used_host_agent_ports}")
+    BASE_AGENT_PORT = 8201
+    for port in range(BASE_AGENT_PORT, BASE_AGENT_PORT+100):
+        if str(port) not in used_host_agent_ports:
+            return port
+    logger.warning("Could not find an unused port in block: 8201-8300")
+
+def get_agent_containers():
+    """
+    get all containers used by an ai agent 
+    """
+    running_containers = client.containers.list()
+    agent_containers = []
+    for container in running_containers:
+        if "ai_agent_container" in container.name: 
+            agent_containers.append(container)
+    return agent_containers
 
 def get_managed_containers():
     """get containers configured in model_config.py for LLM-studio management"""
