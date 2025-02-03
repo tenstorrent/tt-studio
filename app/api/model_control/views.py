@@ -18,6 +18,7 @@ from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
     stream_response_from_external_api,
+    stream_response_from_agent_api,
     health_check,
 )
 from shared_config.model_config import model_implmentations
@@ -40,6 +41,30 @@ class InferenceView(APIView):
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
             data["model"] = deploy["model_impl"].hf_model_id
             response_stream = stream_response_from_external_api(internal_url, data)
+            return StreamingHttpResponse(response_stream, content_type="text/plain")
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+class AgentView(APIView):
+    def post(self, request, *agrs, **kwargs):
+        logger.info(f"URL '/agent/' accessed via POST method by {request.META['REMOTE_ADDR']}")        
+        data = request.data 
+        logger.info(f"AgentView data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.pop("deploy_id")
+            logger.info(f"Deploy ID: {deploy_id}")
+            deploy = get_deploy_cache()[deploy_id]
+            colon_idx = deploy["internal_url"].rfind(":")
+            underscore_idx = deploy["internal_url"].rfind("_")
+            llm_host_port = deploy["internal_url"][underscore_idx + 2: colon_idx] # add 2 to remove the p
+            # agent port on host is 200 + the llm host port
+            internal_url = f"http://ai_agent_container_p{llm_host_port}:{int(llm_host_port) + 200}/poll_requests"
+            logger.info(f"internal_url:= {internal_url}")
+            logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
+            data["model"] = deploy["model_impl"].hf_model_path
+            logger.info(f"Using internal url: {internal_url}")
+            response_stream = stream_response_from_agent_api(internal_url, data)
             return StreamingHttpResponse(response_stream, content_type="text/plain")
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
