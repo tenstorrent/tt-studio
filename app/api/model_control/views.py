@@ -62,7 +62,7 @@ class AgentView(APIView):
             internal_url = f"http://ai_agent_container_p{llm_host_port}:{int(llm_host_port) + 200}/poll_requests"
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
-            data["model"] = deploy["model_impl"].hf_model_path
+            data["model"] = deploy["model_impl"].hf_model_id
             logger.info(f"Using internal url: {internal_url}")
             response_stream = stream_response_from_agent_api(internal_url, data)
             return StreamingHttpResponse(response_stream, content_type="text/plain")
