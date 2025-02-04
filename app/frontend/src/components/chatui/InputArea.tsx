@@ -6,19 +6,10 @@ import { Button } from "../ui/button";
 import { Paperclip, Send, X, File } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
 import { FileUpload } from "../ui/file-upload";
-import { encodeFileToBase64, isImageFile, validateFile } from "./fileUtils";
+import { isImageFile, validateFile, encodeFile } from "./fileUtils";
 import { cn } from "../../lib/utils";
-import type { FileData } from "./types";
-interface InputAreaProps {
-  textInput: string;
-  setTextInput: React.Dispatch<React.SetStateAction<string>>;
-  handleInference: (input: string, files: FileData[]) => void;
-  isStreaming: boolean;
-  isListening: boolean;
-  setIsListening: (isListening: boolean) => void;
-  files: FileData[];
-  setFiles: React.Dispatch<React.SetStateAction<FileData[]>>;
-}
+import type { FileData, InputAreaProps } from "./types";
+import { customToast } from "../CustomToaster";
 
 export default function InputArea({
   textInput,
@@ -34,14 +25,12 @@ export default function InputArea({
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Preserved original focus logic
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
       textareaRef.current.focus();
     }
   }, [isStreaming]);
 
-  // Maintained textarea height adjustment
   useEffect(() => {
     if (textareaRef.current) {
       adjustTextareaHeight();
@@ -59,7 +48,6 @@ export default function InputArea({
     setTextInput(e.target.value);
   };
 
-  // Preserved original key press handling
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
       e.preventDefault();
@@ -67,7 +55,6 @@ export default function InputArea({
     }
   };
 
-  // Maintained voice input with space addition
   const handleVoiceInput = (transcript: string) => {
     setTextInput((prevText) => prevText + (prevText ? " " : "") + transcript);
   };
@@ -81,7 +68,7 @@ export default function InputArea({
             throw new Error(validation.error);
           }
 
-          const base64 = await encodeFileToBase64(file);
+          const base64 = await encodeFile(file, true);
           if (isImageFile(file)) {
             return {
               type: "image_url" as const,
@@ -89,6 +76,7 @@ export default function InputArea({
               name: file.name,
             };
           }
+          console.log("Encoded file:", base64);
           return {
             type: "text" as const,
             text: base64,
@@ -96,7 +84,9 @@ export default function InputArea({
           };
         })
       );
-      setFiles((prevFiles) => [...prevFiles, ...encodedFiles]);
+      setFiles(
+        (prevFiles: FileData[]) => [...prevFiles, ...encodedFiles] as FileData[]
+      );
     } catch (error) {
       console.error("File upload error:", error);
       // Consider adding toast/alert here
@@ -106,6 +96,7 @@ export default function InputArea({
 
   const removeFile = (index: number) => {
     setFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
+    customToast.success("File removed successfully!");
   };
 
   // Drag and drop handlers
