@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useState } from "react";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, ExternalLink } from "lucide-react";
 
 interface ImagePreviewProps {
   url: string;
@@ -20,14 +20,15 @@ export function ImagePreview({ url }: ImagePreviewProps) {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-yellow-300 hover:text-yellow-400 underline"
+        className="text-yellow-300 hover:text-yellow-400 underline flex items-center gap-1"
       >
-        {url}
+        <span>{url}</span>
+        <ExternalLink className="h-4 w-4" />
       </a>
     );
 
   return (
-    <div className="relative inline-block">
+    <span className="relative inline-block">
       <a
         href={url}
         target="_blank"
@@ -38,16 +39,17 @@ export function ImagePreview({ url }: ImagePreviewProps) {
       >
         <span className="underline underline-offset-2">{url}</span>
         <ImageIcon className="h-4 w-4 opacity-80 group-hover:opacity-100 transition-opacity" />
+        <ExternalLink className="h-4 w-4 opacity-80 group-hover:opacity-100 transition-opacity" />
       </a>
       {showPreview && (
-        <div className="absolute z-50 left-0 mt-2 p-2 bg-gray-800 rounded-lg shadow-xl border border-gray-700">
+        <span className="absolute z-50 left-0 mt-2 p-2 bg-gray-800 rounded-lg shadow-xl border border-gray-700 inline-block">
           <img
             src={url || "/placeholder.svg"}
             alt="Preview"
             className="max-w-[300px] max-h-[200px] object-contain rounded"
           />
-        </div>
+        </span>
       )}
-    </div>
+    </span>
   );
 }
