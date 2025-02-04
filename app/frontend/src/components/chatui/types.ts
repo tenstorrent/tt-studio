@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+
+export interface InputAreaProps {
+  textInput: string
+  setTextInput: React.Dispatch<React.SetStateAction<string>>
+  handleInference: (input: string, files: FileData[]) => void
+  isStreaming: boolean
+  isListening: boolean
+  setIsListening: (isListening: boolean) => void
+  files: FileData[]
+  setFiles: React.Dispatch<React.SetStateAction<FileData[]>>
+}
 export interface ChatMessage {
   id: string;
   sender: "user" | "assistant";
@@ -9,12 +20,14 @@ export interface ChatMessage {
   inferenceStats?: InferenceStats;
 }
 export interface FileData {
+  url: any;
   type: "text" | "image_url";
   text?: string;
   image_url?: {
     url: string;
   };
   name: string;
+  blob?: Blob;
 }
 
 export interface InferenceRequest {
