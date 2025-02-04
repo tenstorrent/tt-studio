@@ -38,6 +38,8 @@ export const runInference = async (
       console.log(
         "Files detected, using image_url message structure",
         request.files[0].image_url?.url
+        // TODO check if this is correct
+        // request.files[0].image_url?.url || request.files[0]
       );
       messages = [
         {
@@ -48,6 +50,26 @@ export const runInference = async (
               type: "image_url",
               image_url: {
                 url: request.files[0].image_url?.url || request.files[0],
+              },
+            },
+          ],
+        },
+      ];
+    } else if (
+      request.text &&
+      request.text.includes("https://") &&
+      request.text.match(/\.(jpeg|jpg|gif|png)$/)
+    ) {
+      console.log("Image URL detected in the message");
+      messages = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What's in this image?" },
+            {
+              type: "image_url",
+              image_url: {
+                url: request.text,
               },
             },
           ],
