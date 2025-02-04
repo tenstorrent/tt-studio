@@ -190,7 +190,7 @@ export default function InputArea({
               type="button"
               variant="ghost"
               className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-              onClick={() => setIsFileUploadOpen(true)}
+              onClick={() => setIsFileUploadOpen((prev) => !prev)}
               aria-label="Attach files"
             >
               <Paperclip className="h-5 w-5" />
