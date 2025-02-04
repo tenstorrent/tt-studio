@@ -1,81 +1,97 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import { customToast } from "../CustomToaster"
 
-export const encodeFileToBase64 = (file: File): Promise<string> => {
+export const encodeFile = (file: File, base64Encoded = true): Promise<string> => {
   return new Promise((resolve, reject) => {
+    console.log("Starting file encoding process...")
+    console.log(`File name: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}`)
+    console.log(`Encoding mode: ${base64Encoded ? "Base64" : "Raw binary"}`)
+
     if (!file) {
-      reject(new Error("No file provided"));
-      return;
+      console.error("No file provided")
+      reject(new Error("No file provided"))
+      return
     }
 
-    const reader = new FileReader();
+    const reader = new FileReader()
 
     reader.onload = () => {
-      const result = reader.result as string;
-      // Include both prefix and data for compatibility with Python reference implementation
-      const base64Data = result.split(",")[1];
-      resolve(base64Data);
-    };
+      console.log("File read successfully")
+      const result = reader.result as string
+
+      if (base64Encoded) {
+        // Extract only the base64 data without the data URI prefix
+        const base64Data = result.split(",")[1]
+        console.log(`Base64 encoded data (first 50 chars): ${base64Data.substring(0, 50)}...`)
+        resolve(base64Data)
+        customToast.success(`File name: ${file.name}, uploaded sucessfully!🎉`)
+      } else {
+        // Return raw binary data
+        console.log(`Raw binary data length: ${result.length} bytes`)
+        resolve(result)
+      }
+    }
 
     reader.onerror = (error) => {
-      console.error("File reading error:", error);
-      reject(new Error("Failed to read file"));
-    };
+      customToast.error(`Error uploading file: ${file.name} only supports PNG, JPEG, and WebP images.`)
+      console.error("File reading error:", error)
+      reject(new Error("Failed to read file"))
+    }
 
     reader.onabort = () => {
-      reject(new Error("File reading aborted"));
-    };
+      console.warn("File reading aborted")
+      reject(new Error("File reading aborted"))
+    }
 
     try {
-      // Read as Data URL to get proper formatting
-      reader.readAsDataURL(file);
+      if (base64Encoded) {
+        console.log("Reading file as Data URL...")
+        reader.readAsDataURL(file)
+      } else {
+        console.log("Reading file as ArrayBuffer...")
+        reader.readAsArrayBuffer(file)
+      }
     } catch (error) {
-      reject(
-        new Error(
-          `Failed to read file: ${error instanceof Error ? error.message : "Unknown error"}`
-        )
-      );
+      console.error("Error during file reading:", error)
+      reject(new Error(`Failed to read file: ${error instanceof Error ? error.message : "Unknown error"}`))
     }
-  });
-};
+  })
+}
 
-// Strict validation for supported image types (matches Python reference requirements)
 export const isImageFile = (file: File): boolean => {
-  const supportedMimeTypes = [
-    "image/png", // Primary supported type
-    "image/jpeg", // Add if server supports JPEG
-    "image/webp", // Add if server supports WebP
-  ];
+  const supportedMimeTypes = ["image/png", "image/jpeg", "image/webp"]
+  const result = supportedMimeTypes.includes(file.type)
+  console.log(`File type check: ${file.type} - Is supported image: ${result}`)
+  return result
+}
 
-  return supportedMimeTypes.includes(file.type);
-};
+export const validateFile = (file: File, maxSizeMB = 10): { valid: boolean; error?: string } => {
+  console.log(`Validating file: ${file.name}`)
 
-// Enhanced validation with server requirements
-export const validateFile = (
-  file: File,
-  maxSizeMB = 10
-): { valid: boolean; error?: string } => {
-  if (!file) return { valid: false, error: "No file provided" };
+  if (!file) {
+    console.error("No file provided for validation")
+    return { valid: false, error: "No file provided" }
+  }
 
-  // Size validation (matches Python reference limits)
-  const maxSizeBytes = maxSizeMB * 1024 * 1024;
+  const maxSizeBytes = maxSizeMB * 1024 * 1024
   if (file.size > maxSizeBytes) {
+    console.warn(`File size (${file.size} bytes) exceeds limit of ${maxSizeBytes} bytes`)
     return {
       valid: false,
       error: `File size exceeds ${maxSizeMB}MB limit (${(file.size / 1024 / 1024).toFixed(2)}MB)`,
-    };
+    }
   }
 
-  // Strict type validation
   if (!isImageFile(file)) {
+    console.warn(`Unsupported file type: ${file.type}`)
     return {
       valid: false,
-      error: `Unsupported file type. Only ${supportedMimeTypes.join(", ")} are allowed`,
-    };
+      error: `Unsupported file type. Only PNG, JPEG,and WebP images are allowed.`,
+    }
   }
 
-  return { valid: true };
-};
+  console.log("File validation passed")
+  return { valid: true }
+}
 
-// List of supported MIME types for error messages
-const supportedMimeTypes = ["PNG", "JPEG", "WebP"];
