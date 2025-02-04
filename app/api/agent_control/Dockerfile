@@ -36,10 +36,12 @@ RUN python3 -m ensurepip --upgrade && \
 # Verify the Python version
 RUN python3 --version
 
-# install python dependencies 
-RUN pip install -r requirements.txt --no-cache-dir 
 # Set the working directory
 WORKDIR /app
+
+# install python dependencies 
+COPY ./requirements.txt /app
+RUN pip install -r requirements.txt --no-cache-dir 
 
 # Copy files (optional)
 COPY . /app
