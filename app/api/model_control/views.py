@@ -164,10 +164,16 @@ class ImageGenerationInferenceView(APIView):
                 get_latest_time_url = internal_url.replace("/submit", "/get_latest_time")
                 while (not ready_latest):
                     latest_prompt = requests.get(get_latest_time_url)
-                    latest_prompt.raise_for_status()
-                    if latest_prompt.json()["prompt"] == prompt:
-                        ready_latest = True
+                    if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
+                        latest_prompt.raise_for_status()
+                        if latest_prompt.json()["prompt"] == prompt:
+                            ready_latest = True
                     time.sleep(1)
+
+                # clean up prompt after generation finished
+                cleanup_url = internal_url.replace("/submit", "/clean_up")
+                cleanup_request = requests.post(cleanup_url)
+                cleanup_request.raise_for_status()
 
                 # call get_image to get image
                 get_image_url = internal_url.replace("/submit", "/get_image")
