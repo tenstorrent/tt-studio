@@ -36,7 +36,11 @@ export const runInference = async (
 
     let messages;
     if (request.files && request.files.length > 0) {
-      // If files are uploaded, use the new message structure
+      //  new structure
+      console.log(
+        "Files detected, using image_url message structure",
+        request.files[0].image_url?.url
+      );
       messages = [
         {
           role: "user",
@@ -45,14 +49,13 @@ export const runInference = async (
             {
               type: "image_url",
               image_url: {
-                url: request.files[0],
+                url: request.files[0].image_url?.url || request.files[0],
               },
             },
           ],
         },
       ];
     } else {
-      // If no files, use the original generatePrompt function
       console.log("RAG context being passed to generatePrompt:", ragContext);
       messages = generatePrompt(
         chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
