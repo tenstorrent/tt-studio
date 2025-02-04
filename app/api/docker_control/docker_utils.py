@@ -78,7 +78,8 @@ def run_agent_container(container_name, port_bindings, impl):
     'environment': {
         'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'), # found in env file 
         'LLM_CONTAINER_NAME': container_name,
-        'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET']
+        'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
+        'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
     },  # Set the environment variables
     'detach': True,  # Run the container in detached mode
 }

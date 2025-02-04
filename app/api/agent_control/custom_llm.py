@@ -26,6 +26,7 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain.callbacks.streaming_stdout_final_only import FinalStreamingStdOutCallbackHandler
 import requests
 import json 
+import os 
 
 
 class CustomLLM(BaseChatModel):
@@ -103,8 +104,9 @@ class CustomLLM(BaseChatModel):
         
 
         headers = {"Authorization": f"Bearer {self.encoded_jwt}"}
+        hf_model_path = os.getenv("HF_MODEL_PATH")
         json_data = {
-            "model": "meta-llama/Llama-3.1-70B-Instruct",
+            "model": hf_model_path,
             "messages": message_payload,
             "temperature": 1,
             "top_k": 20,
