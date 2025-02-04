@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { User, ChevronDown, Bot } from "lucide-react";
@@ -7,7 +7,8 @@ import { Button } from "../ui/button";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
 import MessageActions from "./MessageActions";
-import { ChatMessage, FileData } from "./types";
+import type { ChatMessage, FileData } from "./types";
+import { ImagePreview } from "./ImagePreview";
 
 interface ChatHistoryProps {
   chatHistory: ChatMessage[];
@@ -142,7 +143,20 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                     )}
                     {message.sender === "user" && (
                       <div className="flex flex-col gap-2">
-                        {message.text && <p>{message.text}</p>}
+                        {message.text && (
+                          <p>
+                            {message.text.split(" ").map((word, i) => {
+                              const isUrl = word.startsWith("http");
+                              return isUrl ? (
+                                <span key={i}>
+                                  <ImagePreview url={word} />{" "}
+                                </span>
+                              ) : (
+                                <span key={i}>{word} </span>
+                              );
+                            })}
+                          </p>
+                        )}
                         {message.files?.map(
                           (file, index) =>
                             isImageFile(file) && (
@@ -151,7 +165,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                                 className="max-w-[300px] rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700"
                               >
                                 <img
-                                  src={file.image_url?.url}
+                                  src={
+                                    file.image_url?.url || "/placeholder.svg"
+                                  }
                                   alt={file.name}
                                   className="object-contain max-h-[200px] w-auto"
                                 />
