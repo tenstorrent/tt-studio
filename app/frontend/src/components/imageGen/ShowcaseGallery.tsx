@@ -4,6 +4,12 @@
 import React from "react";
 import { Button } from "../ui/button";
 import { FocusCards } from "../ui/focus-cards";
+import castleImage from "../../assets/SD1.4/generated-image-1738773382747.jpg";
+import astronautImage from "../../assets/SD1.4/generated-image-1738773243000.jpg";
+import creepyMansionImage from "../../assets/SD1.4/generated-image-1738773136575.jpg";
+import warriorImage from "../../assets/SD1.4/generated-image-1738773046851.jpg";
+import cyberpunkImage from "../../assets/SD1.4/generated-image-1738773023543.jpg";
+import swissAlpsImage from "../../assets/SD1.4/generated-image-1738772998942.jpg";
 
 interface ShowcaseGalleryProps {
   onStartGenerating: () => void;
@@ -14,45 +20,33 @@ interface ShowcaseGalleryProps {
 const showcaseImages = [
   {
     title:
-      "A cyberpunk cityscape at night with neon lights and flying vehicles",
-    src: "https://images.unsplash.com/photo-1518710843675-2540dd79065c?q=80&w=3387&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "A majestic castle on a floating island, surrounded by mythical creatures, dragons flying in the sky, magical glowing runes, enchanted forest below, ethereal and otherworldly color palette, highly detailed concept art",
+    src: castleImage,
   },
   {
     title:
-      "A serene Japanese garden with cherry blossoms and a traditional pagoda",
-    src: "https://images.unsplash.com/photo-1600271772470-bd22a42787b3?q=80&w=3072&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "Astronaut floating in space near a massive alien planet, glowing nebulae in the background, distant stars twinkling, sleek futuristic spaceship, surreal atmosphere, vast and infinite space, sci-fi realism",
+    src: astronautImage,
   },
   {
     title:
-      "An ethereal forest scene with bioluminescent plants and mystical creatures",
-    src: "https://images.unsplash.com/photo-1505142468610-359e7d316be0?q=80&w=3070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "A creepy abandoned mansion at midnight, thick fog, broken windows, eerie glowing lights inside, horror atmosphere",
+    src: creepyMansionImage,
   },
   {
     title:
-      "A futuristic laboratory with holographic displays and robotic assistants",
-    src: "https://images.unsplash.com/photo-1486915309851-b0cc1f8a0084?q=80&w=3387&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "A warrior in shining armor standing on a battlefield, magical aura around their sword, dark storm clouds in the background, epic fantasy illustration",
+    src: warriorImage,
   },
   {
     title:
-      "An abstract representation of consciousness with flowing colors and shapes",
-    src: "https://images.unsplash.com/photo-1507041957456-9c397ce39c97?q=80&w=3456&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
+      "A breathtaking view of the Swiss Alps at sunrise, crisp details, hyper-realistic lighting, dramatic clouds, ultra-HD photography",
+    src: swissAlpsImage,
   },
   {
     title:
-      "A steampunk-inspired mechanical dragon with brass and copper components",
-    src: "https://assets.aceternity.com/the-first-rule.png",
-  },
-  {
-    title: "A surreal floating island with waterfalls flowing into space",
-    src: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-  },
-  {
-    title: "An ancient temple covered in bioluminescent vines",
-    src: "https://images.unsplash.com/photo-1510798831971-661eb04b3739?w=800&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-  },
-  {
-    title: "A crystalline city emerging from a desert landscape",
-    src: "https://images.unsplash.com/photo-1579547621869-0d6d0d86b849?w=800&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+      "A neon-lit cyberpunk Tokyo street at night, reflections on wet pavement, people walking with futuristic outfits, cinematic realism",
+    src: cyberpunkImage,
   },
 ];
 
