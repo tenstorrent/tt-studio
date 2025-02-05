@@ -53,14 +53,14 @@ We actively welcome your pull requests! To ensure quality contributions, any cod
 
 #### **Development Process**
 
-- Developers create feature branches from `main` to work on new features or bug fixes.
+- Developers create feature branches from `dev` to work on new features or bug fixes.
 - Once a feature is completed and reviewed, it is **squash merged** into `dev` to maintain a clean history.
 
 ---
 
 #### **Release Preparation**
 
-- When `dev` is stable and ready for release, a **release cut branch** (e.g., `release-v1.xxx`) is created from `dev`.
+- When `dev` is stable and ready for release, a **release cut branch** (e.g., `rc-vx.x.x`) is created from `dev`.
 - Developers **cherry-pick** their completed and validated features from `dev` into the release branch.
 - The release branch is tested before deployment.
 
