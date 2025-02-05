@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import { Paperclip, Send, X, File } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
@@ -24,6 +24,7 @@ export default function InputArea({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [showProgressBar, setShowProgressBar] = useState(false);
 
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
@@ -59,40 +60,54 @@ export default function InputArea({
     setTextInput((prevText) => prevText + (prevText ? " " : "") + transcript);
   };
 
-  const handleFileUpload = async (uploadedFiles: File[]) => {
-    try {
-      const encodedFiles = await Promise.all(
-        uploadedFiles.map(async (file) => {
-          const validation = validateFile(file);
-          if (!validation.valid) {
-            throw new Error(validation.error);
-          }
+  const handleFileUpload = useCallback(
+    async (uploadedFiles: File[]) => {
+      try {
+        setIsDragging(true);
+        setShowProgressBar(true);
 
-          const base64 = await encodeFile(file, true);
-          if (isImageFile(file)) {
+        const encodedFiles = await Promise.all(
+          uploadedFiles.map(async (file) => {
+            const validation = validateFile(file);
+            if (!validation.valid) {
+              throw new Error(validation.error);
+            }
+
+            const base64 = await encodeFile(file, true);
+            if (isImageFile(file)) {
+              return {
+                type: "image_url" as const,
+                image_url: { url: `data:${file.type};base64,${base64}` },
+                name: file.name,
+              };
+            }
+            console.log("Encoded file:", base64);
             return {
-              type: "image_url" as const,
-              image_url: { url: `data:${file.type};base64,${base64}` },
+              type: "text" as const,
+              text: base64,
               name: file.name,
             };
-          }
-          console.log("Encoded file:", base64);
-          return {
-            type: "text" as const,
-            text: base64,
-            name: file.name,
-          };
-        })
-      );
-      setFiles(
-        (prevFiles: FileData[]) => [...prevFiles, ...encodedFiles] as FileData[]
-      );
-    } catch (error) {
-      console.error("File upload error:", error);
-      // Consider adding toast/alert here
-    }
-    setIsFileUploadOpen(false);
-  };
+          })
+        );
+        setFiles(
+          (prevFiles: FileData[]) =>
+            [...prevFiles, ...encodedFiles] as FileData[]
+        );
+        customToast.success(
+          `Successfully uploaded ${uploadedFiles.length} file(s)!`
+        );
+      } catch (error) {
+        console.error("File upload error:", error);
+        customToast.error("Failed to upload file(s). Please try again.");
+      } finally {
+        setIsDragging(false);
+        setIsFileUploadOpen(false);
+        // Hide progress bar after a delay
+        setTimeout(() => setShowProgressBar(false), 1000);
+      }
+    },
+    [setFiles]
+  );
 
   const removeFile = (index: number) => {
     setFiles((prevFiles) => prevFiles.filter((_, i) => i !== index));
@@ -105,7 +120,9 @@ export default function InputArea({
     setIsDragging(true);
   };
 
-  const handleDragLeave = () => setIsDragging(false);
+  const handleDragLeave = (_e: React.DragEvent<HTMLDivElement>) => {
+    setIsDragging(false);
+  };
 
   const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -117,8 +134,8 @@ export default function InputArea({
   return (
     <div
       className={cn(
-        "relative flex-shrink-0 w-full",
-        isDragging && "bg-gray-200 dark:bg-gray-700"
+        "relative flex-shrink-0 w-full transition-all duration-200",
+        isDragging && "bg-gray-200 dark:bg-gray-700 scale-[0.99]"
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -126,7 +143,10 @@ export default function InputArea({
     >
       {isDragging && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
-          Drop files to upload
+          <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
+            <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
+            <span className="text-2xl animate-pulse">Drop files to upload</span>
+          </div>
         </div>
       )}
 
@@ -220,7 +240,9 @@ export default function InputArea({
         )}
       </div>
 
-      {/* File upload modal */}
+      {showProgressBar && (
+        <div className="absolute bottom-0 left-0 w-full h-1 bg-green-500 animate-progress" />
+      )}
       {isFileUploadOpen && (
         <FileUpload
           onChange={handleFileUpload}
