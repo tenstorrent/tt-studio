@@ -12,18 +12,20 @@ import Header from "./Header";
 import ChatHistory from "./ChatHistory";
 import InputArea from "./InputArea";
 import { HistoryPanel } from "./HistoryPanel";
-import {
+import type {
   InferenceRequest,
   RagDataSource,
   ChatMessage,
   Model,
   InferenceStats,
+  FileData,
 } from "./types";
 import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 
 export default function ChatComponent() {
+  const [files, setFiles] = useState<FileData[]>([]);
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [ragDatasource, setRagDatasource] = useState<
@@ -35,7 +37,7 @@ export default function ChatComponent() {
   });
   const [chatThreads, setChatThreads] = usePersistentState<ChatMessage[][]>(
     "chat_threads",
-    [[]],
+    [[]]
   );
   const [currentThreadIndex, setCurrentThreadIndex] =
     usePersistentState<number>("current_thread_index", 0);
@@ -89,7 +91,7 @@ export default function ChatComponent() {
 
   const handleInference = useCallback(
     (continuationMessageId: string | null = null) => {
-      if (textInput.trim() === "" || !modelID) return;
+      if ((textInput.trim() === "" && files.length === 0) || !modelID) return;
 
       // Ensure the current thread exists
       if (!chatThreads[currentThreadIndex]) {
@@ -106,13 +108,14 @@ export default function ChatComponent() {
         updatedChatHistory = chatThreads[currentThreadIndex].map((msg) =>
           msg.id === continuationMessageId
             ? { ...msg, text: msg.text + " [Continuing...] " }
-            : msg,
+            : msg
         );
       } else {
         const userMessage: ChatMessage = {
           id: uuidv4(),
           sender: "user",
           text: textInput,
+          files: files,
         };
         updatedChatHistory = [
           ...(chatThreads[currentThreadIndex] || []),
@@ -129,6 +132,7 @@ export default function ChatComponent() {
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID,
         text: continuationMessageId ? `Continue: ${textInput}` : textInput,
+        files: files,
       };
 
       setIsStreaming(true);
@@ -160,11 +164,12 @@ export default function ChatComponent() {
             return newThreads;
           });
         },
-        setIsStreaming,
+        setIsStreaming
       );
 
       setTextInput("");
       setReRenderingMessageId(null);
+      setFiles([]);
     },
     [
       chatThreads,
@@ -172,14 +177,15 @@ export default function ChatComponent() {
       modelID,
       ragDatasource,
       textInput,
+      files,
       setChatThreads,
-    ],
+    ]
   );
 
   const handleReRender = useCallback(
     async (messageId: string) => {
       const messageToReRender = chatThreads[currentThreadIndex]?.find(
-        (msg) => msg.id === messageId,
+        (msg) => msg.id === messageId
       );
       if (
         !messageToReRender ||
@@ -192,7 +198,7 @@ export default function ChatComponent() {
         (msg) =>
           msg.sender === "user" &&
           chatThreads[currentThreadIndex].indexOf(msg) <
-            chatThreads[currentThreadIndex].indexOf(messageToReRender),
+            chatThreads[currentThreadIndex].indexOf(messageToReRender)
       );
       if (!userMessage) return;
 
@@ -202,6 +208,7 @@ export default function ChatComponent() {
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID,
         text: userMessage.text,
+        files: userMessage.files,
       };
 
       await runInference(
@@ -220,7 +227,7 @@ export default function ChatComponent() {
                   currentHistory[currentHistory.length - 1];
                 console.log(
                   "Inference stats received:",
-                  updatedMessage.inferenceStats,
+                  updatedMessage.inferenceStats
                 );
                 return {
                   ...msg,
@@ -234,33 +241,32 @@ export default function ChatComponent() {
             return newThreads;
           });
         },
-        setIsStreaming,
+        setIsStreaming
       );
 
       setReRenderingMessageId(null);
     },
-    [chatThreads, currentThreadIndex, modelID, ragDatasource, setChatThreads],
+    [chatThreads, currentThreadIndex, modelID, ragDatasource, setChatThreads]
   );
 
   const handleContinue = useCallback(
     (messageId: string) => {
       const messageToContinue = chatThreads[currentThreadIndex]?.find(
-        (msg) => msg.id === messageId,
+        (msg) => msg.id === messageId
       );
       if (!messageToContinue || messageToContinue.sender !== "assistant")
         return;
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [chatThreads, currentThreadIndex],
+    [chatThreads, currentThreadIndex]
   );
 
   const handleSelectConversation = useCallback(
     (id: string) => {
-      setCurrentThreadIndex(parseInt(id));
-      setRagDatasource(undefined);
+      setCurrentThreadIndex(Number.parseInt(id));
     },
-    [setCurrentThreadIndex, setRagDatasource],
+    [setCurrentThreadIndex]
   );
 
   useEffect(() => {
@@ -303,9 +309,9 @@ export default function ChatComponent() {
                   setRagDatasource(undefined);
                 }}
                 onDeleteConversation={(id) => {
-                  const index = parseInt(id);
+                  const index = Number.parseInt(id);
                   setChatThreads((prevThreads) =>
-                    prevThreads.filter((_, i) => i !== index),
+                    prevThreads.filter((_, i) => i !== index)
                   );
                   if (currentThreadIndex === index) {
                     setCurrentThreadIndex(0);
@@ -313,7 +319,7 @@ export default function ChatComponent() {
                   }
                 }}
                 onEditConversationTitle={(id, newTitle) => {
-                  const index = parseInt(id);
+                  const index = Number.parseInt(id);
                   setChatThreads((prevThreads) =>
                     prevThreads.map((thread, i) =>
                       i === index
@@ -321,8 +327,8 @@ export default function ChatComponent() {
                             { ...thread[0], title: newTitle },
                             ...thread.slice(1),
                           ]
-                        : thread,
-                    ),
+                        : thread
+                    )
                   );
                 }}
               />
@@ -357,6 +363,8 @@ export default function ChatComponent() {
             isStreaming={isStreaming}
             isListening={isListening}
             setIsListening={setIsListening}
+            files={files}
+            setFiles={setFiles}
           />
         </div>
       </Card>

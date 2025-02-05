@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-import {
+import type {
   InferenceRequest,
   RagDataSource,
   ChatMessage,
@@ -10,16 +10,19 @@ import {
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
+import type React from "react";
 
 export const runInference = async (
   request: InferenceRequest,
   ragDatasource: RagDataSource | undefined,
   chatHistory: ChatMessage[],
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
+  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>
 ) => {
   try {
     setIsStreaming(true);
+
+    console.log("Uploaded files:", request.files);
 
     let ragContext: { documents: string[] } | null = null;
 
@@ -29,11 +32,56 @@ export const runInference = async (
       console.log("RAG context fetched:", ragContext);
     }
 
-    console.log("RAG context being passed to generatePrompt:", ragContext);
-    const messages = generatePrompt(
-      chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-      ragContext,
-    );
+    let messages;
+    if (request.files && request.files.length > 0) {
+      //  new structure
+      console.log(
+        "Files detected, using image_url message structure",
+        request.files[0].image_url?.url
+        // TODO check if this is correct
+        // request.files[0].image_url?.url || request.files[0]
+      );
+      messages = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What's in this image?" },
+            {
+              type: "image_url",
+              image_url: {
+                url: request.files[0].image_url?.url || request.files[0],
+              },
+            },
+          ],
+        },
+      ];
+    } else if (
+      request.text &&
+      request.text.includes("https://") &&
+      request.text.match(/\.(jpeg|jpg|gif|png)$/)
+    ) {
+      console.log("Image URL detected in the message");
+      messages = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What's in this image?" },
+            {
+              type: "image_url",
+              image_url: {
+                url: request.text,
+              },
+            },
+          ],
+        },
+      ];
+    } else {
+      console.log("RAG context being passed to generatePrompt:", ragContext);
+      messages = generatePrompt(
+        chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
+        ragContext
+      );
+    }
 
     console.log("Generated messages:", messages);
 
@@ -49,7 +97,6 @@ export const runInference = async (
 
     const requestBody = {
       deploy_id: request.deploy_id,
-      // model: "meta-llama/Llama-3.1-70B-Instruct",
       messages: messages,
       max_tokens: 512,
       stream: true,
@@ -60,7 +107,7 @@ export const runInference = async (
 
     console.log(
       "Sending request to model:",
-      JSON.stringify(requestBody, null, 2),
+      JSON.stringify(requestBody, null, 2)
     );
 
     const response = await fetch(API_URL, {
@@ -126,7 +173,7 @@ export const runInference = async (
                   user_tpot: jsonData.tpot,
                   tokens_decoded: jsonData.tokens_decoded,
                   tokens_prefilled: jsonData.tokens_prefilled,
-                  context_length: jsonData.context_length
+                  context_length: jsonData.context_length,
                 };
                 console.log("Final Inference Stats received:", inferenceStats);
                 continue; // Skip processing this chunk as part of the generated text
@@ -161,7 +208,7 @@ export const runInference = async (
     if (inferenceStats) {
       console.log(
         "Updating chat history with inference stats:",
-        inferenceStats,
+        inferenceStats
       );
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];

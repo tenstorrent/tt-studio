@@ -292,7 +292,7 @@ model_implmentations_list = [
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
-        image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
+        image_tag="v0.0.1-70206b9cf111-b9564bf364e9",
         device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
