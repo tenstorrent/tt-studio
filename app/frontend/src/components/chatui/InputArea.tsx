@@ -10,6 +10,12 @@ import { isImageFile, validateFile, encodeFile } from "./fileUtils";
 import { cn } from "../../lib/utils";
 import type { FileData, InputAreaProps } from "./types";
 import { customToast } from "../CustomToaster";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 export default function InputArea({
   textInput,
@@ -36,7 +42,7 @@ export default function InputArea({
     if (textareaRef.current) {
       adjustTextareaHeight();
     }
-  }, [textInput]);
+  }, [textareaRef]);
 
   const adjustTextareaHeight = () => {
     if (textareaRef.current) {
@@ -146,6 +152,7 @@ export default function InputArea({
           <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
             <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
             <span className="text-2xl animate-pulse">Drop files to upload</span>
+            <span className="text-sm mt-2">Release to add files</span>
           </div>
         </div>
       )}
@@ -206,20 +213,42 @@ export default function InputArea({
         {/* Control buttons */}
         <div className="flex justify-between items-center mt-2">
           <div className="flex gap-2 items-center">
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-              onClick={() => setIsFileUploadOpen((prev) => !prev)}
-              aria-label="Attach files"
-            >
-              <Paperclip className="h-5 w-5" />
-            </Button>
-            <VoiceInput
-              onTranscript={handleVoiceInput}
-              isListening={isListening}
-              setIsListening={setIsListening}
-            />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
+                    onClick={() => setIsFileUploadOpen((prev) => !prev)}
+                    aria-label="Attach files"
+                  >
+                    <Paperclip className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Attach files or drag and drop</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    {" "}
+                    {/* Wrap VoiceInput in a div for tooltip positioning */}
+                    <VoiceInput
+                      onTranscript={handleVoiceInput}
+                      isListening={isListening}
+                      setIsListening={setIsListening}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Voice input</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
           <Button
             onClick={() => handleInference(textInput, files)}
