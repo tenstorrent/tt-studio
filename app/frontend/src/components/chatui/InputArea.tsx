@@ -31,6 +31,7 @@ export default function InputArea({
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showProgressBar, setShowProgressBar] = useState(false);
+  const [showErrorIndicator, setShowErrorIndicator] = useState(false);
 
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
@@ -105,10 +106,11 @@ export default function InputArea({
       } catch (error) {
         console.error("File upload error:", error);
         customToast.error("Failed to upload file(s). Please try again.");
+        setShowErrorIndicator(true);
+        setTimeout(() => setShowErrorIndicator(false), 3000);
       } finally {
         setIsDragging(false);
         setIsFileUploadOpen(false);
-        // Hide progress bar after a delay
         setTimeout(() => setShowProgressBar(false), 1000);
       }
     },
@@ -271,6 +273,9 @@ export default function InputArea({
 
       {showProgressBar && (
         <div className="absolute bottom-0 left-0 w-full h-1 bg-green-500 animate-progress" />
+      )}
+      {showErrorIndicator && (
+        <div className="absolute bottom-0 left-0 w-full h-1 bg-red-500 animate-pulse" />
       )}
       {isFileUploadOpen && (
         <FileUpload
