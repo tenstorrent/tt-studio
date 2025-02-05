@@ -52,13 +52,13 @@ def health_check(url, json_data, timeout=5):
 def stream_response_from_agent_api(url, json_data):
     try:
         new_json_data = {}
-        # TODO: thread_id should be dynamic once there is support for multiple different chats with no shared context
-        new_json_data["thread_id"] = "abc123"
+        new_json_data["thread_id"] = json_data["thread_id"]
         new_json_data["message"] = json_data["messages"][-1]["content"]
         headers = {"Content-Type": "application/json"}
 
-        logger.info(f"stream_response_from_external_api headers:={headers}")
-        logger.info(f"stream_response_from_external_api json_data:={new_json_data}")
+        logger.info(f"stream_response_from_agent_api headers:={headers}")
+        logger.info(f"stream_response_from_agent_api json_data:={new_json_data}")
+        logger.info(f"using agent thread id: {new_json_data["thread_id"]}")
         logger.info(f"POST URL: {url}")
         logger.info(f"POST Headers: {headers}")
         logger.info(f"POST Data: {json.dumps(new_json_data, indent=2)}")

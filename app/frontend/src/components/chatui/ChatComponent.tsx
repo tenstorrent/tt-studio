@@ -22,6 +22,7 @@ import {
 import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
+import { threadId } from "worker_threads";
 
 export default function ChatComponent() {
   const location = useLocation();
@@ -162,7 +163,8 @@ export default function ChatComponent() {
           });
         },
         setIsStreaming,
-        isAgentSelected
+        isAgentSelected,
+        currentThreadIndex
       );
 
       setTextInput("");
@@ -237,7 +239,8 @@ export default function ChatComponent() {
           });
         },
         setIsStreaming,
-        isAgentSelected
+        isAgentSelected,
+        currentThreadIndex
       );
 
       setReRenderingMessageId(null);

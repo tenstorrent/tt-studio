@@ -17,7 +17,8 @@ export const runInference = async (
   chatHistory: ChatMessage[],
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
-  isAgentSelected: boolean
+  isAgentSelected: boolean,
+  threadId: number 
 ) => {
   try {
     setIsStreaming(true);
@@ -37,6 +38,7 @@ export const runInference = async (
     );
 
     console.log("Generated messages:", messages);
+    console.log("Thread ID: ", threadId); 
 
     const API_URL = isAgentSelected 
     ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"  
@@ -51,17 +53,35 @@ export const runInference = async (
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
 
-    const requestBody = {
-      deploy_id: request.deploy_id,
-      // model: "meta-llama/Llama-3.1-70B-Instruct",
-      messages: messages,
-      max_tokens: 512,
-      stream: true,
-      stream_options: {
-        include_usage: true,
-      },
-    };
+    let requestBody; 
+    let threadIdStr = threadId.toString(); 
 
+    if (!isAgentSelected) {
+      requestBody = {
+        deploy_id: request.deploy_id,
+        // model: "meta-llama/Llama-3.1-70B-Instruct",
+        messages: messages,
+        max_tokens: 512,
+        stream: true,
+        stream_options: {
+          include_usage: true,
+        },
+      };
+    }
+    else {
+      requestBody = {
+        deploy_id: request.deploy_id,
+        // model: "meta-llama/Llama-3.1-70B-Instruct",
+        messages: messages,
+        max_tokens: 512,
+        stream: true,
+        stream_options: {
+          include_usage: true,
+        },
+        thread_id: threadIdStr, // Add thread_id to the request body
+      };
+    }
+ 
     console.log(
       "Sending request to model:",
       JSON.stringify(requestBody, null, 2),
