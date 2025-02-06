@@ -20,7 +20,7 @@ Environment variables are defined in `.env`, `.env.default` is a template you ca
 cp .env.default .env
 # edit JWT_SECRET
 vim .env
-```
+````
 
 Note: the backend runs inside a container, because of this it does not have access to the host file system directly to programmatically determine it's relative path.
 

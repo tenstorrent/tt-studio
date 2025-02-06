@@ -35,7 +35,9 @@ def run_container(impl, weights_id):
         logger.info(f"run_container called for {impl.model_name}")
         run_kwargs = copy.deepcopy(impl.docker_config)
         # handle runtime configuration changes to docker kwargs
-        run_kwargs.update({"devices": get_devices_mounts(impl)})
+        device_mounts = get_devices_mounts(impl)
+        if device_mounts:
+            run_kwargs.update({"devices": device_mounts})
         run_kwargs.update({"ports": get_port_mounts(impl)})
         # add bridge inter-container network
         run_kwargs.update({"network": backend_config.docker_bridge_network_name})
@@ -87,14 +89,18 @@ def get_devices_mounts(impl):
     device_config = get_runtime_device_configuration(impl.device_configurations)
     assert isinstance(device_config, DeviceConfigurations)
     # TODO: add logic to handle multiple devices and multiple containers
-    # e.g. running falcon-7B and mistral-7B on 2x n150 machine
-    if device_config in {DeviceConfigurations.N150, DeviceConfigurations.E150}:
-        devices = ["/dev/tenstorrent/0:/dev/tenstorrent/0"]
-    elif device_config == DeviceConfigurations.N300x4:
-        devices = ["/dev/tenstorrent:/dev/tenstorrent"]
-    elif device_config == DeviceConfigurations.CPU:
-        devices = None
-    return devices
+    single_device_mounts = ["/dev/tenstorrent/0:/dev/tenstorrent/0"]
+    all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
+    device_map = {
+        DeviceConfigurations.E150: single_device_mounts,
+        DeviceConfigurations.N150: single_device_mounts,
+        DeviceConfigurations.N150_WH_ARCH_YAML: single_device_mounts,
+        DeviceConfigurations.N300: single_device_mounts,
+        DeviceConfigurations.N300x4_WH_ARCH_YAML: all_device_mounts,
+        DeviceConfigurations.N300x4: all_device_mounts,
+    }
+    device_mounts = device_map.get(device_config)
+    return device_mounts
 
 
 def get_port_mounts(impl):
@@ -187,15 +193,19 @@ def get_container_status():
 def update_deploy_cache():
     data = get_container_status()
     for con_id, con in data.items():
-        model_impl = [
-            v
-            for k, v in model_implmentations.items()
-            if v.image_version == con["image_name"]
-        ]
-        assert (
-            len(model_impl) == 1
-        ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
-        model_impl = model_impl[0]
+        con_model_id = con['env_vars'].get("MODEL_ID")
+        model_impl = model_implmentations.get(con_model_id)
+        if not model_impl:
+            # fallback to finding first impl that uses that container 
+            model_impl = [
+                v
+                for k, v in model_implmentations.items()
+                if v.image_version == con["image_name"]
+            ]
+            assert (
+                len(model_impl) == 1
+            ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
+            model_impl = model_impl[0]
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl

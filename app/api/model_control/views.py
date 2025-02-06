@@ -41,7 +41,7 @@ class InferenceView(APIView):
             internal_url = "http://" + deploy["internal_url"]
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
-            data["model"] = deploy["model_impl"].hf_model_path
+            data["model"] = deploy["model_impl"].hf_model_id
             response_stream = stream_response_from_external_api(internal_url, data)
             return StreamingHttpResponse(response_stream, content_type="text/plain")
         else:
