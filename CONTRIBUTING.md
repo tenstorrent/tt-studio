@@ -2,7 +2,7 @@
 
 Thank you for your interest in this project! We aim to make the contribution process as easy and transparent as possible.
 
-If you’d like to contribute or have suggestions , please review our technical [contribution standards](#contribution-standards) outlined in this guide.
+If you’d like to contribute or have suggestions , please familiarize yourself with technical [contribution standards](#contribution-standards) outlined in this guide.
 
 ---
 
