@@ -232,11 +232,10 @@ model_implmentations_list = [
         image_tag="v0.0.1-tt-metal-5b2c8ff2bc92",
         device_configurations={DeviceConfigurations.N150},
         docker_config=base_docker_config(),
-        user_uid=1000,
-        user_gid=1000,
         shm_size="32G",
         service_port=7000,
         service_route="/submit",
+        setup_type=SetupTypes.MAKE_VOLUMES,
     ),
     ModelImpl(
         model_name="YOLOv4",

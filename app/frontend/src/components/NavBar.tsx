@@ -514,50 +514,6 @@ export default function NavBar() {
           )}
           <Sidebar ref={sidebarRef} />
         </div>
-        {isVerticalLayout && (
-          <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <ModeToggle />
-                </motion.div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Toggle Dark/Light Mode</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <ResetIcon onReset={handleReset} />
-                </motion.div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Reset Board</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <HelpIcon toggleSidebar={handleToggleSidebar} />
-                </motion.div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Get Help</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-        <Sidebar ref={sidebarRef} />
       </TooltipProvider>
     </div>
   );
