@@ -8,6 +8,7 @@ import time
 
 import requests
 import jwt
+import json
 
 from django.core.cache import caches
 
@@ -48,6 +49,49 @@ def health_check(url, json_data, timeout=5):
         logger.error(f"Health check failed: {str(e)}")
         return False, str(e)
 
+def stream_response_from_agent_api(url, json_data):
+    try:
+        new_json_data = {}
+        new_json_data["thread_id"] = json_data["thread_id"]
+        new_json_data["message"] = json_data["messages"][-1]["content"]
+        headers = {"Content-Type": "application/json"}
+
+        logger.info(f"stream_response_from_agent_api headers:={headers}")
+        logger.info(f"stream_response_from_agent_api json_data:={new_json_data}")
+        logger.info(f"using agent thread id: {new_json_data["thread_id"]}")
+        logger.info(f"POST URL: {url}")
+        logger.info(f"POST Headers: {headers}")
+        logger.info(f"POST Data: {json.dumps(new_json_data, indent=2)}")
+
+
+
+        with requests.post(
+            url, json=new_json_data, headers=headers, stream=True, timeout=None
+        ) as response:
+            logger.info(f"stream_response_from_external_api response:={response}")
+            response.raise_for_status()
+            logger.info(f"response.headers:={response.headers}")
+            logger.info(f"response.encoding:={response.encoding}")
+            # only allow HTTP 1.1 chunked encoding
+            # assert response.headers.get("transfer-encoding") == "chunked"
+
+            # Stream chunks
+            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                json_chunk = {}
+                logger.info(f"stream_response_from_external_api chunk:={chunk}")
+                if chunk == "[DONE]":
+                    yield "data: " + chunk + "\n"
+                else: 
+                    json_chunk["choices"] = [{"index": 0, "delta": {"content": chunk}}]
+                    json_chunk =  json.dumps(json_chunk)
+                    string = "data: " + json_chunk 
+                    logger.info(f"streaming json object: {string}")
+                    yield "data: " + json_chunk + "\n"
+            logger.info("stream_response_from_external done")
+
+    except requests.RequestException as e:
+        logger.error(f"RequestException: {str(e)}")
+        yield f"error: {str(e)}"
 
 def stream_response_from_external_api(url, json_data):
     logger.info(f"stream_response_from_external_api to: url={url}")
