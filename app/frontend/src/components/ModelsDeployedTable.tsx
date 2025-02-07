@@ -139,6 +139,48 @@ export default function ModelsDeployedTable() {
     return modelName.toLowerCase().includes("llama");
   };
 
+  const getModelIcon = (modelName: string) => {
+    const modelType = getModelTypeFromName(modelName);
+    switch (modelType) {
+      case ModelType.ChatModel:
+        return <MessageSquare className="w-4 h-4 mr-2" />
+      case ModelType.ImageGeneration:
+        return <Image className="w-4 h-4 mr-2" />
+      case ModelType.ObjectDetectionModel:
+        return <Eye className="w-4 h-4 mr-2" />
+      default:
+        return <MessageSquare className="w-4 h-4 mr-2" />
+    }
+  };
+
+  const getModelTypeLabel = (modelName: string) => {
+    const modelType = getModelTypeFromName(modelName);
+    switch (modelType) {
+      case ModelType.ChatModel:
+        return "ChatUI";
+      case ModelType.ImageGeneration:
+        return "ImageGeneration";
+      case ModelType.ObjectDetectionModel:
+        return "ObjectDetection";
+      default:
+        return "ChatUI"
+    }
+  };
+
+  const getModelToolTip = (modelName: string) => {
+    const modelType = getModelTypeFromName(modelName);
+    switch (modelType) {
+      case ModelType.ChatModel:
+        return "Open ChatUI for this model";
+      case ModelType.ImageGeneration:
+        return "Open ImageGeneration for this model";
+      case ModelType.ObjectDetectionModel:
+        return "Open ObjectDetection for this model";
+      default:
+        return "Open ChatUI for this model";
+    }
+  };
+
   return (
     <Card className="border-0 shadow-none">
       <ScrollArea className="whitespace-nowrap rounded-md">
@@ -267,16 +309,8 @@ export default function ModelsDeployedTable() {
                                 } rounded-lg`}
                                 disabled={!model.name}
                               >
-                                {getModelTypeFromName(model.name) ===
-                                ModelType.ChatModel ? (
-                                  <MessageSquare className="w-4 h-4 mr-2" />
-                                ) : (
-                                  <Eye className="w-4 h-4 mr-2" />
-                                )}
-                                {getModelTypeFromName(model.name) ===
-                                ModelType.ChatModel
-                                  ? "ChatUI"
-                                  : "ObjectDetection"}
+                                {getModelIcon(model.name)}
+                                {getModelTypeLabel(model.name)}
                                 {isLLaMAModel(model.name || "") && (
                                   <AlertCircle className="w-4 h-4 ml-2 text-yellow-600" />
                                 )}
@@ -290,10 +324,7 @@ export default function ModelsDeployedTable() {
                                 </p>
                               ) : (
                                 <p>
-                                  {getModelTypeFromName(model.name) ===
-                                  ModelType.ChatModel
-                                    ? "Open ChatUI for this model"
-                                    : "Open ObjectDetection for this model"}
+                                  {getModelToolTip(model.name)}
                                 </p>
                               )}
                             </TooltipContent>

@@ -226,6 +226,18 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
+        model_name="Stable-Diffusion-1.4",
+        model_id="id_stable_diffusionv0.1.0",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-1.4-src-base",
+        image_tag="v0.0.1-tt-metal-5b2c8ff2bc92",
+        device_configurations={DeviceConfigurations.N150},
+        docker_config=base_docker_config(),
+        shm_size="32G",
+        service_port=7000,
+        service_route="/submit",
+        setup_type=SetupTypes.MAKE_VOLUMES,
+    ),
+    ModelImpl(
         model_name="YOLOv4",
         model_id="id_yolov4v0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
