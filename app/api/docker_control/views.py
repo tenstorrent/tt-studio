@@ -8,9 +8,11 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+import docker
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
+    run_agent_container, 
     stop_container,
     get_container_status,
     perform_reset,
@@ -29,6 +31,18 @@ class StopView(APIView):
         if serializer.is_valid():
             container_id = request.data.get("container_id")
             logger.info(f"Received request to stop container with ID: {container_id}")
+
+            # Find agent container 
+            client = docker.from_env()
+            container_name = client.containers.get(container_id).name
+            last_underscore_index = container_name.rfind('_')
+            llm_host_port = container_name[last_underscore_index + 1:]
+
+            agent_container_name = f"ai_agent_container_{llm_host_port}"
+            all_containers = client.containers.list(all=True)
+            for container in all_containers:
+                if container.name == agent_container_name: # if the agent corresponding agent container is found
+                    stop_container(container.id) # remove the agent container 
 
             # Stop the container
             stop_response = stop_container(container_id)
@@ -100,6 +114,7 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
+            run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
