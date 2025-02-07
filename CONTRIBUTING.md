@@ -126,4 +126,4 @@ To ensure consistency, we follow **semantic versioning** principles:
 
 ## **Git Branching Strategy Flowchart**
 
-<img src="git-management.png" alt="Git Branching Strategy" width="600" />
+<img src="Git-management.png" alt="Git Branching Strategy" width="600" />
