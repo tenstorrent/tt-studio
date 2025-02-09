@@ -39,6 +39,7 @@ services:
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
       - BACKEND_API_HOSTNAME
       - JWT_SECRET
+      - TAVILY_API_KEY
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
