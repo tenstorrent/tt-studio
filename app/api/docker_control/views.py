@@ -114,6 +114,8 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
+            # TODO: Figure out better system to deploying agents as not all model types required an agent
+            # (probably use model type enum https://github.com/tenstorrent/tt-studio/issues/167)
             run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
             return Response(response, status=status.HTTP_201_CREATED)
         else:
