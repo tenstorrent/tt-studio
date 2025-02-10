@@ -216,15 +216,15 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
-        model_name="Stable-Diffusion-3.5",
-        model_id="id_stable_diffusion_3.5v0.1.0",
+        model_name="Stable-Diffusion-3.5-medium",
+        model_id="id_stable_diffusion_3.5_mediumv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
         image_tag="v0.0.1-tt-metal-a0560feb3eed",
         device_configurations={DeviceConfigurations.N150},
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
-        service_route="/submit",
+        service_route="/enqueue",
         health_route="/",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
     ),
