@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { User, ChevronDown, Bot } from "lucide-react";
+import { User, ChevronDown, Bot, X } from "lucide-react";
+import { Minimize2, Maximize2 } from "lucide-react";
 import { Button } from "../ui/button";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
 import MessageActions from "./MessageActions";
 import type { ChatMessage, FileData } from "./types";
-import { ImagePreview } from "./ImagePreview";
+import * as Dialog from "@radix-ui/react-dialog";
 
 interface ChatHistoryProps {
   chatHistory: ChatMessage[];
@@ -36,6 +38,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const lastMessageRef = useRef<HTMLDivElement>(null);
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [minimizedImages, setMinimizedImages] = useState<Set<string>>(
+    new Set()
+  );
 
   const scrollToBottom = useCallback(() => {
     if (viewportRef.current) {
@@ -74,7 +80,19 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
         setIsScrollButtonVisible(!isAtBottom);
       }
     }
-  }, [chatHistory, isStreaming, scrollToBottom]);
+  }, [isStreaming, scrollToBottom]);
+
+  const toggleMinimizeImage = useCallback((imageUrl: string) => {
+    setMinimizedImages((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(imageUrl)) {
+        newSet.delete(imageUrl);
+      } else {
+        newSet.add(imageUrl);
+      }
+      return newSet;
+    });
+  }, []);
 
   return (
     <div className="flex flex-col w-full flex-grow p-8 font-rmMono relative overflow-hidden">
@@ -142,40 +160,91 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       </>
                     )}
                     {message.sender === "user" && (
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-4">
                         {message.text && (
-                          <p>
-                            {message.text.split(" ").map((word, i) => {
-                              const isUrl = word.startsWith("http");
-                              return isUrl ? (
-                                <span key={i}>
-                                  <ImagePreview url={word} />{" "}
-                                </span>
-                              ) : (
-                                <span key={i}>{word} </span>
-                              );
-                            })}
-                          </p>
+                          <div className="bg-TT-green-accent/20 p-2 rounded">
+                            <p className="text-white">
+                              {message.text.split(" ").map((word, i) => {
+                                const isUrl = word.startsWith("http");
+                                return isUrl ? (
+                                  <span
+                                    key={i}
+                                    className="text-blue-300 underline"
+                                  >
+                                    <a
+                                      href={word}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      {word}
+                                    </a>{" "}
+                                  </span>
+                                ) : (
+                                  <span key={i}>{word} </span>
+                                );
+                              })}
+                            </p>
+                          </div>
                         )}
-                        {message.files?.map(
-                          (file, index) =>
-                            isImageFile(file) && (
-                              <div
-                                key={index}
-                                className="max-w-[300px] rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700"
-                              >
-                                <img
-                                  src={
-                                    file.image_url?.url || "/placeholder.svg"
-                                  }
-                                  alt={file.name}
-                                  className="object-contain max-h-[200px] w-auto"
-                                />
-                                <div className="p-1 bg-gray-100 dark:bg-gray-800 text-xs text-gray-500 dark:text-gray-400 truncate">
-                                  {file.name}
-                                </div>
-                              </div>
-                            )
+                        {message.files && message.files.length > 0 && (
+                          <div className="bg-gray-800 p-2 rounded">
+                            <p className="text-white mb-2 font-semibold">
+                              Attached Images:
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {message.files.map(
+                                (file, index) =>
+                                  isImageFile(file) && (
+                                    <div
+                                      key={index}
+                                      className="relative group max-w-[150px] rounded-lg overflow-hidden border border-gray-700 transition-all duration-300 hover:shadow-lg"
+                                    >
+                                      {!minimizedImages.has(
+                                        file.image_url?.url || ""
+                                      ) ? (
+                                        <img
+                                          src={
+                                            file.image_url?.url ||
+                                            "/placeholder.svg"
+                                          }
+                                          alt={file.name}
+                                          className="object-cover w-full h-[100px]"
+                                          onClick={() =>
+                                            setEnlargedImage(
+                                              file.image_url?.url ||
+                                                "/placeholder.svg"
+                                            )
+                                          }
+                                        />
+                                      ) : (
+                                        <div className="w-full h-[30px] bg-gray-700"></div>
+                                      )}
+                                      <div className="p-1 bg-gray-700 text-xs text-gray-300 truncate flex justify-between items-center">
+                                        <span className="truncate flex-grow">
+                                          {file.name}
+                                        </span>
+                                        <button
+                                          onClick={() =>
+                                            toggleMinimizeImage(
+                                              file.image_url?.url || ""
+                                            )
+                                          }
+                                          className="ml-2 text-gray-300 hover:text-white flex-shrink-0"
+                                        >
+                                          {minimizedImages.has(
+                                            file.image_url?.url || ""
+                                          ) ? (
+                                            <Maximize2 size={14} />
+                                          ) : (
+                                            <Minimize2 size={14} />
+                                          )}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )
+                              )}
+                            </div>
+                          </div>
                         )}
                       </div>
                     )}
@@ -213,6 +282,26 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           <ChevronDown className="h-6 w-6 animate-bounce" />
         </Button>
       )}
+      <Dialog.Root
+        open={!!enlargedImage}
+        onOpenChange={() => setEnlargedImage(null)}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto">
+            <img
+              src={enlargedImage || ""}
+              alt="Enlarged view"
+              className="w-full h-auto"
+            />
+            <Dialog.Close asChild>
+              <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700">
+                <X className="h-6 w-6" />
+              </button>
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 };
