@@ -27,7 +27,7 @@ import {
   uploadDocument,
 } from "@/src/components/rag";
 import {
-  FileText,
+  FileType,
   Trash2,
   Upload,
   Fingerprint,
@@ -73,8 +73,11 @@ export default function RagManagement() {
   const { theme } = useTheme();
 
   // Fetch collections
-  // TODO add, errors is loading etc
-  const { data: ragDataSources } = useQuery("collectionsList", {
+  const {
+    data: ragDataSources,
+    isLoading,
+    error,
+  } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     onError: () => customToast.error("Failed to fetch collections"),
     initialData: [],
@@ -128,15 +131,31 @@ export default function RagManagement() {
     },
   });
 
-  // TODO Add loading screen
-  // if (isLoading) {
-  //  return <div>Loading</div>;
-  // }
+  if (isLoading) {
+    return (
+      <TableWrapper>
+        <Card
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg flex justify-center items-center h-96`}
+        >
+          <Spinner />
+        </Card>
+      </TableWrapper>
+    );
+  }
 
-  // TODO Add error component
-  // if (error) {
-  //  return <div>Errors: {JSON.stringify(error)}</div>;
-  // }
+  if (error) {
+    return (
+      <TableWrapper>
+        <Card
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg p-8`}
+        >
+          <div className="text-red-600 dark:text-red-400">
+            Error loading collections: {(error as Error).message}
+          </div>
+        </Card>
+      </TableWrapper>
+    );
+  }
 
   // Handle file selection for upload
   const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -171,7 +190,7 @@ export default function RagManagement() {
       <TableCell className="text-left">
         {item.metadata?.last_uploaded_document ? (
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4" />
+            <FileType color="red" className="w-4 h-4" />
             <CopyableText text={item.metadata.last_uploaded_document} />
           </div>
         ) : (
@@ -228,8 +247,8 @@ export default function RagManagement() {
           <ScrollArea className="whitespace-nowrap rounded-md border">
             <CustomToaster />
             <RagDataSourceForm
-              onSubmit={(d) =>
-                createCollectionMutation.mutate({
+              onSubmit={async (d) =>
+                await createCollectionMutation.mutate({
                   collectionName: d.collectionName,
                 })
               }
@@ -256,7 +275,7 @@ export default function RagManagement() {
                   </TableHead>
                   <TableHead className="text-left">
                     <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4" />
+                      <FileType className="w-4 h-4" />
                       File Name
                     </div>
                   </TableHead>
