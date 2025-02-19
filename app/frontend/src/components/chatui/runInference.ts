@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import type {
   InferenceRequest,
@@ -36,18 +36,15 @@ export const runInference = async (
 
     let messages;
     if (request.files && request.files.length > 0) {
-      //  new structure
       console.log(
         "Files detected, using image_url message structure",
         request.files[0].image_url?.url
-        // TODO check if this is correct
-        // request.files[0].image_url?.url || request.files[0]
       );
       messages = [
         {
           role: "user",
           content: [
-            { type: "text", text: "What's in this image?" },
+            { type: "text", text: request.text || "What's in this image?" },
             {
               type: "image_url",
               image_url: {
@@ -63,20 +60,34 @@ export const runInference = async (
       request.text.match(/\.(jpeg|jpg|gif|png)$/)
     ) {
       console.log("Image URL detected in the message");
-      messages = [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "What's in this image?" },
-            {
-              type: "image_url",
-              image_url: {
-                url: request.text,
+      const match = request.text.match(/(https:\/\/.*\.(jpeg|jpg|gif|png))/);
+      if (match) {
+        const imageUrl = match[0];
+        const userText = request.text.replace(imageUrl, "").trim();
+        messages = [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userText || "What's in this image?" },
+              {
+                type: "image_url",
+                image_url: {
+                  url: imageUrl,
+                },
               },
-            },
-          ],
-        },
-      ];
+            ],
+          },
+        ];
+      } else {
+        // Handle the case where no valid image URL is found
+        console.error("No valid image URL found in the text");
+        messages = [
+          {
+            role: "user",
+            content: [{ type: "text", text: request.text }],
+          },
+        ];
+      }
     } else {
       console.log("RAG context being passed to generatePrompt:", ragContext);
       messages = generatePrompt(
