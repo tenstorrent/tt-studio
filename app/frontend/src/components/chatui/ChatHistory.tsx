@@ -186,6 +186,11 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             </p>
                           </div>
                         )}
+                        {message.text &&
+                          message.files &&
+                          message.files.length > 0 && (
+                            <hr className="my-2 border-t border-gray-700" />
+                          )}
                         {message.files && message.files.length > 0 && (
                           <div className="bg-gray-800 p-2 rounded">
                             <p className="text-white mb-2 font-semibold">
@@ -287,8 +292,8 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
         onOpenChange={() => setEnlargedImage(null)}
       >
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto">
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto z-50">
             <img
               src={enlargedImage || ""}
               alt="Enlarged view"
