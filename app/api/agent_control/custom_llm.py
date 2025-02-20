@@ -115,10 +115,12 @@ class CustomLLM(BaseChatModel):
             "stream": True,
             "stop": ["<|eot_id|>"],
             }
+        print(json_data)
         with requests.post(
             self.server_url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
             for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                print(chunk)
                 new_chunk = chunk[len("data: "):]
                 new_chunk =  new_chunk.strip()
                 if new_chunk == "[DONE]":
@@ -126,6 +128,7 @@ class CustomLLM(BaseChatModel):
                         new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=new_chunk))
                         yield new_chunk
                 else:
+                    print(new_chunk)
                     new_chunk = json.loads(new_chunk)
                     # print(new_chunk)
                     new_chunk = new_chunk["choices"][0]

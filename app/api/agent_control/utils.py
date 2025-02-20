@@ -12,6 +12,7 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     mainstring = "Final Answer: "
     possible_substrings = await gen_substrings(mainstring)
     first_final_response = False
+    print(message)
     async for event in agent_executor.astream_events(
     {"input": message, "chat_history": chat_history}, version="v2", config=config
 ):
