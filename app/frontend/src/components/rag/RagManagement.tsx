@@ -213,14 +213,20 @@ export default function RagManagement() {
               </Button>
             }
           />
-          <Button
-            disabled={isUploading}
-            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-2"
-            onClick={() => onUploadClick(item)}
-          >
-            <Upload className="w-4 h-4" />
-            Upload Document
-          </Button>
+          <ConfirmDialog
+            dialogDescription="This will replace the existing PDF with the new uploaded PDF. Are you sure you want to continue?"
+            dialogTitle="Replace existing PDF?"
+            onConfirm={() => onUploadClick(item)}
+            alertTrigger={
+              <Button
+                disabled={isUploading}
+                className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Upload Document
+              </Button>
+            }
+          />
           <div className={`my-auto ${!isUploading && "invisible"}`}>
             <Spinner />
           </div>
