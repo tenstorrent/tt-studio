@@ -34,7 +34,15 @@ interface ChatHistoryProps {
 }
 
 const RagPill: React.FC<{
-  ragDatasource: NonNullable<ChatHistoryProps["ragDatasource"]>;
+  ragDatasource: {
+    id: string;
+    name: string;
+    metadata?: {
+      created_at?: string;
+      embedding_func_name?: string;
+      last_uploaded_document?: string;
+    };
+  };
 }> = ({ ragDatasource }) => (
   <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-TT-slate/30 text-xs text-gray-300 mb-2">
     <Database size={12} />
@@ -263,11 +271,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                     )}
                     {message.sender === "user" && (
                       <div className="flex flex-col gap-4">
-                        {/* Show RAG pill for all user messages when datasource exists */}
-                        {ragDatasource && (
-                          <RagPill ragDatasource={ragDatasource} />
+                        {message.ragDatasource && (
+                          <RagPill ragDatasource={message.ragDatasource} />
                         )}
-
                         {message.text && (
                           <div className="bg-TT-green-accent/20 p-2 rounded">
                             <p className="text-white">
