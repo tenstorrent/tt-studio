@@ -1,35 +1,54 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-
-export interface InputAreaProps {
-  textInput: string
-  setTextInput: React.Dispatch<React.SetStateAction<string>>
-  handleInference: (input: string, files: FileData[]) => void
-  isStreaming: boolean
-  isListening: boolean
-  setIsListening: (isListening: boolean) => void
-  files: FileData[]
-  setFiles: React.Dispatch<React.SetStateAction<FileData[]>>
+// File and Media Types
+export interface ImageUrl {
+  url: string;
+  detail?: string;
 }
+
+export interface FileData {
+  id?: string;
+  name: string;
+  type: "text" | "image_url" | "document" | "audio" | "video";
+  size?: number;
+  created_at?: string;
+  blob?: Blob;
+  url?: string;
+  mime_type?: string;
+  duration?: number;
+  thumbnail_url?: string;
+
+  // Type-specific fields
+  text?: string;
+  image_url?: ImageUrl;
+  document_url?: string;
+  audio_url?: string;
+  video_url?: string;
+}
+
+// Chat and Message Types
 export interface ChatMessage {
   id: string;
   sender: "user" | "assistant";
   text: string;
   files?: FileData[];
   inferenceStats?: InferenceStats;
-}
-export interface FileData {
-  url: any;
-  type: "text" | "image_url";
-  text?: string;
-  image_url?: {
-    url: string;
-  };
-  name: string;
-  blob?: Blob;
+  ragDatasource?: RagDataSource;
 }
 
+// RAG Types
+export interface RagDataSource {
+  id: string;
+  name: string;
+  metadata?: {
+    created_at?: string;
+    embedding_func_name?: string;
+    last_uploaded_document?: string;
+  };
+}
+
+// Inference Types
 export interface InferenceRequest {
   deploy_id: string;
   text: string;
@@ -37,40 +56,32 @@ export interface InferenceRequest {
   files?: FileData[];
 }
 
-export interface FileData {
-  type: "text" | "image_url";
-  text?: string;
-  image_url?: {
-    url: string;
-  };
-  name: string;
-  blob?: Blob;
-}
-
-export interface RagDataSource {
-  id: string;
-  name: string;
-  metadata: Record<string, string>;
-}
-
-export interface ChatMessage {
-  id: string;
-  sender: "user" | "assistant";
-  text: string;
-  inferenceStats?: InferenceStats;
-}
-
-export interface Model {
-  id: string;
-  name: string;
-}
-
 export interface InferenceStats {
-  user_ttft_s: number; // Time to First Token in seconds
-  user_tpot: number; // Time Per Output Token in seconds
-  tokens_decoded: number; // Number of tokens decoded
-  tokens_prefilled: number; // Number of tokens prefilled
-  context_length: number; // Context length
+  user_ttft_s?: number;
+  user_tpot?: number;
+  tokens_decoded?: number;
+  tokens_prefilled?: number;
+  context_length?: number;
+  startTime?: string;
+  endTime?: string;
+  totalDuration?: number;
+  tokensPerSecond?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  total_time_ms?: number;
+}
+
+// Component Props Types
+export interface InputAreaProps {
+  textInput: string;
+  setTextInput: React.Dispatch<React.SetStateAction<string>>;
+  handleInference: (input: string, files: FileData[]) => void;
+  isStreaming: boolean;
+  isListening: boolean;
+  setIsListening: (isListening: boolean) => void;
+  files: FileData[];
+  setFiles: React.Dispatch<React.SetStateAction<FileData[]>>;
 }
 
 export interface InferenceStatsProps {
@@ -82,7 +93,26 @@ export interface StreamingMessageProps {
   isStreamFinished: boolean;
 }
 
-// Voice input types
+export interface HistoryPanelProps {
+  chatHistory: ChatMessage[][];
+  onSelectThread: (index: number) => void;
+  onDeleteThread: (index: number) => void;
+  onCreateNewThread: () => void;
+}
+
+export interface FileDisplayProps {
+  files: FileData[];
+  minimizedFiles: Set<string>;
+  toggleMinimizeFile: (fileId: string) => void;
+  onFileClick: (fileUrl: string, fileName: string) => void;
+}
+
+export interface FileViewerDialogProps {
+  file: { url: string; name: string; isImage: boolean } | null;
+  onClose: () => void;
+}
+
+// Voice Input Types
 export interface SpeechRecognitionAlternative {
   transcript: string;
   confidence: number;
@@ -126,13 +156,19 @@ export interface VoiceInputProps {
   setIsListening: (isListening: boolean) => void;
 }
 
-export interface HistoryPanelProps {
-  chatHistory: ChatMessage[][];
-  onSelectThread: (index: number) => void;
-  onDeleteThread: (index: number) => void;
-  onCreateNewThread: () => void;
+// Model Types
+export interface Model {
+  id?: string;
+  containerID?: string;
+  name?: string;
+  modelName?: string;
+  modelSize?: string;
+  baseModel?: string;
+  task?: string;
+  status?: string;
 }
 
+// Global Type Declarations
 declare global {
   interface Window {
     SpeechRecognition: new () => SpeechRecognition;
