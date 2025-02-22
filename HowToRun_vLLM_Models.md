@@ -44,12 +44,12 @@ git clone https://github.com/tenstorrent/tt-inference-server
 1. **Navigate to the Docker Images:**
    - Visit [TT-Inference-Server GitHub Packages](https://github.com/orgs/tenstorrent/packages?repo_name=tt-inference-server).
 
-2. **Pull the Docker Image:**
+2. **Pull the Desried Model Docker Image:**
    ```bash
-   docker pull ghcr.io/tenstorrent/tt-inference-server:<image-tag>     
+   docker pull ghcr.io/tenstorrent/tt-inference-server/:<model-image>:<image-tag>     
    ```
 
-3. **Authenticate Your Terminal (Optional):**
+3. **Authenticate Your Terminal (Optional - If Pull Command Fails)):**
    ```bash
    echo YOUR_PAT | docker login ghcr.io -u YOUR_USERNAME --password-stdin
    ```
@@ -75,10 +75,7 @@ Follow these step-by-step instructions to smoothly automate the process of setti
      ```bash
      ./setup.sh **Model**
      ```
-
-   - **Set `PERSISTENT_VOLUME_ROOT`**  
-     The script will prompt you for a `PERSISTENT_VOLUME_ROOT` path. A default path will be suggested, but **do not accept the default**. Instead, specify the **absolute path** to your `tt-studio/tt_studio_persistent_volume` directory to maintain the correct structure. Using the default path can lead to incorrect configurations.
-
+   
    - **Choose how to provide the model**  
      You will see:
      ```
@@ -89,6 +86,10 @@ Follow these step-by-step instructions to smoothly automate the process of setti
      Enter your choice:
      ```
      For first-time users, we recommend **option 1** (Hugging Face).
+
+   - **Next Set `PERSISTENT_VOLUME_ROOT`**  
+     The script will prompt you for a `PERSISTENT_VOLUME_ROOT` path. A default path will be suggested, but **do not accept the default**. Instead, specify the **absolute path** to your `tt-studio/tt_studio_persistent_volume` directory to maintain the correct structure. 
+     Using the default path can lead to incorrect configurations.
 
    - **Validate token and set environment variables**  
      The script will:
