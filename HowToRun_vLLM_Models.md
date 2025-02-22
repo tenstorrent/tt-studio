@@ -2,6 +2,10 @@
 
 This guide walks you through setting up vLLM Llama models and vLLM Mock models via the TT-Inference-Server, and then deploying them via TT-Studio.
 
+## Supported Models
+
+For the complete and up-to-date list of models supported by TT-Studio via TT-Inference-Server, please refer to [TT-Inference-Server GitHub README](https://github.com/tenstorrent/tt-inference-server/blob/main/README.md).
+
 ---
 
 ## Prerequisites
