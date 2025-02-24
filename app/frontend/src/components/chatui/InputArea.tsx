@@ -44,6 +44,7 @@ export default function InputArea({
   const [showErrorIndicator, setShowErrorIndicator] = useState(false);
   const [showReplaceDialog, setShowReplaceDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
@@ -274,7 +275,15 @@ export default function InputArea({
           </div>
         )}
 
-        <div className="relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl border border-gray-200 dark:border-[#7C68FA]/20 overflow-hidden">
+        <div
+          className={cn(
+            "relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl border transition-all duration-200",
+            isFocused
+              ? "border-gray-400/50 dark:border-white/20"
+              : "border-gray-200 dark:border-[#7C68FA]/20",
+            "overflow-hidden"
+          )}
+        >
           {/* File preview section */}
           {files.length > 0 && (
             <>
@@ -325,6 +334,8 @@ export default function InputArea({
             rows={1}
             style={{ minHeight: "24px", maxHeight: "200px" }}
             aria-label="Chat input"
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
           />
 
           {/* Control buttons */}
