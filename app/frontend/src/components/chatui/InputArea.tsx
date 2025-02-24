@@ -67,6 +67,7 @@ export default function InputArea({
 
   const handleTextAreaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setTextInput(e.target.value);
+    adjustTextareaHeight();
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -224,6 +225,12 @@ export default function InputArea({
     const files = e.dataTransfer?.files;
     if (files) handleFileUpload(Array.from(files));
   };
+
+  useEffect(() => {
+    adjustTextareaHeight();
+    window.addEventListener("resize", adjustTextareaHeight);
+    return () => window.removeEventListener("resize", adjustTextareaHeight);
+  }, [textInput]);
 
   return (
     <>
