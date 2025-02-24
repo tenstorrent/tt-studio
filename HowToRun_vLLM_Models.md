@@ -25,7 +25,7 @@ For the complete and up-to-date list of models supported by TT-Studio via TT-Inf
 4. [Deploy and run inference for the model via the GUI](#5-deploy-and-run-the-model)
 
 
-### **For Llama Model(s):**
+### **For vLLM Llama Model(s):**
 1. [Clone repositories](#1-clone-required-repositories)  
 2. [Pull the model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)  
 3. [Run the model setup script](#4-run-the-setup-script)  
