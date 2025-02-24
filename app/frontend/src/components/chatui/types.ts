@@ -37,6 +37,23 @@ export interface ChatMessage {
   ragDatasource?: RagDataSource;
 }
 
+export type MessageContent =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "image_url";
+      image_url: {
+        url: string;
+      };
+    };
+
+export type InferenceMessage = {
+  role: "user" | "assistant";
+  content: MessageContent[];
+};
+
 // RAG Types
 export interface RagDataSource {
   id: string;
