@@ -57,7 +57,7 @@ git clone https://github.com/tenstorrent/tt-inference-server
 1. **Navigate to the Docker Images:**
    - Visit [TT-Inference-Server GitHub Packages](https://github.com/orgs/tenstorrent/packages?repo_name=tt-inference-server).
 
-2. **Pull the Desried Model Docker Image:**
+2. **Pull the Desired Model Docker Image:**
    ```bash
    docker pull ghcr.io/tenstorrent/tt-inference-server/:<model-image>:<image-tag>     
    ```
