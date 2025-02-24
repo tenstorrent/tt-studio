@@ -122,14 +122,15 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
 }) => {
   if (!files || files.length === 0) return null;
 
+  console.log("Files:", files);
   const imageFiles = files.filter(isImageFile);
   const otherFiles = files.filter((file) => !isImageFile(file));
   const allFiles = [...imageFiles, ...otherFiles];
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col w-full max-w-3xl px-4 gap-4 items-end">
-        <div className="flex flex-wrap gap-4 justify-end">
+      <div className="flex flex-col gap-4 -mr-3">
+        <div className="flex flex-wrap gap-4 justify-end w-fit ml-auto">
           {allFiles.map((file, index) => {
             const fileId = isImageFile(file)
               ? file.image_url?.url || file.id || index.toString()
