@@ -13,6 +13,7 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     possible_substrings = await gen_substrings(mainstring)
     first_final_response = False
     print(message)
+    recieved_done_signal = False
     async for event in agent_executor.astream_events(
     {"input": message, "chat_history": chat_history}, version="v2", config=config
 ):
@@ -43,7 +44,11 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                 complete_output = complete_output[position + len("Final Answer: "):]
                 content = complete_output
                 complete_output = ""
+            if recieved_done_signal:
+                break # to prevent further response if final answer block is already sent 
             if content and final_answer:
+                if content == "[DONE]":
+                    recieved_done_signal = True 
                 yield content
     
         elif kind == "on_tool_start":
