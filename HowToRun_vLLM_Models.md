@@ -16,11 +16,20 @@ For the complete and up-to-date list of models supported by TT-Studio via TT-Inf
 
 ---
 
-### **For vLLM Mock/ Llama Model(s):**
+## Instructions Overview
+
+### **For Mock vLLM Model:**
+1. [Clone repositories](#1-clone-required-repositories)
+2. [Pull the mock model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)
+3. [Set up the Hugging Face (HF) token](#3-set-up-environment-variables-and-hugging-face-token)
+4. [Deploy and run inference for the model via the GUI](#5-deploy-and-run-the-model)
+
+
+### **For Llama Model(s):**
 1. [Clone repositories](#1-clone-required-repositories)  
 2. [Pull the model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)  
-3. [Run the model setup script](#3-run-the-setup-script)  
-4. [Deploy and run inference for the model via the GUI](#5-deploy-and-run-the-model)
+3. [Run the model setup script](#4-run-the-setup-script)  
+4. [Deploy and run inference for the model via the GUI](#6-deploy-and-run-the-model)
 
 ---
 
@@ -57,9 +66,18 @@ git clone https://github.com/tenstorrent/tt-inference-server
    ```bash
    echo YOUR_PAT | docker login ghcr.io -u YOUR_USERNAME --password-stdin
    ```
-
+   
 ---
-## 3. Run the Setup Script 
+ ## 3. Set Up Environment Variables and Hugging Face Token
+
+ Add the Hugging Face Token within the `.env` file in the `tt-studio/app/` directory.
+
+ ```bash
+ HF_TOKEN=hf_********
+ ```
+---
+
+## 4. Run the Setup Script 
 
 Follow these step-by-step instructions to smoothly automate the process of setting up model weights.
 
@@ -105,7 +123,7 @@ By following these steps, your tt-inference-server model infrastructure will be 
 
 ---
 
-## 4. Folder Structure for Model Weights
+## 5. Folder Structure for Model Weights
 
 When using the setup script it creates (or updates) specific directories and files within your `tt_studio_persistent_volume` folder. Here’s what to look for:
 
@@ -134,7 +152,7 @@ This folder and file structure allows TT-Studio to automatically recognize and a
 
 ---
 
-## 5. Deploy and Run the Model
+## 6. Deploy and Run the Model
 
 1. **Start TT-Studio:** Run TT-Studio using the startup command.
 2. **Access Model Weights:** In the TT-Studio interface, navigate to the model weights section.
