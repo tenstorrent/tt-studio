@@ -258,22 +258,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                               index !== chatHistory.length - 1)
                           }
                         />
-
-                        {message.files && message.files.length > 0 && (
-                          <FileDisplay
-                            files={message.files}
-                            minimizedFiles={minimizedFiles}
-                            toggleMinimizeFile={toggleMinimizeFile}
-                            onFileClick={handleFileClick}
-                          />
-                        )}
                       </>
                     )}
                     {message.sender === "user" && (
                       <div className="flex flex-col gap-4">
-                        {message.ragDatasource && (
-                          <RagPill ragDatasource={message.ragDatasource} />
-                        )}
                         {message.text && (
                           <div className="bg-TT-green-accent/20 p-2 rounded">
                             <p className="text-white">
@@ -299,15 +287,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             </p>
                           </div>
                         )}
-
-                        {message.files && message.files.length > 0 && (
-                          <FileDisplay
-                            files={message.files}
-                            minimizedFiles={minimizedFiles}
-                            toggleMinimizeFile={toggleMinimizeFile}
-                            onFileClick={handleFileClick}
-                          />
-                        )}
                       </div>
                     )}
                   </div>
@@ -319,6 +298,17 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       isReRendering={reRenderingMessageId === message.id}
                       isStreaming={isStreaming}
                       inferenceStats={message.inferenceStats}
+                    />
+                  )}
+                  {message.ragDatasource && (
+                    <RagPill ragDatasource={message.ragDatasource} />
+                  )}
+                  {message.files && message.files.length > 0 && (
+                    <FileDisplay
+                      files={message.files}
+                      minimizedFiles={minimizedFiles}
+                      toggleMinimizeFile={toggleMinimizeFile}
+                      onFileClick={handleFileClick}
                     />
                   )}
                 </div>
