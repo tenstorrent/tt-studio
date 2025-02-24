@@ -1,6 +1,10 @@
-# Running Llama3.1-70B and Mock vLLM Models in TT-Studio
+# Running Llama and Mock vLLM Models in TT-Studio
 
-This guide provides step-by-step instructions on setting up and deploying vLLM Llama3.1-70B and vLLM Mock models using TT-Studio.
+This guide walks you through setting up vLLM Llama models and vLLM Mock models via the TT-Inference-Server, and then deploying them via TT-Studio.
+
+## Supported Models
+
+For the complete and up-to-date list of models supported by TT-Studio via TT-Inference-Server, please refer to [TT-Inference-Server GitHub README](https://github.com/tenstorrent/tt-inference-server/blob/main/README.md).
 
 ---
 
@@ -8,9 +12,8 @@ This guide provides step-by-step instructions on setting up and deploying vLLM L
 
 1. **Docker**: Make sure Docker is installed on your system. Follow the [Docker installation guide](https://docs.docker.com/engine/install/).
 
-2. **Hugging Face Token**: Both models require authentication to Hugging Face repositories. To obtain a token, go to [Hugging Face Account](https://huggingface.co/settings/tokens) and generate a token. Additionally; make sure to accept the terms and conditions on Hugging Face for the Llama3.1 models by visiting [Hugging Face Meta-Llama Page](https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct).
+2. **Hugging Face Token**: Both models require authentication to Hugging Face repositories. To obtain a token, go to [Hugging Face Account](https://huggingface.co/settings/tokens) and generate a token. Additionally; make sure to accept the terms and conditions on Hugging Face for the the desired model(s). 
 
-3. **Model Access Weight**: To access specific models like Llama3.1, you may need to register with Meta to obtain download links for model weights. Visit [Llama Downloads](https://www.llama.com/llama-downloads/) for more information.
 ---
 
 ## Instructions Overview
@@ -19,15 +22,14 @@ This guide provides step-by-step instructions on setting up and deploying vLLM L
 1. [Clone repositories](#1-clone-required-repositories)
 2. [Pull the mock model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)
 3. [Set up the Hugging Face (HF) token](#3-set-up-environment-variables-and-hugging-face-token)
-4. [Run the mock vLLM model via the GUI](#7-deploy-and-run-the-model)
+4. [Deploy and run inference for the model via the GUI](#5-deploy-and-run-the-model)
 
-### **For vLLM Llama3.1-70B Model:**
-1. [Clone repositories](#1-clone-required-repositories)
-2. [Pull the model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)
-3. [Set up the Hugging Face (HF) token in the TT-Studio `.env` file](#3-set-up-environment-variables-and-hugging-face-token)
-4. [Run the model setup script](#4-run-the-setup-script-vllm-llama31-70b-only)
-5. [Update the vLLM Environment Variable in Environment File](#6-add-the-vllm-environment-variable-in-environment-file--copy-the-file-over-to-tt-studio-persistent-volume)
-6. [Deploy and run inference for the Llama3.1-70B model via the GUI](#7-deploy-and-run-the-model)
+
+### **For vLLM Llama Model(s):**
+1. [Clone repositories](#1-clone-required-repositories)  
+2. [Pull the model Docker image](#2-pull-the-desired-model-docker-images-using-docker-github-registry)  
+3. [Run the model setup script](#4-run-the-setup-script)  
+4. [Deploy and run inference for the model via the GUI](#6-deploy-and-run-the-model)
 
 ---
 
@@ -55,128 +57,106 @@ git clone https://github.com/tenstorrent/tt-inference-server
 1. **Navigate to the Docker Images:**
    - Visit [TT-Inference-Server GitHub Packages](https://github.com/orgs/tenstorrent/packages?repo_name=tt-inference-server).
 
-2. **Pull the Docker Image:**
+2. **Pull the Desired Model Docker Image:**
    ```bash
-   docker pull ghcr.io/tenstorrent/tt-inference-server:<image-tag>     
+   docker pull ghcr.io/tenstorrent/tt-inference-server/:<model-image>:<image-tag>     
    ```
 
-3. **Authenticate Your Terminal (Optional):**
+3. **Authenticate Your Terminal (Optional - If Pull Command Fails)):**
    ```bash
    echo YOUR_PAT | docker login ghcr.io -u YOUR_USERNAME --password-stdin
    ```
+   
+---
+ ## 3. Set Up Environment Variables and Hugging Face Token
 
+ Add the Hugging Face Token within the `.env` file in the `tt-studio/app/` directory.
+
+ ```bash
+ HF_TOKEN=hf_********
+ ```
 ---
 
-## 3. Set Up Environment Variables and Hugging Face Token
+## 4. Run the Setup Script 
 
-Add the Hugging Face Token within the `.env` file in the `tt-studio/app/` directory.
+Follow these step-by-step instructions to smoothly automate the process of setting up model weights.
 
-```bash
-HF_TOKEN=hf_********
-```
+1. **Create the `tt_studio_persistent_volume` folder**  
+   - Either create this folder manually inside `tt-studio/`, or run `./startup.sh` from within `tt-studio` to have it created automatically.
 
----
+2. **Ensure folder permissions**  
+   - Verify that you (the user) have permission to edit the newly created folder. If not, adjust ownership or permissions using commands like `chmod` or `chown`.
 
-## 4. Run the Setup Script (vLLM Llama3.1-70B only)
+3. **Navigate to `tt-inference-server`**  
+   - Consult the [README](https://github.com/tenstorrent/tt-inference-server?tab=readme-ov-file#model-implementations) to see which model servers are supported by TT-Studio.
 
-Follow these step-by-step instructions for a smooth automated process of model weights setup.
+4. **Run the automated setup script**  
 
-1. **Navigate to the `vllm-tt-metal-llama3-70b/` folder** within the `tt-inference-server`. This folder contains the necessary files and scripts for model setup.
+   - **Execute the script**  
+     Navigate to `tt-inference-server`, run:
+     ```bash
+     ./setup.sh **Model**
+     ```
+   
+   - **Choose how to provide the model**  
+     You will see:
+     ```
+     How do you want to provide a model?
+     1) Download from 🤗 Hugging Face (default)
+     2) Download from Meta
+     3) Local folder
+     Enter your choice:
+     ```
+     For first-time users, we recommend **option 1** (Hugging Face).
 
-2. **Run the automated setup script** as outlined in the [official documentation](https://github.com/tenstorrent/tt-inference-server/tree/main/vllm-tt-metal-llama3-70b#5-automated-setup-environment-variables-and-weights-files:~:text=70b/docs/development-,5.%20Automated%20Setup%3A%20environment%20variables%20and%20weights%20files,-The%20script%20vllm). This script handles key steps such as configuring environment variables, downloading weight files, repacking weights, and creating directories.
+   - **Next Set `PERSISTENT_VOLUME_ROOT`**  
+     The script will prompt you for a `PERSISTENT_VOLUME_ROOT` path. A default path will be suggested, but **do not accept the default**. Instead, specify the **absolute path** to your `tt-studio/tt_studio_persistent_volume` directory to maintain the correct structure. 
+     Using the default path can lead to incorrect configurations.
 
-**Note** During the setup process, you will see the following prompt:
+   - **Validate token and set environment variables**  
+     The script will:
+     1. Validate your Hugging Face token (`HF_TOKEN`).
+     2. Prompt you for an `HF_HOME` location (default is often `~/.cache/huggingface`).
+     3. Ask for a JWT secret, which should match the one in `tt-studio/app/.env` (commonly `test-secret-456`).
 
-   ```
-   Enter your PERSISTENT_VOLUME_ROOT [default: tt-inference-server/tt_inference_server_persistent_volume]:
-   ```
-
-   **Do not accept the default path.** Instead, set the persistent volume path to `tt-studio/tt_studio_persistent_volume`. This ensures the configuration matches TT-Studio’s directory structure. Using the default path may result in incorrect configuration.
-
-By following these instructions, you will have a properly configured model infrastructure, ready for inference and further development.
-
-
+By following these steps, your tt-inference-server model infrastructure will be correctly configured and ready for inference via the TT-Studio GUI.
 
 ---
 
 ## 5. Folder Structure for Model Weights
 
-Verify that the weights are correctly stored in the following structure:
+When using the setup script it creates (or updates) specific directories and files within your `tt_studio_persistent_volume` folder. Here’s what to look for:
 
-```bash
-/path/to/tt-studio/tt_studio_persistent_volume/
-└── volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/
-    ├── layers_0-4.pth
-    ├── layers_5-9.pth
-    ├── params.json
-    └── tokenizer.model
-```
+1. **Model Weights Directories**  
+   Verify that the weights are correctly stored in a directory similar to:
+   ```bash
+   /path/to/tt-studio/tt_studio_persistent_volume/
+   ├── model_envs
+   │   └── Llama-3.1-70B-Instruct.env
+   └── volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/
+      ├── layers_0-4.pth
+      ├── layers_5-9.pth
+      ├── params.json
+      └── tokenizer.model
 
-**What to Look For:**
-- Ensure all expected weight files (e.g., `layers_0-4.pth`, `params.json`, `tokenizer.model`) are present.
-- If any files are missing, re-run the `setup.sh` script to complete the download.
+   ```
+   - Ensure all expected weight files (e.g., `layers_0-4.pth`, `params.json`, `tokenizer.model`) are present.  
+   - If any files are missing, re-run the `setup.sh` script to complete the download.
 
-This folder structure allows TT Studio to automatically recognize and access models without further configuration adjustments. For each model, verify that the weights are correctly copied to this directory to ensure proper access by TT Studio.
+2. **`model_envs` Folder**  
+   Within your `tt_studio_persistent_volume`, you will also find a `model_envs` folder (e.g., `model_envs/Llama-3.1-8B-Instruct.env`).  
+   - Each `.env` file contains the values you input during the setup script run (e.g., `HF_TOKEN`, `HF_HOME`, `JWT_SECRET`).  
+   - Verify that these environment variables match what you entered; if you need to adjust them, re-run the setup process.
 
-
-## 6. Copy the Environment File and Point to it in TT-Studio
-
-### Step 1: Copy the Environment File
-During the model weights download process, an `.env` file will be automatically created. The path to the `.env` file might resemble the following example:
-
-```
-/path/to/tt-inference-server/vllm-tt-metal-llama3-70b/.env
-```
-
-To ensure the model can be deployed via the TT-Studio GUI, this `.env` file must be copied to the model's persistent storage location. For example:
-
-```bash
-/path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/copied_env
-```
-
-The following command can be used as a reference (*replace paths as necessary*):
-
-```bash
-sudo cp /$USR/tt-inference-server/vllm-tt-metal-llama3-70b/.env /$USR/tt_studio/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/.env
-```
-
-### Step 2: Point to the Copied Environment File
-The `VLLM_LLAMA31_ENV_FILE` variable within the TT-Studio `$USR/tt-studio/app/.env` file must point to *this* copied `.env` file. This should be a **relative path**, for example it can be set as follows:
-
-```
-VLLM_LLAMA31_ENV_FILE="/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/.env"
-```
----
-
-### Step 2: Update the TT-Studio Environment File
-After copying the `.env` file, update the `VLLM_LLAMA31_ENV_FILE` variable in the `tt-studio/app/.env` file to point to the **copied file path**. This ensures TT-Studio uses the correct environment configuration for the model.
-
-```bash
-VLLM_LLAMA31_ENV_FILE="/path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/copied_env"
-```
-
----
-Here is an example of a complete `.env` file configuration for reference:
-
-```bash
-TT_STUDIO_ROOT=/Users/**username**/tt-studio
-HOST_PERSISTENT_STORAGE_VOLUME=${TT_STUDIO_ROOT}/tt_studio_persistent_volume
-INTERNAL_PERSISTENT_STORAGE_VOLUME=/tt_studio_persistent_volume
-BACKEND_API_HOSTNAME="tt-studio-backend-api"
-VLLM_LLAMA31_ENV_FILE="/path/to/tt_studio_persistent_volume/volume_id_tt-metal-llama-3.1-70b-instructv0.0.1/**copied_env
-# SECURITY WARNING: keep these secret in production!
-JWT_SECRET=test-secret-456
-DJANGO_SECRET_KEY=django-insecure-default
-HF_TOKEN=hf_****
-```
+This folder and file structure allows TT-Studio to automatically recognize and access models without any additional configuration steps.
 
 ---
 
-## 7. Deploy and Run the Model
+## 6. Deploy and Run the Model
 
 1. **Start TT-Studio:** Run TT-Studio using the startup command.
 2. **Access Model Weights:** In the TT-Studio interface, navigate to the model weights section.
-3. **Select Custom Weights:** Use the custom weights option to select the weights for Llama3.1-70B.
+3. **Select Weights:** Select the model weights.
 4. **Run the Model:** Start the model and wait for it to initialize.
 
 ---
@@ -240,6 +220,30 @@ This will allow you to check for any startup errors or issues directly from the 
 curl -s --no-buffer -X POST "http://localhost:7000/v1/chat/completions" -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{"model":"meta-llama/Llama-3.1-70B-Instruct","messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"Hi"}]}'
 ```
 If successful, you will receive a response from the model.
+
+
+#### iv. Sample Command for Changing Ownership (chown)
+
+If you need to adjust permissions for the `tt_studio_persistent_volume` folder, first determine your user and group IDs by running: (*replace paths as necessary*)
+
+```bash
+id
+```
+
+You will see an output similar to:
+
+```
+uid=1001(youruser) gid=1001(yourgroup) groups=...
+```
+
+Use these numeric IDs to set the correct ownership. For example:
+
+```bash
+sudo chown -R 1001:1001 /home/youruser/tt-studio/tt_studio_persistent_volume/
+```
+
+Replace `1001:1001` with your actual UID:GID and `/home/youruser/tt-studio/tt_studio_persistent_volume/` with the path to your persistent volume folder.
+
 
 
 ## You're All Set 🎉
