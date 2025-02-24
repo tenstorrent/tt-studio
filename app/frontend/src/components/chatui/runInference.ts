@@ -11,6 +11,7 @@ import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
 import type React from "react";
+import { processUploadedFiles } from "./processUploadedFiles";
 
 export const runInference = async (
   request: InferenceRequest,
@@ -34,7 +35,8 @@ export const runInference = async (
 
     let messages;
     if (request.files && request.files.length > 0) {
-      const file = request.files[0];
+      const file = processUploadedFiles(request.files);
+      console.log("Processed file:", file);
 
       if (file.type === "text" && file.text) {
         // Handle text file by treating its content as RAG context
