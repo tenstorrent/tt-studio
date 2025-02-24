@@ -6,8 +6,11 @@ TT-Studio enables rapid deployment of TT Inference servers locally and is optimi
 
 1. [Prerequisites](#prerequisites)
 2. [Overview](#overview)
-3. [Quick Start](#quick-start)
-   - [For General Users](#for-general-users)
+3. [Quick Start](#quick-start)  
+   - [For General Users](#for-general-users)  
+      - Clone the Repository
+      - Set Up the Model Weights.
+      - Run the App via `startup.sh`
    - [For Developers](#for-developers)
 4. [Using `startup.sh`](#using-startupsh)
    - [Basic Usage](#basic-usage)
@@ -36,8 +39,11 @@ To set up TT-Studio:
    git clone https://github.com/tenstorrent/tt-studio.git
    cd tt-studio
    ```
+2. **Choose and Set Up the Model**:
 
-2. **Run the Startup Script**:
+   Select your desired model and configure its corresponding weights by following the instructions in [HowToRun_vLLM_Models.md](./HowToRun_vLLM_Models.md).
+
+3. **Run the Startup Script**:
 
    Run the `startup.sh` script:
 
@@ -47,16 +53,16 @@ To set up TT-Studio:
 
    #### See this [section](#command-line-options) for more information on command-line arguments available within the startup script.
 
-3. **Access the Application**:
+4. **Access the Application**:
 
    The app will be available at [http://localhost:3000](http://localhost:3000).
 
-4. **Cleanup**:
+5. **Cleanup**:
    - To stop and remove Docker services, run:
      ```bash
      ./startup.sh --cleanup
      ```
-5. Running on a Remote Machine
+6. Running on a Remote Machine
 
    To forward traffic between your local machine and a remote server, enabling you to access the frontend application in your local browser, follow these steps:
 
@@ -70,28 +76,60 @@ To set up TT-Studio:
 > ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker compose.yml.
 ---
 
-### For Developers
+## Running in Development Mode
 
-Developers can control and run the app directly via `docker compose`, keeping this running in a terminal allows for hot reload of the frontend app. For any backend changes its advisable to re restart the services.
+Developers can control and run the app directly via `docker compose`, keeping this running in a terminal allows for hot reload of the frontend app.
 
-1.  **Run in Development Mode**:
+1. **Start the Application**:
 
-    ```bash
-    cd tt-studio/app
-    docker compose up --build
-    ```
+   Navigate to the project directory and start the application:
 
-2.  **Stop the Services**:
+   ```bash
+   cd tt-studio/app
+   docker compose up --build
+   ```
 
-    ```bash
-    docker compose down
-    ```
+   Alternatively, run the backend and frontend servers interactively:
 
-3.  **Using the Mock vLLM Model**:
-    - For local testing, you can use the `Mock vLLM` model, which spits out random set of characters back . Instructions to run it are [here](HowToRun_vLLM_Models.md)  
+   ```bash
+   docker compose up
+   ```
 
+   To force a rebuild of Docker images:
 
-4.  **Running on a Machine with Tenstorrent Hardware**:
+   ```bash
+   docker compose up --build
+   ```
+
+2. **Hot Reload & Debugging**:
+
+   #### Frontend
+   - The frontend supports hot reloading when running inside the `docker compose` environment.
+   - Ensure that the required lines (**71-73**) in `docker-compose.yml` are uncommented.
+
+   #### Backend
+   - Local files in `./api` are mounted to `/api` within the container for development.
+   - Code changes trigger an automatic rebuild and redeployment of the Django server.
+   - To manually start the Django development server:
+
+     ```bash
+     ./manage.py runserver 0.0.0.0:8000
+     ```
+
+3. **Stopping the Services**:
+
+   To shut down the application and remove running containers:
+
+   ```bash
+   docker compose down
+   ```
+
+4. **Using the Mock vLLM Model**:
+
+   - For local testing, you can use the `Mock vLLM` model, which generates a random set of characters as output.
+   - Instructions to run it are available [here](./HowToRun_vLLM_Models.md).
+
+5. **Running on a Machine with Tenstorrent Hardware**:
 
     To run TT-Studio on a device with Tenstorrent hardware, you need to uncomment specific lines in the `app/docker-compose.yml` file. Follow these steps:
 
