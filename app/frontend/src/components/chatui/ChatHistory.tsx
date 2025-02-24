@@ -298,6 +298,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       isReRendering={reRenderingMessageId === message.id}
                       isStreaming={isStreaming}
                       inferenceStats={message.inferenceStats}
+                      messageContent={message.text}
                     />
                   )}
                   {message.ragDatasource && (
