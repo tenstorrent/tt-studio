@@ -239,7 +239,7 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/enqueue",
         health_route="/",
-        setup_type=SetupTypes.MAKE_VOLUMES,
+        setup_type=SetupTypes.TT_INFERENCE_SERVER,
     ),
     ModelImpl(
         model_name="YOLOv4",
