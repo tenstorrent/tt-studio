@@ -19,7 +19,7 @@ TT-Studio enables rapid deployment of TT Inference servers locally and is optimi
 5. [Documentation](#documentation)
    - [Frontend Documentation](#frontend-documentation)
    - [Backend API Documentation](#backend-api-documentation)
-   - [Running Llama3.1-70B in TT-Studio](#running-llama31-70b-in-tt-studio)
+   - [Running vLLM Models in TT-Studio])
 
 
 ---
@@ -197,7 +197,7 @@ If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt
 - **Backend API Documentation**: [app/api/README.md](app/api/README.md)  
   Information on the backend API, powered by Django Rest Framework, including available endpoints and integration details.
 
-- **Running vLLM Llama3.1-70B and vLLM Mock Model(s) in TT-Studio**: [HowToRun_vLLM_Models.md](HowToRun_vLLM_Models.md)  
+- **Running vLLM Model(s) and Mock vLLM Model in TT-Studio**: [HowToRun_vLLM_Models.md](HowToRun_vLLM_Models.md)  
   Step-by-step instructions on how to configure and run the vLLM model(s) using TT-Studio.
 
 - **Contribution Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)  
