@@ -34,24 +34,55 @@ export const runInference = async (
 
     let messages;
     if (request.files && request.files.length > 0) {
-      console.log(
-        "Files detected, using image_url message structure",
-        request.files[0].image_url?.url
-      );
-      messages = [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: request.text || "What's in this image?" },
-            {
-              type: "image_url",
-              image_url: {
-                url: request.files[0].image_url?.url || request.files[0],
+      const file = request.files[0];
+
+      if (file.type === "text" && file.text) {
+        // Handle text file by treating its content as RAG context
+        console.log("Text file detected, processing as RAG context");
+        const textContent = file.text;
+        console.log("Text content:", textContent);
+
+        // Create a RAG context from the text file content
+        const fileRagContext = {
+          documents: [textContent],
+        };
+
+        // Merge with existing RAG context if any
+        if (ragContext) {
+          ragContext.documents = [
+            ...ragContext.documents,
+            ...fileRagContext.documents,
+          ];
+        } else {
+          ragContext = fileRagContext;
+        }
+
+        // Process with RAG context
+        console.log("Processing with combined RAG context:", ragContext);
+        messages = generatePrompt(
+          chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
+          ragContext
+        );
+      } else if (file.image_url?.url || file) {
+        console.log(
+          "Image file detected, using image_url message structure",
+          file.image_url?.url
+        );
+        messages = [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: request.text || "What's in this image?" },
+              {
+                type: "image_url",
+                image_url: {
+                  url: file.image_url?.url || file,
+                },
               },
-            },
-          ],
-        },
-      ];
+            ],
+          },
+        ];
+      }
     } else if (
       request.text &&
       request.text.includes("https://") &&
@@ -148,7 +179,6 @@ export const runInference = async (
     let inferenceStats: InferenceStats | undefined;
 
     if (reader) {
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
 
@@ -177,7 +207,6 @@ export const runInference = async (
             try {
               const jsonData = JSON.parse(trimmedLine.slice(5));
 
-              // Handle statistics separately after [DONE]
               if (jsonData.ttft && jsonData.tpot) {
                 inferenceStats = {
                   user_ttft_s: jsonData.ttft,
@@ -187,10 +216,9 @@ export const runInference = async (
                   context_length: jsonData.context_length,
                 };
                 console.log("Final Inference Stats received:", inferenceStats);
-                continue; // Skip processing this chunk as part of the generated text
+                continue;
               }
 
-              // Handle the generated text
               const content = jsonData.choices[0]?.delta?.content || "";
               if (content) {
                 accumulatedText += content;
@@ -215,7 +243,6 @@ export const runInference = async (
     console.log("Inference stream ended.");
     setIsStreaming(false);
 
-    // Update chat history with inference stats after streaming is fully completed
     if (inferenceStats) {
       console.log(
         "Updating chat history with inference stats:",
