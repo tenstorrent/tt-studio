@@ -108,7 +108,7 @@ class CustomLLM(BaseChatModel):
         json_data = {
             "model": hf_model_path,
             "messages": message_payload,
-            "temperature": 1,
+            "temperature": 0,
             "top_k": 20,
             "top_p": 0.9,
             "max_tokens": 512,
