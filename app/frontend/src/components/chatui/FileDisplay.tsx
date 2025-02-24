@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React from "react";
-import { FileData } from "./types";
+import type React from "react";
+import type { FileData } from "./types";
 import { FileText, Image, File, Maximize2, Minimize2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 interface FileDisplayProps {
   files: FileData[];
@@ -51,85 +57,112 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
 
   const imageFiles = files.filter(isImageFile);
   const otherFiles = files.filter((file) => !isImageFile(file));
+  const allFiles = [...imageFiles, ...otherFiles];
 
   return (
-    <div className="bg-gray-800 p-2 rounded mt-2">
-      {imageFiles.length > 0 && (
-        <>
-          <p className="text-white mb-2 font-semibold">
-            Attached Images ({imageFiles.length}):
-          </p>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {imageFiles.map((file, index) => {
-              const fileId = file.image_url?.url || file.id || index.toString();
+    <TooltipProvider>
+      <div className="flex flex-col w-full max-w-3xl px-4 gap-4 items-end">
+        <div className="flex flex-wrap gap-4 justify-end">
+          {allFiles.map((file, index) => {
+            const fileId = isImageFile(file)
+              ? file.image_url?.url || file.id || index.toString()
+              : file.url || file.id || index.toString();
+            const isMinimized = isImageFile(file)
+              ? minimizedFiles.has(fileId)
+              : true; // Files always start minimized
+
+            if (isImageFile(file)) {
               return (
-                <div
-                  key={`img-${index}`}
-                  className="relative group max-w-[150px] rounded-lg overflow-hidden border border-gray-700 transition-all duration-300 hover:shadow-lg"
-                >
-                  {!minimizedFiles.has(fileId) ? (
-                    <img
-                      src={file.image_url?.url || "/placeholder.svg"}
-                      alt={file.name}
-                      className="object-cover w-full h-[100px]"
-                      onClick={() =>
-                        onFileClick(file.image_url?.url || "", file.name)
-                      }
-                    />
+                <div key={`file-${index}`} className="relative group">
+                  {!isMinimized ? (
+                    <div className="relative">
+                      <img
+                        src={file.image_url?.url || "/placeholder.svg"}
+                        alt={file.name}
+                        className="w-[200px] h-[200px] object-contain cursor-pointer rounded-lg"
+                        onClick={() =>
+                          onFileClick(file.image_url?.url || "", file.name)
+                        }
+                      />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => toggleMinimizeFile(fileId)}
+                            className="absolute top-2 right-2 p-1 rounded-full bg-black/40 hover:bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                          >
+                            <Minimize2 size={14} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          <p>Minimize image</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                   ) : (
-                    <div className="w-full h-[30px] bg-gray-700 flex items-center justify-center">
-                      <Image className="h-4 w-4 text-gray-400" />
+                    <div className="flex items-center gap-2 p-2 rounded-lg bg-gray-700/50 border border-gray-600">
+                      <div
+                        className="w-[40px] h-[40px] rounded-lg bg-gray-700 flex items-center justify-center cursor-pointer relative group"
+                        onClick={() => toggleMinimizeFile(fileId)}
+                      >
+                        <Image className="h-5 w-5 text-gray-400" />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button className="absolute inset-0 w-full h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                              <Maximize2 size={14} className="text-gray-300" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">
+                            <p>Maximize image</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <span className="text-sm text-gray-300 truncate max-w-[150px]">
+                        {file.name}
+                      </span>
                     </div>
                   )}
-                  <div className="p-1 bg-gray-700 text-xs text-gray-300 truncate flex justify-between items-center">
-                    <span className="truncate flex-grow">{file.name}</span>
-                    <button
-                      onClick={() => toggleMinimizeFile(fileId)}
-                      className="ml-2 text-gray-300 hover:text-white flex-shrink-0"
-                    >
-                      {minimizedFiles.has(fileId) ? (
-                        <Maximize2 size={14} />
-                      ) : (
-                        <Minimize2 size={14} />
-                      )}
-                    </button>
-                  </div>
                 </div>
               );
-            })}
-          </div>
-        </>
-      )}
+            }
 
-      {otherFiles.length > 0 && (
-        <>
-          <p className="text-white mb-2 font-semibold">
-            Attached Files ({otherFiles.length}):
-          </p>
-          <div className="flex flex-col gap-2">
-            {otherFiles.map((file, index) => {
-              return (
+            return (
+              <div
+                key={`file-${index}`}
+                className="flex items-center gap-2 p-2 rounded-lg bg-gray-700/50 border border-gray-600"
+              >
                 <div
-                  key={`file-${index}`}
-                  className="flex items-center p-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                  className="w-[40px] h-[40px] rounded-lg bg-gray-700 flex items-center justify-center cursor-pointer relative group"
                   onClick={() => onFileClick(file.url || "", file.name)}
                 >
                   {getFileIcon(file)}
-                  <span className="ml-2 text-sm text-gray-200 truncate">
-                    {file.name}
-                  </span>
-                  {file.size && (
-                    <span className="ml-auto text-xs text-gray-400">
-                      {formatFileSize(file.size)}
-                    </span>
-                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        {file.size && (
+                          <span className="sr-only">
+                            {formatFileSize(file.size)}
+                          </span>
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                      {file.size && (
+                        <p className="text-xs text-gray-400">
+                          {formatFileSize(file.size)}
+                        </p>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-    </div>
+                <span className="text-sm text-gray-300 truncate max-w-[150px]">
+                  {file.name}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </TooltipProvider>
   );
 };
 
