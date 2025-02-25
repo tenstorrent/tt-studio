@@ -18,7 +18,9 @@ export const runInference = async (
   ragDatasource: RagDataSource | undefined,
   chatHistory: ChatMessage[],
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
-  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>
+  setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
+  isAgentSelected: boolean,
+  threadId: number 
 ) => {
   try {
     setIsStreaming(true);
@@ -128,8 +130,12 @@ export const runInference = async (
     }
 
     console.log("Generated messages:", messages);
+    console.log("Thread ID: ", threadId); 
 
-    const API_URL = import.meta.env.VITE_API_URL || "/models-api/inference/";
+    const API_URL = isAgentSelected 
+    ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"  
+    : import.meta.env.VITE_API_URL || "/models-api/inference/"; 
+    
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
@@ -139,16 +145,35 @@ export const runInference = async (
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
 
-    const requestBody = {
-      deploy_id: request.deploy_id,
-      messages: messages,
-      max_tokens: 512,
-      stream: true,
-      stream_options: {
-        include_usage: true,
-      },
-    };
+    let requestBody; 
+    let threadIdStr = threadId.toString(); 
 
+    if (!isAgentSelected) {
+      requestBody = {
+        deploy_id: request.deploy_id,
+        // model: "meta-llama/Llama-3.1-70B-Instruct",
+        messages: messages,
+        max_tokens: 512,
+        stream: true,
+        stream_options: {
+          include_usage: true,
+        },
+      };
+    }
+    else {
+      requestBody = {
+        deploy_id: request.deploy_id,
+        // model: "meta-llama/Llama-3.1-70B-Instruct",
+        messages: messages,
+        max_tokens: 512,
+        stream: true,
+        stream_options: {
+          include_usage: true,
+        },
+        thread_id: threadIdStr, // Add thread_id to the request body
+      };
+    }
+ 
     console.log(
       "Sending request to model:",
       JSON.stringify(requestBody, null, 2)
@@ -209,6 +234,8 @@ export const runInference = async (
             try {
               const jsonData = JSON.parse(trimmedLine.slice(5));
 
+              if (!isAgentSelected) {
+              // // Handle statistics separately after [DONE]
               if (jsonData.ttft && jsonData.tpot) {
                 inferenceStats = {
                   user_ttft_s: jsonData.ttft,
@@ -220,7 +247,7 @@ export const runInference = async (
                 console.log("Final Inference Stats received:", inferenceStats);
                 continue;
               }
-
+            } 
               const content = jsonData.choices[0]?.delta?.content || "";
               if (content) {
                 accumulatedText += content;
