@@ -19,6 +19,7 @@ from .docker_utils import (
     perform_reset,
 )
 from shared_config.model_config import model_implmentations
+from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
 
