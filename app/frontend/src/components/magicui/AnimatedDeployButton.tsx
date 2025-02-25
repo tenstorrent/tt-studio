@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
+
 
 import React, { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";

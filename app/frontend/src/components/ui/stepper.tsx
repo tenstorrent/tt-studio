@@ -4,7 +4,6 @@
 //  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
 //  SPDX-License-Identifier: MIT
 
-"use client";
 
 import * as React from "react";
 import { cva } from "class-variance-authority";

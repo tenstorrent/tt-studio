@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
 
 import { useEffect, useState, useCallback } from "react";
 import { Button } from "../ui/button";
@@ -44,7 +43,7 @@ export default function LogsViewer() {
   const extractDateFromFileName = (fileName: string) => {
     // Adjusted regex to match 'YYYY-MM-DD-HH_MM_SS' format in log files
     const match = fileName.match(
-      /(\d{4})-(\d{2})-(\d{2})-(\d{2})_(\d{2})_(\d{2})/,
+      /(\d{4})-(\d{2})-(\d{2})-(\d{2})_(\d{2})_(\d{2})/
     );
     if (match) {
       const [year, month, day, hour, minute, second] = match
@@ -72,7 +71,7 @@ export default function LogsViewer() {
           : dateB.getTime() - dateA.getTime();
       });
     },
-    [sortOrder],
+    [sortOrder]
   );
 
   useEffect(() => {

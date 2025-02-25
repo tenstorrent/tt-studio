@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-"use client";
-
 import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { useStepper } from "./ui/stepper";
@@ -9,7 +7,7 @@ import { Weight } from "./SelectionSteps";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../providers/ModelsContext";
 import { useRefresh } from "../providers/RefreshContext";
-import { Cpu, Sliders } from 'lucide-react';
+import { Cpu, Sliders } from "lucide-react";
 import axios from "axios";
 
 export function DeployModelStep({
@@ -35,7 +33,7 @@ export function DeployModelStep({
           const response = await axios.get(`/docker-api/get_containers/`);
           const models = response.data;
           const model = models.find(
-            (m: { id: string; name: string }) => m.id === selectedModel,
+            (m: { id: string; name: string }) => m.id === selectedModel
           );
           if (model) {
             setModelName(model.name);
@@ -119,4 +117,3 @@ export function DeployModelStep({
     </>
   );
 }
-

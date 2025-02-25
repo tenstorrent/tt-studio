@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -45,7 +45,7 @@ export function WeightForm({
       const fetchWeights = async () => {
         try {
           const response = await axios.get<Weight[]>(
-            getWeightsUrl(selectedModel),
+            getWeightsUrl(selectedModel)
           );
           console.log("fetched weights:", response.data);
           setWeights(response.data);
@@ -62,7 +62,7 @@ export function WeightForm({
     resolver: zodResolver(
       z.object({
         weight: z.string().nonempty("Please select a weight file."),
-      }),
+      })
     ),
     defaultValues: {
       weight: "",
@@ -77,7 +77,7 @@ export function WeightForm({
     setIsSubmitting(true);
     try {
       const selectedWeight = weights.find(
-        (weight) => weight.name === data.weight,
+        (weight) => weight.name === data.weight
       );
       if (selectedWeight) {
         setCustomWeight(selectedWeight);

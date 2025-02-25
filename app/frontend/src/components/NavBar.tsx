@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
-
 import React, { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -146,7 +144,9 @@ export default function NavBar() {
             href="https://www.tenstorrent.com"
             target="_blank"
             rel="noopener noreferrer"
-            className={`flex items-center ${isChatUI ? "mb-6 justify-center" : ""}`}
+            className={`flex items-center ${
+              isChatUI ? "mb-6 justify-center" : ""
+            }`}
           >
             <motion.img
               src={logo}
@@ -165,7 +165,9 @@ export default function NavBar() {
           </a>
           <NavigationMenu className={`w-full ${isChatUI ? "mt-4" : ""}`}>
             <NavigationMenuList
-              className={`flex ${isChatUI ? "flex-col items-center space-y-4" : "justify-between"}`}
+              className={`flex ${
+                isChatUI ? "flex-col items-center space-y-4" : "justify-between"
+              }`}
             >
               <NavigationMenuItem
                 className={`${isChatUI ? "w-full flex justify-center" : ""}`}
