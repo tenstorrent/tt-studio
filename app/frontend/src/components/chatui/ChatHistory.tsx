@@ -3,13 +3,13 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { User, ChevronDown, Bot, X } from "lucide-react";
-import { Minimize2, Maximize2 } from "lucide-react";
+import { User, ChevronDown, Bot, X, Database, File } from "lucide-react";
 import { Button } from "../ui/button";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
 import MessageActions from "./MessageActions";
-import type { ChatMessage, FileData } from "./types";
+import FileDisplay from "./FileDisplay";
+import type { ChatMessage } from "./types";
 import * as Dialog from "@radix-ui/react-dialog";
 
 interface ChatHistoryProps {
@@ -20,11 +20,94 @@ interface ChatHistoryProps {
   onReRender: (messageId: string) => void;
   onContinue: (messageId: string) => void;
   reRenderingMessageId: string | null;
+  ragDatasource:
+    | {
+        id: string;
+        name: string;
+        metadata?: {
+          created_at?: string;
+          embedding_func_name?: string;
+          last_uploaded_document?: string;
+        };
+      }
+    | undefined;
 }
 
-const isImageFile = (
-  file: FileData
-): file is FileData & { type: "image_url" } => file.type === "image_url";
+const RagPill: React.FC<{
+  ragDatasource: {
+    id: string;
+    name: string;
+    metadata?: {
+      created_at?: string;
+      embedding_func_name?: string;
+      last_uploaded_document?: string;
+    };
+  };
+}> = ({ ragDatasource }) => (
+  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-TT-slate/30 text-xs text-gray-300 mb-2">
+    <Database size={12} />
+    <span>{ragDatasource.name}</span>
+    {ragDatasource.metadata?.last_uploaded_document && (
+      <span className="text-gray-400">
+        · {ragDatasource.metadata.last_uploaded_document}
+      </span>
+    )}
+  </div>
+);
+
+interface FileViewerDialogProps {
+  file: { url: string; name: string; isImage: boolean } | null;
+  onClose: () => void;
+}
+
+const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
+  file,
+  onClose,
+}) => {
+  if (!file) return null;
+
+  return (
+    <Dialog.Root open={!!file} onOpenChange={onClose}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-900 rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto z-50">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-medium text-white truncate max-w-[80%]">
+              {file.name}
+            </h3>
+            <Dialog.Close asChild>
+              <button className="text-gray-400 hover:text-white">
+                <X className="h-6 w-6" />
+              </button>
+            </Dialog.Close>
+          </div>
+
+          {file.isImage ? (
+            <img
+              src={file.url}
+              alt={file.name}
+              className="w-full h-auto max-h-[70vh] object-contain"
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-64 bg-gray-800 rounded-lg">
+              <File className="h-16 w-16 text-gray-400 mb-4" />
+              <p className="text-gray-300">Preview not available</p>
+              <a
+                href={file.url}
+                download={file.name}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                Download File
+              </a>
+            </div>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+};
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
   chatHistory = [],
@@ -34,14 +117,19 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   onReRender,
   onContinue,
   reRenderingMessageId,
+  ragDatasource,
 }) => {
+  console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const lastMessageRef = useRef<HTMLDivElement>(null);
-  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
-  const [minimizedImages, setMinimizedImages] = useState<Set<string>>(
-    new Set()
-  );
+
+  const [minimizedFiles, setMinimizedFiles] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<{
+    url: string;
+    name: string;
+    isImage: boolean;
+  } | null>(null);
 
   const scrollToBottom = useCallback(() => {
     if (viewportRef.current) {
@@ -82,15 +170,28 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     }
   }, [isStreaming, scrollToBottom]);
 
-  const toggleMinimizeImage = useCallback((imageUrl: string) => {
-    setMinimizedImages((prev) => {
+  const toggleMinimizeFile = useCallback((fileId: string) => {
+    setMinimizedFiles((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(imageUrl)) {
-        newSet.delete(imageUrl);
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId);
       } else {
-        newSet.add(imageUrl);
+        newSet.add(fileId);
       }
       return newSet;
+    });
+  }, []);
+
+  const handleFileClick = useCallback((fileUrl: string, fileName: string) => {
+    const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
+    const extension = fileName.split(".").pop()?.toLowerCase() || "";
+    const isImage =
+      imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
+
+    setSelectedFile({
+      url: fileUrl,
+      name: fileName,
+      isImage,
     });
   }, []);
 
@@ -186,71 +287,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             </p>
                           </div>
                         )}
-                        {message.text &&
-                          message.files &&
-                          message.files.length > 0 && (
-                            <hr className="my-2 border-t border-gray-700" />
-                          )}
-                        {message.files && message.files.length > 0 && (
-                          <div className="bg-gray-800 p-2 rounded">
-                            <p className="text-white mb-2 font-semibold">
-                              Attached Images:
-                            </p>
-                            <div className="flex flex-wrap gap-2">
-                              {message.files.map(
-                                (file, index) =>
-                                  isImageFile(file) && (
-                                    <div
-                                      key={index}
-                                      className="relative group max-w-[150px] rounded-lg overflow-hidden border border-gray-700 transition-all duration-300 hover:shadow-lg"
-                                    >
-                                      {!minimizedImages.has(
-                                        file.image_url?.url || ""
-                                      ) ? (
-                                        <img
-                                          src={
-                                            file.image_url?.url ||
-                                            "/placeholder.svg"
-                                          }
-                                          alt={file.name}
-                                          className="object-cover w-full h-[100px]"
-                                          onClick={() =>
-                                            setEnlargedImage(
-                                              file.image_url?.url ||
-                                                "/placeholder.svg"
-                                            )
-                                          }
-                                        />
-                                      ) : (
-                                        <div className="w-full h-[30px] bg-gray-700"></div>
-                                      )}
-                                      <div className="p-1 bg-gray-700 text-xs text-gray-300 truncate flex justify-between items-center">
-                                        <span className="truncate flex-grow">
-                                          {file.name}
-                                        </span>
-                                        <button
-                                          onClick={() =>
-                                            toggleMinimizeImage(
-                                              file.image_url?.url || ""
-                                            )
-                                          }
-                                          className="ml-2 text-gray-300 hover:text-white flex-shrink-0"
-                                        >
-                                          {minimizedImages.has(
-                                            file.image_url?.url || ""
-                                          ) ? (
-                                            <Maximize2 size={14} />
-                                          ) : (
-                                            <Minimize2 size={14} />
-                                          )}
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )
-                              )}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -262,6 +298,18 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       isReRendering={reRenderingMessageId === message.id}
                       isStreaming={isStreaming}
                       inferenceStats={message.inferenceStats}
+                      messageContent={message.text}
+                    />
+                  )}
+                  {message.ragDatasource && (
+                    <RagPill ragDatasource={message.ragDatasource} />
+                  )}
+                  {message.files && message.files.length > 0 && (
+                    <FileDisplay
+                      files={message.files}
+                      minimizedFiles={minimizedFiles}
+                      toggleMinimizeFile={toggleMinimizeFile}
+                      onFileClick={handleFileClick}
                     />
                   )}
                 </div>
@@ -287,26 +335,11 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           <ChevronDown className="h-6 w-6 animate-bounce" />
         </Button>
       )}
-      <Dialog.Root
-        open={!!enlargedImage}
-        onOpenChange={() => setEnlargedImage(null)}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto z-50">
-            <img
-              src={enlargedImage || ""}
-              alt="Enlarged view"
-              className="w-full h-auto"
-            />
-            <Dialog.Close asChild>
-              <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700">
-                <X className="h-6 w-6" />
-              </button>
-            </Dialog.Close>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+
+      <FileViewerDialog
+        file={selectedFile}
+        onClose={() => setSelectedFile(null)}
+      />
     </div>
   );
 };

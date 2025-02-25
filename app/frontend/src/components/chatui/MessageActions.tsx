@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React from "react";
+
+import type React from "react";
+import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { Clipboard, ThumbsUp, ThumbsDown } from "lucide-react";
 import CustomToaster, { customToast } from "../CustomToaster";
 import InferenceStats from "./InferenceStats";
-import { InferenceStats as InferenceStatsType } from "./types";
+import type { InferenceStats as InferenceStatsType } from "./types";
 
 interface MessageActionsProps {
   messageId: string;
@@ -14,6 +16,7 @@ interface MessageActionsProps {
   isReRendering: boolean;
   isStreaming: boolean;
   inferenceStats?: InferenceStatsType;
+  messageContent?: string;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -23,10 +26,29 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   isReRendering,
   isStreaming,
   inferenceStats,
+  messageContent,
 }) => {
-  const handleCopy = () => {
-    // Implement copy logic here
-    customToast.success("Message copied to clipboard");
+  const [completeMessage, setCompleteMessage] = useState<string>(
+    messageContent || ""
+  );
+
+  // Update the complete message when streaming finishes
+  useEffect(() => {
+    if (!isStreaming && messageContent) {
+      setCompleteMessage(messageContent);
+    }
+  }, [isStreaming, messageContent]);
+
+  const handleCopy = async () => {
+    try {
+      if (completeMessage) {
+        await navigator.clipboard.writeText(completeMessage);
+        customToast.success("Message copied to clipboard");
+      }
+    } catch (err) {
+      console.error("Failed to copy text: ", err);
+      customToast.error("Failed to copy message");
+    }
   };
 
   const handleThumbsUp = () => {
@@ -49,6 +71,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             size="icon"
             onClick={handleCopy}
             className="h-8 w-8 p-0"
+            disabled={isStreaming}
           >
             <Clipboard className="h-4 w-4" />
             <span className="sr-only">Copy message</span>

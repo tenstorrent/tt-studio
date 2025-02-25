@@ -72,6 +72,24 @@ export default function ChatComponent() {
   }, [location.state]);
 
   useEffect(() => {
+    const currentThread = chatThreads[currentThreadIndex];
+    if (currentThread && currentThread.length > 0) {
+      const messagesWithRag = currentThread
+        .filter((msg) => msg.sender === "user" && msg.ragDatasource)
+        .reverse();
+
+      if (messagesWithRag.length > 0) {
+        const mostRecentRag = messagesWithRag[0].ragDatasource;
+        setRagDatasource(mostRecentRag);
+      } else {
+        setRagDatasource(undefined);
+      }
+    } else {
+      setRagDatasource(undefined);
+    }
+  }, [currentThreadIndex, chatThreads]);
+
+  useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth < 768) {
         setIsHistoryPanelOpen(false);
@@ -113,11 +131,13 @@ export default function ChatComponent() {
             : msg
         );
       } else {
+        // Store ragDatasource in the user message
         const userMessage: ChatMessage = {
           id: uuidv4(),
           sender: "user",
           text: textInput,
           files: files,
+          ragDatasource: ragDatasource, // Store the RAG datasource with the message
         };
         updatedChatHistory = [
           ...(chatThreads[currentThreadIndex] || []),
@@ -206,6 +226,9 @@ export default function ChatComponent() {
       );
       if (!userMessage) return;
 
+      // Get the RAG datasource from the user message if available
+      const messageRagDatasource = userMessage.ragDatasource || ragDatasource;
+
       setReRenderingMessageId(messageId);
       setIsStreaming(true);
 
@@ -217,7 +240,7 @@ export default function ChatComponent() {
 
       await runInference(
         inferenceRequest,
-        ragDatasource,
+        messageRagDatasource,
         chatThreads[currentThreadIndex] || [],
         (newHistory) => {
           setChatThreads((prevThreads) => {
@@ -344,7 +367,10 @@ export default function ChatComponent() {
         <div className={`flex flex-col flex-grow min-w-0 w-0 p-4`}>
           <Header
             modelName={modelName}
-            modelsDeployed={modelsDeployed}
+            modelsDeployed={modelsDeployed.map((model) => ({
+              id: model.containerID || "",
+              name: model.modelName || "",
+            }))}
             setModelID={setModelID}
             setModelName={setModelName}
             ragDataSources={ragDataSources}
@@ -363,6 +389,7 @@ export default function ChatComponent() {
             onReRender={handleReRender}
             onContinue={handleContinue}
             reRenderingMessageId={reRenderingMessageId}
+            ragDatasource={ragDatasource}
           />
           <InputArea
             textInput={textInput}

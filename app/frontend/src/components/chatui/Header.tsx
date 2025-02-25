@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React from "react";
 import { useState } from "react";
+import { useState } from "react";
 import {
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -37,7 +38,7 @@ interface HeaderProps {
   modelName: string | null;
   modelsDeployed: { id: string; name: string }[];
   setModelID: (id: string) => void;
-  setModelName: (name: string) => void;
+  setModelName: (name: string | null) => void;
   ragDataSources: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
@@ -47,13 +48,15 @@ interface HeaderProps {
   setIsAgentSelected: (value: boolean) => void;
 
 }
-
 interface RagDataSource {
   id: string;
   name: string;
-  metadata: Record<string, string>;
+  metadata?: {
+    created_at?: string;
+    embedding_func_name?: string;
+    last_uploaded_document?: string;
+  };
 }
-
 const ModelSelector = React.forwardRef<
   HTMLButtonElement,
   {
@@ -226,7 +229,7 @@ export default function Header({
                     setRagDatasource(undefined);
                   } else {
                     const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v,
+                      (rds) => rds.name === v
                     );
                     if (dataSource) {
                       setRagDatasource(dataSource);
