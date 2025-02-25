@@ -9,9 +9,6 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     complete_output = ""  # Initialize an empty string to accumulate output
     chat_history = memory.buffer_as_messages
     final_answer = False
-    mainstring = "Final Answer: "
-    possible_substrings = await gen_substrings(mainstring)
-    first_final_response = False
     print(message)
     recieved_done_signal = False
     async for event in agent_executor.astream_events(
@@ -60,10 +57,6 @@ async def poll_requests(agent_executor, config, tools, memory, message):
             print(f"Done tool: {event['name']}")
             print(f"Tool output was: {event['data'].get('output')}")
             print("--")
-
-
-async def gen_substrings(string_to_check):
-    return [string_to_check[i:j] for i in range(len(string_to_check)) for j in range(len(string_to_check))]
 
 def setup_executer(llm, memory, tools):
     prompt = hub.pull("hwchase17/react-chat")
