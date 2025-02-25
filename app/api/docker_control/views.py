@@ -18,6 +18,7 @@ from .docker_utils import (
     perform_reset,
 )
 from shared_config.model_config import model_implmentations
+from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
 
@@ -114,7 +115,8 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
-            run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
+            if impl.model_type == ModelTypes.CHAT:
+                run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
