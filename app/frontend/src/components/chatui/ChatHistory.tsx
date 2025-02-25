@@ -117,9 +117,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   onReRender,
   onContinue,
   reRenderingMessageId,
-  ragDatasource,
+  // ragDatasource,
 }) => {
-  console.log("ChatHistory component rendered", ragDatasource);
+  // console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const lastMessageRef = useRef<HTMLDivElement>(null);
