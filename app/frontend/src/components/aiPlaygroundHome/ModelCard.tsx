@@ -7,7 +7,7 @@ type ModelCardProps = Omit<Model, "id">;
 export function ModelCard({
   title = "Model Name",
   image,
-  path = "#",
+  path = "/",
   filter,
   TTDevice,
   poweredByText = "Powered by a Tenstorrent Device!", // default text in case none is provided in data.ts

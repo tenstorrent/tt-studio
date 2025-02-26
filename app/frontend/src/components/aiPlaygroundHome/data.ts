@@ -1,6 +1,49 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+/**
+ * AI Playground Home - Model Configuration
+ * --------------------------------------
+ * Configuration for AI models displayed in the Playground home page grid.
+ * Each entry renders as an interactive ModelCard with hover effects and navigation.
+ *
+ * Display Context:
+ * - Rendered in a responsive grid on the AI Playground homepage
+ * - Cards maintain consistent sizing and spacing
+ * - Hover effects reveal additional model information
+ * - Clicking navigates to the model's specific playground interface
+ *
+ * Model Entry Structure:
+ * {
+ *   id: string           - Unique identifier (e.g., "llama", "stable-diffusion")
+ *   title: string        - Model name displayed on card (e.g., "Llama 3.1 70b")
+ *   image: string        - Model preview image path
+ *   path: string         - Route to model's playground (e.g., "/chat-ui")
+ *   filter: string       - Brand color overlay for visual consistency
+ *   TTDevice: string     - Tenstorrent hardware badge (e.g., "loudbox")
+ *   poweredByText: string - Hardware info shown on hover
+ * }
+ *
+ * Visual Guidelines:
+ * - Images: Use 16:10 or 4:3 aspect ratio for grid consistency
+ * - Colors: Filter colors should align with AI Playground theme
+ * - Typography: Title appears in bottom left with device badge in bottom right
+ * - Hover: Cards scale slightly and show poweredByText overlay
+ *
+ * Navigation:
+ * - Each card links to its corresponding playground interface
+ * - Use absolute paths starting with '/' for routing
+ * - Paths should match your playground route configuration
+ *
+ * Example Card Interaction:
+ * 1. User sees grid of model cards on homepage
+ * 2. Hovering reveals "Powered by TT-Device" message
+ * 3. Clicking navigates to model-specific interface
+ *
+ * @see ModelCard.tsx component for card implementation
+ * @see DeployedHome.tsx Playground home page for grid layout
+ */ 
+
 import type { Model, Task } from "./types";
 
 export const models: Model[] = [
@@ -8,7 +51,7 @@ export const models: Model[] = [
     id: "llama",
     title: "Llama 3.1 70b",
     image: "src/assets/llama-image.svg",
-    path: "chat",
+    path: "/chat-ui",
     filter: "#323968",
     TTDevice: "loudbox",
     poweredByText: "Powered by TT-Loudbox",
