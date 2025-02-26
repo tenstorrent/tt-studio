@@ -17,7 +17,7 @@ export function ModelCard({
   console.log("Image:", image);
   return (
     <Link to={path} className="block w-full h-full">
-      <div className="group relative h-full rounded-xl transition-all duration-500 ease-out hover:scale-[1.03] hover:shadow-2xl hover:-translate-y-2">
+      <div className="group relative h-full rounded-xl transition-all duration-500 ease-out hover:scale-[1.03] hover:shadow-2xl hover:-translate-y-2 overflow-hidden">
         <div
           className="relative h-full overflow-hidden rounded-xl bg-black/90 
                         shadow-[0_0_30px_rgba(0,0,0,0.8)] 
