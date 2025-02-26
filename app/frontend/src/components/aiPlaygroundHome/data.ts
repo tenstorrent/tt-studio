@@ -10,7 +10,8 @@ export const models: Model[] = [
     image: "src/assets/llama-image.svg",
     path: "chat",
     filter: "#323968",
-    filterSvg: undefined,
+    TTDevice: "loudbox",
+    poweredByText: "Powered by TT-Loudbox",
   },
   {
     id: "whisper",
@@ -18,7 +19,8 @@ export const models: Model[] = [
     image: "src/assets/whisper.svg",
     path: "audio",
     filter: "#74C5DF",
-    filterSvg: undefined,
+    TTDevice: "n150",
+    poweredByText: "Powered by Wormhole n150",
   },
   {
     id: "yolov4",
@@ -26,7 +28,8 @@ export const models: Model[] = [
     image: "src/assets/yolo5.svg",
     path: "video",
     filter: "#6FABA0",
-    filterSvg: undefined,
+    TTDevice: "n150",
+    poweredByText: "Powered by Wormhole n150",
   },
 ];
 

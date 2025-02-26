@@ -19,6 +19,8 @@ export function DeployedHome() {
               image={model.image}
               path={model.path}
               filter={model.filter}
+              TTDevice={model.TTDevice}
+              poweredByText={model.poweredByText}
             />
           ))}
         </div>

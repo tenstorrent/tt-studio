@@ -7,7 +7,9 @@ export interface Model {
   image: string;
   path: string;
   filter: string;
-  filterSvg?: string; // Make filterSvg optional
+  filterSvg?: string;
+  TTDevice?: string;
+  poweredByText: string;
 }
 
 export interface Task {
