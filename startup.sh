@@ -184,7 +184,10 @@ else
     fi
 fi
 
-# Step 4: Run Docker Compose with or without hardware support
+# Step 4: Pull Docker image for agent 
+docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1 || { echo "Docker pull failed. Please authenticate and re-run the docker pull manually."; }
+
+# Step 5: Run Docker Compose with or without hardware support
 if [[ "$RUN_TT_HARDWARE" = true ]]; then
     echo "🚀 Running Docker Compose with TT hardware support..."
     docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" -f "${DOCKER_COMPOSE_TT_HARDWARE_FILE}" up --build -d
