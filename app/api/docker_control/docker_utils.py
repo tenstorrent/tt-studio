@@ -84,7 +84,7 @@ def run_agent_container(container_name, port_bindings, impl):
     'detach': True,  # Run the container in detached mode
 }
     container = client.containers.run(
-    'agent_image:v1',
+    'ghcr.io/tenstorrent/tt-studio/agent_image:v1',
     f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
     auto_remove=True,
     **run_kwargs
