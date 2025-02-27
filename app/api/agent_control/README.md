@@ -1,6 +1,7 @@
 # AI Agent 
 
-TT-Studio currently supports a search agent. To use the search agent, pull the following image from Github Container Registry (GCHR).
+TT-Studio now supports a search agent that can be integrated with your deployed LLM model. 
+To use the search agent before starting TT-Studio or deploying a model , follow these steps to enable the search agent:
 
 ```bash
 docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1
