@@ -10,7 +10,7 @@ To use the search agent before starting TT-Studio or deploying a model , follow 
 docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1
 ```
 
-You will also need to create and add your [Tavily API key](https://tavily.com/) to your `.env` file 
+2. Create and add your [Tavily API key](https://tavily.com/) to the environment file located at `tt-studio/app/env`.
 
 How the agent works is depicted in the visual below.
 
