@@ -10,6 +10,7 @@ from pathlib import Path
 from shared_config.device_config import DeviceConfigurations
 from shared_config.backend_config import backend_config
 from shared_config.setup_config import SetupTypes
+from shared_config.model_type_config import ModelTypes
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -50,6 +51,7 @@ class ModelImpl:
     docker_config: Dict[str, Any]
     service_route: str
     setup_type: SetupTypes
+    model_type: ModelTypes
     hf_model_id: str = None
     model_name: str = None     # uses defaults based on hf_model_id
     model_id: str = None       # uses defaults based on hf_model_id
@@ -236,6 +238,7 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/objdetection_v2",
         setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.OBJECT_DETECTION
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
@@ -249,6 +252,7 @@ model_implmentations_list = [
         service_port=7000,
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.MAKE_VOLUMES,
+        model_type=ModelTypes.MOCK
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
@@ -261,6 +265,7 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-1B-Instruct",
@@ -270,6 +275,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-3B-Instruct",
@@ -279,6 +285,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
@@ -288,6 +295,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
@@ -297,6 +305,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
@@ -306,6 +315,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
@@ -315,6 +325,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
     ),
     #! Add new model vLLM model implementations here
 ]
