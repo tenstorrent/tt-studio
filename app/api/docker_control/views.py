@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 
 import docker
+import os 
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
@@ -114,7 +115,12 @@ class DeployView(APIView):
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
-            run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
+            if os.getenv("TAVILY_API_KEY") == "your-tavily-api-key":
+                agent_api_key_set = False 
+            else:
+                agent_api_key_set = True
+            if impl.model_type == ModelTypes.CHAT and agent_api_key_set:
+                run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
