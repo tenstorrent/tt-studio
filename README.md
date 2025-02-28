@@ -19,7 +19,7 @@ TT-Studio enables rapid deployment of TT Inference servers locally and is optimi
 5. [Documentation](#documentation)
    - [Frontend Documentation](#frontend-documentation)
    - [Backend API Documentation](#backend-api-documentation)
-   - [Running vLLM Models in TT-Studio])
+   - [Running vLLM Models in TT-Studio](#running-vllm-model(s)-and-mock-vllm-model-in-tt-Studio)  
 
 
 ---
