@@ -15,12 +15,19 @@ import ProtectedRoute from "./components/protected-route.tsx";
 import DeployedHomePage from "../pages/DeployedHomePage";
 
 const AppRouter = () => {
+  // Read environment variables for Vite
+  const isLoginEnabled = import.meta.env.VITE_ENABLE_LOGIN === "true";
+  const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
+  console.log("isLoginEnabled", isLoginEnabled);
+  console.log("isDeployedEnabled", isDeployedEnabled);
+
   return (
     <RefreshProvider>
       <ModelsProvider>
         <Router>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            {/* Conditionally render login route based on environment variable */}
+            {isLoginEnabled && <Route path="/login" element={<LoginPage />} />}
 
             {/* Protected Routes */}
             <Route
@@ -29,7 +36,7 @@ const AppRouter = () => {
                 <ProtectedRoute>
                   <>
                     <NavBar />
-                    <HomePage />
+                    {isDeployedEnabled ? <DeployedHomePage /> : <HomePage />}
                   </>
                 </ProtectedRoute>
               }
@@ -89,17 +96,21 @@ const AppRouter = () => {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/deployed-home"
-              element={
-                <ProtectedRoute>
-                  <>
-                    <NavBar />
-                    <DeployedHomePage />
-                  </>
-                </ProtectedRoute>
-              }
-            />
+
+            {/* Conditionally render deployed home page based on environment variable */}
+            {!isDeployedEnabled && (
+              <Route
+                path="/deployed-home"
+                element={
+                  <ProtectedRoute>
+                    <>
+                      <NavBar />
+                      <DeployedHomePage />
+                    </>
+                  </ProtectedRoute>
+                }
+              />
+            )}
           </Routes>
         </Router>
       </ModelsProvider>
