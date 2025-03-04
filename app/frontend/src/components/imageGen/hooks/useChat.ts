@@ -5,7 +5,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Message } from "../types/chat";
 import { generateImage } from "../api/imageGeneration";
 
-export const useChat = (modelID: string) => {
+export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -39,7 +39,7 @@ export const useChat = (modelID: string) => {
 
         setIsGenerating(true);
         try {
-          const generatedImageUrl = await generateImage(textInput, modelID);
+          const generatedImageUrl = await generateImage(textInput);
 
           const imageMessage: Message = {
             id: (Date.now() + 2).toString(),

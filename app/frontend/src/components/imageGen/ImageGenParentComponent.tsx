@@ -13,7 +13,7 @@ const ImageGenParentComponent: React.FC = () => {
 
   // model handling state
   const location = useLocation();
-  const [modelID, setModelID] = useState<string>("");
+  const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,7 +34,7 @@ const ImageGenParentComponent: React.FC = () => {
       <Card className="flex flex-col w-full h-full overflow-hidden shadow-xl bg-zinc-900/80 border-zinc-800 backdrop-blur-sm">
         <div className="flex-1 overflow-hidden flex flex-col relative">
           {showChat ? (
-            <StableDiffusionChat onBack={() => setShowChat(false)} modelID={modelID}/>
+            <StableDiffusionChat onBack={() => setShowChat(false)} />
           ) : (
             <div className="flex-1 overflow-auto">
               <ShowcaseGallery onStartGenerating={() => setShowChat(true)} />
