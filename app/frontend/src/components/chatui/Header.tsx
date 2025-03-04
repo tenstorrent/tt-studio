@@ -219,7 +219,7 @@ export default function Header({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <BreadcrumbLink
-                        href="/deployed-home"
+                        href="/"
                         className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
                       >
                         Home
@@ -290,61 +290,48 @@ export default function Header({
           </TooltipProvider>
         </div>
 
-        <div className="flex items-center">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <ForwardedAISelect
-                  value={selectedAIAgent || ""} // Default value is an empty string for placeholder
-                  onValueChange={handleAgentSelection}
-                  // onValueChange={(v) => {
-                  //   if (v === "remove") {
-                  //     handleAgentSelection("");  // Clear selection if "remove" is chosen
-                  //   } else {
-                  //     handleAgentSelection(v);  // Set selected AI Agent
-                  //   }
-                  // }}
-                >
-                  <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
-                    <SelectItem
-                      value="search-agent"
-                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
-                    >
-                      Search Agent
-                    </SelectItem>
-
-                    {/* Add more AI agents as SelectItems here if needed */}
-                    {/* <SelectItem
-              value="another-agent"
-              className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
-            >
-              Another AI Agent
-            </SelectItem> */}
-
-                    {selectedAIAgent && (
+        {modelsDeployed.length > 0 && (
+          <div className="flex items-center">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ForwardedAISelect
+                    value={selectedAIAgent || ""}
+                    onValueChange={handleAgentSelection}
+                  >
+                    <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                       <SelectItem
-                        value="remove"
-                        className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
+                        value="search-agent"
+                        className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
                       >
-                        <span className="flex items-center">
-                          <X className="mr-2 h-4 w-4" />
-                          Remove AI Agent
-                        </span>
+                        Search Agent
                       </SelectItem>
-                    )}
-                  </SelectContent>
-                </ForwardedAISelect>
-              </TooltipTrigger>
-              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                <p>
-                  {selectedAIAgent
-                    ? "Change or remove AI agent"
-                    : "Select AI Agent"}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
+
+                      {selectedAIAgent && (
+                        <SelectItem
+                          value="remove"
+                          className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
+                        >
+                          <span className="flex items-center">
+                            <X className="mr-2 h-4 w-4" />
+                            Remove AI Agent
+                          </span>
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </ForwardedAISelect>
+                </TooltipTrigger>
+                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                  <p>
+                    {selectedAIAgent
+                      ? "Change or remove AI agent"
+                      : "Select AI Agent"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )}
       </div>
     </div>
   );
