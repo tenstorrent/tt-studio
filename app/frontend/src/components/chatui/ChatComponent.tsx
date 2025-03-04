@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
@@ -22,6 +22,7 @@ import {
 import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
+import { threadId } from "worker_threads";
 
 export default function ChatComponent() {
   const location = useLocation();
@@ -48,6 +49,7 @@ export default function ChatComponent() {
   >(null);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
+  const [isAgentSelected, setIsAgentSelected] = useState<boolean>(false);
 
   useEffect(() => {
     if (location.state) {
@@ -161,6 +163,8 @@ export default function ChatComponent() {
           });
         },
         setIsStreaming,
+        isAgentSelected,
+        currentThreadIndex
       );
 
       setTextInput("");
@@ -235,6 +239,8 @@ export default function ChatComponent() {
           });
         },
         setIsStreaming,
+        isAgentSelected,
+        currentThreadIndex
       );
 
       setReRenderingMessageId(null);
@@ -340,6 +346,8 @@ export default function ChatComponent() {
             setRagDatasource={setRagDatasource}
             isHistoryPanelOpen={isHistoryPanelOpen}
             setIsHistoryPanelOpen={setIsHistoryPanelOpen}
+            isAgentSelected={isAgentSelected} // Pass the state down
+            setIsAgentSelected={setIsAgentSelected} // Pass the setter down
           />
           <ChatHistory
             chatHistory={chatThreads[currentThreadIndex] || []}
