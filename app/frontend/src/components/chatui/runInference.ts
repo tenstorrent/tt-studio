@@ -18,7 +18,7 @@ export const runInference = async (
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
   isAgentSelected: boolean,
-  threadId: number 
+  threadId: number
 ) => {
   try {
     setIsStreaming(true);
@@ -34,16 +34,16 @@ export const runInference = async (
     console.log("RAG context being passed to generatePrompt:", ragContext);
     const messages = generatePrompt(
       chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-      ragContext,
+      ragContext
     );
 
     console.log("Generated messages:", messages);
-    console.log("Thread ID: ", threadId); 
+    console.log("Thread ID: ", threadId);
 
-    const API_URL = isAgentSelected 
-    ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"  
-    : import.meta.env.VITE_API_URL || "/models-api/inference/"; 
-    
+    const API_URL = isAgentSelected
+      ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
+      : import.meta.env.VITE_API_URL || "/models-api/inference/";
+
     const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
@@ -53,13 +53,13 @@ export const runInference = async (
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
 
-    let requestBody; 
-    let threadIdStr = threadId.toString(); 
+    let requestBody;
+    let threadIdStr = threadId.toString();
 
     if (!isAgentSelected) {
       requestBody = {
-        deploy_id: request.deploy_id,
-        // model: "meta-llama/Llama-3.1-70B-Instruct",
+        // deploy_id: request.deploy_id,
+        model: "meta-llama/Llama-3.1-70B-Instruct",
         messages: messages,
         max_tokens: 512,
         stream: true,
@@ -67,8 +67,7 @@ export const runInference = async (
           include_usage: true,
         },
       };
-    }
-    else {
+    } else {
       requestBody = {
         deploy_id: request.deploy_id,
         // model: "meta-llama/Llama-3.1-70B-Instruct",
@@ -81,10 +80,10 @@ export const runInference = async (
         thread_id: threadIdStr, // Add thread_id to the request body
       };
     }
- 
+
     console.log(
       "Sending request to model:",
-      JSON.stringify(requestBody, null, 2),
+      JSON.stringify(requestBody, null, 2)
     );
 
     const response = await fetch(API_URL, {
@@ -144,19 +143,22 @@ export const runInference = async (
               const jsonData = JSON.parse(trimmedLine.slice(5));
 
               if (!isAgentSelected) {
-              // // Handle statistics separately after [DONE]
-              if (jsonData.ttft && jsonData.tpot) {
-                inferenceStats = {
-                  user_ttft_s: jsonData.ttft,
-                  user_tpot: jsonData.tpot,
-                  tokens_decoded: jsonData.tokens_decoded,
-                  tokens_prefilled: jsonData.tokens_prefilled,
-                  context_length: jsonData.context_length
-                };
-                console.log("Final Inference Stats received:", inferenceStats);
-                continue; // Skip processing this chunk as part of the generated text
+                // // Handle statistics separately after [DONE]
+                if (jsonData.ttft && jsonData.tpot) {
+                  inferenceStats = {
+                    user_ttft_s: jsonData.ttft,
+                    user_tpot: jsonData.tpot,
+                    tokens_decoded: jsonData.tokens_decoded,
+                    tokens_prefilled: jsonData.tokens_prefilled,
+                    context_length: jsonData.context_length,
+                  };
+                  console.log(
+                    "Final Inference Stats received:",
+                    inferenceStats
+                  );
+                  continue; // Skip processing this chunk as part of the generated text
+                }
               }
-            } 
               // Handle the generated text
               const content = jsonData.choices[0]?.delta?.content || "";
               if (content) {
@@ -186,7 +188,7 @@ export const runInference = async (
     if (inferenceStats) {
       console.log(
         "Updating chat history with inference stats:",
-        inferenceStats,
+        inferenceStats
       );
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
