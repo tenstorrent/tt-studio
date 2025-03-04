@@ -21,24 +21,23 @@ export function ModelCard({
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        {/* Main dark neumorphic container with enhanced 3D effect */}
         <div
           className={`
           relative h-full rounded-2xl 
-          bg-[#1e2329] 
+          bg-[#1a1e24] 
           transition-all duration-300 ease-out transform-style-3d
           ${
             isHovered
-              ? "transform scale-[1.03] rotate-y-[5deg] shadow-[12px_12px_24px_rgba(0,0,0,0.7),0_0_20px_rgba(80,100,120,0.2)]"
-              : "shadow-[5px_5px_15px_rgba(0,0,0,0.6),-5px_-5px_15px_rgba(40,45,50,0.4)]"
+              ? "transform scale-[1.03] rotate-y-[5deg] border-2 border-[var(--TT-purple-accent1)] shadow-[12px_12px_24px_rgba(0,0,0,0.8),0_0_20px_rgba(80,100,120,0.3)]"
+              : "shadow-[8px_8px_16px_rgba(0,0,0,0.8),-4px_-4px_12px_rgba(35,40,45,0.2),inset_1px_1px_2px_rgba(60,70,80,0.1)]"
           }
         `}
         >
-          {/* 3D edge highlight effect */}
           <div
-            className={`absolute inset-0 rounded-2xl overflow-hidden opacity-30 
-                          bg-gradient-to-br from-[rgba(255,255,255,0.1)] via-transparent to-transparent
-                          ${isHovered ? "opacity-40" : "opacity-20"}`}
+            className={`absolute inset-0 rounded-2xl overflow-hidden 
+                          bg-gradient-to-br from-[rgba(255,255,255,0.07)] via-transparent to-transparent
+                          transition-all duration-300
+                          ${isHovered ? "opacity-60 from-[var(--TT-purple-accent1)]/20" : "opacity-30"}`}
           ></div>
 
           {/* Inner content with enhanced 3D effect */}
@@ -46,7 +45,11 @@ export function ModelCard({
             className={`
             relative h-full rounded-2xl overflow-hidden
             transition-all duration-300 ease-out transform-style-3d
-            ${isHovered ? "shadow-[inset_3px_3px_8px_rgba(0,0,0,0.5),inset_-2px_-2px_5px_rgba(40,45,50,0.3)]" : ""}
+            ${
+              isHovered
+                ? "shadow-[inset_3px_3px_8px_rgba(0,0,0,0.6),inset_-2px_-2px_5px_rgba(40,45,50,0.3)]"
+                : "shadow-[inset_1px_1px_3px_rgba(0,0,0,0.4),inset_-1px_-1px_3px_rgba(40,45,50,0.2)]"
+            }
           `}
           >
             {/* Image container with 3D perspective */}
@@ -82,7 +85,7 @@ export function ModelCard({
               {/* Enhanced 3D gradient overlay */}
               <div
                 className={`
-                absolute inset-0 bg-gradient-to-t from-[#1e2329]/95 via-[#1e2329]/40 to-transparent
+                absolute inset-0 bg-gradient-to-t from-[#1a1e24]/95 via-[#1a1e24]/40 to-transparent
                 transition-all duration-300
                 ${isHovered ? "opacity-90 translate-z-[3px]" : "opacity-100"}
               `}
@@ -99,10 +102,13 @@ export function ModelCard({
                 <div
                   className={`
                     text-[#a0aec0] text-xl font-mono px-8 py-5 rounded-xl 
-                    bg-[#1e2329] 
-                    shadow-[5px_5px_15px_rgba(0,0,0,0.7),-5px_-5px_15px_rgba(40,45,50,0.4)]
+                    bg-[#1a1e24] 
                     transition-all duration-500 ease-out transform-style-3d
-                    ${isHovered ? "translate-y-0 scale-100 translate-z-[30px] rotate-y-[-5deg]" : "translate-y-8 scale-95 translate-z-0"}
+                    ${
+                      isHovered
+                        ? "translate-y-0 scale-100 translate-z-[30px] rotate-y-[-5deg] border border-[var(--TT-purple-accent1)]/40 shadow-[5px_5px_15px_rgba(0,0,0,0.8),-3px_-3px_10px_rgba(40,45,50,0.3)]"
+                        : "translate-y-8 scale-95 translate-z-0"
+                    }
                   `}
                 >
                   {poweredByText}
@@ -116,7 +122,7 @@ export function ModelCard({
                 className={`
                   text-lg md:text-xl font-semibold 
                   transition-all duration-500 ease-out
-                  ${isHovered ? "text-[#e2e8f0] translate-x-1 translate-z-[15px]" : "text-[#a0aec0]"}
+                  ${isHovered ? "text-[var(--TT-purple-accent1)] translate-x-1 translate-z-[15px]" : "text-[#a0aec0]"}
                 `}
               >
                 {title}
@@ -131,12 +137,12 @@ export function ModelCard({
                 >
                   <div
                     className={`
-                      px-4 py-2 rounded-xl bg-[#1e2329] text-[#a0aec0] font-medium text-sm
+                      px-4 py-2 rounded-xl bg-[#1a1e24] text-[#a0aec0] font-medium text-sm
                       transition-all duration-300 ease-out
                       ${
                         isHovered
-                          ? "shadow-[inset_3px_3px_6px_rgba(0,0,0,0.6),inset_-3px_-3px_6px_rgba(40,45,50,0.3)] rotate-y-[5deg]"
-                          : "shadow-[3px_3px_8px_rgba(0,0,0,0.6),-3px_-3px_8px_rgba(40,45,50,0.3)]"
+                          ? "shadow-[inset_3px_3px_6px_rgba(0,0,0,0.7),inset_-2px_-2px_5px_rgba(40,45,50,0.3)] rotate-y-[5deg] text-[var(--TT-purple-accent1)]"
+                          : "shadow-[3px_3px_8px_rgba(0,0,0,0.7),-2px_-2px_6px_rgba(40,45,50,0.2)]"
                       }
                     `}
                   >
@@ -152,11 +158,37 @@ export function ModelCard({
         <div
           className={`
           absolute bottom-[-15px] left-[5%] right-[5%] h-[15px] 
-          bg-gradient-to-b from-[${filter || "#3182ce"}]/30 to-transparent 
-          rounded-b-full blur-lg
           transition-all duration-300 ease-out
-          ${isHovered ? "opacity-80 scale-x-[1.05]" : "opacity-40"}
+          rounded-b-full blur-lg
+          ${
+            isHovered
+              ? "opacity-80 scale-x-[1.05] bg-gradient-to-b from-[var(--TT-purple-accent1)]/50 to-transparent"
+              : `opacity-40 bg-gradient-to-b from-[${filter || "#3182ce"}]/30 to-transparent`
+          }
         `}
+        ></div>
+
+        {/* Additional neumorphic effects for dark mode */}
+        <div
+          className={`
+            absolute inset-0 rounded-2xl pointer-events-none
+            transition-all duration-300 ease-out
+            ${isHovered ? "opacity-40" : "opacity-20"}
+          `}
+          style={{
+            boxShadow:
+              "inset 1px 1px 2px rgba(255,255,255,0.05), inset -1px -1px 2px rgba(0,0,0,0.5)",
+          }}
+        ></div>
+
+        {/* Subtle edge light effect */}
+        <div
+          className={`
+            absolute -inset-[1px] rounded-2xl pointer-events-none
+            bg-gradient-to-br from-[rgba(255,255,255,0.07)] to-transparent
+            transition-all duration-300 ease-out
+            ${isHovered ? "opacity-30" : "opacity-10"}
+          `}
         ></div>
       </div>
     </Link>
