@@ -246,7 +246,7 @@ class ImageGenerationV2InferenceView(APIView):
                 task_id = inference_data.json().get("task_id")
                 get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
                 while (not ready_latest):
-                    latest_prompt = requests.get(get_status_url, headers=headers)
+                    latest_prompt = requests.get(get_status_url)
                     if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
                         latest_prompt.raise_for_status()
                         if latest_prompt.json()["status"] == "Completed":
@@ -255,7 +255,7 @@ class ImageGenerationV2InferenceView(APIView):
 
                 # call get_image to get image
                 get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
-                latest_image = requests.get(get_image_url, headers=headers, stream=True)
+                latest_image = requests.get(get_image_url, stream=True)
                 latest_image.raise_for_status()
                 content_type = latest_image.headers.get('Content-Type', 'application/octet-stream')
                 content_disposition = f'attachment; filename=image.png'
