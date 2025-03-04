@@ -54,12 +54,15 @@ export const runInference = async (
     }
 
     let requestBody;
-    let threadIdStr = threadId.toString();
+    const threadIdStr = threadId.toString();
+    const apiUrlDefined = !!import.meta.env.VITE_API_URL;
 
     if (!isAgentSelected) {
       requestBody = {
-        // deploy_id: request.deploy_id,
-        model: "meta-llama/Llama-3.1-70B-Instruct",
+        ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
+        ...(apiUrlDefined
+          ? { model: "meta-llama/Llama-3.1-70B-Instruct" }
+          : {}),
         messages: messages,
         max_tokens: 512,
         stream: true,
@@ -70,14 +73,13 @@ export const runInference = async (
     } else {
       requestBody = {
         deploy_id: request.deploy_id,
-        // model: "meta-llama/Llama-3.1-70B-Instruct",
         messages: messages,
         max_tokens: 512,
         stream: true,
         stream_options: {
           include_usage: true,
         },
-        thread_id: threadIdStr, // Add thread_id to the request body
+        thread_id: threadIdStr,
       };
     }
 
