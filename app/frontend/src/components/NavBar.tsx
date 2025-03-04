@@ -112,10 +112,6 @@ export default function NavBar() {
     }
   };
 
-  const handleImageGenerationClick = () => {
-    handleNavigation("/image-generation");
-  };
-
   const handleChatUIClick = () => {
     handleNavigation("/models-deployed");
   };
@@ -316,28 +312,30 @@ export default function NavBar() {
                 <NavigationMenuItem
                   className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                 >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={handleImageGenerationClick}
-                        className={`${getNavLinkClass(false, true)} ${
-                          models.length > 0
-                            ? ""
-                            : "opacity-50 cursor-not-allowed"
-                        }`}
-                      >
+                  <NavLink
+                    to="/image-generation"
+                    className={({ isActive }) => getNavLinkClass(isActive)}
+                  >
+                    {isVerticalLayout ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Image
+                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Image Generation</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
                         <Image
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
-                        {!isVerticalLayout && <span>Image Generation</span>}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {models.length > 0
-                        ? "Open Image Generation"
-                        : "Deploy a model to use Image Generation"}
-                    </TooltipContent>
-                  </Tooltip>
+                        <span>Image Generation</span>
+                      </>
+                    )}
+                  </NavLink>
                 </NavigationMenuItem>
                 {!isVerticalLayout && (
                   <Separator
