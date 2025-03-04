@@ -70,7 +70,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                     )}
                   </div>
                   <div
-                    className={`chat-bubble relative ${
+                    className={`chat-bubble ${
                       message.sender === "user"
                         ? "bg-TT-green-accent text-white text-left"
                         : "bg-TT-slate text-white text-left"
@@ -96,13 +96,6 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                         </div>
                       </div>
                     )}
-                    <div
-                      className={`absolute w-2 h-2 ${
-                        message.sender === "user"
-                          ? "bg-TT-green-accent right-0 -translate-x-1/2"
-                          : "bg-TT-slate left-0 translate-x-1/2"
-                      } rotate-45 top-3`}
-                    ></div>
                   </div>
                 </div>
               </div>
