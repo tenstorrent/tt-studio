@@ -73,10 +73,13 @@ class ModelImpl:
             backend_config.model_container_cache_root
         ).joinpath("huggingface")
         
-        # Set environment variable if N150_WH_ARCH_YAML, N300_WH_ARCH_YAML, or N300x4_WH_ARCH_YAML is in the device configurations
+        # Set environment variable if N150 or N300x4 is in the device configurations
+        if DeviceConfigurations.N150 in self.device_configurations or DeviceConfigurations.N300x4 in self.device_configurations:
+            self.docker_config["environment"]["WH_ARCH_YAML"] = "wormhole_b0_80_arch_eth_dispatch.yaml"
+
+        # Set environment variable if N150_WH_ARCH_YAML or N300x4_WH_ARCH_YAML is in the device configurations
         if (
             DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
-            or DeviceConfigurations.N300_WH_ARCH_YAML in self.device_configurations
             or DeviceConfigurations.N300x4_WH_ARCH_YAML in self.device_configurations
         ):
             self.docker_config["environment"]["WH_ARCH_YAML"] = (
@@ -93,6 +96,15 @@ class ModelImpl:
         env_dict = load_dotenv_dict(_env_file)
         # env file overrides any existing docker environment variables
         self.docker_config["environment"].update(env_dict)
+
+        # Set environment variable if N150_WH_ARCH_YAML or N300x4_WH_ARCH_YAML is in the device configurations
+        if (
+            DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
+            or DeviceConfigurations.N300x4_WH_ARCH_YAML in self.device_configurations
+        ):
+            self.docker_config["environment"]["WH_ARCH_YAML"] = (
+                "wormhole_b0_80_arch_eth_dispatch.yaml"
+            )
 
     @property
     def image_version(self) -> str:
@@ -216,24 +228,11 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
-        model_name="Stable-Diffusion-3.5",
-        model_id="id_stable_diffusion_3.5v0.1.0",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
-        image_tag="v0.0.1-tt-metal-a0560feb3eed",
-        device_configurations={DeviceConfigurations.N150},
-        docker_config=base_docker_config(),
-        shm_size="32G",
-        service_port=7000,
-        service_route="/submit",
-        health_route="/",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-    ),
-    ModelImpl(
         model_name="Stable-Diffusion-1.4",
         model_id="id_stable_diffusionv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-1.4-src-base",
         image_tag="v0.0.1-tt-metal-5b2c8ff2bc92",
-        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N150},
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -245,7 +244,7 @@ model_implmentations_list = [
         model_id="id_yolov4v0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
         image_tag="v0.0.1-tt-metal-65d246482b3f",
-        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N150},
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -284,7 +283,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.2-1B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -294,7 +293,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.2-3B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -304,7 +303,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -314,7 +313,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -324,7 +323,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -334,7 +333,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N300x4},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,

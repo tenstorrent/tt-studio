@@ -14,7 +14,6 @@ class DeviceConfigurations(Enum):
     T3K_RING = auto()
     T3K_LINE = auto()
     N150_WH_ARCH_YAML = auto()
-    N300_WH_ARCH_YAML = auto()
     N300x4 = auto()
     N300x4_WH_ARCH_YAML = auto()
 
