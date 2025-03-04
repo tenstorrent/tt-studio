@@ -184,6 +184,63 @@ class ImageGenerationInferenceView(APIView):
                 inference_data = requests.post(internal_url, json=data, headers=headers, timeout=5)
                 inference_data.raise_for_status()
 
+                # begin get_latest_time loop
+                ready_latest = False
+                get_latest_time_url = internal_url.replace("/submit", "/get_latest_time")
+                while (not ready_latest):
+                    latest_prompt = requests.get(get_latest_time_url)
+                    if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
+                        latest_prompt.raise_for_status()
+                        if latest_prompt.json()["prompt"] == prompt:
+                            ready_latest = True
+                    time.sleep(1)
+
+                # clean up prompt after generation finished
+                cleanup_url = internal_url.replace("/submit", "/clean_up")
+                cleanup_request = requests.post(cleanup_url)
+                cleanup_request.raise_for_status()
+
+                # call get_image to get image
+                get_image_url = internal_url.replace("/submit", "/get_image")
+                latest_image = requests.get(get_image_url, stream=True)
+                latest_image.raise_for_status()
+                content_type = latest_image.headers.get('Content-Type', 'application/octet-stream')
+                content_disposition = f'attachment; filename=image.png'
+                
+                # Create a Django HttpResponse with the content of the file from Flask
+                django_response = HttpResponse(latest_image.content, content_type=content_type)
+                django_response['Content-Disposition'] = content_disposition
+                return django_response
+
+            except requests.exceptions.HTTPError as http_err:
+                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                    return Response(status=status.HTTP_401_UNAUTHORIZED)
+                elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                    return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                else:
+                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ImageGenerationV2InferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special image generation inference view that performs special file handling"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            prompt = data.get("prompt")  # we should only receive 1 prompt
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            try:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                data = {"prompt": prompt}
+                inference_data = requests.post(internal_url, json=data, headers=headers, timeout=5)
+                inference_data.raise_for_status()
+
                 # begin fetch status loop
                 ready_latest = False
                 task_id = inference_data.json().get("task_id")

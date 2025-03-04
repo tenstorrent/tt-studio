@@ -26,7 +26,7 @@ export const generateImage = async (
   modelID: string,
   options: ImageGenerationOptions = {}
 ): Promise<string> => {
-  const { useLocalModel = true, localModelUrl = "/models-api/image-generation/" } =
+  const { useLocalModel = true, localModelUrl = "/models-api/image-generation-v2/" } =
     options;
 
   if (useLocalModel) {
