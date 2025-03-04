@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import type React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
 import { User, Camera, ChevronDown, Download } from "lucide-react";
 import { Skeleton } from "../ui/skeleton";
 import Header from "./Header";
 import ImageInputArea from "./ImageInputArea";
-import type { StableDiffusionChatProps } from "./types/chat";
+import { StableDiffusionChatProps } from "./types/chat";
 import { useChat } from "./hooks/useChat";
 
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
@@ -46,12 +45,14 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
           className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
           onScroll={handleScroll}
         >
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-8">
             {messages.map((message, index) => (
               <div
                 key={message.id}
                 ref={index === messages.length - 1 ? lastMessageRef : null}
-                className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex ${
+                  message.sender === "user" ? "justify-end" : "justify-start"
+                }`}
               >
                 <div
                   className={`flex items-start gap-3 max-w-[90%] ${
@@ -60,7 +61,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                 >
                   <div className="flex-shrink-0">
                     {message.sender === "user" ? (
-                      <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center text-white">
+                      <div className="h-8 w-8 bg-white rounded-full flex items-center justify-center text-black">
                         <User className="h-5 w-5" />
                       </div>
                     ) : (
@@ -70,19 +71,32 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                     )}
                   </div>
                   <div
-                    className={`chat-bubble ${
+                    className={`relative rounded-2xl p-4 ${
                       message.sender === "user"
-                        ? "bg-TT-green-accent text-white text-left"
-                        : "bg-TT-slate text-white text-left"
-                    } p-3 rounded-lg mb-1`}
+                        ? "bg-[#7C68FA] rounded-tr-none"
+                        : "bg-[#1a1c2a] rounded-tl-none"
+                    }`}
                   >
+                    <div
+                      className={`absolute top-0 w-4 h-4 ${
+                        message.sender === "user"
+                          ? "-right-2 bg-[#7C68FA]"
+                          : "-left-2 bg-[#1a1c2a]"
+                      }`}
+                      style={{
+                        clipPath:
+                          message.sender === "user"
+                            ? "polygon(0 0, 0% 100%, 100% 0)"
+                            : "polygon(0 0, 100% 100%, 100% 0)",
+                      }}
+                    ></div>
                     <p className="text-white">{message.text}</p>
                     {message.image && (
                       <div className="relative mt-2 group">
                         <img
-                          src={message.image || "/placeholder.svg"}
+                          src={message.image}
                           alt="Generated image"
-                          className="rounded-lg w-full max-w-md h-auto max-h-80 object-contain transition-opacity duration-300 group-hover:opacity-80"
+                          className="rounded-lg max-w-full h-auto transition-opacity duration-300 group-hover:opacity-80"
                         />
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                           <a
@@ -132,7 +146,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
         </Button>
       )}
 
-      <div className="p-6">
+      <div className="p-10 ">
         <div className="max-w-5xl mx-auto">
           <ImageInputArea
             textInput={textInput}
