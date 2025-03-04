@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
+"use client";
 
 import { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -11,7 +11,6 @@ import {
   BotMessageSquare,
   Notebook,
   FileText,
-  Image,
   Eye,
   type LucideIcon,
 } from "lucide-react";
@@ -79,7 +78,7 @@ export default function NavBar() {
   const navLinkClass = useMemo(
     () =>
       `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
-    [textColor],
+    [textColor]
   );
 
   const getNavLinkClass = (isActive: boolean, isChatUIIcon = false) =>
@@ -124,66 +123,64 @@ export default function NavBar() {
     refreshModels();
   }, [refreshModels, refreshTrigger]);
 
-  const isVerticalLayout = location.pathname === "/chat-ui" || location.pathname === "/image-generation";
+  const isChatUI = location.pathname === "/chat-ui";
 
   return (
-    <div>
-      <TooltipProvider>
+    <TooltipProvider>
+      <div
+        className={`${
+          isChatUI
+            ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark rounded-r-3xl"
+            : "relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl"
+        } border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50`}
+      >
+        <CustomToaster />
         <div
-          className={`${
-            isVerticalLayout
-              ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark rounded-r-3xl"
-              : "relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl"
-          } border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50`}
+          className={`font-tt_a_mono flex ${
+            isChatUI ? "flex-col items-center" : "items-center justify-between"
+          } w-full px-4 py-2 sm:px-5 sm:py-3`}
         >
-          <CustomToaster />
-          <div
-            className={`font-tt_a_mono flex ${
-              isVerticalLayout
-                ? "flex-col items-center"
-                : "items-center justify-between"
-            } w-full px-4 py-2 sm:px-5 sm:py-3`}
+          <a
+            href="https://www.tenstorrent.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`flex items-center ${isChatUI ? "mb-6 justify-center" : ""}`}
           >
-            <a
-              href="https://www.tenstorrent.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`flex items-center ${
-                isVerticalLayout ? "mb-6 justify-center" : ""
-              }`}
-            >
-              <img
-                src={logo}
-                alt="Tenstorrent Logo"
-                className="w-10 h-10 sm:w-14 sm:h-14 transform transition duration-300 hover:scale-110"
-              />
-              {!isVerticalLayout && (
-                <h4
-                  className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
-                >
-                  TT-Studio
-                </h4>
-              )}
-            </a>
-            <NavigationMenu className={`w-full ${isVerticalLayout ? "mt-4" : ""}`}>
-              <NavigationMenuList
-                className={`flex ${
-                  isVerticalLayout
-                    ? "flex-col items-center space-y-4"
-                    : "justify-between"
-                }`}
+            <motion.img
+              src={logo}
+              alt="Tenstorrent Logo"
+              className="w-10 h-10 sm:w-14 sm:h-14"
+              whileHover={{ scale: 1.1, rotate: 360 }}
+              transition={{ type: "spring", stiffness: 300, damping: 10 }}
+            />
+            {!isChatUI && (
+              <h4
+                className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
               >
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
+                TT-Studio
+              </h4>
+            )}
+          </a>
+          <NavigationMenu className={`w-full ${isChatUI ? "mt-4" : ""}`}>
+            <NavigationMenuList
+              className={`flex ${isChatUI ? "flex-col items-center space-y-4" : "justify-between"}`}
+            >
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 >
                   <NavLink
                     to="/"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isVerticalLayout ? (
+                    {isChatUI ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Home
+                          <AnimatedIcon
+                            icon={Home}
                             className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                           />
                         </TooltipTrigger>
@@ -193,31 +190,38 @@ export default function NavBar() {
                       </Tooltip>
                     ) : (
                       <>
-                        <Home
+                        <AnimatedIcon
+                          icon={Home}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
                         <span>Home</span>
                       </>
                     )}
                   </NavLink>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
+                </motion.div>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 >
                   <NavLink
                     to="/rag-management"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isVerticalLayout ? (
+                    {isChatUI ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Notebook
+                          <AnimatedIcon
+                            icon={Notebook}
                             className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                           />
                         </TooltipTrigger>
@@ -227,31 +231,38 @@ export default function NavBar() {
                       </Tooltip>
                     ) : (
                       <>
-                        <Notebook
+                        <AnimatedIcon
+                          icon={Notebook}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
                         <span>Rag Management</span>
                       </>
                     )}
                   </NavLink>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
+                </motion.div>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <motion.div
+                  whileHover={{ y: -2 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 >
                   <NavLink
                     to="/models-deployed"
                     className={({ isActive }) => getNavLinkClass(isActive)}
                   >
-                    {isVerticalLayout ? (
+                    {isChatUI ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Boxes
+                          <AnimatedIcon
+                            icon={Boxes}
                             className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                           />
                         </TooltipTrigger>
@@ -261,191 +272,114 @@ export default function NavBar() {
                       </Tooltip>
                     ) : (
                       <>
-                        <Boxes
+                        <AnimatedIcon
+                          icon={Boxes}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
                         <span>Models Deployed</span>
                       </>
                     )}
                   </NavLink>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
+                </motion.div>
+              </NavigationMenuItem>
+              {!isChatUI && (
+                <Separator
+                  className="h-6 w-px bg-zinc-400"
+                  orientation="vertical"
+                />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
+                <NavLink
+                  to="/logs"
+                  className={({ isActive }) => getNavLinkClass(isActive)}
                 >
-                  <NavLink
-                    to="/logs"
-                    className={({ isActive }) => getNavLinkClass(isActive)}
-                  >
-                    {isVerticalLayout ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <FileText
-                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Logs</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <>
+                  {isChatUI ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
                         <FileText
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
-                        <span>Logs</span>
-                      </>
-                    )}
-                  </NavLink>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
-                >
-                  <NavLink
-                    to="/image-generation"
-                    className={({ isActive }) => getNavLinkClass(isActive)}
-                  >
-                    {isVerticalLayout ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Image
-                            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Image Generation</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <>
-                        <Image
-                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                        />
-                        <span>Image Generation</span>
-                      </>
-                    )}
-                  </NavLink>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={handleChatUIClick}
-                        className={`${getNavLinkClass(false, true)} ${
-                          models.length > 0
-                            ? ""
-                            : "opacity-50 cursor-not-allowed"
-                        }`}
-                      >
-                        <BotMessageSquare
-                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                        />
-                        {!isVerticalLayout && <span>Chat UI</span>}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {models.length > 0
-                        ? "Open Chat UI"
-                        : "Deploy a model to use Chat UI"}
-                    </TooltipContent>
-                  </Tooltip>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={handleObjectDetectionClick}
-                        className={`${getNavLinkClass(false)} ${
-                          models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
-                        }`}
-                      >
-                        <Eye
-                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                        />
-                        {!isVerticalLayout && <span>Object Detection</span>}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {models.length > 0
-                        ? "Open Object Detection"
-                        : "Deploy a model to use Object Detection"}
-                    </TooltipContent>
-                  </Tooltip>
-                </NavigationMenuItem>
-              </NavigationMenuList>
-            </NavigationMenu>
-            {!isVerticalLayout && (
-              <div className={`flex items-center space-x-2 sm:space-x-4`}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <ModeToggle />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Toggle Dark/Light Mode</p>
-                  </TooltipContent>
-                </Tooltip>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Logs</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <>
+                      <FileText
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      <span>Logs</span>
+                    </>
+                  )}
+                </NavLink>
+              </NavigationMenuItem>
+              {!isChatUI && (
                 <Separator
                   className="h-6 w-px bg-zinc-400"
                   orientation="vertical"
                 />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div>
-                      <ResetIcon onReset={handleReset} />
-                    </div>
+                    <button
+                      onClick={handleChatUIClick}
+                      className={`${getNavLinkClass(false, true)} ${
+                        models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
+                      }`}
+                    >
+                      <BotMessageSquare
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      {!isChatUI && <span>Chat UI</span>}
+                    </button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Reset Board</p>
+                    {models.length > 0
+                      ? "Open Chat UI"
+                      : "Deploy a model to use Chat UI"}
                   </TooltipContent>
                 </Tooltip>
+              </NavigationMenuItem>
+              {!isChatUI && (
                 <Separator
                   className="h-6 w-px bg-zinc-400"
                   orientation="vertical"
                 />
+              )}
+              <NavigationMenuItem
+                className={`${isChatUI ? "w-full flex justify-center" : ""}`}
+              >
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div>
-                      <HelpIcon toggleSidebar={handleToggleSidebar} />
-                    </div>
+                    <button
+                      onClick={handleObjectDetectionClick}
+                      className={`${getNavLinkClass(false)} ${
+                        models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
+                      }`}
+                    >
+                      <Eye
+                        className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                      />
+                      {!isChatUI && <span>Object Detection</span>}
+                    </button>
                   </TooltipTrigger>
-                  <TooltipContent side="left" align="center">
-                    <p>Get Help</p>
+                  <TooltipContent>
+                    {models.length > 0
+                      ? "Open Object Detection"
+                      : "Deploy a model to use Object Detection"}
                   </TooltipContent>
                 </Tooltip>
-              </div>
-            )}
-          </div>
-          {isVerticalLayout && (
-            <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
+              </NavigationMenuItem>
+            </NavigationMenuList>
+          </NavigationMenu>
+          {!isChatUI && (
+            <div className={`flex items-center space-x-2 sm:space-x-4`}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <motion.div
@@ -459,6 +393,10 @@ export default function NavBar() {
                   <p>Toggle Dark/Light Mode</p>
                 </TooltipContent>
               </Tooltip>
+              <Separator
+                className="h-6 w-px bg-zinc-400"
+                orientation="vertical"
+              />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <motion.div
@@ -472,6 +410,10 @@ export default function NavBar() {
                   <p>Reset Board</p>
                 </TooltipContent>
               </Tooltip>
+              <Separator
+                className="h-6 w-px bg-zinc-400"
+                orientation="vertical"
+              />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <motion.div
@@ -487,10 +429,53 @@ export default function NavBar() {
               </Tooltip>
             </div>
           )}
-          <Sidebar ref={sidebarRef} />
         </div>
-      </TooltipProvider>
-    </div>
+        {isChatUI && (
+          <div className="mt-auto flex flex-col items-center mb-4 space-y-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <ModeToggle />
+                </motion.div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Toggle Dark/Light Mode</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <ResetIcon onReset={handleReset} />
+                </motion.div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Reset Board</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <HelpIcon toggleSidebar={handleToggleSidebar} />
+                </motion.div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Get Help</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+        <Sidebar ref={sidebarRef} />
+      </div>
+    </TooltipProvider>
   );
 }
 

@@ -68,9 +68,9 @@ services:
       - tt_studio_network
     ports:
       - "3000:3000"
-    volumes:
+    # volumes:
     #! for development mount api changes
-      - ./frontend:/frontend
+    #   - ./frontend:/frontend
     # command: sh
     command: bash -c "npm i && npm run dev"
 
