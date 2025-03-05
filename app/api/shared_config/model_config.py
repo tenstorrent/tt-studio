@@ -227,6 +227,7 @@ model_implmentations_list = [
         service_route="/enqueue",
         health_route="/",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.IMAGE_GENERATION,
     ),
     ModelImpl(
         model_name="Stable-Diffusion-1.4",
@@ -240,6 +241,7 @@ model_implmentations_list = [
         service_route="/enqueue",
         health_route="/",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.IMAGE_GENERATION,
     ),
     ModelImpl(
         model_name="YOLOv4",
