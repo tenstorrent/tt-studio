@@ -1,116 +1,61 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import HomePage from "../pages/HomePage";
-import ModelsDeployed from "../pages/ModelsDeployed";
 import NavBar from "../components/NavBar";
-import ChatUI from "../pages/ChatUIPage";
 import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
-import RagManagement from "../components/rag/RagManagement";
-import LogsPage from "../pages/LogsPage";
-import ObjectDetectionPage from "../pages/ObjectDetectionPage";
-import LoginPage from "../pages/LoginPage.tsx";
-import ProtectedRoute from "./components/protected-route.tsx";
-import DeployedHomePage from "../pages/DeployedHomePage";
+import ProtectedRoute from "./components/protected-route";
+import { getRoutes, type RouteConfig } from "./route-config";
+
+// Define a layout component
+const MainLayout = ({ children }: { children: React.ReactNode }) => (
+  <>
+    <NavBar />
+    {children}
+  </>
+);
 
 const AppRouter = () => {
-  // Read environment variables for Vite
-  const isLoginEnabled = import.meta.env.VITE_ENABLE_LOGIN === "true";
-  const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
-  console.log("isLoginEnabled", isLoginEnabled);
-  console.log("isDeployedEnabled", isDeployedEnabled);
+  // Get routes from configuration
+  const routes = getRoutes();
+
+  // Log environment variables for debugging
+  console.log("isLoginEnabled", import.meta.env.VITE_ENABLE_LOGIN === "true");
+  console.log(
+    "isDeployedEnabled",
+    import.meta.env.VITE_ENABLE_DEPLOYED === "true"
+  );
+
+  // Helper function to render route elements
+  const renderRouteElement = (route: RouteConfig) => {
+    if (!route.protected) {
+      return route.element;
+    }
+
+    const Component = route.component;
+    return (
+      <ProtectedRoute>
+        <MainLayout>
+          <Component />
+        </MainLayout>
+      </ProtectedRoute>
+    );
+  };
 
   return (
     <RefreshProvider>
       <ModelsProvider>
         <Router>
           <Routes>
-            {/* Conditionally render login route based on environment variable */}
-            {isLoginEnabled && <Route path="/login" element={<LoginPage />} />}
-
-            {/* Protected Routes */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <>
-                    <NavBar />
-                    {isDeployedEnabled ? <DeployedHomePage /> : <HomePage />}
-                  </>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/models-deployed"
-              element={
-                <ProtectedRoute>
-                  <>
-                    <NavBar />
-                    <ModelsDeployed />
-                  </>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/chat-ui"
-              element={
-                <ProtectedRoute>
-                  <>
-                    <NavBar />
-                    <ChatUI />
-                  </>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/rag-management"
-              element={
-                <ProtectedRoute>
-                  <>
-                    <NavBar />
-                    <RagManagement />
-                  </>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/logs"
-              element={
-                <ProtectedRoute>
-                  <>
-                    <NavBar />
-                    <LogsPage />
-                  </>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/object-detection"
-              element={
-                <ProtectedRoute>
-                  <>
-                    <NavBar />
-                    <ObjectDetectionPage />
-                  </>
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Conditionally render deployed home page based on environment variable */}
-            {!isDeployedEnabled && (
-              <Route
-                path="/deployed-home"
-                element={
-                  <ProtectedRoute>
-                    <>
-                      <NavBar />
-                      <DeployedHomePage />
-                    </>
-                  </ProtectedRoute>
-                }
-              />
-            )}
+            {routes
+              .filter((route) => route.condition !== false)
+              .map((route) => (
+                <Route
+                  key={route.path}
+                  path={route.path}
+                  element={renderRouteElement(route)}
+                />
+              ))}
           </Routes>
         </Router>
       </ModelsProvider>
