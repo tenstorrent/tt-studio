@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
 
-import { useMemo, useRef, useEffect } from "react";
+import React, { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -45,18 +45,20 @@ interface AnimatedIconProps {
   className?: string;
 }
 
-const AnimatedIcon: React.FC<AnimatedIconProps> = ({
-  icon: Icon,
-  ...props
-}) => (
-  <motion.div
-    whileHover={{ scale: 1.2 }}
-    whileTap={{ scale: 0.9 }}
-    transition={{ type: "spring", stiffness: 400, damping: 17 }}
-  >
-    <Icon {...props} />
-  </motion.div>
+const AnimatedIcon = React.forwardRef<HTMLDivElement, AnimatedIconProps>(
+  ({ icon: Icon, ...props }, ref) => (
+    <motion.div
+      ref={ref}
+      whileHover={{ scale: 1.2 }}
+      whileTap={{ scale: 0.9 }}
+      transition={{ type: "spring", stiffness: 400, damping: 17 }}
+    >
+      <Icon {...props} />
+    </motion.div>
+  )
 );
+
+AnimatedIcon.displayName = "AnimatedIcon";
 
 export default function NavBar() {
   const location = useLocation();
@@ -298,7 +300,8 @@ export default function NavBar() {
                   {isChatUI ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <FileText
+                        <AnimatedIcon
+                          icon={FileText}
                           className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                         />
                       </TooltipTrigger>
@@ -308,7 +311,8 @@ export default function NavBar() {
                     </Tooltip>
                   ) : (
                     <>
-                      <FileText
+                      <AnimatedIcon
+                        icon={FileText}
                         className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                       />
                       <span>Logs</span>
@@ -333,7 +337,8 @@ export default function NavBar() {
                         models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
                       }`}
                     >
-                      <BotMessageSquare
+                      <AnimatedIcon
+                        icon={BotMessageSquare}
                         className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                       />
                       {!isChatUI && <span>Chat UI</span>}
@@ -363,7 +368,8 @@ export default function NavBar() {
                         models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
                       }`}
                     >
-                      <Eye
+                      <AnimatedIcon
+                        icon={Eye}
                         className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
                       />
                       {!isChatUI && <span>Object Detection</span>}
@@ -478,4 +484,3 @@ export default function NavBar() {
     </TooltipProvider>
   );
 }
-

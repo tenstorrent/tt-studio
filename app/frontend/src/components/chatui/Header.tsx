@@ -37,23 +37,24 @@ interface HeaderProps {
   modelName: string | null;
   modelsDeployed: { id: string; name: string }[];
   setModelID: (id: string) => void;
-  setModelName: (name: string) => void;
+  setModelName: (name: string | null) => void;
   ragDataSources: RagDataSource[];
   ragDatasource: RagDataSource | undefined;
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
-  isAgentSelected: boolean; 
+  isAgentSelected: boolean;
   setIsAgentSelected: (value: boolean) => void;
-
 }
-
 interface RagDataSource {
   id: string;
   name: string;
-  metadata: Record<string, string>;
+  metadata?: {
+    created_at?: string;
+    embedding_func_name?: string;
+    last_uploaded_document?: string;
+  };
 }
-
 const ModelSelector = React.forwardRef<
   HTMLButtonElement,
   {
@@ -131,9 +132,9 @@ export default function Header({
   isHistoryPanelOpen,
   setIsHistoryPanelOpen,
   isAgentSelected,
-  setIsAgentSelected
+  setIsAgentSelected,
 }: HeaderProps) {
-  const [selectedAIAgent, setSelectedAIAgent] =  useState<string | null>(null);
+  const [selectedAIAgent, setSelectedAIAgent] = useState<string | null>(null);
 
   // Handle the AI agent selection change
   const handleAgentSelection = (value: string) => {
@@ -214,114 +215,117 @@ export default function Header({
           </BreadcrumbList>
         </Breadcrumb>
       </div>
-      <div className="flex items-center space-x-4"> 
-      <div className="flex items-center">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ForwardedSelect
-                value={ragDatasource ? ragDatasource.name : ""}
-                onValueChange={(v) => {
-                  if (v === "remove") {
-                    setRagDatasource(undefined);
-                  } else {
-                    const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v,
-                    );
-                    if (dataSource) {
-                      setRagDatasource(dataSource);
+      <div className="flex items-center space-x-4">
+        <div className="flex items-center">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ForwardedSelect
+                  value={ragDatasource ? ragDatasource.name : ""}
+                  onValueChange={(v) => {
+                    if (v === "remove") {
+                      setRagDatasource(undefined);
+                    } else {
+                      const dataSource = ragDataSources.find(
+                        (rds) => rds.name === v
+                      );
+                      if (dataSource) {
+                        setRagDatasource(dataSource);
+                      }
                     }
-                  }
-                }}
-              >
-                <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
-                  {ragDataSources.map((c) => (
+                  }}
+                >
+                  <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
+                    {ragDataSources.map((c) => (
+                      <SelectItem
+                        key={c.id}
+                        value={c.name}
+                        className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                      >
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                    {ragDatasource && (
+                      <SelectItem
+                        value="remove"
+                        className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
+                      >
+                        <span className="flex items-center">
+                          <X className="mr-2 h-4 w-4" />
+                          Remove RAG context
+                        </span>
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </ForwardedSelect>
+              </TooltipTrigger>
+              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                <p>
+                  {ragDatasource
+                    ? "Change or remove RAG context"
+                    : "Select RAG context"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
+        <div className="flex items-center">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ForwardedAISelect
+                  value={selectedAIAgent || ""} // Default value is an empty string for placeholder
+                  onValueChange={handleAgentSelection}
+                  // onValueChange={(v) => {
+                  //   if (v === "remove") {
+                  //     handleAgentSelection("");  // Clear selection if "remove" is chosen
+                  //   } else {
+                  //     handleAgentSelection(v);  // Set selected AI Agent
+                  //   }
+                  // }}
+                >
+                  <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     <SelectItem
-                      key={c.id}
-                      value={c.name}
+                      value="search-agent"
                       className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
                     >
-                      {c.name}
+                      Search Agent
                     </SelectItem>
-                  ))}
-                  {ragDatasource && (
-                    <SelectItem
-                      value="remove"
-                      className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
-                    >
-                      <span className="flex items-center">
-                        <X className="mr-2 h-4 w-4" />
-                        Remove RAG context
-                      </span>
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </ForwardedSelect>
-            </TooltipTrigger>
-            <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-              <p>
-                {ragDatasource
-                  ? "Change or remove RAG context"
-                  : "Select RAG context"}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        </div>
-  
-  <div className="flex items-center">
-  <TooltipProvider>
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <ForwardedAISelect
-          value={selectedAIAgent || ""}  // Default value is an empty string for placeholder
-          onValueChange={handleAgentSelection}
-          // onValueChange={(v) => {
-          //   if (v === "remove") {
-          //     handleAgentSelection("");  // Clear selection if "remove" is chosen
-          //   } else {
-          //     handleAgentSelection(v);  // Set selected AI Agent
-          //   }
-          // }}
-        >
-          <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
-            <SelectItem
-              value="search-agent"
-              className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
-            >
-              Search Agent
-            </SelectItem>
 
-            {/* Add more AI agents as SelectItems here if needed */}
-            {/* <SelectItem
+                    {/* Add more AI agents as SelectItems here if needed */}
+                    {/* <SelectItem
               value="another-agent"
               className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
             >
               Another AI Agent
             </SelectItem> */}
 
-            {selectedAIAgent && (
-              <SelectItem
-                value="remove"
-                className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
-              >
-                <span className="flex items-center">
-                  <X className="mr-2 h-4 w-4" />
-                  Remove AI Agent
-                </span>
-              </SelectItem>
-            )}
-          </SelectContent>
-        </ForwardedAISelect>
-      </TooltipTrigger>
-      <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-        <p>{selectedAIAgent ? "Change or remove AI agent" : "Select AI Agent"}</p>
-      </TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
-</div>
+                    {selectedAIAgent && (
+                      <SelectItem
+                        value="remove"
+                        className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
+                      >
+                        <span className="flex items-center">
+                          <X className="mr-2 h-4 w-4" />
+                          Remove AI Agent
+                        </span>
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </ForwardedAISelect>
+              </TooltipTrigger>
+              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                <p>
+                  {selectedAIAgent
+                    ? "Change or remove AI agent"
+                    : "Select AI Agent"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      </div>
     </div>
-    </div>
-          
   );
 }
