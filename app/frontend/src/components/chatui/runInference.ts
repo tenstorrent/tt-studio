@@ -42,9 +42,9 @@ export const runInference = async (
 
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
-      : import.meta.env.VITE_API_URL || "/models-api/inference/";
+      : import.meta.env.VITE_LLAMA_API_URL || "/models-api/inference/";
 
-    const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
+    const AUTH_TOKEN = import.meta.env.VITE_LLAMA_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -55,7 +55,7 @@ export const runInference = async (
 
     let requestBody;
     const threadIdStr = threadId.toString();
-    const apiUrlDefined = !!import.meta.env.VITE_API_URL;
+    const apiUrlDefined = !!import.meta.env.VITE_LLAMA_API_URL;
 
     if (!isAgentSelected) {
       requestBody = {
