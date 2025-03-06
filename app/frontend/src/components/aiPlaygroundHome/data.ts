@@ -42,14 +42,14 @@
  *
  * @see ModelCard.tsx component for card implementation
  * @see DeployedHome.tsx Playground home page for grid layout
- */ 
+ */
 
 import type { Model, Task } from "./types";
 
 export const models: Model[] = [
   {
     id: "llama",
-    title: "Llama 3.1 70b",
+    title: "Llama 3.1 70B",
     image: "src/assets/llama-image.svg",
     path: "/chat-ui",
     filter: "#323968",
@@ -67,7 +67,7 @@ export const models: Model[] = [
   },
   {
     id: "yolov4",
-    title: "YOLOV4",
+    title: "YOLOv4",
     image: "src/assets/yolo5.svg",
     path: "video",
     filter: "#6FABA0",
