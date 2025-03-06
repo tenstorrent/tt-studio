@@ -4,8 +4,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import NavBar from "../components/NavBar";
 import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
-import ProtectedRoute from "./components/protected-route";
-import { getRoutes, type RouteConfig } from "./route-config";
+import { getRoutes } from "./route-config";
 
 // Define a layout component
 const MainLayout = ({ children }: { children: React.ReactNode }) => (
@@ -20,27 +19,10 @@ const AppRouter = () => {
   const routes = getRoutes();
 
   // Log environment variables for debugging
-  console.log("isLoginEnabled", import.meta.env.VITE_ENABLE_LOGIN === "true");
   console.log(
     "isDeployedEnabled",
     import.meta.env.VITE_ENABLE_DEPLOYED === "true"
   );
-
-  // Helper function to render route elements
-  const renderRouteElement = (route: RouteConfig) => {
-    if (!route.protected) {
-      return route.element;
-    }
-
-    const Component = route.component;
-    return (
-      <ProtectedRoute>
-        <MainLayout>
-          <Component />
-        </MainLayout>
-      </ProtectedRoute>
-    );
-  };
 
   return (
     <RefreshProvider>
@@ -53,7 +35,7 @@ const AppRouter = () => {
                 <Route
                   key={route.path}
                   path={route.path}
-                  element={renderRouteElement(route)}
+                  element={<MainLayout>{route.element}</MainLayout>}
                 />
               ))}
           </Routes>
