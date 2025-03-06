@@ -317,16 +317,16 @@ export default function NavBar() {
       icon: Home,
       label: "Home",
     },
-  ];
-
-  // Define deployed feature navigation items (shown only when isDeployedEnabled is false)
-  const deployedNavItems: NavItemData[] = [
     {
       type: "link",
       to: "/rag-management",
       icon: Notebook,
       label: "Rag Management",
     },
+  ];
+
+  // Define deployed feature navigation items (shown only when isDeployedEnabled is false)
+  const deployedNavItems: NavItemData[] = [
     {
       type: "link",
       to: "/models-deployed",
