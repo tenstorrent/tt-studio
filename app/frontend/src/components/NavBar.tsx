@@ -322,6 +322,7 @@ export default function NavBar() {
       to: "/rag-management",
       icon: Notebook,
       label: "Rag Management",
+      tooltip: "Manage Retrieval Augmented Generation data",
     },
   ];
 
