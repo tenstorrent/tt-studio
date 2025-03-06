@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { ModelCard } from "./ModelCard";
-import { ActionCard } from "./ActionCard";
-import { models, tasks } from "./data";
-import type { Model, Task } from "./types";
-import { Separator } from "../ui/separator";
+// import { ActionCard } from "./ActionCard";
+import { models } from "./data";
+import type { Model } from "./types";
+// import { Separator } from "../ui/separator";
 
 export function DeployedHome() {
   return (
@@ -26,9 +26,9 @@ export function DeployedHome() {
         </div>
       </section>
 
-      <Separator className="my-12 bg-white/20" />
+      {/* <Separator className="my-12 bg-white/20" /> */}
 
-      <section className="mb-12">
+      {/* <section className="mb-12">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {tasks.map((task: Task) => (
             <ActionCard
@@ -39,7 +39,7 @@ export function DeployedHome() {
             />
           ))}
         </div>
-      </section>
+      </section> */}
     </div>
   );
 }
