@@ -377,9 +377,9 @@ export default function NavBar() {
       onClick: () => handleNavigation("/audio-detection"),
       isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
       tooltipText: isDeployedEnabled
-        ? "Whisper Model Audio Transcription"
+        ? "Audio Transcription with Whisper Model"
         : models.length > 0
-          ? "Whisper Model Audio Transcription"
+          ? "Audio Transcription with Whisper Model"
           : "Deploy a model to use Whisper Model Audio Transcription",
       route: "/audio-detection", // Add route for active state detection
     },
@@ -391,18 +391,23 @@ export default function NavBar() {
     ...(isDeployedEnabled ? modelNavItems : deployedNavItems),
   ];
 
-  // Define action buttons
+  // Define action buttons based on deployment state
   const actionButtons: ActionButtonType[] = [
     {
       icon: ModeToggle,
       tooltipText: "Toggle Dark/Light Mode",
       onClick: null, // ModeToggle handles its own click
     },
-    {
-      icon: ResetIcon,
-      tooltipText: "Reset Board",
-      onClick: handleReset,
-    },
+
+    ...(isDeployedEnabled
+      ? []
+      : [
+          {
+            icon: ResetIcon,
+            tooltipText: "Reset Board",
+            onClick: handleReset,
+          },
+        ]),
     {
       icon: HelpIcon,
       tooltipText: "Get Help",
