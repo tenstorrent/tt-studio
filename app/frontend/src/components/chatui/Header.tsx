@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Button } from "../ui/button";
-import { PanelRight, X } from "lucide-react";
+import { PanelRight, X, Home } from "lucide-react";
 
 interface HeaderProps {
   modelName: string | null;
@@ -147,16 +147,49 @@ export default function Header({
   return (
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex justify-between items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
       <div className="flex items-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setIsHistoryPanelOpen(!isHistoryPanelOpen)}
-          className="mr-2"
-        >
-          <PanelRight className="h-4 w-4" />
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsHistoryPanelOpen(!isHistoryPanelOpen)}
+                className="mr-2"
+              >
+                <PanelRight className="h-4 w-4" />
+                <span className="sr-only">
+                  {isHistoryPanelOpen ? "Close sidebar" : "Open sidebar"}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+              <p>{isHistoryPanelOpen ? "Close sidebar" : "Open sidebar"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <Breadcrumb className="flex items-center">
           <BreadcrumbList className="flex gap-2 text-sm">
+            <BreadcrumbItem>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <BreadcrumbLink
+                      href="/"
+                      className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
+                    >
+                      <Home className="w-4 h-4 mr-2" />
+                      Home
+                    </BreadcrumbLink>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                    <p>Go to home</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator className="mx-2 text-white/40 dark:text-white/40">
+              /
+            </BreadcrumbSeparator>
             {modelsDeployed.length > 0 ? (
               <>
                 <BreadcrumbItem>
@@ -213,25 +246,7 @@ export default function Header({
                   </TooltipProvider>
                 </BreadcrumbItem>
               </>
-            ) : (
-              <BreadcrumbItem>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <BreadcrumbLink
-                        href="/"
-                        className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white transition-colors duration-300 flex items-center"
-                      >
-                        Home
-                      </BreadcrumbLink>
-                    </TooltipTrigger>
-                    <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                      <p>Go to home</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </BreadcrumbItem>
-            )}
+            ) : null}
           </BreadcrumbList>
         </Breadcrumb>
       </div>
