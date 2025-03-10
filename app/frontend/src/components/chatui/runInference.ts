@@ -40,9 +40,14 @@ export const runInference = async (
     console.log("Generated messages:", messages);
     console.log("Thread ID: ", threadId);
 
+    const apiUrlDefined = !!import.meta.env.VITE_LLAMA_API_URL;
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
-      : import.meta.env.VITE_LLAMA_API_URL || "/models-api/inference/";
+      : apiUrlDefined
+        ? "/models-api/inference_cloud/"
+        : "/models-api/inference/";
+
+    console.log("API URL:", API_URL);
 
     const AUTH_TOKEN = import.meta.env.VITE_LLAMA_AUTH_TOKEN || "";
 
@@ -55,7 +60,6 @@ export const runInference = async (
 
     let requestBody;
     const threadIdStr = threadId.toString();
-    const apiUrlDefined = !!import.meta.env.VITE_LLAMA_API_URL;
 
     if (!isAgentSelected) {
       requestBody = {
