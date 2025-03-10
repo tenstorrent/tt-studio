@@ -3,6 +3,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # model_control/views.py
+import os
 from pathlib import Path
 import requests
 from PIL import Image
@@ -20,6 +21,7 @@ from model_control.model_utils import (
     stream_response_from_external_api,
     stream_response_from_agent_api,
     health_check,
+    stream_to_cloud_model,
 )
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
@@ -27,6 +29,17 @@ from shared_config.logger_config import get_logger
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
+
+
+
+CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
+
+class InferenceCloudView(APIView):
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"InferenceCloudView data:={data}")
+        response_stream = stream_to_cloud_model(CLOUD_CHAT_UI_URL, data)
+        return StreamingHttpResponse(response_stream, content_type="text/plain")
 
 class InferenceView(APIView):
     def post(self, request, *args, **kwargs):
