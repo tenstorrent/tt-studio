@@ -40,6 +40,9 @@ services:
       - BACKEND_API_HOSTNAME
       - JWT_SECRET
       - TAVILY_API_KEY
+      - CLOUD_CHAT_UI_URL
+      - CLOUD_CHAT_UI_AUTH_TOKEN
+
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
@@ -51,7 +54,7 @@ services:
       # On first application load resources for transformers/etc
       # are downloaded. The UI should not start until these resources
       # have been downloaded. Adjust timeout if on a very slow connection
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/up/" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
       timeout: 120s
       interval: 10s
       retries: 5
@@ -92,7 +95,7 @@ services:
       - "8111:8111"
     healthcheck:
       # Adjust below to match your container port
-      test: [ "CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat"]
       interval: 10s
       timeout: 10s
       retries: 3
