@@ -13,4 +13,5 @@ urlpatterns = [
     path("model_weights/", views.ModelWeightsView.as_view()),
     path("object-detection/", views.ObjectDetectionInferenceView.as_view()),
     path("health/", views.ModelHealthView.as_view()),
+    path("inference_cloud/", views.InferenceCloudView.as_view()),
 ]
