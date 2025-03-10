@@ -11,13 +11,7 @@ import {
   Gauge,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from "../ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -31,8 +25,24 @@ export default function Component({ stats }: InferenceStatsProps) {
 
   if (!stats) return null;
 
-  const formatValue = (value: number | undefined, decimals = 2) => {
-    return typeof value === "number" ? value.toFixed(decimals) : "N/A";
+  const formatValue = (value: number | undefined) => {
+    if (typeof value !== "number")
+      return { value: "N/A", unit: "", isSmall: false };
+
+    // Convert to milliseconds if value is small (less than 0.1 seconds)
+    if (value < 0.1) {
+      return {
+        value: (value * 1000).toFixed(2),
+        unit: "ms",
+        isSmall: true,
+      };
+    }
+
+    return {
+      value: value.toFixed(2),
+      unit: "s",
+      isSmall: false,
+    };
   };
 
   const userTPS =
@@ -40,28 +50,36 @@ export default function Component({ stats }: InferenceStatsProps) {
       ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(2)
       : "N/A";
 
+  // Define the stat item type to include isSmall property
+  type StatItem = {
+    icon: React.ReactNode;
+    value: string | number;
+    unit: string;
+    label: string;
+    isSmall?: boolean;
+  };
+
   const sections = [
     {
       title: "Time Metrics",
       stats: [
         {
           icon: <Clock className="h-5 w-5 text-TT-purple-accent" />,
-          value: formatValue(stats.user_ttft_s),
+          ...formatValue(stats.user_ttft_s),
           label: "Time to First Token",
-          unit: "s",
-        },
+        } as StatItem,
         {
           icon: <Zap className="h-5 w-5 text-TT-purple-accent" />,
-          value: formatValue(stats.user_tpot, 6),
+          ...formatValue(stats.user_tpot),
           label: "Time Per Output Token",
-          unit: "s",
-        },
+        } as StatItem,
         {
           icon: <Gauge className="h-5 w-5 text-TT-purple-accent" />,
           value: userTPS,
           label: "User Tokens Per Second",
           unit: "",
-        },
+          isSmall: false,
+        } as StatItem,
       ],
     },
     {
@@ -72,19 +90,22 @@ export default function Component({ stats }: InferenceStatsProps) {
           value: stats.tokens_decoded,
           label: "Tokens Decoded",
           unit: "",
-        },
+          isSmall: false,
+        } as StatItem,
         {
           icon: <FileText className="h-5 w-5 text-TT-purple-accent" />,
           value: stats.tokens_prefilled,
           label: "Tokens Prefilled",
           unit: "",
-        },
+          isSmall: false,
+        } as StatItem,
         {
           icon: <AlignJustify className="h-5 w-5 text-TT-purple-accent" />,
           value: stats.context_length,
           label: "Context Length",
           unit: "",
-        },
+          isSmall: false,
+        } as StatItem,
       ],
     },
   ];
@@ -110,12 +131,6 @@ export default function Component({ stats }: InferenceStatsProps) {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-[95vw] sm:max-w-[500px] p-4 sm:p-6 bg-black text-white border-zinc-800">
-          <div className="absolute right-4 top-4">
-            <DialogClose className="h-6 w-6 rounded-full p-0 hover:bg-white/10">
-              <span className="sr-only">Close</span>
-            </DialogClose>
-          </div>
-
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl font-medium text-white">
               <Zap className="h-8 w-8 sm:h-10 sm:w-10 text-TT-purple-accent" />
@@ -137,9 +152,9 @@ export default function Component({ stats }: InferenceStatsProps) {
                       </div>
                       <div className="text-lg sm:text-3xl font-light text-white">
                         {stat.value}
-                        {stat.unit}
+                        {stat.isSmall ? <span>{stat.unit}</span> : stat.unit}
                       </div>
-                      <div className="text-xs sm:text-sm text-white/60 truncate">
+                      <div className="text-xs sm:text-sm text-white/60 overflow-hidden text-ellipsis px-1">
                         {stat.label}
                       </div>
                     </div>
@@ -149,17 +164,35 @@ export default function Component({ stats }: InferenceStatsProps) {
             ))}
           </div>
 
-          <div className="border-t border-zinc-800 pt-3 sm:pt-4 text-2xs sm:text-xs text-white/60 flex items-center justify-between flex-wrap gap-2">
+          <div className="border-t border-zinc-800 pt-3 sm:pt-4 text-2xs sm:text-xs text-white/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3 text-white/60" />
-              <span className="whitespace-nowrap">
+              <span className="whitespace-normal break-words">
                 Round trip time:{" "}
+                {
+                  formatValue(
+                    (stats.user_ttft_s || 0) +
+                      (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                  ).value
+                }
                 {formatValue(
                   (stats.user_ttft_s || 0) +
-                    (stats.user_tpot || 0) * (stats.tokens_decoded || 0),
-                  2
+                    (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                ).isSmall ? (
+                  <span className="text-red-400">
+                    {
+                      formatValue(
+                        (stats.user_ttft_s || 0) +
+                          (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                      ).unit
+                    }
+                  </span>
+                ) : (
+                  formatValue(
+                    (stats.user_ttft_s || 0) +
+                      (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                  ).unit
                 )}
-                s
               </span>
             </div>
             <div className="flex items-center gap-1">
