@@ -10,7 +10,7 @@ import { getRoutes } from "./route-config";
 const MainLayout = ({ children }: { children: React.ReactNode }) => (
   <>
     <NavBar />
-    {children}
+    <div className="main-content ">{children}</div>
   </>
 );
 
