@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -27,6 +27,38 @@ export function HistoryPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [touchedId, setTouchedId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+
+    return () => {
+      window.removeEventListener("resize", checkMobile);
+    };
+  }, []);
+
+  // Handle touch events for mobile
+  const handleTouchStart = (id: string) => {
+    if (isMobile) {
+      setTouchedId(id);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isMobile) {
+      // Keep the touched state for a brief moment to allow button interaction
+      setTimeout(() => {
+        setTouchedId(null);
+      }, 2000);
+    }
+  };
 
   const handleEditStart = (id: string, title: string) => {
     setEditingId(id);
@@ -34,11 +66,34 @@ export function HistoryPanel({
   };
 
   const handleEditSave = (id: string) => {
-    onEditConversationTitle(id, editTitle);
+    if (editTitle.trim()) {
+      onEditConversationTitle(id, editTitle);
+    }
     setEditingId(null);
   };
 
-  const filteredConversations = conversations.filter((conversation) =>
+  const handleEditKeyDown = (e: React.KeyboardEvent, id: string) => {
+    if (e.key === "Enter") {
+      handleEditSave(id);
+    } else if (e.key === "Escape") {
+      setEditingId(null);
+    }
+  };
+
+  // Ensure conversations is always an array and doesn't have duplicates
+  const safeConversations = Array.isArray(conversations) ? conversations : [];
+
+  // Create a map to deduplicate conversations by ID
+  const conversationMap = new Map();
+  safeConversations.forEach((conv) => {
+    if (!conversationMap.has(conv.id)) {
+      conversationMap.set(conv.id, conv);
+    }
+  });
+
+  // Convert back to array and filter by search query
+  const uniqueConversations = Array.from(conversationMap.values());
+  const filteredConversations = uniqueConversations.filter((conversation) =>
     conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -48,7 +103,7 @@ export function HistoryPanel({
         <div className="flex items-center px-4 mb-6">
           <h2 className="text-lg font-medium">Chats</h2>
           <span className="ml-2 rounded-full bg-[#7C68FA] px-2 py-1 text-xs">
-            {conversations.length}
+            {uniqueConversations.length}
           </span>
         </div>
         <div className="relative px-2">
@@ -66,7 +121,7 @@ export function HistoryPanel({
         <div className="space-y-1">
           {filteredConversations.map((conversation) => (
             <div
-              key={conversation.id}
+              key={`conv-${conversation.id}`}
               className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all duration-200 
                 ${
                   conversation.id === currentConversationId
@@ -74,6 +129,8 @@ export function HistoryPanel({
                     : "hover:bg-slate-100 dark:hover:bg-[#2A2A2A]"
                 }`}
               onClick={() => onSelectConversation(conversation.id)}
+              onTouchStart={() => handleTouchStart(conversation.id)}
+              onTouchEnd={handleTouchEnd}
             >
               <div className="flex items-center flex-grow min-w-0">
                 <MessageSquare className="shrink-0 mr-2 h-4 w-4 text-zinc-400" />
@@ -82,11 +139,10 @@ export function HistoryPanel({
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
                     onBlur={() => handleEditSave(conversation.id)}
-                    onKeyPress={(e) =>
-                      e.key === "Enter" && handleEditSave(conversation.id)
-                    }
-                    className="h-6 text-sm bg-[#2A2A2A] border-0 focus:ring-2 focus:ring-[#7C68FA]"
+                    onKeyDown={(e) => handleEditKeyDown(e, conversation.id)}
+                    className="h-6 text-sm bg-transparent dark:bg-[#2A2A2A] border-0 focus:ring-2 focus:ring-[#7C68FA]"
                     autoFocus
+                    onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
                   <span className="truncate text-slate-800 dark:text-slate-200">
@@ -96,20 +152,35 @@ export function HistoryPanel({
                       .includes(searchQuery.toLowerCase())
                       ? conversation.title
                           .split(new RegExp(`(${searchQuery})`, "gi"))
-                          .map((part, i) =>
+                          .map((part: string, partIndex: number) =>
                             part.toLowerCase() === searchQuery.toLowerCase() ? (
-                              <span key={i} className="bg-[#7C68FA]/30">
+                              <span
+                                key={`highlight-${conversation.id}-${partIndex}`}
+                                className="bg-[#7C68FA]/30"
+                              >
                                 {part}
                               </span>
                             ) : (
-                              part
+                              <span
+                                key={`normal-${conversation.id}-${partIndex}`}
+                              >
+                                {part}
+                              </span>
                             )
                           )
                       : conversation.title}
                   </span>
                 )}
               </div>
-              <div className="p-flex items-center shrink-0 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div
+                className={`flex items-center shrink-0 gap-1 ${
+                  isMobile
+                    ? touchedId === conversation.id
+                      ? "opacity-100"
+                      : "opacity-0"
+                    : "opacity-0 group-hover:opacity-100"
+                } transition-opacity`}
+              >
                 <Button
                   variant="ghost"
                   size="icon"

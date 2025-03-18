@@ -23,10 +23,16 @@ import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
-// import { threadId } from "worker_threads";
+
+// Define a type for conversation with title
+interface ChatThread {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+}
 
 export default function ChatComponent() {
-  console.log("ChatComponent rendered");
+  // console.log("ChatComponent rendered");
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [ragDatasource, setRagDatasource] = useState<
@@ -36,10 +42,20 @@ export default function ChatComponent() {
     queryFn: fetchCollections,
     initialData: [],
   });
-  const [chatThreads, setChatThreads] = usePersistentState<ChatMessage[][]>(
+
+  // Create a default thread to start with
+  const defaultThread: ChatThread = {
+    id: "0",
+    title: "New Chat 1",
+    messages: [],
+  };
+
+  // Updated structure to include titles directly in the threads
+  const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>(
     "chat_threads",
-    [[]]
+    [defaultThread]
   );
+
   const [currentThreadIndex, setCurrentThreadIndex] =
     usePersistentState<number>("current_thread_index", 0);
   const [modelID, setModelID] = useState<string | null>(null);
@@ -58,6 +74,54 @@ export default function ChatComponent() {
     isExtraLargeScreen: false,
   });
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
+      console.warn(
+        "ChatThreads is not an array or is empty, resetting to default"
+      );
+      setChatThreads([defaultThread]);
+      setCurrentThreadIndex(0);
+      return;
+    }
+
+    const threadMap = new Map<string, ChatThread>();
+    let needsUpdate = false;
+
+    chatThreads.forEach((thread) => {
+      if (!thread.id) {
+        needsUpdate = true;
+        return;
+      }
+
+      if (!threadMap.has(thread.id)) {
+        threadMap.set(thread.id, thread);
+      } else {
+        needsUpdate = true;
+      }
+    });
+
+    if (needsUpdate) {
+      const uniqueThreads = Array.from(threadMap.values());
+      if (uniqueThreads.length === 0) {
+        setChatThreads([defaultThread]);
+        setCurrentThreadIndex(0);
+      } else {
+        setChatThreads(uniqueThreads);
+
+        // Make sure currentThreadIndex is valid
+        if (currentThreadIndex >= uniqueThreads.length) {
+          setCurrentThreadIndex(0);
+        }
+      }
+    }
+  }, [
+    chatThreads,
+    setChatThreads,
+    currentThreadIndex,
+    setCurrentThreadIndex,
+    defaultThread,
+  ]);
 
   useEffect(() => {
     if (location.state) {
@@ -106,14 +170,18 @@ export default function ChatComponent() {
     }
   }, [chatThreads, currentThreadIndex]);
 
-  // TODO:
-  //! this is a temporary fix to avoid the modelID being null
-  useEffect(() => {
-    if (chatThreads.length === 0) {
-      setChatThreads([[]]);
-      setCurrentThreadIndex(0);
+  // Safe getter for current thread
+  const getCurrentThread = useCallback(() => {
+    if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
+      return defaultThread;
     }
-  }, [chatThreads, setChatThreads, setCurrentThreadIndex]);
+
+    if (currentThreadIndex < 0 || currentThreadIndex >= chatThreads.length) {
+      return chatThreads[0] || defaultThread;
+    }
+
+    return chatThreads[currentThreadIndex] || defaultThread;
+  }, [chatThreads, currentThreadIndex, defaultThread]);
 
   const handleInference = useCallback(
     async (continuationMessageId: string | null = null) => {
@@ -123,18 +191,21 @@ export default function ChatComponent() {
         return;
       }
 
-      if (!chatThreads[currentThreadIndex]) {
-        setChatThreads((prevThreads) => {
-          const newThreads = [...prevThreads];
-          newThreads[currentThreadIndex] = [];
-          return newThreads;
-        });
+      // Get the current thread first to avoid any order issues
+      const threadToUse = getCurrentThread();
+      const hasThreads = Array.isArray(chatThreads) && chatThreads.length > 0;
+
+      // Create a new thread if needed
+      if (!hasThreads) {
+        setChatThreads([defaultThread]);
+        setCurrentThreadIndex(0);
+        return;
       }
 
-      let updatedChatHistory: ChatMessage[];
+      let updatedMessages: ChatMessage[] = [];
 
       if (continuationMessageId) {
-        updatedChatHistory = chatThreads[currentThreadIndex].map((msg) =>
+        updatedMessages = (threadToUse.messages || []).map((msg) =>
           msg.id === continuationMessageId
             ? { ...msg, text: msg.text + " [Continuing...] " }
             : msg
@@ -145,17 +216,47 @@ export default function ChatComponent() {
           sender: "user",
           text: textInput,
         };
-        updatedChatHistory = [
-          ...(chatThreads[currentThreadIndex] || []),
-          userMessage,
-        ];
+        updatedMessages = [...(threadToUse.messages || []), userMessage];
+
+        // Auto-update title for new conversations - don't return early!
+        if (updatedMessages.length === 1) {
+          setChatThreads((prevThreads) => {
+            if (!Array.isArray(prevThreads))
+              return [
+                {
+                  ...threadToUse,
+                  title: userMessage.text.substring(0, 30),
+                  messages: updatedMessages,
+                },
+              ];
+
+            return prevThreads.map((thread, idx) =>
+              idx === currentThreadIndex
+                ? {
+                    ...thread,
+                    title: userMessage.text.substring(0, 30),
+                    messages: updatedMessages,
+                  }
+                : thread
+            );
+          });
+
+        }
       }
 
-      setChatThreads((prevThreads) => {
-        const newThreads = [...prevThreads];
-        newThreads[currentThreadIndex] = updatedChatHistory;
-        return newThreads;
-      });
+      // If this was the first message, continue with inference
+      if (!continuationMessageId) {
+        setChatThreads((prevThreads) => {
+          if (!Array.isArray(prevThreads))
+            return [{ ...threadToUse, messages: updatedMessages }];
+
+          return prevThreads.map((thread, idx) =>
+            idx === currentThreadIndex
+              ? { ...thread, messages: updatedMessages }
+              : thread
+          );
+        });
+      }
 
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID || "", // Provide empty string as fallback when modelID is null
@@ -172,28 +273,40 @@ export default function ChatComponent() {
       runInference(
         inferenceRequest,
         ragDatasource,
-        updatedChatHistory,
+        updatedMessages,
         (newHistory) => {
           setChatThreads((prevThreads) => {
-            const newThreads = [...prevThreads];
-            const currentHistory =
+            if (!Array.isArray(prevThreads))
+              return [{ ...threadToUse, messages: [] }];
+
+            const currentThreadFromState = prevThreads[currentThreadIndex];
+            if (!currentThreadFromState) return prevThreads;
+
+            const currentMessages = currentThreadFromState.messages || [];
+            const processedHistory =
               typeof newHistory === "function"
-                ? newHistory(newThreads[currentThreadIndex] || [])
+                ? newHistory(currentMessages)
                 : newHistory;
-            const lastMessage = currentHistory[currentHistory.length - 1];
-            if (
+
+            // Safety check for processedHistory
+            if (!Array.isArray(processedHistory)) return prevThreads;
+
+            const lastMessage = processedHistory[processedHistory.length - 1];
+            const finalMessages =
               lastMessage &&
               lastMessage.sender === "assistant" &&
               !lastMessage.id
-            ) {
-              newThreads[currentThreadIndex] = [
-                ...currentHistory.slice(0, -1),
-                { ...lastMessage, id: uuidv4() },
-              ];
-            } else {
-              newThreads[currentThreadIndex] = currentHistory;
-            }
-            return newThreads;
+                ? [
+                    ...processedHistory.slice(0, -1),
+                    { ...lastMessage, id: uuidv4() },
+                  ]
+                : processedHistory;
+
+            return prevThreads.map((thread, idx) =>
+              idx === currentThreadIndex
+                ? { ...thread, messages: finalMessages }
+                : thread
+            );
           });
         },
         setIsStreaming,
@@ -213,12 +326,18 @@ export default function ChatComponent() {
       setChatThreads,
       isAgentSelected,
       screenSize.isMobileView,
+      getCurrentThread,
+      defaultThread,
+      setCurrentThreadIndex,
     ]
   );
 
   const handleReRender = useCallback(
     async (messageId: string) => {
-      const messageToReRender = chatThreads[currentThreadIndex]?.find(
+      const currentThread = getCurrentThread();
+      if (!currentThread || !Array.isArray(currentThread.messages)) return;
+
+      const messageToReRender = currentThread.messages.find(
         (msg) => msg.id === messageId
       );
       if (
@@ -228,11 +347,11 @@ export default function ChatComponent() {
       )
         return;
 
-      const userMessage = chatThreads[currentThreadIndex]?.find(
+      const userMessage = currentThread.messages.find(
         (msg) =>
           msg.sender === "user" &&
-          chatThreads[currentThreadIndex].indexOf(msg) <
-            chatThreads[currentThreadIndex].indexOf(messageToReRender)
+          currentThread.messages.indexOf(msg) <
+            currentThread.messages.indexOf(messageToReRender)
       );
       if (!userMessage) return;
 
@@ -247,31 +366,61 @@ export default function ChatComponent() {
       await runInference(
         inferenceRequest,
         ragDatasource,
-        chatThreads[currentThreadIndex] || [],
+        currentThread.messages,
         (newHistory) => {
           setChatThreads((prevThreads) => {
-            const newThreads = [...prevThreads];
-            const currentHistory = Array.isArray(newHistory)
-              ? newHistory
-              : newHistory(newThreads[currentThreadIndex] || []);
-            newThreads[currentThreadIndex] = currentHistory.map((msg) => {
-              if (msg.id === messageId) {
-                const updatedMessage =
-                  currentHistory[currentHistory.length - 1];
-                console.log(
-                  "Inference stats received:",
-                  updatedMessage.inferenceStats
-                );
-                return {
-                  ...msg,
-                  text: updatedMessage.text,
-                  inferenceStats:
-                    updatedMessage.inferenceStats as InferenceStats,
-                };
+            if (!Array.isArray(prevThreads)) return [defaultThread];
+
+            const currentThreadFromState = prevThreads[currentThreadIndex];
+            if (
+              !currentThreadFromState ||
+              !Array.isArray(currentThreadFromState.messages)
+            )
+              return prevThreads;
+
+            let currentHistory;
+            if (Array.isArray(newHistory)) {
+              currentHistory = newHistory;
+            } else if (typeof newHistory === "function") {
+              const result = newHistory(currentThreadFromState.messages);
+              currentHistory = Array.isArray(result)
+                ? result
+                : currentThreadFromState.messages;
+            } else {
+              currentHistory = currentThreadFromState.messages;
+            }
+
+            if (!Array.isArray(currentHistory) || currentHistory.length === 0) {
+              return prevThreads;
+            }
+
+            const updatedMessages = currentThreadFromState.messages.map(
+              (msg) => {
+                if (msg.id === messageId) {
+                  const updatedMessage =
+                    currentHistory[currentHistory.length - 1];
+                  if (!updatedMessage) return msg;
+
+                  console.log(
+                    "Inference stats received:",
+                    updatedMessage.inferenceStats
+                  );
+                  return {
+                    ...msg,
+                    text: updatedMessage.text || msg.text,
+                    inferenceStats:
+                      updatedMessage.inferenceStats as InferenceStats,
+                  };
+                }
+                return msg;
               }
-              return msg;
-            });
-            return newThreads;
+            );
+
+            return prevThreads.map((thread, idx) =>
+              idx === currentThreadIndex
+                ? { ...thread, messages: updatedMessages }
+                : thread
+            );
           });
         },
         setIsStreaming,
@@ -282,18 +431,22 @@ export default function ChatComponent() {
       setReRenderingMessageId(null);
     },
     [
-      chatThreads,
+      getCurrentThread,
       currentThreadIndex,
       modelID,
       ragDatasource,
       setChatThreads,
       isAgentSelected,
+      defaultThread,
     ]
   );
 
   const handleContinue = useCallback(
     (messageId: string) => {
-      const messageToContinue = chatThreads[currentThreadIndex]?.find(
+      const currentThread = getCurrentThread();
+      if (!currentThread || !Array.isArray(currentThread.messages)) return;
+
+      const messageToContinue = currentThread.messages.find(
         (msg) => msg.id === messageId
       );
       if (!messageToContinue || messageToContinue.sender !== "assistant")
@@ -301,34 +454,80 @@ export default function ChatComponent() {
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [chatThreads, currentThreadIndex]
+    [getCurrentThread]
   );
 
   const handleSelectConversation = useCallback(
     (id: string) => {
-      setCurrentThreadIndex(parseInt(id));
-      setRagDatasource(undefined);
+      if (!Array.isArray(chatThreads)) {
+        setChatThreads([defaultThread]);
+        setCurrentThreadIndex(0);
+        return;
+      }
 
-      if (screenSize.isMobileView) {
-        setIsHistoryPanelOpen(false);
+      const index = chatThreads.findIndex((thread) => thread.id === id);
+      if (index !== -1) {
+        setCurrentThreadIndex(index);
+        setRagDatasource(undefined);
+
+        if (screenSize.isMobileView) {
+          setIsHistoryPanelOpen(false);
+        }
       }
     },
-    [setCurrentThreadIndex, setRagDatasource, screenSize.isMobileView]
+    [
+      chatThreads,
+      setCurrentThreadIndex,
+      setRagDatasource,
+      screenSize.isMobileView,
+      setChatThreads,
+      defaultThread,
+    ]
   );
 
-  useEffect(() => {
-    const currentThread = chatThreads[currentThreadIndex];
-    if (currentThread) {
-      const lastMessage = currentThread[currentThread.length - 1];
-      if (
-        lastMessage &&
-        lastMessage.sender === "assistant" &&
-        lastMessage.inferenceStats
-      ) {
-        console.log("Inference stats updated:", lastMessage.inferenceStats);
-      }
+  // Create a new conversation with a unique ID
+  const createNewConversation = useCallback(() => {
+    if (!Array.isArray(chatThreads)) {
+      setChatThreads([defaultThread]);
+      setCurrentThreadIndex(0);
+      return;
     }
-  }, [chatThreads, currentThreadIndex]);
+
+    // Find the highest ID to ensure uniqueness
+    let maxId = -1;
+    chatThreads.forEach((thread) => {
+      const threadId = parseInt(thread.id, 10);
+      if (!isNaN(threadId) && threadId > maxId) {
+        maxId = threadId;
+      }
+    });
+
+    const newThreadId = (maxId + 1).toString();
+    const newThread = {
+      id: newThreadId,
+      title: `New Chat ${chatThreads.length + 1}`,
+      messages: [],
+    };
+
+    setChatThreads((prevThreads) => {
+      if (!Array.isArray(prevThreads)) return [newThread];
+      return [...prevThreads, newThread];
+    });
+
+    // Set the current thread to the new one
+    setCurrentThreadIndex(chatThreads.length);
+    setRagDatasource(undefined);
+
+    if (screenSize.isMobileView) {
+      setIsHistoryPanelOpen(false);
+    }
+  }, [
+    chatThreads,
+    setChatThreads,
+    setCurrentThreadIndex,
+    screenSize.isMobileView,
+    defaultThread,
+  ]);
 
   // Function to toggle history panel with smooth transition
   const toggleHistoryPanel = () => {
@@ -400,44 +599,54 @@ export default function ChatComponent() {
                 }`}
             >
               <HistoryPanel
-                conversations={chatThreads.map((thread, index) => ({
-                  id: index.toString(),
-                  title:
-                    thread[0]?.text.substring(0, 30) || `New Chat ${index + 1}`,
-                }))}
-                currentConversationId={currentThreadIndex.toString()}
+                conversations={
+                  Array.isArray(chatThreads)
+                    ? chatThreads.map((thread) => ({
+                        id: thread?.id || "0",
+                        title:
+                          thread?.title ||
+                          `New Chat ${parseInt(thread?.id || "0") + 1}`,
+                      }))
+                    : [{ id: "0", title: "New Chat 1" }]
+                }
+                currentConversationId={getCurrentThread()?.id || "0"}
                 onSelectConversation={handleSelectConversation}
-                onCreateNewConversation={() => {
-                  setChatThreads((prevThreads) => [...prevThreads, []]);
-                  setCurrentThreadIndex(chatThreads.length);
-                  setRagDatasource(undefined);
-                  // Auto-close on mobile after creating new conversation
-                  if (screenSize.isMobileView) {
-                    setIsHistoryPanelOpen(false);
-                  }
-                }}
+                onCreateNewConversation={createNewConversation}
                 onDeleteConversation={(id) => {
-                  const index = parseInt(id);
-                  setChatThreads((prevThreads) =>
-                    prevThreads.filter((_, i) => i !== index)
-                  );
-                  if (currentThreadIndex === index) {
+                  setChatThreads((prevThreads) => {
+                    if (
+                      !Array.isArray(prevThreads) ||
+                      prevThreads.length <= 1
+                    ) {
+                      return [defaultThread];
+                    }
+
+                    const newThreads = prevThreads.filter(
+                      (thread) => thread.id !== id
+                    );
+
+                    if (newThreads.length === 0) {
+                      return [defaultThread];
+                    }
+
+                    return newThreads;
+                  });
+
+                  if (getCurrentThread()?.id === id) {
                     setCurrentThreadIndex(0);
                     setRagDatasource(undefined);
                   }
                 }}
                 onEditConversationTitle={(id, newTitle) => {
-                  const index = parseInt(id);
-                  setChatThreads((prevThreads) =>
-                    prevThreads.map((thread, i) =>
-                      i === index
-                        ? [
-                            { ...thread[0], title: newTitle },
-                            ...thread.slice(1),
-                          ]
-                        : thread
-                    )
-                  );
+                  if (!newTitle.trim()) return;
+
+                  setChatThreads((prevThreads) => {
+                    if (!Array.isArray(prevThreads)) return [defaultThread];
+
+                    return prevThreads.map((thread) =>
+                      thread.id === id ? { ...thread, title: newTitle } : thread
+                    );
+                  });
                 }}
               />
               {/* Mobile close button */}
@@ -475,7 +684,12 @@ export default function ChatComponent() {
             className="flex-grow overflow-y-auto px-1 sm:px-2 md:px-4"
           >
             <ChatHistory
-              chatHistory={chatThreads[currentThreadIndex] || []}
+              chatHistory={(() => {
+                const currentThread = getCurrentThread();
+                return Array.isArray(currentThread?.messages)
+                  ? currentThread.messages
+                  : [];
+              })()}
               logo={logo}
               setTextInput={setTextInput}
               isStreaming={isStreaming}
@@ -493,14 +707,7 @@ export default function ChatComponent() {
             isListening={isListening}
             setIsListening={setIsListening}
             isMobileView={screenSize.isMobileView}
-            onCreateNewConversation={() => {
-              setChatThreads((prevThreads) => [...prevThreads, []]);
-              setCurrentThreadIndex(chatThreads.length);
-              setRagDatasource(undefined);
-              if (screenSize.isMobileView) {
-                setIsHistoryPanelOpen(false);
-              }
-            }}
+            onCreateNewConversation={createNewConversation}
           />
         </div>
       </Card>
