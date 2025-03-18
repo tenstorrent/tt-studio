@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import { Link } from "react-router-dom";
 import type { Model } from "./types";
 import { useState } from "react";
@@ -20,6 +23,8 @@ export function ModelCard({
         className="relative h-full transition-all duration-500 ease-out transform-style-3d"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
+        onTouchStart={() => setIsHovered(true)}
+        onTouchEnd={() => setIsHovered(false)}
       >
         <div
           className={`
@@ -101,7 +106,7 @@ export function ModelCard({
               >
                 <div
                   className={`
-                    text-[#a0aec0] text-xl font-mono px-8 py-5 rounded-xl 
+                    text-[#a0aec0] text-sm sm:text-base md:text-lg xl:text-xl font-mono px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-5 rounded-xl 
                     bg-[#1a1e24] 
                     transition-all duration-500 ease-out transform-style-3d
                     ${
@@ -117,10 +122,10 @@ export function ModelCard({
             </div>
 
             {/* Title and badge section with enhanced 3D effects */}
-            <div className="p-6 flex items-center justify-between z-10">
+            <div className="p-4 md:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 z-10">
               <h3
                 className={`
-                  text-lg md:text-xl font-semibold 
+                  text-base sm:text-lg md:text-xl font-semibold 
                   transition-all duration-500 ease-out
                   ${isHovered ? "text-[var(--TT-purple-accent1)] translate-x-1 translate-z-[15px]" : "text-[#a0aec0]"}
                 `}
@@ -137,7 +142,7 @@ export function ModelCard({
                 >
                   <div
                     className={`
-                      px-4 py-2 rounded-xl bg-[#1a1e24] text-[#a0aec0] font-medium text-sm
+                      px-3 py-1 sm:px-4 sm:py-2 rounded-xl bg-[#1a1e24] text-[#a0aec0] font-medium text-xs sm:text-sm
                       transition-all duration-300 ease-out
                       ${
                         isHovered
