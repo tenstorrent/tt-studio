@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useRef, useEffect, forwardRef } from "react";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import { useRef, useEffect, forwardRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -11,7 +11,11 @@ import {
   FileText,
   Eye,
   AudioLines,
+  // X,
+  ChevronRight,
+  ChevronLeft,
   type LucideIcon,
+  // PanelsTopLeft,
 } from "lucide-react";
 
 import logo from "../assets/tt_logo.svg";
@@ -29,8 +33,6 @@ import {
 } from "./ui/tooltip";
 
 import ModeToggle from "./DarkModeToggle";
-import HelpIcon from "./HelpIcon";
-import Sidebar from "./SideBar";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
 
@@ -54,6 +56,7 @@ interface NavItemProps {
   isChatUI: boolean;
   iconColor: string;
   getNavLinkClass: (isActive: boolean) => string;
+  isMobile?: boolean;
 }
 
 interface ButtonNavItemProps {
@@ -66,6 +69,7 @@ interface ButtonNavItemProps {
   isActive?: boolean;
   isDisabled?: boolean;
   tooltipText: string;
+  isMobile?: boolean;
 }
 
 // Type for components used in action buttons
@@ -100,19 +104,26 @@ const NavItem: React.FC<NavItemProps> = ({
   isChatUI,
   iconColor,
   getNavLinkClass,
+  isMobile = false,
 }) => (
   <NavigationMenuItem className={isChatUI ? "w-full flex justify-center" : ""}>
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ type: "spring", stiffness: 300, damping: 10 }}
+      className={`flex ${isChatUI ? "justify-center" : "justify-start"} w-full`}
     >
-      <NavLink to={to} className={({ isActive }) => getNavLinkClass(isActive)}>
-        {isChatUI ? (
+      <NavLink
+        to={to}
+        className={({ isActive }) =>
+          `${getNavLinkClass(isActive)} flex ${isChatUI ? "justify-center" : "justify-start"} items-center`
+        }
+      >
+        {isChatUI || isMobile ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <AnimatedIcon
                 icon={Icon}
-                className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                className={`${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
               />
             </TooltipTrigger>
             <TooltipContent>
@@ -144,6 +155,7 @@ const ButtonNavItem: React.FC<ButtonNavItemProps> = ({
   isActive = false,
   isDisabled = false,
   tooltipText = "",
+  isMobile = false,
 }) => (
   <NavigationMenuItem className={isChatUI ? "w-full flex justify-center" : ""}>
     <Tooltip>
@@ -152,12 +164,12 @@ const ButtonNavItem: React.FC<ButtonNavItemProps> = ({
           onClick={onClick}
           className={`${getNavLinkClass(isActive, label === "Chat UI")} ${
             isDisabled ? "opacity-50 cursor-not-allowed" : ""
-          }`}
+          } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
         >
           <Icon
-            className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+            className={`${isChatUI || isMobile ? "" : "mr-2"} ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
           />
-          {!isChatUI && <span>{label}</span>}
+          {!isChatUI && !isMobile && <span>{label}</span>}
         </button>
       </TooltipTrigger>
       <TooltipContent>
@@ -184,9 +196,6 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       ) : (
         <ResetIcon onReset={() => {}} />
       );
-    } else if (IconComponent === HelpIcon) {
-      // Ensure we always pass a valid function to toggleSidebar
-      return <HelpIcon toggleSidebar={onClick || (() => {})} />;
     } else {
       // Fallback for any other icon component
       return <IconComponent />;
@@ -234,23 +243,77 @@ interface ActionButtonType {
   onClick: (() => void) | null;
 }
 
-// Define interface for sidebar ref
-interface SidebarRefType {
-  toggleSidebar: () => void;
-}
-
 export default function NavBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
   const { models, refreshModels } = useModels();
-  const sidebarRef = useRef<SidebarRefType>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [isHorizontalExpanded, setIsHorizontalExpanded] = useState(false);
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
   console.log("ENV VARS:", {
     isDeployedEnabled: import.meta.env.VITE_ENABLE_DEPLOYED,
   });
+
+  // Check if we're in Chat UI mode
+  const isChatUI = location.pathname === "/chat-ui";
+
+  // Track window resize for responsive behavior
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+      // Close mobile menu on resize to prevent weird states
+      if (isMobileMenuOpen && window.innerWidth >= 640) {
+        setIsMobileMenuOpen(false);
+      }
+      // Reset expanded state on resize
+      if (window.innerWidth >= 640) {
+        setIsHorizontalExpanded(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [isMobileMenuOpen]);
+
+  // Close mobile menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isMobileMenuOpen &&
+        mobileMenuRef.current &&
+        !mobileMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
+    refreshModels();
+  }, [refreshModels, refreshTrigger]);
+
+  // Determine if mobile view should be used
+  const isMobile = windowWidth < 640;
+
+  // NEW CONDITION: Hide navbar when in mobile AND chat UI mode
+  if (isMobile && isChatUI) {
+    return null;
+  }
+
+  const shouldUseVerticalNav = isChatUI; // Use vertical nav in Chat UI for non-mobile
+  const shouldShowMobileMenu = isMobile && !shouldUseVerticalNav;
 
   const isRouteActive = (route: string): boolean => {
     return location.pathname === route;
@@ -275,12 +338,6 @@ export default function NavBar() {
     } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
   };
 
-  const handleToggleSidebar = (): void => {
-    if (sidebarRef.current) {
-      sidebarRef.current.toggleSidebar();
-    }
-  };
-
   const handleReset = (): void => {
     triggerRefresh();
   };
@@ -303,11 +360,9 @@ export default function NavBar() {
     }
   };
 
-  useEffect(() => {
-    refreshModels();
-  }, [refreshModels, refreshTrigger]);
-
-  const isChatUI = location.pathname === "/chat-ui";
+  const toggleHorizontalExpand = (): void => {
+    setIsHorizontalExpanded(!isHorizontalExpanded);
+  };
 
   // Define base navigation items always shown regardless of flags
   const baseNavItems: NavItemData[] = [
@@ -392,14 +447,13 @@ export default function NavBar() {
     ...(isDeployedEnabled ? modelNavItems : deployedNavItems),
   ];
 
-  // Define action buttons based on deployment state
+  // Define action buttons based on deployment state - removed HelpIcon
   const actionButtons: ActionButtonType[] = [
     {
       icon: ModeToggle,
       tooltipText: "Toggle Dark/Light Mode",
       onClick: null, // ModeToggle handles its own click
     },
-
     ...(isDeployedEnabled
       ? []
       : [
@@ -409,34 +463,256 @@ export default function NavBar() {
             onClick: handleReset,
           },
         ]),
-    {
-      icon: HelpIcon,
-      tooltipText: "Get Help",
-      onClick: handleToggleSidebar,
-    },
   ];
 
+  // Render vertical navbar for chat UI mode (non-mobile)
+  if (shouldUseVerticalNav) {
+    return (
+      <TooltipProvider>
+        <div className="h-screen w-16 fixed left-0 top-0 dark:border-r-4 dark:border-TT-dark border-r-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
+          <CustomToaster />
+          <div className="font-tt_a_mono flex flex-col items-center justify-between h-full py-4">
+            {/* Logo */}
+            <div className="flex flex-col items-center">
+              <a
+                href="https://www.tenstorrent.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mb-6"
+              >
+                <motion.img
+                  src={logo}
+                  alt="Tenstorrent Logo"
+                  className="w-10 h-10"
+                  whileHover={{ scale: 1.1, rotate: 360 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
+                />
+              </a>
+
+              {/* Navigation Menu */}
+              <NavigationMenu orientation="vertical" className="w-full">
+                <NavigationMenuList className="flex flex-col space-y-4 list-none">
+                  {navItems.map((item) => (
+                    <div key={item.label}>
+                      {item.type === "link" ? (
+                        <NavItem
+                          to={item.to}
+                          icon={item.icon}
+                          label={item.label}
+                          tooltip={item.tooltip}
+                          isChatUI={true}
+                          iconColor={iconColor}
+                          getNavLinkClass={getNavLinkClass}
+                        />
+                      ) : (
+                        <ButtonNavItem
+                          onClick={item.onClick}
+                          icon={item.icon}
+                          label={item.label}
+                          isChatUI={true}
+                          iconColor={iconColor}
+                          getNavLinkClass={getNavLinkClass}
+                          isActive={
+                            item.type === "button" && item.route
+                              ? isRouteActive(item.route)
+                              : false
+                          }
+                          isDisabled={item.isDisabled}
+                          tooltipText={item.tooltipText}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </NavigationMenuList>
+              </NavigationMenu>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col items-center space-y-4">
+              {actionButtons.map((button) => (
+                <ActionButton
+                  key={button.tooltipText}
+                  icon={button.icon}
+                  onClick={button.onClick}
+                  tooltipText={button.tooltipText}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
+
+  // Horizontal navbar on mobile screens
+  if (shouldShowMobileMenu) {
+    return (
+      <TooltipProvider>
+        <div className="fixed top-0 w-full dark:border-b-4 dark:border-TT-dark border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
+          <CustomToaster />
+          <div className="font-tt_a_mono flex items-center justify-between w-full px-2 py-2">
+            {/* Logo */}
+            <a
+              href="https://www.tenstorrent.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center"
+            >
+              <motion.img
+                src={logo}
+                alt="Tenstorrent Logo"
+                className="w-8 h-8"
+                whileHover={{ scale: 1.1, rotate: 360 }}
+                transition={{ type: "spring", stiffness: 300, damping: 10 }}
+              />
+            </a>
+
+            <div className="flex items-center">
+              {/* Show all nav icons by default */}
+              <div className="flex items-center space-x-1 list-none">
+                {navItems.map((item) => (
+                  <div key={item.label}>
+                    {item.type === "link" ? (
+                      <NavItem
+                        to={item.to}
+                        icon={item.icon}
+                        label={item.label}
+                        tooltip={item.tooltip}
+                        isChatUI={false}
+                        iconColor={iconColor}
+                        getNavLinkClass={getNavLinkClass}
+                        isMobile={true}
+                      />
+                    ) : (
+                      <ButtonNavItem
+                        onClick={item.onClick}
+                        icon={item.icon}
+                        label={item.label}
+                        isChatUI={false}
+                        iconColor={iconColor}
+                        getNavLinkClass={getNavLinkClass}
+                        isActive={
+                          item.type === "button" && item.route
+                            ? isRouteActive(item.route)
+                            : false
+                        }
+                        isDisabled={item.isDisabled}
+                        tooltipText={item.tooltipText}
+                        isMobile={true}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Expand button - only show if needed */}
+              {isHorizontalExpanded ? (
+                <button
+                  onClick={toggleHorizontalExpand}
+                  className="focus:outline-none ml-2"
+                  aria-label="Collapse menu"
+                >
+                  <motion.div
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <ChevronLeft className={`w-6 h-6 ${iconColor}`} />
+                  </motion.div>
+                </button>
+              ) : (
+                <button
+                  onClick={toggleHorizontalExpand}
+                  className="focus:outline-none ml-2"
+                  aria-label="Expand menu"
+                >
+                  <motion.div
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <ChevronRight className={`w-6 h-6 ${iconColor}`} />
+                  </motion.div>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Expanded Horizontal Menu */}
+          {isHorizontalExpanded && (
+            <motion.div
+              ref={mobileMenuRef}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="w-full bg-secondary dark:bg-TT-black py-2 px-4 shadow-md"
+            >
+              <NavigationMenu className="w-full">
+                <NavigationMenuList className="flex flex-wrap gap-3 justify-center list-none">
+                  {navItems.map((item) => (
+                    <div key={item.label} className="">
+                      {item.type === "link" ? (
+                        <NavItem
+                          to={item.to}
+                          icon={item.icon}
+                          label={item.label}
+                          tooltip={item.tooltip}
+                          isChatUI={false}
+                          iconColor={iconColor}
+                          getNavLinkClass={getNavLinkClass}
+                          isMobile={false}
+                        />
+                      ) : (
+                        <ButtonNavItem
+                          onClick={item.onClick}
+                          icon={item.icon}
+                          label={item.label}
+                          isChatUI={false}
+                          iconColor={iconColor}
+                          getNavLinkClass={getNavLinkClass}
+                          isActive={
+                            item.type === "button" && item.route
+                              ? isRouteActive(item.route)
+                              : false
+                          }
+                          isDisabled={item.isDisabled}
+                          tooltipText={item.tooltipText}
+                          isMobile={false}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </NavigationMenuList>
+              </NavigationMenu>
+
+              {/* Action Buttons in Expanded Menu */}
+              <div className="flex justify-center mt-4 pb-2">
+                {actionButtons.map((button) => (
+                  <ActionButton
+                    key={button.tooltipText}
+                    icon={button.icon}
+                    onClick={button.onClick}
+                    tooltipText={button.tooltipText}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </div>
+      </TooltipProvider>
+    );
+  }
+
+  // Original horizontal navbar for normal mode and larger screens
   return (
     <TooltipProvider>
-      <div
-        className={`${
-          isChatUI
-            ? "fixed top-0 left-0 h-full w-20 flex flex-col items-center dark:border-b-4 dark:border-TT-dark rounded-r-3xl"
-            : "relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl"
-        } border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50`}
-      >
+      <div className="relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
         <CustomToaster />
-        <div
-          className={`font-tt_a_mono flex ${
-            isChatUI ? "flex-col items-center" : "items-center justify-between"
-          } w-full px-4 py-2 sm:px-5 sm:py-3`}
-        >
+        <div className="font-tt_a_mono flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3">
           {/* Logo */}
           <a
             href="https://www.tenstorrent.com"
             target="_blank"
             rel="noopener noreferrer"
-            className={`flex items-center ${isChatUI ? "mb-6 justify-center" : ""}`}
+            className="flex items-center"
           >
             <motion.img
               src={logo}
@@ -445,20 +721,16 @@ export default function NavBar() {
               whileHover={{ scale: 1.1, rotate: 360 }}
               transition={{ type: "spring", stiffness: 300, damping: 10 }}
             />
-            {!isChatUI && (
-              <h4
-                className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
-              >
-                {isDeployedEnabled ? "AI Playground" : "TT-Studio"}
-              </h4>
-            )}
+            <h4
+              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
+            >
+              {isDeployedEnabled ? "AI Playground" : "TT-Studio"}
+            </h4>
           </a>
 
           {/* Navigation Menu */}
-          <NavigationMenu className={`w-full ${isChatUI ? "mt-4" : ""}`}>
-            <NavigationMenuList
-              className={`flex ${isChatUI ? "flex-col items-center space-y-4" : "justify-between"}`}
-            >
+          <NavigationMenu className="w-full px-4">
+            <NavigationMenuList className="flex justify-between list-none">
               {navItems.map((item, index) => (
                 <div key={item.label} className="flex items-center">
                   {item.type === "link" ? (
@@ -467,16 +739,17 @@ export default function NavBar() {
                       icon={item.icon}
                       label={item.label}
                       tooltip={item.tooltip}
-                      isChatUI={isChatUI}
+                      isChatUI={false}
                       iconColor={iconColor}
                       getNavLinkClass={getNavLinkClass}
+                      isMobile={isMobile}
                     />
                   ) : (
                     <ButtonNavItem
                       onClick={item.onClick}
                       icon={item.icon}
                       label={item.label}
-                      isChatUI={isChatUI}
+                      isChatUI={false}
                       iconColor={iconColor}
                       getNavLinkClass={getNavLinkClass}
                       isActive={
@@ -486,9 +759,10 @@ export default function NavBar() {
                       }
                       isDisabled={item.isDisabled}
                       tooltipText={item.tooltipText}
+                      isMobile={isMobile}
                     />
                   )}
-                  {!isChatUI && index < navItems.length - 1 && (
+                  {index < navItems.length - 1 && (
                     <Separator
                       className="h-6 w-px bg-zinc-400 mx-1"
                       orientation="vertical"
@@ -500,42 +774,24 @@ export default function NavBar() {
           </NavigationMenu>
 
           {/* Action Buttons */}
-          {!isChatUI ? (
-            <div className={`flex items-center space-x-2 sm:space-x-4`}>
-              {actionButtons.map((button, index) => (
-                <div key={button.tooltipText} className="flex items-center">
-                  <ActionButton
-                    icon={button.icon}
-                    onClick={button.onClick}
-                    tooltipText={button.tooltipText}
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            {actionButtons.map((button, index) => (
+              <div key={button.tooltipText} className="flex items-center">
+                <ActionButton
+                  icon={button.icon}
+                  onClick={button.onClick}
+                  tooltipText={button.tooltipText}
+                />
+                {index < actionButtons.length - 1 && (
+                  <Separator
+                    className="h-6 w-px bg-zinc-400 ml-2"
+                    orientation="vertical"
                   />
-                  {index < actionButtons.length - 1 && (
-                    <Separator
-                      className="h-6 w-px bg-zinc-400 ml-2"
-                      orientation="vertical"
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Action buttons for vertical mode (fixed at bottom) */}
-        {isChatUI && (
-          <div className="fixed bottom-4 left-0 w-20 flex flex-col items-center space-y-4">
-            {actionButtons.map((button) => (
-              <ActionButton
-                key={button.tooltipText}
-                icon={button.icon}
-                onClick={button.onClick}
-                tooltipText={button.tooltipText}
-              />
+                )}
+              </div>
             ))}
           </div>
-        )}
-
-        <Sidebar ref={sidebarRef} />
+        </div>
       </div>
     </TooltipProvider>
   );
