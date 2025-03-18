@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useState } from "react";
 import { ScrollArea } from "../ui/scroll-area";
@@ -39,7 +39,7 @@ export function HistoryPanel({
   };
 
   const filteredConversations = conversations.filter((conversation) =>
-    conversation.title.toLowerCase().includes(searchQuery.toLowerCase()),
+    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -103,13 +103,13 @@ export function HistoryPanel({
                               </span>
                             ) : (
                               part
-                            ),
+                            )
                           )
                       : conversation.title}
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="p-flex items-center shrink-0 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Button
                   variant="ghost"
                   size="icon"
