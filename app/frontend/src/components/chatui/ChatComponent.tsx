@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useState, useEffect, useCallback } from "react";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { useLocation } from "react-router-dom";
@@ -52,6 +52,12 @@ export default function ChatComponent() {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
   const [isAgentSelected, setIsAgentSelected] = useState<boolean>(false);
+  const [screenSize, setScreenSize] = useState({
+    isMobileView: false,
+    isLargeScreen: false,
+    isExtraLargeScreen: false,
+  });
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (location.state) {
@@ -73,16 +79,32 @@ export default function ChatComponent() {
 
   useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth < 768) {
+      const width = window.innerWidth;
+      setScreenSize({
+        isMobileView: width < 768,
+        isLargeScreen: width >= 1280,
+        isExtraLargeScreen: width >= 1600,
+      });
+
+      if (width < 768) {
         setIsHistoryPanelOpen(false);
+      } else {
+        setIsHistoryPanelOpen(true);
       }
     };
 
     window.addEventListener("resize", handleResize);
-    handleResize(); // Call it initially
+    handleResize();
 
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
+    }
+  }, [chatThreads, currentThreadIndex]);
 
   // TODO:
   //! this is a temporary fix to avoid the modelID being null
@@ -143,6 +165,10 @@ export default function ChatComponent() {
       console.log("Running inference with request:", inferenceRequest);
       setIsStreaming(true);
 
+      if (screenSize.isMobileView) {
+        setIsHistoryPanelOpen(false);
+      }
+
       runInference(
         inferenceRequest,
         ragDatasource,
@@ -186,6 +212,7 @@ export default function ChatComponent() {
       textInput,
       setChatThreads,
       isAgentSelected,
+      screenSize.isMobileView,
     ]
   );
 
@@ -281,8 +308,12 @@ export default function ChatComponent() {
     (id: string) => {
       setCurrentThreadIndex(parseInt(id));
       setRagDatasource(undefined);
+
+      if (screenSize.isMobileView) {
+        setIsHistoryPanelOpen(false);
+      }
     },
-    [setCurrentThreadIndex, setRagDatasource]
+    [setCurrentThreadIndex, setRagDatasource, screenSize.isMobileView]
   );
 
   useEffect(() => {
@@ -299,17 +330,74 @@ export default function ChatComponent() {
     }
   }, [chatThreads, currentThreadIndex]);
 
+  // Function to toggle history panel with smooth transition
+  const toggleHistoryPanel = () => {
+    setIsHistoryPanelOpen((prev) => !prev);
+  };
+
+  // Calculate appropriate content width based on screen size
+  const getContentMaxWidth = () => {
+    if (screenSize.isExtraLargeScreen) {
+      return isHistoryPanelOpen ? "w-full" : "w-full";
+    }
+    if (screenSize.isLargeScreen) {
+      return isHistoryPanelOpen ? "w-full" : "w-full";
+    }
+    return "w-full";
+  };
+
   return (
-    <div className="flex flex-col w-full max-w-[1600px] mx-auto h-screen overflow-hidden p-4 md:p-6">
-      <Card className="flex flex-row w-full h-full overflow-hidden min-w-0">
+    <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
+      <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
+        {/* Mobile history panel overlay */}
+        <AnimatePresence initial={false} mode="wait">
+          {isHistoryPanelOpen && screenSize.isMobileView && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/50 z-40 md:hidden"
+              onClick={toggleHistoryPanel}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* History panel - different behavior based on screen size */}
         <AnimatePresence initial={false} mode="wait">
           {isHistoryPanelOpen && (
             <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: "350px", maxWidth: "35%" }}
-              exit={{ width: 0 }}
+              initial={screenSize.isMobileView ? { x: "-100%" } : { width: 0 }}
+              animate={
+                screenSize.isMobileView
+                  ? { x: 0 }
+                  : {
+                      width: screenSize.isExtraLargeScreen
+                        ? "400px"
+                        : screenSize.isLargeScreen
+                          ? "350px"
+                          : "300px",
+                      minWidth: screenSize.isExtraLargeScreen
+                        ? "300px"
+                        : screenSize.isLargeScreen
+                          ? "280px"
+                          : "250px",
+                      maxWidth: screenSize.isExtraLargeScreen
+                        ? "20%"
+                        : screenSize.isLargeScreen
+                          ? "25%"
+                          : "30%",
+                    }
+              }
+              exit={screenSize.isMobileView ? { x: "-100%" } : { width: 0 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="h-full overflow-hidden border-r border-gray-200 dark:border-gray-900 hidden md:block p-4"
+              className={`h-full overflow-hidden border-r border-gray-200 dark:border-gray-900 
+                p-4 bg-white dark:bg-black
+                ${
+                  screenSize.isMobileView
+                    ? "fixed top-0 left-0 w-4/5 max-w-xs z-50 shadow-xl"
+                    : "relative flex-shrink-0"
+                }`}
             >
               <HistoryPanel
                 conversations={chatThreads.map((thread, index) => ({
@@ -323,6 +411,10 @@ export default function ChatComponent() {
                   setChatThreads((prevThreads) => [...prevThreads, []]);
                   setCurrentThreadIndex(chatThreads.length);
                   setRagDatasource(undefined);
+                  // Auto-close on mobile after creating new conversation
+                  if (screenSize.isMobileView) {
+                    setIsHistoryPanelOpen(false);
+                  }
                 }}
                 onDeleteConversation={(id) => {
                   const index = parseInt(id);
@@ -348,10 +440,22 @@ export default function ChatComponent() {
                   );
                 }}
               />
+              {/* Mobile close button */}
+              {screenSize.isMobileView && (
+                <button
+                  className="absolute top-4 right-4 text-gray-500 p-2"
+                  onClick={toggleHistoryPanel}
+                >
+                  ✕
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
-        <div className={`flex flex-col flex-grow min-w-0 w-0 p-4`}>
+
+        <div
+          className={`flex flex-col flex-grow min-w-0 p-2 sm:p-4 ${getContentMaxWidth()} overflow-hidden`}
+        >
           <Header
             modelName={modelName}
             modelsDeployed={modelsDeployed}
@@ -362,18 +466,25 @@ export default function ChatComponent() {
             setRagDatasource={setRagDatasource}
             isHistoryPanelOpen={isHistoryPanelOpen}
             setIsHistoryPanelOpen={setIsHistoryPanelOpen}
-            isAgentSelected={isAgentSelected} // Pass the state down
-            setIsAgentSelected={setIsAgentSelected} // Pass the setter down
+            isAgentSelected={isAgentSelected}
+            setIsAgentSelected={setIsAgentSelected}
+            isMobileView={screenSize.isMobileView}
           />
-          <ChatHistory
-            chatHistory={chatThreads[currentThreadIndex] || []}
-            logo={logo}
-            setTextInput={setTextInput}
-            isStreaming={isStreaming}
-            onReRender={handleReRender}
-            onContinue={handleContinue}
-            reRenderingMessageId={reRenderingMessageId}
-          />
+          <div
+            ref={chatContainerRef}
+            className="flex-grow overflow-y-auto px-1 sm:px-2 md:px-4"
+          >
+            <ChatHistory
+              chatHistory={chatThreads[currentThreadIndex] || []}
+              logo={logo}
+              setTextInput={setTextInput}
+              isStreaming={isStreaming}
+              onReRender={handleReRender}
+              onContinue={handleContinue}
+              reRenderingMessageId={reRenderingMessageId}
+              isMobileView={screenSize.isMobileView}
+            />
+          </div>
           <InputArea
             textInput={textInput}
             setTextInput={setTextInput}
@@ -381,6 +492,15 @@ export default function ChatComponent() {
             isStreaming={isStreaming}
             isListening={isListening}
             setIsListening={setIsListening}
+            isMobileView={screenSize.isMobileView}
+            onCreateNewConversation={() => {
+              setChatThreads((prevThreads) => [...prevThreads, []]);
+              setCurrentThreadIndex(chatThreads.length);
+              setRagDatasource(undefined);
+              if (screenSize.isMobileView) {
+                setIsHistoryPanelOpen(false);
+              }
+            }}
           />
         </div>
       </Card>
