@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import type React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import type React from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import { Paperclip, Send, X, File, Plus } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
@@ -97,6 +100,7 @@ export default function InputArea({
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
     if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
       e.preventDefault();
       if (textInput.trim() !== "" || files.length > 0) {

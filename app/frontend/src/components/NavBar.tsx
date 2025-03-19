@@ -9,6 +9,7 @@ import {
   BotMessageSquare,
   Notebook,
   FileText,
+  Image,
   Eye,
   AudioLines,
   Image,
@@ -374,6 +375,10 @@ export default function NavBar() {
     } else {
       navigate(route);
     }
+  };
+
+  const handleImageGenerationClick = () => {
+    handleNavigation("/image-generation");
   };
 
   const handleImageGenerationClick = () => {

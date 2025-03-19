@@ -144,30 +144,6 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
-  // Update RAG datasource when thread changes
-  useEffect(() => {
-    const currentThread = getCurrentThread();
-    if (
-      currentThread &&
-      Array.isArray(currentThread.messages) &&
-      currentThread.messages.length > 0
-    ) {
-      const messagesWithRag = currentThread.messages
-        .filter((msg) => msg.sender === "user" && msg.ragDatasource)
-        .reverse();
-
-      if (messagesWithRag.length > 0) {
-        const mostRecentRag = messagesWithRag[0].ragDatasource;
-        setRagDatasource(mostRecentRag);
-      } else {
-        setRagDatasource(undefined);
-      }
-    } else {
-      setRagDatasource(undefined);
-    }
-  }, [currentThreadIndex, chatThreads]);
-
-  // Handle responsive layout
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
@@ -238,8 +214,10 @@ export default function ChatComponent() {
           msg.id === continuationMessageId
             ? { ...msg, text: msg.text + " [Continuing...] " }
             : msg
+            : msg
         );
       } else {
+        // Store ragDatasource in the user message
         // Store ragDatasource in the user message
         const userMessage: ChatMessage = {
           id: uuidv4(),
@@ -292,6 +270,7 @@ export default function ChatComponent() {
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID || "", // Provide empty string as fallback when modelID is null
         text: continuationMessageId ? `Continue: ${textInput}` : textInput,
+        files: files,
         files: files,
       };
 
@@ -349,6 +328,7 @@ export default function ChatComponent() {
       setTextInput("");
       setReRenderingMessageId(null);
       setFiles([]);
+      setFiles([]);
     },
     [
       chatThreads,
@@ -356,6 +336,7 @@ export default function ChatComponent() {
       modelID,
       ragDatasource,
       textInput,
+      files,
       files,
       setChatThreads,
       isAgentSelected,
@@ -392,12 +373,16 @@ export default function ChatComponent() {
       // Get the RAG datasource from the user message if available
       const messageRagDatasource = userMessage.ragDatasource || ragDatasource;
 
+      // Get the RAG datasource from the user message if available
+      const messageRagDatasource = userMessage.ragDatasource || ragDatasource;
+
       setReRenderingMessageId(messageId);
       setIsStreaming(true);
 
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID,
         text: userMessage.text,
+        files: userMessage.files,
         files: userMessage.files,
       };
 
@@ -721,7 +706,10 @@ export default function ChatComponent() {
         >
           <Header
             modelName={modelName}
-            modelsDeployed={modelsDeployed}
+            modelsDeployed={modelsDeployed.map((model) => ({
+              id: model.containerID || "",
+              name: model.modelName || "",
+            }))}
             setModelID={setModelID}
             setModelName={setModelName}
             ragDataSources={ragDataSources}
