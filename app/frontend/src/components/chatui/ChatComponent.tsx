@@ -18,6 +18,7 @@ import type {
   ChatMessage,
   Model,
   InferenceStats,
+  FileData,
 } from "./types";
 import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
@@ -32,7 +33,7 @@ interface ChatThread {
 }
 
 export default function ChatComponent() {
-  // console.log("ChatComponent rendered");
+  const [files, setFiles] = useState<FileData[]>([]);
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
   const [ragDatasource, setRagDatasource] = useState<
@@ -75,6 +76,7 @@ export default function ChatComponent() {
   });
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
+  // Validate and fix chat threads if needed
   useEffect(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
       console.warn(
@@ -123,6 +125,7 @@ export default function ChatComponent() {
     defaultThread,
   ]);
 
+  // Load model information from location state and fetch deployed models
   useEffect(() => {
     if (location.state) {
       setModelID(location.state.containerID);
@@ -141,6 +144,30 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
+  // Update RAG datasource when thread changes
+  useEffect(() => {
+    const currentThread = getCurrentThread();
+    if (
+      currentThread &&
+      Array.isArray(currentThread.messages) &&
+      currentThread.messages.length > 0
+    ) {
+      const messagesWithRag = currentThread.messages
+        .filter((msg) => msg.sender === "user" && msg.ragDatasource)
+        .reverse();
+
+      if (messagesWithRag.length > 0) {
+        const mostRecentRag = messagesWithRag[0].ragDatasource;
+        setRagDatasource(mostRecentRag);
+      } else {
+        setRagDatasource(undefined);
+      }
+    } else {
+      setRagDatasource(undefined);
+    }
+  }, [currentThreadIndex, chatThreads]);
+
+  // Handle responsive layout
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
@@ -163,6 +190,7 @@ export default function ChatComponent() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // Auto-scroll chat container
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop =
@@ -185,7 +213,8 @@ export default function ChatComponent() {
 
   const handleInference = useCallback(
     async (continuationMessageId: string | null = null) => {
-      if (textInput.trim() === "") return;
+      if (textInput.trim() === "" && files.length === 0) return;
+
       const modelsDeployed = await checkDeployedModels();
       if (modelsDeployed && !modelID) {
         return;
@@ -211,10 +240,13 @@ export default function ChatComponent() {
             : msg
         );
       } else {
+        // Store ragDatasource in the user message
         const userMessage: ChatMessage = {
           id: uuidv4(),
           sender: "user",
           text: textInput,
+          files: files,
+          ragDatasource: ragDatasource, // Store the RAG datasource with the message
         };
         updatedMessages = [...(threadToUse.messages || []), userMessage];
 
@@ -240,7 +272,6 @@ export default function ChatComponent() {
                 : thread
             );
           });
-
         }
       }
 
@@ -261,6 +292,7 @@ export default function ChatComponent() {
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID || "", // Provide empty string as fallback when modelID is null
         text: continuationMessageId ? `Continue: ${textInput}` : textInput,
+        files: files,
       };
 
       console.log("Running inference with request:", inferenceRequest);
@@ -316,6 +348,7 @@ export default function ChatComponent() {
 
       setTextInput("");
       setReRenderingMessageId(null);
+      setFiles([]);
     },
     [
       chatThreads,
@@ -323,6 +356,7 @@ export default function ChatComponent() {
       modelID,
       ragDatasource,
       textInput,
+      files,
       setChatThreads,
       isAgentSelected,
       screenSize.isMobileView,
@@ -355,17 +389,21 @@ export default function ChatComponent() {
       );
       if (!userMessage) return;
 
+      // Get the RAG datasource from the user message if available
+      const messageRagDatasource = userMessage.ragDatasource || ragDatasource;
+
       setReRenderingMessageId(messageId);
       setIsStreaming(true);
 
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID,
         text: userMessage.text,
+        files: userMessage.files,
       };
 
       await runInference(
         inferenceRequest,
-        ragDatasource,
+        messageRagDatasource,
         currentThread.messages,
         (newHistory) => {
           setChatThreads((prevThreads) => {
@@ -545,6 +583,22 @@ export default function ChatComponent() {
     return "w-full";
   };
 
+  // Log inference stats when they're updated
+  useEffect(() => {
+    const currentThread = getCurrentThread();
+    if (currentThread && Array.isArray(currentThread.messages)) {
+      const lastMessage =
+        currentThread.messages[currentThread.messages.length - 1];
+      if (
+        lastMessage &&
+        lastMessage.sender === "assistant" &&
+        lastMessage.inferenceStats
+      ) {
+        console.log("Inference stats updated:", lastMessage.inferenceStats);
+      }
+    }
+  }, [chatThreads, currentThreadIndex, getCurrentThread]);
+
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
@@ -696,6 +750,7 @@ export default function ChatComponent() {
               onReRender={handleReRender}
               onContinue={handleContinue}
               reRenderingMessageId={reRenderingMessageId}
+              ragDatasource={ragDatasource}
               isMobileView={screenSize.isMobileView}
             />
           </div>
@@ -706,6 +761,8 @@ export default function ChatComponent() {
             isStreaming={isStreaming}
             isListening={isListening}
             setIsListening={setIsListening}
+            files={files}
+            setFiles={setFiles}
             isMobileView={screenSize.isMobileView}
             onCreateNewConversation={createNewConversation}
           />

@@ -11,11 +11,10 @@ import {
   FileText,
   Eye,
   AudioLines,
-  // X,
+  Image,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
-  // PanelsTopLeft,
 } from "lucide-react";
 
 import logo from "../assets/tt_logo.svg";
@@ -33,8 +32,10 @@ import {
 } from "./ui/tooltip";
 
 import ModeToggle from "./DarkModeToggle";
+import HelpIcon from "./HelpIcon";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
+import Sidebar from "./SideBar";
 
 import { useTheme } from "../providers/ThemeProvider";
 import { useRefresh } from "../providers/RefreshContext";
@@ -196,6 +197,12 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       ) : (
         <ResetIcon onReset={() => {}} />
       );
+    } else if (IconComponent === HelpIcon) {
+      return onClick ? (
+        <HelpIcon toggleSidebar={onClick} />
+      ) : (
+        <HelpIcon toggleSidebar={() => {}} />
+      );
     } else {
       // Fallback for any other icon component
       return <IconComponent />;
@@ -253,14 +260,14 @@ export default function NavBar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [isHorizontalExpanded, setIsHorizontalExpanded] = useState(false);
+  const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
-  console.log("ENV VARS:", {
-    isDeployedEnabled: import.meta.env.VITE_ENABLE_DEPLOYED,
-  });
 
   // Check if we're in Chat UI mode
-  const isChatUI = location.pathname === "/chat-ui";
+  const isChatUI =
+    location.pathname === "/chat-ui" ||
+    location.pathname === "/image-generation";
 
   // Track window resize for responsive behavior
   useEffect(() => {
@@ -307,7 +314,7 @@ export default function NavBar() {
   // Determine if mobile view should be used
   const isMobile = windowWidth < 640;
 
-  // NEW CONDITION: Hide navbar when in mobile AND chat UI mode
+  // Hide navbar when in mobile AND chat UI mode
   if (isMobile && isChatUI) {
     return null;
   }
@@ -332,7 +339,10 @@ export default function NavBar() {
 
   const getNavLinkClass = (isActive: boolean, isChatUIIcon = false): string => {
     return `${navLinkClass} ${
-      isActive || (isChatUIIcon && location.pathname === "/chat-ui")
+      isActive ||
+      (isChatUIIcon &&
+        (location.pathname === "/chat-ui" ||
+          location.pathname === "/image-generation"))
         ? `border-2 ${activeBorderColor}`
         : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
@@ -340,6 +350,12 @@ export default function NavBar() {
 
   const handleReset = (): void => {
     triggerRefresh();
+  };
+
+  const handleToggleSidebar = () => {
+    if (sidebarRef.current) {
+      sidebarRef.current.toggleSidebar();
+    }
   };
 
   const handleNavigation = (route: string): void => {
@@ -358,6 +374,10 @@ export default function NavBar() {
     } else {
       navigate(route);
     }
+  };
+
+  const handleImageGenerationClick = () => {
+    handleNavigation("/image-generation");
   };
 
   const toggleHorizontalExpand = (): void => {
@@ -415,6 +435,19 @@ export default function NavBar() {
     },
     {
       type: "button",
+      icon: Image,
+      label: "Image Generation",
+      onClick: handleImageGenerationClick,
+      isDisabled: !isDeployedEnabled && models.length === 0,
+      tooltipText: isDeployedEnabled
+        ? "Open Image Generation"
+        : models.length > 0
+          ? "Open Image Generation"
+          : "Deploy a model to use Image Generation",
+      route: "/image-generation",
+    },
+    {
+      type: "button",
       icon: Eye,
       label: "Object Detection",
       onClick: () => handleNavigation("/object-detection"),
@@ -447,7 +480,7 @@ export default function NavBar() {
     ...(isDeployedEnabled ? modelNavItems : deployedNavItems),
   ];
 
-  // Define action buttons based on deployment state - removed HelpIcon
+  // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [
     {
       icon: ModeToggle,
@@ -463,6 +496,11 @@ export default function NavBar() {
             onClick: handleReset,
           },
         ]),
+    {
+      icon: HelpIcon,
+      tooltipText: "Get Help",
+      onClick: handleToggleSidebar,
+    },
   ];
 
   // Render vertical navbar for chat UI mode (non-mobile)
@@ -539,6 +577,7 @@ export default function NavBar() {
               ))}
             </div>
           </div>
+          <Sidebar ref={sidebarRef} />
         </div>
       </TooltipProvider>
     );
@@ -696,6 +735,7 @@ export default function NavBar() {
               </div>
             </motion.div>
           )}
+          <Sidebar ref={sidebarRef} />
         </div>
       </TooltipProvider>
     );
@@ -792,6 +832,7 @@ export default function NavBar() {
             ))}
           </div>
         </div>
+        <Sidebar ref={sidebarRef} />
       </div>
     </TooltipProvider>
   );
