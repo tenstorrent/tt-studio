@@ -343,6 +343,15 @@ model_implmentations_list = [
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
     ),
+    ModelImpl(
+        hf_model_id="deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc39-3429acf14e46",
+        device_configurations={DeviceConfigurations.N300x4},
+        docker_config=base_docker_config(),
+        service_route="/v1/chat/completions",
+        setup_type=SetupTypes.TT_INFERENCE_SERVER,
+    ),
     #! Add new model vLLM model implementations here
 ]
 
