@@ -46,7 +46,6 @@ interface HeaderProps {
   isHistoryPanelOpen: boolean;
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
   isAgentSelected: boolean;
-  isAgentSelected: boolean;
   setIsAgentSelected: (value: boolean) => void;
   isMobileView?: boolean;
 }
