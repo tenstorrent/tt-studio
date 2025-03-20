@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { User, ChevronDown, Bot, X, Database, File } from "lucide-react";
-import { User, ChevronDown, Bot, X, Database, File } from "lucide-react";
+import { ChevronDown, Database, File, X } from "lucide-react";
 import { Button } from "../ui/button";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
@@ -123,7 +120,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   ragDatasource,
   isMobileView = false,
 }) => {
-  // console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [minimizedFiles, setMinimizedFiles] = useState<Set<string>>(new Set());
@@ -345,19 +341,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                     message.sender === "user" ? "items-end" : "items-start"
                   }`}
                 >
-                  <div className="chat-image avatar text-left">
-                    <div className="w-10 rounded-full">
-                      {message.sender === "user" ? (
-                        <User
-                          className={`${isMobileView ? "h-5 w-5" : "h-6 w-6"} mr-2 text-left`}
-                        />
-                      ) : (
-                        <Bot
-                          className={`${isMobileView ? "h-6 w-6" : "w-8 h-8"} rounded-full mr-2`}
-                        />
-                      )}
-                    </div>
-                  </div>
                   <div
                     className={`chat-bubble ${
                       message.sender === "user"
