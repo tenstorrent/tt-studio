@@ -351,7 +351,8 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
-    ),
+model_type=ModelTypes.CHAT
+)
     #! Add new model vLLM model implementations here
 ]
 
