@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import uuid
 from typing import List
@@ -71,8 +71,9 @@ class VectorCollectionsAPIView(ViewSet):
         file = request.FILES["file"]
         loaded_document = pypdf.PdfReader(stream=file)
         chunks = chunk_pdf_document(loaded_document)
-        ids = [str(uuid.uuid4()) for i in range(0, len(chunks))]
+        ids = [str(uuid.uuid4()) for _ in range(len(chunks))]
         documents = [chunk.page_content for chunk in chunks]
+
         insert_to_chroma_collection(
             collection_name=pk,
             documents=documents,
@@ -80,6 +81,10 @@ class VectorCollectionsAPIView(ViewSet):
             metadatas=[],
             embedding_func_name=self.EMBED_MODEL,
         )
+        collection = get_collection(collection_name=pk, embedding_func_name=self.EMBED_MODEL)
+        metadata = collection.metadata or {}
+        metadata.update({"last_uploaded_document": file.name})
+        collection.modify(metadata={k: v for k, v in metadata.items() if k != "hnsw:space"})
 
         return Response(status=200)
 

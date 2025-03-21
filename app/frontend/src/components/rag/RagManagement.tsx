@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { Button } from "@/src/components/ui/button";
 import { useMutation, useQuery, useQueryClient } from "react-query";
 import { Card } from "@/src/components/ui/card";
@@ -26,6 +26,14 @@ import {
   createCollection,
   uploadDocument,
 } from "@/src/components/rag";
+import {
+  FileType,
+  Trash2,
+  Upload,
+  Fingerprint,
+  User,
+  Settings,
+} from "lucide-react";
 
 interface RagDataSource {
   id: string;
@@ -35,7 +43,7 @@ interface RagDataSource {
 
 const TableWrapper = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className=" h-screen flex-1 w-full dark:bg-black bg-white dark:bg-dot-white/[0.2] bg-dot-black/[0.2] relative flex items-center justify-center ">
+    <div className="h-screen flex-1 w-full dark:bg-black bg-white dark:bg-dot-white/[0.2] bg-dot-black/[0.2] relative flex items-center justify-center">
       <div
         className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
         style={{
@@ -54,14 +62,12 @@ export default function RagManagement() {
   const inputFile = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  // Used to associate the hidden file input w/ the target collection
   const [targetCollection, setTargetCollection] = useState<
     RagDataSource | undefined
   >(undefined);
 
-  // Track which collections are being uploaded to
   const [collectionsUploading, setCollectionsUploading] = useState<string[]>(
-    [],
+    []
   );
 
   const { theme } = useTheme();
@@ -69,24 +75,26 @@ export default function RagManagement() {
   // Fetch collections
   const {
     data: ragDataSources,
-    // error,
-    // isLoading,
+    isLoading,
+    error,
   } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     onError: () => customToast.error("Failed to fetch collections"),
     initialData: [],
   });
 
-  // Delete mutation
+  // Delete collection mutation
   const deleteCollectionMutation = useMutation({
     mutationFn: deleteCollection,
     onError(error: Error, variables: { collectionName: string }) {
-      const { collectionName } = variables;
-      customToast.error(`Error deleting ${collectionName}: ${error}`);
+      customToast.error(
+        `Error deleting ${variables.collectionName}: ${error.message}`
+      );
     },
     onSuccess: (_data, variables: { collectionName: string }) => {
-      customToast.success(`Deleted collection ${variables.collectionName}`);
       queryClient.invalidateQueries(["collectionsList"]);
+      customToast.success("Collection deleted successfully");
+      customToast.success(`Deleted collection ${variables.collectionName}`);
     },
   });
 
@@ -95,108 +103,132 @@ export default function RagManagement() {
     mutationFn: createCollection,
     onSuccess: (_data, variables) => {
       customToast.success(
-        `Created new collection: ${variables.collectionName}`,
+        `Created new collection: ${variables.collectionName}`
       );
       queryClient.invalidateQueries(["collectionsList"]);
     },
   });
 
-  // Upload to collection
-  const { mutate: uploadDocumentMutate } = useMutation({
+  // Upload document mutation
+  const uploadDocumentMutation = useMutation({
     mutationFn: uploadDocument,
     onMutate: ({ collectionName }) => {
       setCollectionsUploading([...collectionsUploading, collectionName]);
-      customToast.success("Uploading document");
+      customToast.success("Uploading document...");
     },
     onError: (_error, { file, collectionName }) => {
-      customToast.error(
-        `Error uploading document ${file.name} to ${collectionName}`,
-      );
+      customToast.error(`Error uploading ${file.name} to ${collectionName}`);
     },
     onSuccess: (_data, { file, collectionName }) => {
       setCollectionsUploading(
-        collectionsUploading.filter((e) => e !== collectionName),
+        collectionsUploading.filter((e) => e !== collectionName)
       );
-      customToast.success(
-        `Uploaded document ${file.name} to ${collectionName}`,
-      );
+      customToast.success(`Uploaded ${file.name} to ${collectionName}`);
+      queryClient.invalidateQueries(["collectionsList"]); // Refresh to update file name
     },
     onSettled: () => {
       setTargetCollection(undefined);
     },
   });
 
-  // TODO Add loading screen
-  // if (isLoading) {
-  //  return <div>Loading</div>;
-  // }
+  if (isLoading) {
+    return (
+      <TableWrapper>
+        <Card
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg flex justify-center items-center h-96`}
+        >
+          <Spinner />
+        </Card>
+      </TableWrapper>
+    );
+  }
 
-  // TODO Add error component
-  // if (error) {
-  //  return <div>Errors: {JSON.stringify(error)}</div>;
-  // }
+  if (error) {
+    return (
+      <TableWrapper>
+        <Card
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg p-8`}
+        >
+          <div className="text-red-600 dark:text-red-400">
+            Error loading collections: {(error as Error).message}
+          </div>
+        </Card>
+      </TableWrapper>
+    );
+  }
 
+  // Handle file selection for upload
   const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || !targetCollection) {
-      return;
-    }
+    if (!e.target.files || !targetCollection) return;
+
     const file = e.target.files[0];
-    uploadDocumentMutate({
+    uploadDocumentMutation.mutate({
       file,
       collectionName: targetCollection.name,
     });
   };
 
+  // Render table row with file name column
   const renderRow = ({
-    // theme,
     item,
     isUploading,
     onDelete,
     onUploadClick,
   }: {
-    theme: string;
-    isUploading?: boolean;
     item: RagDataSource;
+    isUploading?: boolean;
     onDelete: (rds: RagDataSource) => void;
     onUploadClick: (rds: RagDataSource) => void;
   }) => (
     <TableRow key={item.id}>
       <TableCell className="text-left">
+        <CopyableText text={item.id} />
+      </TableCell>
+      <TableCell className="text-left">
         <CopyableText text={item.name} />
       </TableCell>
       <TableCell className="text-left">
-        <CopyableText text={item.id} />
+        {item.metadata?.last_uploaded_document ? (
+          <div className="flex items-center gap-2">
+            <FileType color="red" className="w-4 h-4" />
+            <CopyableText text={item.metadata.last_uploaded_document} />
+          </div>
+        ) : (
+          "No file uploaded"
+        )}
       </TableCell>
-
       <TableCell className="text-left">
         <div className="flex gap-1">
           <ConfirmDialog
-            dialogDescription={
-              "This action cannot be undone. This will permanently delete the Datasource"
-            }
-            dialogTitle={"Delete Datasource"}
-            onConfirm={() => {
-              onDelete(item);
-            }}
+            dialogDescription="This action cannot be undone. This will permanently delete the datasource."
+            dialogTitle="Delete Datasource"
+            onConfirm={() => onDelete(item)}
             alertTrigger={
               <Button
                 disabled={isUploading}
-                className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg"
+                className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-2"
               >
+                <Trash2 className="w-4 h-4" />
                 Delete
               </Button>
             }
-          ></ConfirmDialog>
-          <Button
-            disabled={isUploading}
-            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg"
-            onClick={() => onUploadClick(item)}
-          >
-            Upload Document
-          </Button>
-
+          />
+          <ConfirmDialog
+            dialogDescription="This will replace the existing PDF with the new uploaded PDF. Are you sure you want to continue?"
+            dialogTitle="Replace existing PDF?"
+            onConfirm={() => onUploadClick(item)}
+            alertTrigger={
+              <Button
+                disabled={isUploading}
+                className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Upload Document
+              </Button>
+            }
+          />
           <div className={`my-auto ${!isUploading && "invisible"}`}>
-            <Spinner></Spinner>
+            <Spinner />
           </div>
         </div>
       </TableCell>
@@ -206,7 +238,7 @@ export default function RagManagement() {
   return (
     <>
       <TableWrapper>
-        {/* All rows share a single file input control */}
+        {/* Hidden file input for uploads */}
         <input
           type="file"
           onChange={onFileSelected}
@@ -216,20 +248,13 @@ export default function RagManagement() {
           style={{ display: "none" }}
         />
         <Card
-          className={
-            "" +
-            `${
-              theme === "dark"
-                ? " bg-zinc-900 text-zinc-200 rounded-lg border-2 border-red"
-                : " bg-white text-black border-gray-500 border-2 rounded-lg border-red"
-            }`
-          }
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg`}
         >
           <ScrollArea className="whitespace-nowrap rounded-md border">
             <CustomToaster />
             <RagDataSourceForm
-              onSubmit={(d) =>
-                createCollectionMutation.mutate({
+              onSubmit={async (d) =>
+                await createCollectionMutation.mutate({
                   collectionName: d.collectionName,
                 })
               }
@@ -240,34 +265,48 @@ export default function RagManagement() {
               </TableCaption>
               <TableHeader>
                 <TableRow
-                  className={`${
-                    theme === "dark"
-                      ? "bg-zinc-900 rounded-lg"
-                      : "bg-zinc-200 rounded-lg"
-                  }`}
+                  className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
                 >
-                  {["Name", "ID", "Manage"].map((f: string) => (
-                    <TableHead key={f} className="text-left">
-                      {f}
-                    </TableHead>
-                  ))}
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <Fingerprint className="w-4 h-4" />
+                      ID
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      Name
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <FileType className="w-4 h-4" />
+                      File Name
+                    </div>
+                  </TableHead>
+                  <TableHead className="text-left">
+                    <div className="flex items-center gap-2">
+                      <Settings className="w-4 h-4" />
+                      Manage
+                    </div>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {ragDataSources.map((rds: RagDataSource) =>
                   renderRow({
                     item: rds,
-                    theme: theme,
-                    isUploading: collectionsUploading.indexOf(rds.name) !== -1,
-                    onUploadClick: (rds) => {
+                    isUploading: collectionsUploading.includes(rds.name),
+                    onUploadClick: (rds: RagDataSource) => {
                       setTargetCollection(rds);
-                      inputFile?.current?.click();
+                      inputFile.current?.click();
                     },
-                    onDelete: (rds) =>
+                    onDelete: (rds: RagDataSource) =>
                       deleteCollectionMutation.mutate({
                         collectionName: rds.name,
                       }),
-                  }),
+                  })
                 )}
               </TableBody>
             </Table>

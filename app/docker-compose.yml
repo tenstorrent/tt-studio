@@ -71,6 +71,10 @@ services:
       - tt_studio_network
     ports:
       - "3000:3000"
+    environment:
+      - VITE_ENABLE_DEPLOYED
+      - VITE_APP_TITLE
+
     # volumes:
     #! for development mount api changes
     #   - ./frontend:/frontend
