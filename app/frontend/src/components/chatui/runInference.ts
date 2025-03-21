@@ -133,7 +133,7 @@ export const runInference = async (
     console.log("Generated messages:", messages);
     console.log("Thread ID: ", threadId);
 
-    const apiUrlDefined = import.meta.env.VITE_LLAMA_API_URL === "true";
+    const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
