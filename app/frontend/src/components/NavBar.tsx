@@ -262,10 +262,10 @@ export default function NavBar() {
   const isImageGeneration = location.pathname === "/image-generation";
   const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
 
-  console.log("Path:", location.pathname);
-  console.log("isChatUI:", isChatUI);
-  console.log("isImageGeneration:", isImageGeneration);
-  console.log("shouldUseVerticalNav:", shouldUseVerticalNav);
+  // console.log("Path:", location.pathname);
+  // console.log("isChatUI:", isChatUI);
+  // console.log("isImageGeneration:", isImageGeneration);
+  // console.log("shouldUseVerticalNav:", shouldUseVerticalNav);
 
   // Track window resize for responsive behavior
   useEffect(() => {
