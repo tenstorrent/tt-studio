@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import type {
   InferenceRequest,
@@ -132,11 +133,17 @@ export const runInference = async (
     console.log("Generated messages:", messages);
     console.log("Thread ID: ", threadId);
 
+    const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
+
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
-      : import.meta.env.VITE_API_URL || "/models-api/inference/";
+      : apiUrlDefined
+        ? "/models-api/inference_cloud/"
+        : "/models-api/inference/";
 
-    const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
+    console.log("API URL:", API_URL);
+
+    const AUTH_TOKEN = import.meta.env.VITE_LLAMA_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -146,12 +153,14 @@ export const runInference = async (
     }
 
     let requestBody;
-    let threadIdStr = threadId.toString();
+    const threadIdStr = threadId.toString();
 
     if (!isAgentSelected) {
       requestBody = {
-        deploy_id: request.deploy_id,
-        // model: "meta-llama/Llama-3.1-70B-Instruct",
+        ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
+        ...(apiUrlDefined
+          ? { model: "meta-llama/Llama-3.1-70B-Instruct" }
+          : {}),
         messages: messages,
         max_tokens: 512,
         stream: true,
@@ -162,14 +171,13 @@ export const runInference = async (
     } else {
       requestBody = {
         deploy_id: request.deploy_id,
-        // model: "meta-llama/Llama-3.1-70B-Instruct",
         messages: messages,
         max_tokens: 512,
         stream: true,
         stream_options: {
           include_usage: true,
         },
-        thread_id: threadIdStr, // Add thread_id to the request body
+        thread_id: threadIdStr,
       };
     }
 
@@ -247,7 +255,7 @@ export const runInference = async (
                     "Final Inference Stats received:",
                     inferenceStats
                   );
-                  continue;
+                  continue; // Skip processing this chunk as part of the generated text
                 }
               }
               // Handle the generated text

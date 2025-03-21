@@ -3,8 +3,10 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 import json
+import os
 import pickle
-import time 
+import time
+import traceback 
 
 import requests
 import jwt
@@ -170,3 +172,150 @@ def stream_response_from_external_api(url, json_data):
     except requests.RequestException as e:
         logger.error(f"RequestException: {str(e)}")
         yield f"error: {str(e)}"
+
+
+AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
+def stream_to_cloud_model(url, json_data):
+    logger.info(f"ATTEMPT 6 :stream_to_cloud_model to: url={url}")
+    try:
+        headers = {"Authorization": f"Bearer {AUTH_TOKEN}"}
+        logger.info(f"stream_to_cloud_model headers:={headers}")
+        logger.info(f"stream_to_cloud_model json_data:={json_data}")
+
+        json_data["temperature"] = 1
+        json_data["top_k"] = 20
+        json_data["top_p"] = 0.9
+        json_data["max_tokens"] = 512
+        json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
+        logger.info(f"added extra token and temp:={json_data}")
+
+        ttft = 0
+        tpot = 0
+        num_token_gen = 0
+        prompt_tokens = 0
+        ttft_start = time.time()
+        # Initialize tpot_start to avoid the UnboundLocalError
+        tpot_start = ttft_start  
+        logger.info(f"Starting stream request at time: {ttft_start}")
+
+        with requests.post(url, json=json_data, headers=headers, stream=True, timeout=None) as response:
+            logger.info(f"stream_to_cloud_model response status:={response.status_code}")
+            logger.info(f"stream_to_cloud_model response headers:={dict(response.headers)}")
+            response.raise_for_status()
+            
+            transfer_encoding = response.headers.get("transfer-encoding")
+            logger.info(f"Transfer encoding: {transfer_encoding}")
+            assert transfer_encoding == "chunked"
+
+            chunk_count = 0
+            found_done = False
+            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                chunk_count += 1
+                logger.info(f"Received chunk #{chunk_count}: {repr(chunk)}")
+                
+                # Check if this chunk contains the [DONE] marker
+                if "data: [DONE]" in chunk:
+                    logger.info("Found [DONE] marker in chunk")
+                    found_done = True
+                
+                if chunk.startswith("data: "):
+                    logger.info(f"Processing data chunk #{chunk_count}")
+                    new_chunk = chunk[len("data: "):].strip()
+                    logger.info(f"Stripped chunk: {repr(new_chunk)}")
+                    
+                    # Process the chunk normally to track tokens
+                    if new_chunk and new_chunk != "[DONE]":
+                        try:
+                            # Handle multiple JSON objects in a single chunk
+                            # Split by newlines to handle multiple JSON objects
+                            new_chunks = new_chunk.split('\n\ndata: ')
+                            for sub_chunk in new_chunks:
+                                if not sub_chunk.strip() or sub_chunk.strip() == "[DONE]":
+                                    continue
+                                    
+                                logger.info(f"Processing sub-chunk: {repr(sub_chunk)}")
+                                try:
+                                    chunk_dict = json.loads(sub_chunk)
+                                    logger.info(f"Successfully parsed JSON: {chunk_dict}")
+                                    
+                                    usage = chunk_dict.get("usage", {})
+                                    completion_tokens = usage.get("completion_tokens", 0)
+                                    logger.info(f"Usage info: {usage}, completion tokens: {completion_tokens}")
+                                    
+                                    if completion_tokens == 1:
+                                        ttft = time.time() - ttft_start
+                                        logger.info(f"First token received. TTFT: {ttft}s")
+                                        num_token_gen = 1
+                                        tpot_start = time.time()
+                                        logger.info(f"TPOT timer started at: {tpot_start}")
+                                        prompt_tokens = usage["prompt_tokens"]
+                                        logger.info(f"Prompt tokens: {prompt_tokens}")
+                                    elif completion_tokens > num_token_gen:
+                                        old_token_gen = num_token_gen
+                                        num_token_gen = completion_tokens  # Use the token count from the response
+                                        logger.info(f"Token count increased: {old_token_gen} -> {num_token_gen}")
+                                        current_time = time.time()
+                                        time_since_last = current_time - tpot_start
+                                        logger.info(f"Time since last token: {time_since_last}s")
+                                        old_tpot = tpot
+                                        tpot += (1 / num_token_gen) * (time_since_last - tpot)
+                                        logger.info(f"TPOT updated: {old_tpot} -> {tpot}")
+                                        tpot_start = current_time
+                                        logger.info(f"TPOT timer reset to: {tpot_start}")
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"JSON decode error in sub-chunk: {str(e)}")
+                                    logger.error(f"Problematic sub-chunk: {repr(sub_chunk)}")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"JSON decode error: {str(e)}")
+                            logger.error(f"Problematic chunk: {repr(new_chunk)}")
+                    
+                    # Always yield the original chunk first
+                    logger.info(f"Yielding chunk: {repr(chunk)}")
+                    yield chunk
+                    
+                    # If we found [DONE], also send stats
+                    if found_done:
+                        stats = {
+                            "ttft": ttft, 
+                            "tpot": tpot, 
+                            "tokens_decoded": num_token_gen, 
+                            "tokens_prefilled": prompt_tokens, 
+                            "context_length": prompt_tokens + num_token_gen
+                        }
+                        logger.info(f"Final stats: {stats}")
+                        stats_json = json.dumps(stats)
+                        logger.info(f"Yielding stats JSON: {stats_json}")
+                        yield "data: " + stats_json + "\n\n"
+                        logger.info("Yielding end of stream marker")
+                        yield "<<END_OF_STREAM>>"
+                        break
+                else:
+                    logger.info(f"Received non-data chunk: {repr(chunk)}")
+                    yield chunk
+                    
+            # If we somehow didn't find [DONE] but finished streaming, still send stats
+            if not found_done:
+                logger.info("Stream ended without [DONE] marker, sending stats anyway")
+                stats = {
+                    "ttft": ttft, 
+                    "tpot": tpot, 
+                    "tokens_decoded": num_token_gen, 
+                    "tokens_prefilled": prompt_tokens, 
+                    "context_length": prompt_tokens + num_token_gen
+                }
+                logger.info(f"Final stats: {stats}")
+                stats_json = json.dumps(stats)
+                logger.info(f"Yielding stats JSON: {stats_json}")
+                yield "data: " + stats_json + "\n\n"
+                logger.info("Yielding end of stream marker")
+                yield "<<END_OF_STREAM>>"
+                
+            logger.info(f"Stream completed after {chunk_count} chunks")
+    except requests.RequestException as e:
+        logger.error(f"RequestException: {str(e)}")
+        logger.error(f"Request exception traceback: {traceback.format_exc()}")
+        yield f"error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Unexpected exception: {str(e)}")
+        logger.error(f"Exception traceback: {traceback.format_exc()}")
+        yield f"error: Unexpected error - {str(e)}"

@@ -29,37 +29,37 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
           "error",
           (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
             console.log("proxy error", err);
-          },
+          }
         );
         proxy.on(
           "proxyReq",
           (
             proxyReq: ClientRequest,
             req: IncomingMessage,
-            _res: ServerResponse,
+            _res: ServerResponse
           ) => {
             console.log("Sending Request to the Target:", req.method, req.url);
-          },
+          }
         );
         proxy.on(
           "proxyRes",
           (
             proxyRes: IncomingMessage,
             req: IncomingMessage,
-            _res: ServerResponse,
+            _res: ServerResponse
           ) => {
             console.log(
               "Received Response from the Target:",
               proxyRes.statusCode,
-              req.url,
+              req.url
             );
-          },
+          }
         );
       },
       rewrite: (path: string) =>
         path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
     },
-  ]),
+  ])
 );
 
 // Add specific proxy configuration for the /reset-board endpoint
@@ -78,7 +78,7 @@ proxyConfig["/reset-board"] = {
       console.log(
         "Received Response from the Target:",
         proxyRes.statusCode,
-        req.url,
+        req.url
       );
     });
   },
@@ -100,5 +100,6 @@ export default defineConfig({
     },
     hmr: { clientPort: 3000 }, // Adjust HMR client port to match the server port
     proxy: proxyConfig,
+    allowedHosts: ["localhost", "playground.tenstorrent.com"],
   },
 });

@@ -3,12 +3,12 @@
 import type React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
-import { Paperclip, Send, X, File } from "lucide-react";
+import { Paperclip, Send, X, File, Plus } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
 import { FileUpload } from "../ui/file-upload";
 import { isImageFile, validateFile, encodeFile, isTextFile } from "./fileUtils";
 import { cn } from "../../lib/utils";
-import type { InputAreaProps } from "./types";
+import type { FileData } from "./types";
 import { customToast } from "../CustomToaster";
 import {
   AlertDialog,
@@ -27,6 +27,19 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 
+interface InputAreaProps {
+  textInput: string;
+  setTextInput: React.Dispatch<React.SetStateAction<string>>;
+  handleInference: (input?: string, files?: FileData[]) => void;
+  isStreaming: boolean;
+  isListening: boolean;
+  setIsListening: (isListening: boolean) => void;
+  files?: FileData[];
+  setFiles?: React.Dispatch<React.SetStateAction<FileData[]>>;
+  isMobileView?: boolean;
+  onCreateNewConversation?: () => void;
+}
+
 export default function InputArea({
   textInput,
   setTextInput,
@@ -34,8 +47,10 @@ export default function InputArea({
   isStreaming,
   isListening,
   setIsListening,
-  files,
-  setFiles,
+  files = [],
+  setFiles = () => {},
+  isMobileView = false,
+  onCreateNewConversation,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
@@ -45,6 +60,8 @@ export default function InputArea({
   const [showReplaceDialog, setShowReplaceDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [showBanner, setShowBanner] = useState(true);
+  const [touchFeedback, setTouchFeedback] = useState("");
 
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
@@ -61,7 +78,16 @@ export default function InputArea({
   const adjustTextareaHeight = () => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      const maxHeight = isMobileView ? 120 : 200; // Lower max height on mobile
+      const scrollHeight = Math.min(
+        textareaRef.current.scrollHeight,
+        maxHeight
+      );
+      textareaRef.current.style.height = `${scrollHeight}px`;
+
+      // If content is larger than maxHeight, enable scrolling
+      textareaRef.current.style.overflowY =
+        textareaRef.current.scrollHeight > maxHeight ? "auto" : "hidden";
     }
   };
 
@@ -73,12 +99,27 @@ export default function InputArea({
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
       e.preventDefault();
-      handleInference(textInput, files);
+      if (textInput.trim() !== "" || files.length > 0) {
+        handleInference(textInput, files);
+      }
     }
   };
 
   const handleVoiceInput = (transcript: string) => {
     setTextInput((prevText) => prevText + (prevText ? " " : "") + transcript);
+    adjustTextareaHeight();
+  };
+
+  const handleTouchStart = (message: string) => {
+    setTouchFeedback(message);
+    // Haptic feedback if available
+    if (navigator.vibrate) {
+      navigator.vibrate(10);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setTimeout(() => setTouchFeedback(""), 500);
   };
 
   const processFile = useCallback(async (file: File) => {
@@ -259,38 +300,41 @@ export default function InputArea({
         </AlertDialogContent>
       </AlertDialog>
 
-      <div
-        className={cn(
-          "relative flex-shrink-0 w-full transition-all duration-200",
-          isDragging && "bg-gray-200 dark:bg-gray-700 scale-[0.99]"
-        )}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        {isDragging && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
-            <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
-              <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
-              <span className="text-2xl animate-pulse">
-                Drop files to upload
-              </span>
-              <span className="text-sm mt-2">
-                Limited to one image, multiple text files allowed
-              </span>
-            </div>
-          </div>
-        )}
+      {/* Touch feedback notification */}
+      {touchFeedback && (
+        <div className="fixed top-1/4 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 text-white text-sm rounded-lg px-4 py-2 z-50 opacity-80">
+          {touchFeedback}
+        </div>
+      )}
 
+      <div className="flex-shrink-0 w-full mt-2">
         <div
           className={cn(
-            "relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl border transition-all duration-200",
+            "relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-2 sm:p-4 shadow-lg dark:shadow-2xl border transition-all duration-200",
             isFocused
               ? "border-gray-400/50 dark:border-white/20"
               : "border-gray-200 dark:border-[#7C68FA]/20",
             "overflow-hidden"
           )}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         >
+          {/* Drag overlay */}
+          {isDragging && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
+              <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
+                <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
+                <span className="text-2xl animate-pulse">
+                  Drop files to upload
+                </span>
+                <span className="text-sm mt-2">
+                  Limited to one image, multiple text files allowed
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* File preview section */}
           {files.length > 0 && (
             <>
@@ -335,11 +379,14 @@ export default function InputArea({
             value={textInput}
             onChange={handleTextAreaInput}
             onKeyDown={handleKeyPress}
-            placeholder="Enter your prompt"
-            className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-base overflow-y-auto"
+            placeholder={isMobileView ? "Type message..." : "Enter your prompt"}
+            className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-sm sm:text-base overflow-y-auto py-1"
             disabled={isStreaming}
             rows={1}
-            style={{ minHeight: "24px", maxHeight: "200px" }}
+            style={{
+              minHeight: isMobileView ? "20px" : "24px",
+              maxHeight: isMobileView ? "120px" : "200px",
+            }}
             aria-label="Chat input"
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -347,76 +394,203 @@ export default function InputArea({
 
           {/* Control buttons */}
           <div className="flex justify-between items-center mt-2">
-            <div className="flex gap-2 items-center">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-                      onClick={() => setIsFileUploadOpen((prev) => !prev)}
-                      aria-label="Attach files"
-                    >
-                      <Paperclip className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Attach files (1 image max)</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <VoiceInput
-                        onTranscript={handleVoiceInput}
-                        isListening={isListening}
-                        setIsListening={setIsListening}
-                      />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Voice input</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="flex gap-1 sm:gap-2 items-center">
+              {/* File Upload Button */}
+              <div className="relative group">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size={isMobileView ? "sm" : "default"}
+                        className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
+                        onClick={() => setIsFileUploadOpen((prev) => !prev)}
+                        aria-label="Attach files"
+                        onTouchStart={() => handleTouchStart("Attach files")}
+                        onTouchEnd={handleTouchEnd}
+                      >
+                        <Paperclip
+                          className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`}
+                        />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Attach files (1 image max)</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                {isMobileView && (
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                    Attach files
+                  </div>
+                )}
+              </div>
+
+              {/* Voice Input */}
+              <div className="relative group">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div>
+                        <VoiceInput
+                          onTranscript={handleVoiceInput}
+                          isListening={isListening}
+                          setIsListening={setIsListening}
+                          // isMobileView={isMobileView}
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Voice input</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                {isMobileView && (
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                    {isListening ? "Stop recording" : "Voice input"}
+                  </div>
+                )}
+              </div>
             </div>
-            <Button
-              onClick={() => handleInference(textInput, files)}
-              disabled={
-                isStreaming || (!textInput.trim() && files.length === 0)
-              }
-              className="bg-[#7C68FA] hover:bg-[#7C68FA]/80 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-300"
-              aria-label="Send message"
-            >
-              Generate
-              <Send className="h-4 w-4" />
-            </Button>
+
+            <div className="flex items-center gap-2">
+              {/* New Chat button */}
+              {onCreateNewConversation && (
+                <div className="relative group">
+                  <Button
+                    onClick={() => {
+                      handleTouchStart("Creating new chat");
+                      onCreateNewConversation();
+                      handleTouchEnd();
+                    }}
+                    onTouchStart={() => handleTouchStart("Creating new chat")}
+                    onTouchEnd={handleTouchEnd}
+                    size="sm"
+                    className={`
+                      bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] 
+                      rounded-full flex items-center transition-all duration-200 touch-manipulation
+                      ${
+                        isMobileView
+                          ? "justify-center h-7 w-7 p-0"
+                          : "justify-center gap-1.5 px-3 py-1"
+                      }
+                    `}
+                    aria-label="Start a new chat"
+                  >
+                    <Plus className={isMobileView ? "h-3 w-3" : "h-4 w-4"} />
+                    {!isMobileView && <span className="text-xs">New chat</span>}
+                  </Button>
+                  {isMobileView && (
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                      New chat
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Send Button */}
+              <div className="relative group">
+                <Button
+                  onClick={() => {
+                    if (
+                      (textInput.trim() !== "" || files.length > 0) &&
+                      !isStreaming
+                    ) {
+                      handleTouchStart("Sending message");
+                      handleInference(textInput, files);
+                      handleTouchEnd();
+                    }
+                  }}
+                  onTouchStart={() => {
+                    if (
+                      (textInput.trim() !== "" || files.length > 0) &&
+                      !isStreaming
+                    ) {
+                      handleTouchStart("Sending message");
+                    }
+                  }}
+                  onTouchEnd={handleTouchEnd}
+                  disabled={
+                    isStreaming || (!textInput.trim() && files.length === 0)
+                  }
+                  className={`
+                    bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
+                    ${isMobileView ? "px-2 py-1 text-xs" : "px-4 py-2 text-sm"} 
+                    rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
+                    ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
+                  `}
+                  aria-label={
+                    isMobileView ? "Send message" : "Generate response"
+                  }
+                >
+                  {isMobileView ? (
+                    <Send className="h-3 w-3" />
+                  ) : (
+                    <>
+                      Generate
+                      <Send className="h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+                {isMobileView && (
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                    {isStreaming ? "Generating..." : "Send message"}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Preserved streaming indicator */}
+          {/* Streaming indicator */}
           {isStreaming && (
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
               <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-[#7C68FA] to-[#7C68FA] animate-pulse-ripple-x" />
             </div>
           )}
+
+          {/* File upload progress indicators */}
+          {showProgressBar && (
+            <div className="absolute bottom-0 left-0 w-full h-1 bg-green-500 animate-progress" />
+          )}
+          {showErrorIndicator && (
+            <div className="absolute bottom-0 left-0 w-full h-1 bg-red-500 animate-pulse" />
+          )}
         </div>
 
-        {showProgressBar && (
-          <div className="absolute bottom-0 left-0 w-full h-1 bg-green-500 animate-progress" />
-        )}
-        {showErrorIndicator && (
-          <div className="absolute bottom-0 left-0 w-full h-1 bg-red-500 animate-pulse" />
-        )}
-        {isFileUploadOpen && (
-          <FileUpload
-            onChange={handleFileUpload}
-            onClose={() => setIsFileUploadOpen(false)}
-          />
+        {/* Notification banner */}
+        {showBanner && (
+          <div className="w-full mt-2">
+            <div
+              className={`
+                bg-[#1a1625] rounded-lg flex justify-between items-center
+                ${isMobileView ? "p-2 text-xs" : "p-3 text-sm"}
+              `}
+            >
+              <div className="text-gray-300">
+                {isMobileView
+                  ? "LLM's can make mistakes."
+                  : "LLM's can make mistakes. Check important infos"}
+              </div>
+              <button
+                className="text-gray-400 hover:text-gray-300 ml-2"
+                onClick={() => setShowBanner(false)}
+                title="Dismiss"
+              >
+                <X className={`${isMobileView ? "h-3 w-3" : "h-4 w-4"}`} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
+
+      {/* File upload dialog */}
+      {isFileUploadOpen && (
+        <FileUpload
+          onChange={handleFileUpload}
+          onClose={() => setIsFileUploadOpen(false)}
+        />
+      )}
     </>
   );
 }

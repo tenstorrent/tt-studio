@@ -58,7 +58,7 @@ export const ModelType = {
 export const fetchModels = async (): Promise<Model[]> => {
   try {
     const response = await axios.get<{ [key: string]: ContainerData }>(
-      statusURl,
+      statusURl
     );
     const data = response.data;
 
@@ -67,7 +67,7 @@ export const fetchModels = async (): Promise<Model[]> => {
       const portMapping = Object.keys(container.port_bindings)
         .map(
           (port) =>
-            `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`,
+            `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`
         )
         .join(", ");
 
@@ -111,7 +111,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       throw new Error("Failed to stop the container");
     } else {
       customToast.success(
-        `Model ID: ${truncatedModelId} has been deleted successfully.`,
+        `Model ID: ${truncatedModelId} has been deleted successfully.`
       );
 
       if (
@@ -119,7 +119,7 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
         response.data.reset_response.status === "success"
       ) {
         customToast.success(
-          `Model ID: ${truncatedModelId} has been reset successfully.`,
+          `Model ID: ${truncatedModelId} has been reset successfully.`
         );
       } else {
         customToast.error(`Board Reset failed.`);
@@ -128,28 +128,28 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       console.log(
         `Reset Output: ${
           response.data.reset_response?.output || "No reset output available"
-        }`,
+        }`
       );
     }
 
-    return response.data; 
+    return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
       console.error("Error stopping the container:", error.response?.data);
       customToast.error(
         `Failed to delete Model ID: ${truncatedModelId} - ${
           error.response?.data.message || error.message
-        }`,
+        }`
       );
     } else if (error instanceof Error) {
       console.error("Error stopping the container:", error.message);
       customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`,
+        `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`
       );
     } else {
       console.error("Unknown error stopping the container", error);
       customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - Unknown error`,
+        `Failed to delete Model ID: ${truncatedModelId} - Unknown error`
       );
     }
     throw error;
@@ -163,7 +163,7 @@ export const handleRedeploy = (modelName: string): void => {
 export const handleModelNavigationClick = (
   modelID: string,
   modelName: string,
-  navigate: NavigateFunction,
+  navigate: NavigateFunction
 ): void => {
   const modelType = getModelTypeFromName(modelName);
   const destination = getDestinationFromModelType(modelType);
@@ -203,4 +203,16 @@ export const getModelTypeFromName = (modelName: string): string => {
     modelType = ModelType.ChatModel;
   }
   return modelType;
+};
+
+export const checkDeployedModels = async (): Promise<boolean> => {
+  try {
+    const fetchedModels = await fetchModels();
+    console.log("Fetched models:", fetchedModels);
+    return fetchedModels !== null && fetchedModels.length > 0;
+  } catch (error) {
+    console.log("Error fetching models:", error);
+    console.error("Error checking deployed models:", error);
+    return false;
+  }
 };
