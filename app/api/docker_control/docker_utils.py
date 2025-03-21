@@ -218,19 +218,24 @@ def get_container_status():
     containers = get_managed_containers()
     data = {}
     for con in containers:
+        # get model_impl using container's image_name
+        image_name = con.attrs.get("Config").get("Image")
+        model_impl = next(impl for impl in model_implmentations.values() if impl.image_version == image_name)
+
         data[con.id] = {
             "name": con.name,
             "status": con.status,
             "health": con.health,
             "create": con.attrs.get("Created"),
             "image_id": con.attrs.get("Image"),
-            "image_name": con.attrs.get("Config").get("Image"),
+            "image_name": image_name,
             "port_bindings": con.attrs.get("NetworkSettings").get("Ports"),
             "networks": {
                 k: {"DNSNames": v.get("DNSNames")}
                 for k, v in con.attrs.get("NetworkSettings").get("Networks").items()
             },
             "env_vars": parse_env_var_str(con.attrs.get("Config").get("Env")),
+            "model_type": model_impl.model_type.name,
         }
     return data
 

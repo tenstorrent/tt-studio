@@ -26,6 +26,7 @@ interface ContainerData {
   image_name: string;
   port_bindings: { [key: string]: PortBinding[] };
   networks: { [key: string]: Network };
+  model_type: string;
 }
 
 interface Model {
@@ -35,6 +36,7 @@ interface Model {
   health: string;
   ports: string;
   name: string;
+  model_type: string;
 }
 
 interface StopResponse {
@@ -52,7 +54,7 @@ interface StopResponse {
 export const ModelType = {
   ChatModel: "ChatModel",
   ImageGeneration: "ImageGeneration",
-  ObjectDetectionModel: "ObjectDetectionModel",
+  ObjectDetection: "ObjectDetection",
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -71,6 +73,22 @@ export const fetchModels = async (): Promise<Model[]> => {
         )
         .join(", ");
 
+      // map container's model_type to frontend ModelType enum
+      var model_type;
+      switch (container.model_type) {
+        case "CHAT":
+          model_type = ModelType.ChatModel;
+          break;
+        case "IMAGE_GENERATION":
+          model_type = ModelType.ImageGeneration;
+          break;
+        case "OBJECT_DETECTION":
+          model_type = ModelType.ObjectDetection;
+          break;
+        default:
+          throw new Error("No valid ModelType enumeration.");
+      }
+
       return {
         id: key,
         image: container.image_name,
@@ -78,6 +96,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         health: container.health,
         ports: portMapping,
         name: container.name,
+        model_type: model_type,
       };
     });
 
@@ -126,19 +145,17 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       }
 
       console.log(
-        `Reset Output: ${
-          response.data.reset_response?.output || "No reset output available"
+        `Reset Output: ${response.data.reset_response?.output || "No reset output available"
         }`,
       );
     }
 
-    return response.data; 
+    return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
       console.error("Error stopping the container:", error.response?.data);
       customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - ${
-          error.response?.data.message || error.message
+        `Failed to delete Model ID: ${truncatedModelId} - ${error.response?.data.message || error.message
         }`,
       );
     } else if (error instanceof Error) {
@@ -163,9 +180,9 @@ export const handleRedeploy = (modelName: string): void => {
 export const handleModelNavigationClick = (
   modelID: string,
   modelName: string,
+  modelType: string,
   navigate: NavigateFunction,
 ): void => {
-  const modelType = getModelTypeFromName(modelName);
   const destination = getDestinationFromModelType(modelType);
   console.log(`${modelType} button clicked for model: ${modelID}`);
   console.log(`Opening ${modelType} for model: ${modelName}`);
@@ -184,7 +201,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/chat-ui";
     case ModelType.ImageGeneration:
       return "/image-generation";
-    case ModelType.ObjectDetectionModel:
+    case ModelType.ObjectDetection:
       return "/object-detection";
     default:
       return "/chat-ui"; // /chat-ui is the default

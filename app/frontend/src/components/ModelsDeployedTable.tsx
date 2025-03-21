@@ -139,45 +139,29 @@ export default function ModelsDeployedTable() {
     return modelName.toLowerCase().includes("llama");
   };
 
-  const getModelIcon = (modelName: string) => {
-    const modelType = getModelTypeFromName(modelName);
-    switch (modelType) {
+  const getModelIcon = (model_type: string) => {
+    switch (model_type) {
       case ModelType.ChatModel:
         return <MessageSquare className="w-4 h-4 mr-2" />
       case ModelType.ImageGeneration:
         return <Image className="w-4 h-4 mr-2" />
-      case ModelType.ObjectDetectionModel:
+      case ModelType.ObjectDetection:
         return <Eye className="w-4 h-4 mr-2" />
       default:
         return <MessageSquare className="w-4 h-4 mr-2" />
     }
   };
 
-  const getModelTypeLabel = (modelName: string) => {
-    const modelType = getModelTypeFromName(modelName);
-    switch (modelType) {
+  const getModelTypeLabel = (model_type: string) => {
+    switch (model_type) {
       case ModelType.ChatModel:
         return "ChatUI";
       case ModelType.ImageGeneration:
         return "ImageGeneration";
-      case ModelType.ObjectDetectionModel:
+      case ModelType.ObjectDetection:
         return "ObjectDetection";
       default:
         return "ChatUI"
-    }
-  };
-
-  const getModelToolTip = (modelName: string) => {
-    const modelType = getModelTypeFromName(modelName);
-    switch (modelType) {
-      case ModelType.ChatModel:
-        return "Open ChatUI for this model";
-      case ModelType.ImageGeneration:
-        return "Open ImageGeneration for this model";
-      case ModelType.ObjectDetectionModel:
-        return "Open ObjectDetection for this model";
-      default:
-        return "Open ChatUI for this model";
     }
   };
 
@@ -299,6 +283,7 @@ export default function ModelsDeployedTable() {
                                   handleModelNavigationClick(
                                     model.id,
                                     model.name,
+                                    model.model_type,
                                     navigate,
                                   )
                                 }
@@ -309,8 +294,8 @@ export default function ModelsDeployedTable() {
                                 } rounded-lg`}
                                 disabled={!model.name}
                               >
-                                {getModelIcon(model.name)}
-                                {getModelTypeLabel(model.name)}
+                                {getModelIcon(model.model_type)}
+                                {getModelTypeLabel(model.model_type)}
                                 {isLLaMAModel(model.name || "") && (
                                   <AlertCircle className="w-4 h-4 ml-2 text-yellow-600" />
                                 )}
@@ -324,7 +309,7 @@ export default function ModelsDeployedTable() {
                                 </p>
                               ) : (
                                 <p>
-                                  {getModelToolTip(model.name)}
+                                  Open {getModelTypeLabel(model.model_type)} for this model
                                 </p>
                               )}
                             </TooltipContent>

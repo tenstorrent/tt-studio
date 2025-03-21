@@ -12,6 +12,7 @@ export interface Model {
   status: string;
   health: string;
   ports: string;
+  model_type: string;
 }
 
 interface ModelsContextType {
