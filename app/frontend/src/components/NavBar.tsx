@@ -12,7 +12,6 @@ import {
   Image,
   Eye,
   AudioLines,
-  Image,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
@@ -33,10 +32,8 @@ import {
 } from "./ui/tooltip";
 
 import ModeToggle from "./DarkModeToggle";
-import HelpIcon from "./HelpIcon";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
-import Sidebar from "./SideBar";
 
 import { useTheme } from "../providers/ThemeProvider";
 import { useRefresh } from "../providers/RefreshContext";
@@ -198,12 +195,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       ) : (
         <ResetIcon onReset={() => {}} />
       );
-    } else if (IconComponent === HelpIcon) {
-      return onClick ? (
-        <HelpIcon toggleSidebar={onClick} />
-      ) : (
-        <HelpIcon toggleSidebar={() => {}} />
-      );
+      // HelpIcon handling removed
     } else {
       // Fallback for any other icon component
       return <IconComponent />;
@@ -261,14 +253,19 @@ export default function NavBar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [isHorizontalExpanded, setIsHorizontalExpanded] = useState(false);
-  const sidebarRef = useRef<{ toggleSidebar: () => void }>(null);
+  // Sidebar reference removed
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
-  // Check if we're in Chat UI mode
-  const isChatUI =
-    location.pathname === "/chat-ui" ||
-    location.pathname === "/image-generation";
+  // Check if we're in Chat UI or Image Generation mode
+  const isChatUI = location.pathname === "/chat-ui";
+  const isImageGeneration = location.pathname === "/image-generation";
+  const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
+
+  console.log("Path:", location.pathname);
+  console.log("isChatUI:", isChatUI);
+  console.log("isImageGeneration:", isImageGeneration);
+  console.log("shouldUseVerticalNav:", shouldUseVerticalNav);
 
   // Track window resize for responsive behavior
   useEffect(() => {
@@ -312,15 +309,12 @@ export default function NavBar() {
     refreshModels();
   }, [refreshModels, refreshTrigger]);
 
-  // Determine if mobile view should be used
   const isMobile = windowWidth < 640;
 
-  // Hide navbar when in mobile AND chat UI mode
   if (isMobile && isChatUI) {
     return null;
   }
 
-  const shouldUseVerticalNav = isChatUI; // Use vertical nav in Chat UI for non-mobile
   const shouldShowMobileMenu = isMobile && !shouldUseVerticalNav;
 
   const isRouteActive = (route: string): boolean => {
@@ -353,11 +347,7 @@ export default function NavBar() {
     triggerRefresh();
   };
 
-  const handleToggleSidebar = () => {
-    if (sidebarRef.current) {
-      sidebarRef.current.toggleSidebar();
-    }
-  };
+  // Sidebar toggle function removed
 
   const handleNavigation = (route: string): void => {
     if (isDeployedEnabled) {
@@ -375,10 +365,6 @@ export default function NavBar() {
     } else {
       navigate(route);
     }
-  };
-
-  const handleImageGenerationClick = () => {
-    handleNavigation("/image-generation");
   };
 
   const handleImageGenerationClick = () => {
@@ -424,65 +410,72 @@ export default function NavBar() {
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
-  const modelNavItems: NavItemData[] = [
-    {
-      type: "button",
-      icon: BotMessageSquare,
-      label: "Chat UI",
-      onClick: () => handleNavigation("/chat-ui"),
-      isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
-      tooltipText: isDeployedEnabled
-        ? "Chat UI with Llama 3.1 70B"
-        : models.length > 0
+  const createModelNavItems = (): NavItemData[] => {
+    // Base items that are always included
+    const items: NavItemData[] = [
+      {
+        type: "button",
+        icon: BotMessageSquare,
+        label: "Chat UI",
+        onClick: () => handleNavigation("/chat-ui"),
+        isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
+        tooltipText: isDeployedEnabled
           ? "Chat UI with Llama 3.1 70B"
-          : "Deploy a model to use Chat UI with Llama 3.1 70B",
-      route: "/chat-ui", // Add route for active state detection
-    },
-    {
-      type: "button",
-      icon: Image,
-      label: "Image Generation",
-      onClick: handleImageGenerationClick,
-      isDisabled: !isDeployedEnabled && models.length === 0,
-      tooltipText: isDeployedEnabled
-        ? "Open Image Generation"
-        : models.length > 0
-          ? "Open Image Generation"
-          : "Deploy a model to use Image Generation",
-      route: "/image-generation",
-    },
-    {
-      type: "button",
-      icon: Eye,
-      label: "Object Detection",
-      onClick: () => handleNavigation("/object-detection"),
-      isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
-      tooltipText: isDeployedEnabled
-        ? "Object Detection with YOLOv5"
-        : models.length > 0
+          : models.length > 0
+            ? "Chat UI with Llama 3.1 70B"
+            : "Deploy a model to use Chat UI with Llama 3.1 70B",
+        route: "/chat-ui", // Add route for active state detection
+      },
+      {
+        type: "button",
+        icon: Eye,
+        label: "Object Detection",
+        onClick: () => handleNavigation("/object-detection"),
+        isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
+        tooltipText: isDeployedEnabled
           ? "Object Detection with YOLOv5"
-          : "Deploy a model to use Object Detection with YOLOv5",
-      route: "/object-detection", // Add route for active state detection
-    },
-    {
-      type: "button",
-      icon: AudioLines,
-      label: "Whisper Detection",
-      onClick: () => handleNavigation("/audio-detection"),
-      isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
-      tooltipText: isDeployedEnabled
-        ? "Audio Transcription with Whisper Model"
-        : models.length > 0
+          : models.length > 0
+            ? "Object Detection with YOLOv5"
+            : "Deploy a model to use Object Detection with YOLOv5",
+        route: "/object-detection", // Add route for active state detection
+      },
+      {
+        type: "button",
+        icon: AudioLines,
+        label: "Whisper Detection",
+        onClick: () => handleNavigation("/audio-detection"),
+        isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
+        tooltipText: isDeployedEnabled
           ? "Audio Transcription with Whisper Model"
-          : "Deploy a model to use Whisper Model Audio Transcription",
-      route: "/audio-detection", // Add route for active state detection
-    },
-  ];
+          : models.length > 0
+            ? "Audio Transcription with Whisper Model"
+            : "Deploy a model to use Whisper Model Audio Transcription",
+        route: "/audio-detection", // Add route for active state detection
+      },
+    ];
+
+    if (!isDeployedEnabled) {
+      items.splice(1, 0, {
+        type: "button",
+        icon: Image,
+        label: "Image Generation",
+        onClick: handleImageGenerationClick,
+        isDisabled: !isDeployedEnabled && models.length === 0,
+        tooltipText:
+          models.length > 0
+            ? "Open Image Generation"
+            : "Deploy a model to use Image Generation",
+        route: "/image-generation",
+      });
+    }
+
+    return items;
+  };
 
   // Select the appropriate navigation items based on the environment variable
   const navItems: NavItemData[] = [
     ...baseNavItems,
-    ...(isDeployedEnabled ? modelNavItems : deployedNavItems),
+    ...(isDeployedEnabled ? createModelNavItems() : deployedNavItems),
   ];
 
   // Define action buttons based on deployment state - include HelpIcon
@@ -501,14 +494,9 @@ export default function NavBar() {
             onClick: handleReset,
           },
         ]),
-    {
-      icon: HelpIcon,
-      tooltipText: "Get Help",
-      onClick: handleToggleSidebar,
-    },
   ];
 
-  // Render vertical navbar for chat UI mode (non-mobile)
+  // Render vertical navbar for chat UI mode or image generation (regardless of device)
   if (shouldUseVerticalNav) {
     return (
       <TooltipProvider>
@@ -582,13 +570,11 @@ export default function NavBar() {
               ))}
             </div>
           </div>
-          <Sidebar ref={sidebarRef} />
         </div>
       </TooltipProvider>
     );
   }
 
-  // Horizontal navbar on mobile screens
   if (shouldShowMobileMenu) {
     return (
       <TooltipProvider>
@@ -612,7 +598,6 @@ export default function NavBar() {
             </a>
 
             <div className="flex items-center">
-              {/* Show all nav icons by default */}
               <div className="flex items-center space-x-1 list-none">
                 {navItems.map((item) => (
                   <div key={item.label}>
@@ -649,7 +634,6 @@ export default function NavBar() {
                 ))}
               </div>
 
-              {/* Expand button - only show if needed */}
               {isHorizontalExpanded ? (
                 <button
                   onClick={toggleHorizontalExpand}
@@ -680,7 +664,6 @@ export default function NavBar() {
             </div>
           </div>
 
-          {/* Expanded Horizontal Menu */}
           {isHorizontalExpanded && (
             <motion.div
               ref={mobileMenuRef}
@@ -726,8 +709,6 @@ export default function NavBar() {
                   ))}
                 </NavigationMenuList>
               </NavigationMenu>
-
-              {/* Action Buttons in Expanded Menu */}
               <div className="flex justify-center mt-4 pb-2">
                 {actionButtons.map((button) => (
                   <ActionButton
@@ -740,13 +721,11 @@ export default function NavBar() {
               </div>
             </motion.div>
           )}
-          <Sidebar ref={sidebarRef} />
         </div>
       </TooltipProvider>
     );
   }
 
-  // Original horizontal navbar for normal mode and larger screens
   return (
     <TooltipProvider>
       <div className="relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
@@ -837,7 +816,6 @@ export default function NavBar() {
             ))}
           </div>
         </div>
-        <Sidebar ref={sidebarRef} />
       </div>
     </TooltipProvider>
   );
