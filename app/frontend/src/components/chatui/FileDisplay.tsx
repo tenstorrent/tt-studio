@@ -42,6 +42,7 @@ const getFileExtension = (filename: string): string => {
   return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : "";
 };
 
+// Function to get friendly file type name for display
 const getFileTypeName = (filename: string): string => {
   const extension = getFileExtension(filename);
 
@@ -149,6 +150,7 @@ const getFileIcon = (file: FileData) => {
   }
 };
 
+// Function to get appropriate background color for file type badges
 const getFileTypeBgColor = (filename: string): string => {
   const extension = getFileExtension(filename);
 
@@ -269,10 +271,15 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
                       </div>
 
                       {/* Mobile view for minimized images */}
-                      <div className="sm:hidden relative group">
-                        <div
+                      <div className="sm:hidden relative group touch-manipulation">
+                        <button
                           className="w-[40px] h-[40px] rounded-lg bg-gray-700/50 border border-gray-600 flex items-center justify-center cursor-pointer"
                           onClick={() => toggleMinimizeFile(fileId)}
+                          onTouchStart={(e) => {
+                            // Prevent default to ensure touch works properly
+                            e.preventDefault();
+                            toggleMinimizeFile(fileId);
+                          }}
                         >
                           <Image className="h-5 w-5 text-gray-400" />
 
@@ -280,10 +287,10 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
                           <div className="absolute -bottom-1 -right-1 text-[8px] px-1 py-0 rounded-full bg-purple-500/80 text-white font-medium">
                             IMG
                           </div>
-                        </div>
+                        </button>
 
-                        {/* Hover/tap info for mobile */}
-                        <div className="absolute left-0 top-full mt-1 z-10 bg-gray-800 rounded-md p-2 shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-200">
+                        {/* Hover/tap info for mobile - positioned to avoid going off screen */}
+                        <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-10 bg-gray-800 rounded-md p-2 shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-200 min-w-max">
                           <div className="text-xs text-gray-300 whitespace-nowrap">
                             {file.name}
                           </div>
@@ -334,10 +341,15 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
                 </div>
 
                 {/* Mobile view for regular files */}
-                <div className="sm:hidden relative group">
-                  <div
+                <div className="sm:hidden relative group touch-manipulation">
+                  <button
                     className="w-[40px] h-[40px] rounded-lg bg-gray-700/50 border border-gray-600 flex items-center justify-center cursor-pointer"
                     onClick={() => onFileClick(file.url || "", file.name)}
+                    onTouchStart={(e) => {
+                      // Prevent default to ensure touch works properly
+                      e.preventDefault();
+                      onFileClick(file.url || "", file.name);
+                    }}
                   >
                     {getFileIcon(file)}
 
@@ -347,10 +359,10 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
                     >
                       {shortFileType}
                     </div>
-                  </div>
+                  </button>
 
-                  {/* Hover/tap info for mobile */}
-                  <div className="absolute left-0 top-full mt-1 z-10 bg-gray-800 rounded-md p-2 shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-200">
+                  {/* Hover/tap info for mobile - positioned to avoid going off screen */}
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-10 bg-gray-800 rounded-md p-2 shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-200 min-w-max">
                     <div className="text-xs text-gray-300 whitespace-nowrap">
                       {file.name}
                       <div className="flex items-center gap-1.5 mt-1">
