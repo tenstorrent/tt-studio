@@ -39,7 +39,7 @@ import CustomToaster from "./CustomToaster";
 import { useTheme } from "../providers/ThemeProvider";
 import { useRefresh } from "../providers/RefreshContext";
 import { useModels } from "../providers/ModelsContext";
-import { handleModelNavigationClick } from "../api/modelsDeployedApis";
+import { getDestinationFromModelType, ModelType } from "../api/modelsDeployedApis";
 
 interface AnimatedIconProps {
   icon: LucideIcon;
@@ -63,7 +63,6 @@ AnimatedIcon.displayName = "AnimatedIcon";
 
 export default function NavBar() {
   const location = useLocation();
-  const navigate = useNavigate();
   const { theme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
   const { models, refreshModels } = useModels();
@@ -84,12 +83,14 @@ export default function NavBar() {
     [textColor],
   );
 
-  const getNavLinkClass = (isActive: boolean, isChatUIIcon = false) =>
-    `${navLinkClass} ${
+  const getNavLinkClass = (isActive: boolean, isChatUIIcon = false) => {
+    console.log(location.pathname);
+    return `${navLinkClass} ${
       isActive || (isChatUIIcon && location.pathname === "/chat-ui")
         ? `border-2 ${activeBorderColor}`
         : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
+  }
 
   const handleToggleSidebar = () => {
     if (sidebarRef.current) {
@@ -101,36 +102,45 @@ export default function NavBar() {
     triggerRefresh();
   };
 
-  const handleNavigation = (route: string) => {
-    if (models.length > 0) {
-      const firstModel = models[0];
-      if (firstModel.id && firstModel.name) {
-        handleModelNavigationClick(firstModel.id, firstModel.name, navigate);
-      } else {
-        console.error("Model ID or name is undefined");
-      }
-    } else {
-      navigate(route);
+  const getNavIconFromModelType = (model_type: string) => {
+    switch (model_type) {
+      case ModelType.ChatModel:
+        return ({ className }: {className: string}) => {
+          return (
+            <BotMessageSquare className={className} />
+          )
+        }
+      case ModelType.ImageGeneration:
+        return ({ className }: {className: string}) => {
+          return (
+            <Image className={className} />
+          )
+        }
+      case ModelType.ObjectDetection:
+        return ({ className }: {className: string}) => {
+          return (
+            <Eye className={className} />
+          )
+        }
     }
   };
 
-  const handleImageGenerationClick = () => {
-    handleNavigation("/image-generation");
-  };
-
-  const handleChatUIClick = () => {
-    handleNavigation("/models-deployed");
-  };
-
-  const handleObjectDetectionClick = () => {
-    handleNavigation("/object-detection");
-  };
+  const getModelPageNameFromModelType = (model_type: string) => {
+    switch (model_type) {
+      case ModelType.ChatModel:
+        return "Chat UI";
+      case ModelType.ImageGeneration:
+        return "Image Generation";
+      case ModelType.ObjectDetection:
+        return "Object Detection";
+    } 
+  }
 
   useEffect(() => {
     refreshModels();
   }, [refreshModels, refreshTrigger]);
 
-  const isVerticalLayout = location.pathname === "/chat-ui" || location.pathname === "/image-generation";
+  const isVerticalLayout = location.pathname === getDestinationFromModelType(ModelType.ChatModel) || location.pathname === getDestinationFromModelType(ModelType.ImageGeneration);
 
   return (
     <div>
@@ -315,94 +325,43 @@ export default function NavBar() {
                     orientation="vertical"
                   />
                 )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={handleImageGenerationClick}
-                        className={`${getNavLinkClass(false, true)} ${
-                          models.length > 0
-                            ? ""
-                            : "opacity-50 cursor-not-allowed"
-                        }`}
+                {models.map((model, index, array) => {
+                  const is_last = index === array.length - 1;
+                  const icon = getNavIconFromModelType(model.model_type);
+                  const modelPageName = getModelPageNameFromModelType(model.model_type);
+                  const navDestination = getDestinationFromModelType(model.model_type);
+                  return (
+                    <div className="flex flex-row items-center">
+                      <NavigationMenuItem
+                        className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
                       >
-                        <Image
-                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                        />
-                        {!isVerticalLayout && <span>Image Generation</span>}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {models.length > 0
-                        ? "Open Image Generation"
-                        : "Deploy a model to use Image Generation"}
-                    </TooltipContent>
-                  </Tooltip>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={handleChatUIClick}
-                        className={`${getNavLinkClass(false, true)} ${
-                          models.length > 0
-                            ? ""
-                            : "opacity-50 cursor-not-allowed"
-                        }`}
+                      <NavLink
+                        to={navDestination}
+                        state={{ containerID: model.id, modelName: model.name }}
+                        className={({ isActive }) => getNavLinkClass(isActive)}
                       >
-                        <BotMessageSquare
-                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex flex-row items-center">
+                              {icon && icon({className: `mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`})}
+                              {!isVerticalLayout && <span>{modelPageName}</span>}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Open {modelPageName}
+                          </TooltipContent>
+                        </Tooltip>
+                      </NavLink>
+                      </NavigationMenuItem>
+                      {(!isVerticalLayout && !is_last) && (
+                        <Separator
+                          className="h-6 w-px bg-zinc-400"
+                          orientation="vertical"
                         />
-                        {!isVerticalLayout && <span>Chat UI</span>}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {models.length > 0
-                        ? "Open Chat UI"
-                        : "Deploy a model to use Chat UI"}
-                    </TooltipContent>
-                  </Tooltip>
-                </NavigationMenuItem>
-                {!isVerticalLayout && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400"
-                    orientation="vertical"
-                  />
-                )}
-                <NavigationMenuItem
-                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={handleObjectDetectionClick}
-                        className={`${getNavLinkClass(false)} ${
-                          models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
-                        }`}
-                      >
-                        <Eye
-                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-                        />
-                        {!isVerticalLayout && <span>Object Detection</span>}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {models.length > 0
-                        ? "Open Object Detection"
-                        : "Deploy a model to use Object Detection"}
-                    </TooltipContent>
-                  </Tooltip>
-                </NavigationMenuItem>
+                      )}
+                    </div>
+                  )
+                })}
               </NavigationMenuList>
             </NavigationMenu>
             {!isVerticalLayout && (
