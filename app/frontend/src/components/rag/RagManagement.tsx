@@ -16,7 +16,7 @@ import {
 import CopyableText from "@/src/components/CopyableText";
 import { useTheme } from "@/src/providers/ThemeProvider";
 import CustomToaster, { customToast } from "@/src/components/CustomToaster";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import RagDataSourceForm from "./RagDataSourceForm";
 import { Spinner } from "@/src/components/ui/spinner";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
@@ -34,6 +34,42 @@ import {
   User,
   Settings,
 } from "lucide-react";
+
+// LocalStorage key for browser ID
+const BROWSER_ID_KEY = "tt_studio_browser_id";
+
+// Get browser ID from localStorage or create a new one
+const getBrowserId = (): string => {
+  let browserId = localStorage.getItem(BROWSER_ID_KEY);
+
+  if (!browserId) {
+    browserId = crypto.randomUUID();
+    localStorage.setItem(BROWSER_ID_KEY, browserId);
+  }
+
+  return browserId;
+};
+
+// Add browser ID to headers for all fetch requests
+const originalFetch = window.fetch;
+window.fetch = function (
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  // Create new options object to avoid mutating the original
+  const newInit: RequestInit = { ...(init || {}) };
+
+  // Initialize headers if not present
+  newInit.headers = newInit.headers || {};
+
+  // Add browser ID header to all requests
+  newInit.headers = {
+    ...newInit.headers,
+    "X-Browser-ID": getBrowserId(),
+  };
+
+  return originalFetch(input, newInit);
+};
 
 interface RagDataSource {
   id: string;
@@ -71,6 +107,12 @@ export default function RagManagement() {
   );
 
   const { theme } = useTheme();
+
+  // Ensure browser ID is initialized on component mount
+  useEffect(() => {
+    // This just makes sure browser ID is initialized
+    getBrowserId();
+  }, []);
 
   // Fetch collections
   const {
