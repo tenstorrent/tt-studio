@@ -295,7 +295,7 @@ export default function ChatComponent() {
         files: files,
       };
 
-      console.log("Running inference with request:", inferenceRequest);
+      // console.log("Running inference with request:", inferenceRequest);
       setIsStreaming(true);
 
       if (screenSize.isMobileView) {
@@ -439,10 +439,10 @@ export default function ChatComponent() {
                     currentHistory[currentHistory.length - 1];
                   if (!updatedMessage) return msg;
 
-                  console.log(
-                    "Inference stats received:",
-                    updatedMessage.inferenceStats
-                  );
+                  // console.log(
+                  //   "Inference stats received:",
+                  //   updatedMessage.inferenceStats
+                  // );
                   return {
                     ...msg,
                     text: updatedMessage.text || msg.text,
@@ -594,7 +594,7 @@ export default function ChatComponent() {
         lastMessage.sender === "assistant" &&
         lastMessage.inferenceStats
       ) {
-        console.log("Inference stats updated:", lastMessage.inferenceStats);
+        // console.log("Inference stats updated:", lastMessage.inferenceStats);
       }
     }
   }, [chatThreads, currentThreadIndex, getCurrentThread]);
