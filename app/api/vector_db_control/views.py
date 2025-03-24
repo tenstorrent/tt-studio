@@ -85,6 +85,25 @@ class VectorCollectionsAPIView(ViewSet):
             # Add user identifier to collection metadata
             user_id = self.get_user_identifier(request)
             logger.info(f"User identifier for post: {user_id}")
+            
+            # Check if collection with this name already exists
+            collections: List[Collection] = list_collections()
+            existing_collection = next((col for col in collections if col.name == name), None)
+            
+            if existing_collection:
+                logger.warning(f"Collection with name {name} already exists")
+                # Check if the collection is owned by the current user
+                if existing_collection.metadata and existing_collection.metadata.get('user_id') == user_id:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"error": f"A collection with name '{name}' already exists and is owned by you."}
+                    )
+                else:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"error": f"A collection with name '{name}' already exists and is owned by another user."}
+                    )
+            
             metadata.update({"user_id": user_id})
             
             logger.info(f"Final metadata for creation: {metadata}")

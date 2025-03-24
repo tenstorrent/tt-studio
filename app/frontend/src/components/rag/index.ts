@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import axios from "axios";
+import { customToast } from "../CustomToaster";
 
 const collectionsAPIURL = "/collections-api";
 
@@ -38,6 +39,11 @@ export const createCollection = async ({
     return response.data;
   } catch (error) {
     console.error("Error creating collection:", error);
+    // Extract error message from the response if available
+    if (axios.isAxiosError(error) && error.response?.data?.error) {
+      customToast.error("Collection name already exists");
+      throw new Error(error.response.data.error);
+    }
     throw error;
   }
 };

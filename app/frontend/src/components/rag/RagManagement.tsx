@@ -145,9 +145,12 @@ export default function RagManagement() {
     mutationFn: createCollection,
     onSuccess: (_data, variables) => {
       customToast.success(
-        `Created new collection: ${variables.collectionName}`
+        `RAG Datasource created successfully: ${variables.collectionName}`
       );
       queryClient.invalidateQueries(["collectionsList"]);
+    },
+    onError: (error: any) => {
+      console.error("Error in createCollectionMutation:", error);
     },
   });
 

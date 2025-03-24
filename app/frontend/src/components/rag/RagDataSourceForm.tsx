@@ -37,11 +37,15 @@ const RagDataSourceForm = ({
   const onSubmitForm = async (data: z.infer<typeof formSchema>) => {
     try {
       await onSubmit({ collectionName: data.name });
+      // Only reset if no error was thrown
       reset();
-      customToast.success("RAG Datasource created successfully.");
     } catch (error) {
       console.error("Error creating RAG Datasource:", error);
-      customToast.error("Failed to create RAG Datasource. Please try again.");
+      if (error instanceof Error) {
+        customToast.error(error.message);
+      } else {
+        customToast.error("Failed to create RAG Datasource. Please try again.");
+      }
     }
   };
 
