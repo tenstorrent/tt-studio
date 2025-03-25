@@ -42,6 +42,7 @@ services:
       - TAVILY_API_KEY
       - CLOUD_CHAT_UI_URL
       - CLOUD_CHAT_UI_AUTH_TOKEN
+      - RAG_ADMIN_PASSWORD
 
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
@@ -74,6 +75,7 @@ services:
     environment:
       - VITE_ENABLE_DEPLOYED
       - VITE_APP_TITLE
+      - VITE_ENABLE_RAG_ADMIN
 
     # volumes:
     #! for development mount api changes

@@ -2,6 +2,7 @@
 #
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+import os
 import uuid
 import json
 from typing import List
@@ -10,7 +11,7 @@ import pypdf
 from chromadb.types import Collection
 from django.conf import settings
 from rest_framework import status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
@@ -244,3 +245,94 @@ class VectorCollectionsAPIView(ViewSet):
         logger.info(f"Query completed with {num_results} results")
         
         return Response(data=query_result)
+
+
+@api_view(['POST'])
+def rag_admin_authenticate(request):
+    """Authenticate admin access with password from environment variable"""
+    try:
+        # Get the password from the request
+        password = request.data.get('password')
+        
+        # Get the admin password from settings or environment
+        admin_password = getattr(settings, 'RAG_ADMIN_PASSWORD', os.environ.get('RAG_ADMIN_PASSWORD'))
+        
+        if not admin_password:
+            logger.error("RAG_ADMIN_PASSWORD not configured in settings or environment")
+            return Response(
+                {"error": "Admin authentication not configured"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
+        # Validate password
+        if password != admin_password:
+            logger.warning(f"Failed admin authentication attempt")
+            return Response(
+                {"error": "Invalid credentials"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+            
+        # Password is correct, return success
+        return Response({"authenticated": True}, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error in admin authentication: {str(e)}", exc_info=True)
+        return Response(
+            {"error": f"Authentication error: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+def rag_admin_list_all_collections(request):
+    """List all collections regardless of user_id, requires authentication"""
+    try:
+        # Get the password from the request
+        password = request.data.get('password')
+        
+        # Get the admin password from settings or environment
+        admin_password = getattr(settings, 'RAG_ADMIN_PASSWORD', os.environ.get('RAG_ADMIN_PASSWORD'))
+        
+        if not admin_password:
+            logger.error("RAG_ADMIN_PASSWORD not configured in settings or environment")
+            return Response(
+                {"error": "Admin authentication not configured"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
+        # Validate password
+        if password != admin_password:
+            logger.warning(f"Failed admin authentication attempt")
+            return Response(
+                {"error": "Invalid credentials"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Get all collections without filtering by user_id
+        collections = list_collections()
+        logger.info(f"Admin view: Retrieved {len(collections)} total collections")
+        
+        # Serialize collections
+        serialized_collections = list(map(serialize_collection, collections))
+        
+        # Add detailed user info to response
+        for collection in serialized_collections:
+            user_id = collection.get('metadata', {}).get('user_id', 'Unknown')
+            
+            if user_id and user_id.startswith('session_'):
+                collection['user_type'] = 'Anonymous (Browser Session)'
+                collection['user_identifier'] = user_id[8:]  # Remove 'session_' prefix
+            elif user_id and user_id.startswith('user_'):
+                collection['user_type'] = 'Authenticated User'
+                collection['user_identifier'] = user_id[5:]  # Remove 'user_' prefix
+            else:
+                collection['user_type'] = 'Unknown'
+                collection['user_identifier'] = user_id
+        
+        return Response(data=serialized_collections)
+        
+    except Exception as e:
+        logger.error(f"Error in admin collections view: {str(e)}", exc_info=True)
+        return Response(
+            {"error": f"Error retrieving collections: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
