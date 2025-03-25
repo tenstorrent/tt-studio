@@ -152,7 +152,7 @@ class VectorCollectionsAPIView(ViewSet):
 
     @action(methods=["DELETE"], detail=True)
     def delete(self, request, pk=None):
-        logger.info(f"Delete request for collection: {pk}")
+        logger.info(f"###Delete request for collection: {pk}")
         if not pk:
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -246,7 +246,7 @@ class VectorCollectionsAPIView(ViewSet):
         
         return Response(data=query_result)
 
-
+# rag admin views
 @api_view(['POST'])
 def rag_admin_authenticate(request):
     """Authenticate admin access with password from environment variable"""
@@ -334,5 +334,64 @@ def rag_admin_list_all_collections(request):
         logger.error(f"Error in admin collections view: {str(e)}", exc_info=True)
         return Response(
             {"error": f"Error retrieving collections: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+def rag_admin_delete_collection(request):
+    """Delete a collection with admin privileges, regardless of owner"""
+    logger.info(f"@@***Admin delete collection request received. Headers: {request.headers}")
+    logger.info(f"Request data: {request.data}")
+    
+    # Get request parameters
+    password = request.data.get('password')
+    collection_name = request.data.get('collection_name')
+    logger.info(f"Attempting to delete collection: {collection_name}")
+    
+    # Validate input
+    if not collection_name:
+        logger.error("No collection name provided for deletion")
+        return Response(
+            {"error": "No collection name provided"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Authenticate admin
+    admin_password = getattr(settings, 'RAG_ADMIN_PASSWORD', os.environ.get('RAG_ADMIN_PASSWORD'))
+    if not admin_password:
+        logger.error("RAG_ADMIN_PASSWORD not configured")
+        return Response(
+            {"error": "Admin authentication not configured"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+    if password != admin_password:
+        logger.warning(f"Failed admin authentication attempt for deletion")
+        return Response(
+            {"error": "Invalid credentials"},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    # Admin is authenticated, delete the collection
+    try:
+        delete_collection(collection_name=collection_name)
+        logger.info(f"Admin deleted collection: {collection_name}")
+        return Response(
+            {"success": True, "message": f"Collection '{collection_name}' successfully deleted"},
+            status=status.HTTP_200_OK
+        )
+    except Exception as e:
+        # Handle "collection doesn't exist" error gracefully
+        if "does not exist" in str(e).lower():
+            logger.info(f"Collection {collection_name} doesn't exist or was already deleted")
+            return Response(
+                {"success": True, "message": f"Collection '{collection_name}' already deleted or doesn't exist"},
+                status=status.HTTP_200_OK
+            )
+        
+        # Handle other errors
+        logger.error(f"Error in admin delete collection: {str(e)}", exc_info=True)
+        return Response(
+            {"error": f"Error deleting collection: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

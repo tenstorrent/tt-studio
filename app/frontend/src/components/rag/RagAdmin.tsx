@@ -30,7 +30,20 @@ import {
   UserCheck,
   Globe,
   AlertTriangle,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/src/components/ui/alert-dialog";
 
 // Interface for RagDataSource with admin fields
 interface AdminRagDataSource {
@@ -47,6 +60,9 @@ export default function RagAdmin() {
   const [isLoading, setIsLoading] = useState(false);
   const [collections, setCollections] = useState<AdminRagDataSource[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [deletingCollection, setDeletingCollection] = useState<string | null>(
+    null
+  );
 
   const { theme } = useTheme();
 
@@ -108,6 +124,43 @@ export default function RagAdmin() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Function to delete a collection
+  const handleDeleteCollection = async (collectionId: string) => {
+    setDeletingCollection(collectionId);
+
+    try {
+      const response = await axios.post(
+        "/collections-api/admin/delete-collection",
+        {
+          collection_name: collectionId,
+          password,
+        }
+      );
+
+      if (response.data.success) {
+        customToast.success(
+          `Collection '${collectionId}' deleted successfully`
+        );
+        // Refresh collections list
+        fetchCollections();
+      } else {
+        customToast.error("Failed to delete collection");
+      }
+    } catch (err: any) {
+      console.error("Error deleting collection:", err);
+      customToast.error(
+        err.response?.data?.error || "Failed to delete collection"
+      );
+
+      // If unauthorized, log out
+      if (err.response?.status === 401) {
+        setIsAuthenticated(false);
+      }
+    } finally {
+      setDeletingCollection(null);
     }
   };
 
@@ -179,10 +232,23 @@ export default function RagAdmin() {
           <h2 className="text-2xl font-bold">RAG Admin Panel</h2>
         </div>
 
-        <Button onClick={handleLogout} className="bg-red-600 hover:bg-red-700">
-          <Lock className="w-4 h-4 mr-2" />
-          Logout
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={fetchCollections}
+            className="bg-blue-600 hover:bg-blue-700"
+            disabled={isLoading}
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+          <Button
+            onClick={handleLogout}
+            className="bg-red-600 hover:bg-red-700"
+          >
+            <Lock className="w-4 h-4 mr-2" />
+            Logout
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -194,6 +260,12 @@ export default function RagAdmin() {
           <Table className="rounded-lg">
             <TableCaption className="text-TT-black dark:text-TT-white text-xl">
               All Collections ({collections.length})
+              {collections.length === 0 && !isLoading && (
+                <div className="mt-4 text-gray-500">
+                  No collections found. Create a collection or check your
+                  authentication.
+                </div>
+              )}
             </TableCaption>
             <TableHeader>
               <TableRow
@@ -235,6 +307,12 @@ export default function RagAdmin() {
                     Creation Time
                   </div>
                 </TableHead>
+                <TableHead className="text-left">
+                  <div className="flex items-center gap-2">
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                    Actions
+                  </div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -269,6 +347,50 @@ export default function RagAdmin() {
                   </TableCell>
                   <TableCell className="text-left">
                     {item.metadata?.created_at || "Unknown"}
+                  </TableCell>
+                  <TableCell className="text-left">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          className="bg-red-600 hover:bg-red-700"
+                          disabled={deletingCollection === item.id}
+                        >
+                          {deletingCollection === item.id ? (
+                            <Spinner />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                          <span className="ml-2">Delete</span>
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Collection</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete the collection "
+                            {item.name}" (ID: {item.id})?
+                            <br />
+                            <br />
+                            <strong className="text-red-500">
+                              This action cannot be undone.
+                            </strong>
+                            <br />
+                            <br />
+                            Owner: {item.user_type} ({item.user_identifier})
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleDeleteCollection(item.name)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </TableCell>
                 </TableRow>
               ))}
