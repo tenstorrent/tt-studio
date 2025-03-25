@@ -55,6 +55,7 @@ export const ModelType = {
   ChatModel: "ChatModel",
   ImageGeneration: "ImageGeneration",
   ObjectDetection: "ObjectDetection",
+  SpeechRecognition: "SpeechRecognition",
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -84,6 +85,9 @@ export const fetchModels = async (): Promise<Model[]> => {
           break;
         case "OBJECT_DETECTION":
           model_type = ModelType.ObjectDetection;
+          break;
+        case "SPEECH_RECOGNITION":
+          model_type = ModelType.SpeechRecognition;
           break;
         default:
           throw new Error("No valid ModelType enumeration.");

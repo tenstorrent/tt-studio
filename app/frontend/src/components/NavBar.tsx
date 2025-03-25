@@ -13,6 +13,7 @@ import {
   FileText,
   Image,
   Eye,
+  Speech,
   type LucideIcon,
 } from "lucide-react";
 
@@ -122,6 +123,12 @@ export default function NavBar() {
             <Eye className={className} />
           )
         }
+      case ModelType.SpeechRecognition:
+        return ({ className }: {className: string}) => {
+          return (
+            <Speech className={className} />
+          )
+        }
     }
   };
 
@@ -133,6 +140,10 @@ export default function NavBar() {
         return "Image Generation";
       case ModelType.ObjectDetection:
         return "Object Detection";
+      case ModelType.SpeechRecognition:
+        return "Speech Recognition";
+      default:
+        return "ERROR"
     } 
   }
 

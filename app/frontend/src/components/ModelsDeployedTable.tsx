@@ -45,6 +45,7 @@ import {
   MessageSquare,
   AlertCircle,
   Eye,
+  Speech,
 } from "lucide-react";
 import {
   Tooltip,
@@ -147,6 +148,8 @@ export default function ModelsDeployedTable() {
         return <Image className="w-4 h-4 mr-2" />
       case ModelType.ObjectDetection:
         return <Eye className="w-4 h-4 mr-2" />
+      case ModelType.SpeechRecognition:
+        return <Speech className="w-4 h-4 mr-2" />
       default:
         return <MessageSquare className="w-4 h-4 mr-2" />
     }
