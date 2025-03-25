@@ -21,10 +21,10 @@ services:
       - "8000:8000"
     # command: bash
     # dev server can be used for breakpoint debugging, does not support streaming
-    command: python ./manage.py runserver 0.0.0.0:8000
+    # command: python ./manage.py runserver 0.0.0.0:8000
     # gunicorn is used from production, supports streaming
 
-    # command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
+    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
     depends_on:
       tt_studio_chroma:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # for development mount api changes
-      - ./api:/api
+      # - ./api:/api
 
     healthcheck:
       # On first application load resources for transformers/etc
@@ -69,7 +69,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      #! for development mount api changes
+    #! for development mount api changes
       - ./frontend:/frontend
     # command: sh
     command: bash -c "npm i && npm run dev"
