@@ -54,8 +54,7 @@ export const deleteCollection = async ({
   collectionName: string;
 }) => {
   try {
-    // The @action decorator in Django creates this URL pattern
-    return await axios.delete(`${collectionsAPIURL}/${collectionName}/delete/`);
+    return await axios.delete(`${collectionsAPIURL}/${collectionName}`);
   } catch (error) {
     console.error("Error deleting collection:", error);
     throw error;
