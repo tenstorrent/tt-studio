@@ -16,7 +16,7 @@ import {
 import CopyableText from "@/src/components/CopyableText";
 import { useTheme } from "@/src/providers/ThemeProvider";
 import CustomToaster, { customToast } from "@/src/components/CustomToaster";
-import { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import RagDataSourceForm from "./RagDataSourceForm";
 import { Spinner } from "@/src/components/ui/spinner";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
@@ -33,6 +33,8 @@ import {
   Fingerprint,
   User,
   Settings,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 // LocalStorage key for browser ID
@@ -87,7 +89,7 @@ const TableWrapper = ({ children }: { children: React.ReactNode }) => {
             "radial-gradient(ellipse at center, transparent 20%, black 100%)",
         }}
       ></div>
-      <div className="flex flex-col h-screen w-full md:px-20 pt-8 pb-28 overflow-hidden">
+      <div className="flex flex-col h-screen w-full px-4 md:px-20 pt-8 md:pt-8 pb-16 md:pb-28 overflow-hidden mt-8">
         {children}
       </div>
     </div>
@@ -106,7 +108,18 @@ export default function RagManagement() {
     []
   );
 
+  // State to track expanded rows
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
   const { theme } = useTheme();
+
+  // Toggle expanded row
+  const toggleExpandRow = (id: string) => {
+    setExpandedRows((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
 
   // Ensure browser ID is initialized on component mount
   useEffect(() => {
@@ -182,7 +195,7 @@ export default function RagManagement() {
         <Card
           className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg flex justify-center items-center h-96`}
         >
-          <Spinner />
+          <Spinner size="lg" />
         </Card>
       </TableWrapper>
     );
@@ -213,8 +226,8 @@ export default function RagManagement() {
     });
   };
 
-  // Render table row with file name column
-  const renderRow = ({
+  // Action buttons component for reuse
+  const ActionButtons = ({
     item,
     isUploading,
     onDelete,
@@ -225,60 +238,170 @@ export default function RagManagement() {
     onDelete: (rds: RagDataSource) => void;
     onUploadClick: (rds: RagDataSource) => void;
   }) => (
-    <TableRow key={item.id}>
-      <TableCell className="text-left">
-        <CopyableText text={item.id} />
-      </TableCell>
-      <TableCell className="text-left">
-        <CopyableText text={item.name} />
-      </TableCell>
-      <TableCell className="text-left">
-        {item.metadata?.last_uploaded_document ? (
-          <div className="flex items-center gap-2">
-            <FileType color="red" className="w-4 h-4" />
-            <CopyableText text={item.metadata.last_uploaded_document} />
-          </div>
-        ) : (
-          "No file uploaded"
-        )}
-      </TableCell>
-      <TableCell className="text-left">
-        <div className="flex gap-1">
-          <ConfirmDialog
-            dialogDescription="This action cannot be undone. This will permanently delete the datasource."
-            dialogTitle="Delete Datasource"
-            onConfirm={() => onDelete(item)}
-            alertTrigger={
-              <Button
-                disabled={isUploading}
-                className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </Button>
-            }
-          />
-          <ConfirmDialog
-            dialogDescription="This will replace the existing PDF with the new uploaded PDF. Are you sure you want to continue?"
-            dialogTitle="Replace existing PDF?"
-            onConfirm={() => onUploadClick(item)}
-            alertTrigger={
-              <Button
-                disabled={isUploading}
-                className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-2"
-              >
-                <Upload className="w-4 h-4" />
-                Upload Document
-              </Button>
-            }
-          />
-          <div className={`my-auto ${!isUploading && "invisible"}`}>
-            <Spinner />
-          </div>
+    <div className="flex flex-wrap gap-1 justify-end">
+      <ConfirmDialog
+        dialogDescription="This action cannot be undone. This will permanently delete the datasource."
+        dialogTitle="Delete Datasource"
+        onConfirm={() => onDelete(item)}
+        alertTrigger={
+          <Button
+            disabled={isUploading}
+            className="bg-red-700 dark:bg-red-600 hover:bg-red-500 dark:hover:bg-red-500 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8"
+          >
+            <Trash2 className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden sm:inline ml-1">Delete</span>
+          </Button>
+        }
+      />
+      <ConfirmDialog
+        dialogDescription="This will replace the existing PDF with the new uploaded PDF. Are you sure you want to continue?"
+        dialogTitle="Replace existing PDF?"
+        onConfirm={() => onUploadClick(item)}
+        alertTrigger={
+          <Button
+            disabled={isUploading}
+            className="bg-blue-500 dark:bg-blue-700 hover:bg-blue-600 dark:hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 px-2 py-1 h-auto min-h-8"
+            data-testid="upload-document-button"
+          >
+            <Upload className="w-3 h-3 md:w-4 md:h-4" />
+            <span className="hidden sm:inline ml-1">Upload</span>
+          </Button>
+        }
+      />
+      {isUploading && (
+        <div className="my-auto">
+          <Spinner size="sm" />
         </div>
-      </TableCell>
-    </TableRow>
+      )}
+    </div>
   );
+
+  // Render table row with expandable content
+  const renderRow = ({
+    item,
+    isUploading,
+    onDelete,
+    onUploadClick,
+  }: {
+    item: RagDataSource;
+    isUploading?: boolean;
+    onDelete: (rds: RagDataSource) => void;
+    onUploadClick: (rds: RagDataSource) => void;
+  }) => {
+    const isExpanded = expandedRows[item.id] || false;
+
+    return (
+      <>
+        <TableRow className="cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800 group">
+          {/* Expand/Collapse Button */}
+          <TableCell className="w-8 p-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => toggleExpandRow(item.id)}
+            >
+              {isExpanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </TableCell>
+          {/* Name column - always visible */}
+          <TableCell
+            className="font-medium text-left truncate max-w-[10rem] md:max-w-xs"
+            onClick={() => toggleExpandRow(item.id)}
+          >
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{item.name}</span>
+            </div>
+            {/* File name visible on mobile - below the name */}
+            {item.metadata?.last_uploaded_document && (
+              <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 dark:text-gray-400 sm:hidden">
+                <FileType className="w-3 h-3 flex-shrink-0 text-red-500" />
+                <span className="truncate">
+                  {item.metadata.last_uploaded_document}
+                </span>
+              </div>
+            )}
+          </TableCell>
+          {/* File name column - hidden on smallest screens */}
+          <TableCell
+            className="text-left hidden sm:table-cell truncate max-w-[10rem] md:max-w-xs"
+            onClick={() => toggleExpandRow(item.id)}
+          >
+            {item.metadata?.last_uploaded_document ? (
+              <div className="flex items-center gap-2">
+                <FileType color="red" className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">
+                  {item.metadata.last_uploaded_document}
+                </span>
+              </div>
+            ) : (
+              "No file uploaded"
+            )}
+          </TableCell>
+          {/* Actions column */}
+          <TableCell className="text-right">
+            <ActionButtons
+              item={item}
+              isUploading={isUploading}
+              onDelete={onDelete}
+              onUploadClick={onUploadClick}
+            />
+          </TableCell>
+        </TableRow>
+
+        {/* Expandable row with additional details */}
+        {isExpanded && (
+          <TableRow className="bg-gray-50 dark:bg-zinc-800">
+            <TableCell colSpan={4} className="p-2 md:p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                    <Fingerprint className="w-3 h-3" /> ID
+                  </span>
+                  <div className="mt-1">
+                    <CopyableText text={item.id} />
+                  </div>
+                </div>
+
+                {/* File info display - always present in expanded view */}
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                    <FileType className="w-3 h-3" /> Complete Filename
+                  </span>
+                  <div className="mt-1">
+                    {item.metadata?.last_uploaded_document ? (
+                      <CopyableText
+                        text={item.metadata.last_uploaded_document}
+                      />
+                    ) : (
+                      "No file uploaded"
+                    )}
+                  </div>
+                </div>
+
+                {/* Additional metadata displayed here */}
+                {Object.entries(item.metadata || {})
+                  .filter(([key]) => key !== "last_uploaded_document")
+                  .map(([key, value]) => (
+                    <div key={key} className="flex flex-col">
+                      <span className="font-medium text-gray-500 dark:text-gray-400">
+                        {key}
+                      </span>
+                      <span>{value}</span>
+                    </div>
+                  ))}
+              </div>
+            </TableCell>
+          </TableRow>
+        )}
+      </>
+    );
+  };
 
   return (
     <>
@@ -293,9 +416,9 @@ export default function RagManagement() {
           style={{ display: "none" }}
         />
         <Card
-          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg`}
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg overflow-hidden mt-8 md:mt-0`}
         >
-          <ScrollArea className="whitespace-nowrap rounded-md border">
+          <ScrollArea className="whitespace-nowrap rounded-md border w-full max-w-full p-2 sm:p-0">
             <CustomToaster />
             <RagDataSourceForm
               onSubmit={async (d) =>
@@ -304,57 +427,60 @@ export default function RagManagement() {
                 })
               }
             />
-            <Table className="rounded-lg">
-              <TableCaption className="text-TT-black dark:text-TT-white text-xl">
-                Manage Rag Datasources
-              </TableCaption>
-              <TableHeader>
-                <TableRow
-                  className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
-                >
-                  <TableHead className="text-left">
-                    <div className="flex items-center gap-2">
-                      <Fingerprint className="w-4 h-4" />
-                      ID
-                    </div>
-                  </TableHead>
-                  <TableHead className="text-left">
-                    <div className="flex items-center gap-2">
-                      <User className="w-4 h-4" />
-                      Name
-                    </div>
-                  </TableHead>
-                  <TableHead className="text-left">
-                    <div className="flex items-center gap-2">
-                      <FileType className="w-4 h-4" />
-                      File Name
-                    </div>
-                  </TableHead>
-                  <TableHead className="text-left">
-                    <div className="flex items-center gap-2">
-                      <Settings className="w-4 h-4" />
-                      Manage
-                    </div>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ragDataSources.map((rds: RagDataSource) =>
-                  renderRow({
-                    item: rds,
-                    isUploading: collectionsUploading.includes(rds.name),
-                    onUploadClick: (rds: RagDataSource) => {
-                      setTargetCollection(rds);
-                      inputFile.current?.click();
-                    },
-                    onDelete: (rds: RagDataSource) =>
-                      deleteCollectionMutation.mutate({
-                        collectionName: rds.name,
-                      }),
-                  })
-                )}
-              </TableBody>
-            </Table>
+            <div className="overflow-x-auto">
+              <Table className="w-full">
+                <TableCaption className="text-TT-black dark:text-TT-white text-lg md:text-xl">
+                  Manage Rag Datasources
+                </TableCaption>
+                <TableHeader>
+                  <TableRow
+                    className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
+                  >
+                    {/* Expand column */}
+                    <TableHead className="w-8 p-2"></TableHead>
+                    {/* Name column */}
+                    <TableHead className="text-left">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        <span>Name</span>
+                      </div>
+                    </TableHead>
+                    {/* File name column - hidden on smallest screens */}
+                    <TableHead className="text-left hidden sm:table-cell">
+                      <div className="flex items-center gap-2">
+                        <FileType className="w-4 h-4" />
+                        <span>File Name</span>
+                      </div>
+                    </TableHead>
+                    {/* Actions column */}
+                    <TableHead className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Settings className="w-4 h-4" />
+                        <span className="hidden sm:inline">Manage</span>
+                      </div>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ragDataSources.map((rds: RagDataSource) => (
+                    <React.Fragment key={rds.id}>
+                      {renderRow({
+                        item: rds,
+                        isUploading: collectionsUploading.includes(rds.name),
+                        onUploadClick: (rds: RagDataSource) => {
+                          setTargetCollection(rds);
+                          inputFile.current?.click();
+                        },
+                        onDelete: (rds: RagDataSource) =>
+                          deleteCollectionMutation.mutate({
+                            collectionName: rds.name,
+                          }),
+                      })}
+                    </React.Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </Card>

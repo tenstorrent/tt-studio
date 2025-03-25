@@ -4,12 +4,22 @@
 //  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
 //  SPDX-License-Identifier: MIT
 
-import React from "react";
+import type React from "react";
+import { cn } from "@/src/lib/utils";
 
-export const Spinner: React.FC = () => {
+interface SpinnerProps extends React.HTMLAttributes<HTMLSpanElement> {
+  size?: "xs" | "sm" | "md" | "lg";
+}
+
+export const Spinner: React.FC<SpinnerProps> = ({
+  className,
+  size = "md",
+  ...props
+}) => {
   return (
-    // <div className="spinner border-4 border-t-4 border-gray-200 border-t-blue-500 rounded-full w-6 h-6 animate-spin"></div>
-
-    <span className="loading loading-spinner loading-md"></span>
+    <span
+      className={cn("loading loading-spinner", `loading-${size}`, className)}
+      {...props}
+    />
   );
 };
