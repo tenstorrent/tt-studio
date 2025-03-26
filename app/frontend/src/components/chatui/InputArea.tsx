@@ -3,10 +3,26 @@
 import type React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
-import { Paperclip, Send, X, File, Plus } from "lucide-react";
+import {
+  Paperclip,
+  Send,
+  X,
+  File,
+  Plus,
+  ExternalLink,
+  FileText,
+  FileIcon,
+  Info as InfoIcon,
+} from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
 import { FileUpload } from "../ui/file-upload";
-import { isImageFile, validateFile, encodeFile, isTextFile } from "./fileUtils";
+import {
+  isImageFile,
+  validateFile,
+  encodeFile,
+  isTextFile,
+  isPdfFile,
+} from "./fileUtils";
 import { cn } from "../../lib/utils";
 import type { FileData } from "./types";
 import { customToast } from "../CustomToaster";
@@ -26,6 +42,94 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import { useNavigate } from "react-router-dom";
+
+// Custom PDF Detection Dialog Component
+// Define TypeScript interface for the dialog props
+interface PdfDetectionDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  pdfFileName: string;
+  onNavigate: () => void;
+}
+
+// Custom PDF Detection Dialog Component with proper typing
+function PdfDetectionDialog({
+  open,
+  onOpenChange,
+  pdfFileName,
+  onNavigate,
+}: PdfDetectionDialogProps) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      {/* Solid backdrop overlay */}
+      <div
+        className="fixed inset-0 bg-black opacity-75"
+        onClick={() => onOpenChange(false)}
+      />
+
+      {/* Main dialog container - fixed position in center */}
+      <div className="relative max-w-md w-full bg-[#0A0A13] rounded-lg border border-TT-purple-accent shadow-xl z-[101] mx-4">
+        {/* Dialog header */}
+        <div className="p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="bg-[#1E3A8A] p-2 rounded-full flex-shrink-0">
+              <FileText className="h-6 w-6 text-TT-red-accent" />
+            </div>
+            <h2 className="text-xl font-bold text-blue-100 m-0">
+              PDF Upload Detected
+            </h2>
+          </div>
+
+          {/* Dialog content */}
+          <div className="space-y-4">
+            <p className="text-gray-300 text-base">
+              PDFs need to be uploaded to the RAG management page for
+              processing.
+            </p>
+
+            {pdfFileName && (
+              <div className="bg-[#1F2937] rounded-lg p-3 border border-gray-700">
+                <p className="text-sm text-gray-400 mb-1">File detected:</p>
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <FileIcon className="h-5 w-5 flex-shrink-0 text-red-400" />
+                  <span className="text-blue-200 font-medium truncate">
+                    {pdfFileName}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="text-sm text-gray-400 flex items-center gap-2">
+              <InfoIcon className="h-4 w-4 flex-shrink-0 text-TT-purple-tint2" />
+              <span>PDFs require special processing.</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Dialog footer */}
+        <div className="bg-[#111827] px-5 py-4 rounded-b-lg flex justify-end gap-3">
+          <button
+            onClick={() => onOpenChange(false)}
+            className="px-4 py-2 rounded-md bg-TT-purple-accent border border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+
+          <button
+            onClick={onNavigate}
+            className="px-4 py-2 rounded-md bg-TT-purple-accent hover:bg-gray-700 text-white font-medium transition-colors flex items-center gap-2"
+          >
+            Go to RAG Management
+            <ExternalLink className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface InputAreaProps {
   textInput: string;
@@ -62,6 +166,11 @@ export default function InputArea({
   const [isFocused, setIsFocused] = useState(false);
   const [showBanner, setShowBanner] = useState(true);
   const [touchFeedback, setTouchFeedback] = useState("");
+  const [showPdfDialog, setShowPdfDialog] = useState(false);
+  const [pdfFileName, setPdfFileName] = useState("");
+
+  // Use navigate for redirection
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
@@ -122,6 +231,11 @@ export default function InputArea({
     setTimeout(() => setTouchFeedback(""), 500);
   };
 
+  const handleNavigateToRagManagement = () => {
+    navigate("/rag-management");
+    setShowPdfDialog(false);
+  };
+
   const processFile = useCallback(async (file: File) => {
     try {
       setShowProgressBar(true);
@@ -157,54 +271,23 @@ export default function InputArea({
         setIsDragging(false);
         setShowProgressBar(true);
 
-        const imageFiles = uploadedFiles.filter(isImageFile);
-        const textFiles = uploadedFiles.filter(isTextFile);
+        // First check for PDF files
+        const pdfFiles = uploadedFiles.filter(isPdfFile);
+        if (pdfFiles.length > 0) {
+          setPdfFileName(pdfFiles[0].name);
+          setShowPdfDialog(true);
+          setShowProgressBar(false);
 
-        // Handle image files
-        if (imageFiles.length > 0) {
-          const existingImages = files.filter((f) => f.type === "image_url");
-          if (existingImages.length > 0) {
-            setPendingImageFile(imageFiles[0]);
-            setShowReplaceDialog(true);
-
-            // Process text files if any
-            if (textFiles.length > 0) {
-              const encodedTextFiles = await Promise.all(
-                textFiles.map(processFile)
-              );
-              setFiles((prevFiles) => [...prevFiles, ...encodedTextFiles]);
-              customToast.success(
-                `Successfully uploaded ${textFiles.length} text file(s)!`
-              );
-            }
-            return;
+          // Process non-PDF files if any
+          const nonPdfFiles = uploadedFiles.filter((file) => !isPdfFile(file));
+          if (nonPdfFiles.length > 0) {
+            await handleNonPdfFiles(nonPdfFiles);
           }
-          // No existing image, process the first image file
-          const encodedImage = await processFile(imageFiles[0]);
-          const encodedTextFiles = await Promise.all(
-            textFiles.map(processFile)
-          );
-
-          setFiles((prevFiles) => [
-            ...prevFiles,
-            encodedImage,
-            ...encodedTextFiles,
-          ]);
-          customToast.success(
-            `Successfully uploaded ${imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"}${
-              textFiles.length > 0
-                ? ` and ${textFiles.length} text file(s)`
-                : ""
-            }!`
-          );
-        } else if (textFiles.length > 0) {
-          // Only text files
-          const encodedFiles = await Promise.all(textFiles.map(processFile));
-          setFiles((prevFiles) => [...prevFiles, ...encodedFiles]);
-          customToast.success(
-            `Successfully uploaded ${textFiles.length} text file(s)!`
-          );
+          return;
         }
+
+        // If no PDFs, proceed with normal upload process
+        await handleNonPdfFiles(uploadedFiles);
       } catch (error) {
         console.error("File upload error:", error);
         customToast.error(
@@ -221,6 +304,53 @@ export default function InputArea({
     },
     [files, processFile, setFiles]
   );
+
+  const handleNonPdfFiles = async (uploadedFiles: File[]) => {
+    const imageFiles = uploadedFiles.filter(isImageFile);
+    const textFiles = uploadedFiles.filter(isTextFile);
+
+    // Handle image files
+    if (imageFiles.length > 0) {
+      const existingImages = files.filter((f) => f.type === "image_url");
+      if (existingImages.length > 0) {
+        setPendingImageFile(imageFiles[0]);
+        setShowReplaceDialog(true);
+
+        // Process text files if any
+        if (textFiles.length > 0) {
+          const encodedTextFiles = await Promise.all(
+            textFiles.map(processFile)
+          );
+          setFiles((prevFiles) => [...prevFiles, ...encodedTextFiles]);
+          customToast.success(
+            `Successfully uploaded ${textFiles.length} text file(s)!`
+          );
+        }
+        return;
+      }
+      // No existing image, process the first image file
+      const encodedImage = await processFile(imageFiles[0]);
+      const encodedTextFiles = await Promise.all(textFiles.map(processFile));
+
+      setFiles((prevFiles) => [
+        ...prevFiles,
+        encodedImage,
+        ...encodedTextFiles,
+      ]);
+      customToast.success(
+        `Successfully uploaded ${
+          imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
+        }${textFiles.length > 0 ? ` and ${textFiles.length} text file(s)` : ""}!`
+      );
+    } else if (textFiles.length > 0) {
+      // Only text files
+      const encodedFiles = await Promise.all(textFiles.map(processFile));
+      setFiles((prevFiles) => [...prevFiles, ...encodedFiles]);
+      customToast.success(
+        `Successfully uploaded ${textFiles.length} text file(s)!`
+      );
+    }
+  };
 
   const handleReplaceConfirm = async () => {
     if (pendingImageFile) {
@@ -275,6 +405,15 @@ export default function InputArea({
 
   return (
     <>
+      {/* Custom PDF Detection Dialog */}
+      <PdfDetectionDialog
+        open={showPdfDialog}
+        onOpenChange={setShowPdfDialog}
+        pdfFileName={pdfFileName}
+        onNavigate={handleNavigateToRagManagement}
+      />
+
+      {/* Image Replace Dialog */}
       <AlertDialog open={showReplaceDialog} onOpenChange={setShowReplaceDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
