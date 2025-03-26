@@ -301,7 +301,7 @@ export default function RagManagement() {
   }) => (
     <div className="flex flex-wrap gap-1 justify-end">
       <ConfirmDialog
-        dialogDescription="This action cannot be undone. This will permanently delete the datasource."
+        dialogDescription="This action cannot be undone. This will permanently delete the datasource and all associated files."
         dialogTitle="Delete Datasource"
         onConfirm={() => onDelete(item)}
         alertTrigger={
@@ -315,8 +315,16 @@ export default function RagManagement() {
         }
       />
       <ConfirmDialog
-        dialogDescription="This will replace the existing PDF with the new uploaded PDF. Are you sure you want to continue?"
-        dialogTitle="Replace existing PDF?"
+        dialogDescription={
+          item.metadata?.last_uploaded_document
+            ? `This will replace the existing PDF "${item.metadata.last_uploaded_document}" with the new uploaded PDF. Are you sure you want to continue?`
+            : "Select a PDF document to upload to this collection."
+        }
+        dialogTitle={
+          item.metadata?.last_uploaded_document
+            ? "Replace existing PDF?"
+            : "Upload PDF"
+        }
         onConfirm={() => onUploadClick(item)}
         alertTrigger={
           <Button
@@ -336,7 +344,6 @@ export default function RagManagement() {
       )}
     </div>
   );
-
   // Render table row with expandable content
   const renderRow = ({
     item,
