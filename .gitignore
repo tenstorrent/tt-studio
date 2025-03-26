@@ -41,3 +41,5 @@ db.sqlite3
 !app/frontend/third-party-licenses.txt
 !requirements-dev.txt
 
+# Ignore all files in the assets directory
+app/frontend/src/assets/*
