@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-
 import React, { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -13,6 +12,7 @@ import {
   FileText,
   Image,
   Eye,
+  Mic,
   type LucideIcon,
 } from "lucide-react";
 
@@ -81,7 +81,7 @@ export default function NavBar() {
   const navLinkClass = useMemo(
     () =>
       `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
-    [textColor],
+    [textColor]
   );
 
   const getNavLinkClass = (isActive: boolean, isChatUIIcon = false) =>
@@ -126,11 +126,17 @@ export default function NavBar() {
     handleNavigation("/object-detection");
   };
 
+  const handleAudioDetectionClick = () => {
+    handleNavigation("/audio-detection");
+  };
+
   useEffect(() => {
     refreshModels();
   }, [refreshModels, refreshTrigger]);
 
-  const isVerticalLayout = location.pathname === "/chat-ui" || location.pathname === "/image-generation";
+  const isVerticalLayout =
+    location.pathname === "/chat-ui" ||
+    location.pathname === "/image-generation";
 
   return (
     <div>
@@ -171,7 +177,9 @@ export default function NavBar() {
                 </h4>
               )}
             </a>
-            <NavigationMenu className={`w-full ${isVerticalLayout ? "mt-4" : ""}`}>
+            <NavigationMenu
+              className={`w-full ${isVerticalLayout ? "mt-4" : ""}`}
+            >
               <NavigationMenuList
                 className={`flex ${
                   isVerticalLayout
@@ -387,7 +395,9 @@ export default function NavBar() {
                       <button
                         onClick={handleObjectDetectionClick}
                         className={`${getNavLinkClass(false)} ${
-                          models.length > 0 ? "" : "opacity-50 cursor-not-allowed"
+                          models.length > 0
+                            ? ""
+                            : "opacity-50 cursor-not-allowed"
                         }`}
                       >
                         <Eye
@@ -400,6 +410,39 @@ export default function NavBar() {
                       {models.length > 0
                         ? "Open Object Detection"
                         : "Deploy a model to use Object Detection"}
+                    </TooltipContent>
+                  </Tooltip>
+                </NavigationMenuItem>
+
+                {!isVerticalLayout && (
+                  <Separator
+                    className="h-6 w-px bg-zinc-400"
+                    orientation="vertical"
+                  />
+                )}
+                <NavigationMenuItem
+                  className={`${isVerticalLayout ? "w-full flex justify-center" : ""}`}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleAudioDetectionClick}
+                        className={`${getNavLinkClass(false)} ${
+                          models.length > 0
+                            ? ""
+                            : "opacity-50 cursor-not-allowed"
+                        }`}
+                      >
+                        <Mic
+                          className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                        />
+                        {!isVerticalLayout && <span>Audio Detection</span>}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {models.length > 0
+                        ? "Open Audio Detection"
+                        : "Deploy a model to use Audio Detection"}
                     </TooltipContent>
                   </Tooltip>
                 </NavigationMenuItem>
