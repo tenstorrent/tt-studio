@@ -44,6 +44,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/src/components/ui/alert-dialog";
+import {
+  RagAdminSkeleton,
+  RagAdminLoginSkeleton,
+} from "@/src/components/rag/RagSkeletons";
 
 // Interface for RagDataSource with admin fields
 interface AdminRagDataSource {
@@ -57,7 +61,11 @@ interface AdminRagDataSource {
 export default function RagAdmin() {
   const [password, setPassword] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+
+  // Use separate explicit loading states for more control
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(false);
+
   const [collections, setCollections] = useState<AdminRagDataSource[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [deletingCollection, setDeletingCollection] = useState<string | null>(
@@ -74,10 +82,12 @@ export default function RagAdmin() {
       return;
     }
 
-    setIsLoading(true);
+    setLoginLoading(true);
     setError(null);
 
     try {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       const response = await axios.post("/collections-api/admin/authenticate", {
         password,
       });
@@ -95,16 +105,18 @@ export default function RagAdmin() {
       customToast.error(err.response?.data?.error || "Authentication failed");
       setError(err.response?.data?.error || "Authentication failed");
     } finally {
-      setIsLoading(false);
+      setLoginLoading(false);
     }
   };
 
   // Function to fetch all collections as admin
   const fetchCollections = async () => {
-    setIsLoading(true);
+    setDataLoading(true);
     setError(null);
 
     try {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
       const response = await axios.post("/collections-api/admin/collections", {
         password,
       });
@@ -123,7 +135,7 @@ export default function RagAdmin() {
         setIsAuthenticated(false);
       }
     } finally {
-      setIsLoading(false);
+      setDataLoading(false);
     }
   };
 
@@ -132,6 +144,8 @@ export default function RagAdmin() {
     setDeletingCollection(collectionId);
 
     try {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
       const response = await axios.post(
         "/collections-api/admin/delete-collection",
         {
@@ -172,6 +186,11 @@ export default function RagAdmin() {
     customToast.success("Logged out successfully");
   };
 
+  // Refresh function with loading state
+  const handleRefresh = () => {
+    fetchCollections();
+  };
+
   // User icon based on type
   const getUserIcon = (userType: string) => {
     if (userType === "Authenticated User") {
@@ -182,6 +201,11 @@ export default function RagAdmin() {
       return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
     }
   };
+
+  // Show login skeleton while authenticating
+  if (loginLoading) {
+    return <RagAdminLoginSkeleton />;
+  }
 
   if (!isAuthenticated) {
     return (
@@ -208,17 +232,22 @@ export default function RagAdmin() {
 
           <Button
             type="submit"
-            disabled={isLoading}
+            disabled={loginLoading}
             className="w-full bg-blue-600 hover:bg-blue-700"
           >
-            {isLoading ? <Spinner /> : <Key className="w-4 h-4 mr-2" />}
-            {isLoading ? "Authenticating..." : "Login to Admin"}
+            {loginLoading ? <Spinner /> : <Key className="w-4 h-4 mr-2" />}
+            {loginLoading ? "Authenticating..." : "Login to Admin"}
           </Button>
 
           {error && <p className="mt-4 text-red-500 text-center">{error}</p>}
         </form>
       </Card>
     );
+  }
+
+  // Show admin skeleton while loading data
+  if (dataLoading) {
+    return <RagAdminSkeleton />;
   }
 
   return (
@@ -234,11 +263,15 @@ export default function RagAdmin() {
 
         <div className="flex gap-2">
           <Button
-            onClick={fetchCollections}
+            onClick={handleRefresh}
             className="bg-blue-600 hover:bg-blue-700"
-            disabled={isLoading}
+            disabled={dataLoading}
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
+            {dataLoading ? (
+              <Spinner className="mr-2" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
             Refresh
           </Button>
           <Button
@@ -251,154 +284,148 @@ export default function RagAdmin() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center items-center h-64">
-          <Spinner />
-        </div>
-      ) : (
-        <ScrollArea className="whitespace-nowrap rounded-md border">
-          <Table className="rounded-lg">
-            <TableCaption className="text-TT-black dark:text-TT-white text-xl">
-              All Collections ({collections.length})
-              {collections.length === 0 && !isLoading && (
-                <div className="mt-4 text-gray-500">
-                  No collections found. Create a collection or check your
-                  authentication.
+      <ScrollArea className="whitespace-nowrap rounded-md border">
+        <Table className="rounded-lg">
+          <TableCaption className="text-TT-black dark:text-TT-white text-xl">
+            All Collections ({collections.length})
+            {collections.length === 0 && !dataLoading && (
+              <div className="mt-4 text-gray-500">
+                No collections found. Create a collection or check your
+                authentication.
+              </div>
+            )}
+          </TableCaption>
+          <TableHeader>
+            <TableRow
+              className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
+            >
+              <TableHead className="text-left">
+                <div className="flex items-center gap-2">
+                  <Fingerprint className="w-4 h-4" />
+                  ID
                 </div>
-              )}
-            </TableCaption>
-            <TableHeader>
-              <TableRow
-                className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
-              >
-                <TableHead className="text-left">
+              </TableHead>
+              <TableHead className="text-left">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  Name
+                </div>
+              </TableHead>
+              <TableHead className="text-left">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="w-4 h-4" />
+                  User Type
+                </div>
+              </TableHead>
+              <TableHead className="text-left">
+                <div className="flex items-center gap-2">
+                  <Fingerprint className="w-4 h-4" />
+                  User ID
+                </div>
+              </TableHead>
+              <TableHead className="text-left">
+                <div className="flex items-center gap-2">
+                  <FileType className="w-4 h-4" />
+                  File Name
+                </div>
+              </TableHead>
+              <TableHead className="text-left">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  Creation Time
+                </div>
+              </TableHead>
+              <TableHead className="text-left">
+                <div className="flex items-center gap-2">
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                  Actions
+                </div>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {collections.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell className="text-left">
+                  <CopyableText text={item.id} />
+                </TableCell>
+                <TableCell className="text-left">
+                  <CopyableText text={item.name} />
+                </TableCell>
+                <TableCell className="text-left">
                   <div className="flex items-center gap-2">
-                    <Fingerprint className="w-4 h-4" />
-                    ID
+                    {getUserIcon(item.user_type)}
+                    <span>{item.user_type}</span>
                   </div>
-                </TableHead>
-                <TableHead className="text-left">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    Name
-                  </div>
-                </TableHead>
-                <TableHead className="text-left">
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="w-4 h-4" />
-                    User Type
-                  </div>
-                </TableHead>
-                <TableHead className="text-left">
-                  <div className="flex items-center gap-2">
-                    <Fingerprint className="w-4 h-4" />
-                    User ID
-                  </div>
-                </TableHead>
-                <TableHead className="text-left">
-                  <div className="flex items-center gap-2">
-                    <FileType className="w-4 h-4" />
-                    File Name
-                  </div>
-                </TableHead>
-                <TableHead className="text-left">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Creation Time
-                  </div>
-                </TableHead>
-                <TableHead className="text-left">
-                  <div className="flex items-center gap-2">
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                    Actions
-                  </div>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {collections.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="text-left">
-                    <CopyableText text={item.id} />
-                  </TableCell>
-                  <TableCell className="text-left">
-                    <CopyableText text={item.name} />
-                  </TableCell>
-                  <TableCell className="text-left">
+                </TableCell>
+                <TableCell className="text-left">
+                  <CopyableText text={item.user_identifier} />
+                </TableCell>
+                <TableCell className="text-left">
+                  {item.metadata?.last_uploaded_document ? (
                     <div className="flex items-center gap-2">
-                      {getUserIcon(item.user_type)}
-                      <span>{item.user_type}</span>
+                      <FileType color="red" className="w-4 h-4" />
+                      <CopyableText
+                        text={item.metadata.last_uploaded_document}
+                      />
                     </div>
-                  </TableCell>
-                  <TableCell className="text-left">
-                    <CopyableText text={item.user_identifier} />
-                  </TableCell>
-                  <TableCell className="text-left">
-                    {item.metadata?.last_uploaded_document ? (
-                      <div className="flex items-center gap-2">
-                        <FileType color="red" className="w-4 h-4" />
-                        <CopyableText
-                          text={item.metadata.last_uploaded_document}
-                        />
-                      </div>
-                    ) : (
-                      "No file uploaded"
-                    )}
-                  </TableCell>
-                  <TableCell className="text-left">
-                    {item.metadata?.created_at || "Unknown"}
-                  </TableCell>
-                  <TableCell className="text-left">
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="destructive"
-                          className="bg-red-600 hover:bg-red-700"
-                          disabled={deletingCollection === item.id}
+                  ) : (
+                    "No file uploaded"
+                  )}
+                </TableCell>
+                <TableCell className="text-left">
+                  {item.metadata?.created_at || "Unknown"}
+                </TableCell>
+                <TableCell className="text-left">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        className="bg-red-600 hover:bg-red-700"
+                        disabled={deletingCollection === item.id}
+                      >
+                        {deletingCollection === item.id ? (
+                          <Spinner />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                        <span className="ml-2">Delete</span>
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Collection</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete the collection "
+                          {item.name}" (ID: {item.id})?
+                          <br />
+                          <br />
+                          <strong className="text-red-500">
+                            This action cannot be undone.
+                          </strong>
+                          <br />
+                          <br />
+                          Owner: {item.user_type} ({item.user_identifier})
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => handleDeleteCollection(item.name)}
+                          className="bg-red-600 hover:bg-red-700 text-white"
                         >
-                          {deletingCollection === item.id ? (
-                            <Spinner />
-                          ) : (
-                            <Trash2 className="w-4 h-4" />
-                          )}
-                          <span className="ml-2">Delete</span>
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Collection</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to delete the collection "
-                            {item.name}" (ID: {item.id})?
-                            <br />
-                            <br />
-                            <strong className="text-red-500">
-                              This action cannot be undone.
-                            </strong>
-                            <br />
-                            <br />
-                            Owner: {item.user_type} ({item.user_identifier})
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => handleDeleteCollection(item.name)}
-                            className="bg-red-600 hover:bg-red-700 text-white"
-                          >
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      )}
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
     </Card>
   );
 }

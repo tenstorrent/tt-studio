@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { Button } from "@/src/components/ui/button";
-import { useMutation, useQuery, useQueryClient } from "react-query";
+import { useMutation, useQueryClient } from "react-query";
 import { Card } from "@/src/components/ui/card";
 import { ScrollArea, ScrollBar } from "@/src/components/ui/scroll-area";
 import {
@@ -18,7 +18,6 @@ import { useTheme } from "@/src/providers/ThemeProvider";
 import CustomToaster, { customToast } from "@/src/components/CustomToaster";
 import React, { useRef, useState, useEffect } from "react";
 import RagDataSourceForm from "./RagDataSourceForm";
-import { Spinner } from "@/src/components/ui/spinner";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import {
   fetchCollections,
@@ -36,6 +35,34 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
+
+// Spinner component with size variants
+type SpinnerProps = {
+  size?: "sm" | "md" | "lg";
+};
+
+const Spinner = ({ size = "md" }: SpinnerProps): JSX.Element => {
+  const sizeClasses = {
+    sm: "h-3 w-3",
+    md: "h-5 w-5",
+    lg: "h-8 w-8",
+  };
+
+  return (
+    <div
+      className={`animate-spin rounded-full border-2 border-current border-t-transparent text-primary-foreground dark:text-primary-dark-foreground ${sizeClasses[size]}`}
+      aria-label="loading"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      data-state="loading"
+      data-testid="spinner-component"
+    >
+      <span className="sr-only">Loading</span>
+    </div>
+  );
+};
 
 // LocalStorage key for browser ID
 const BROWSER_ID_KEY = "tt_studio_browser_id";
@@ -100,6 +127,11 @@ export default function RagManagement() {
   const inputFile = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
+  // Explicitly manage loading state separate from react-query
+  const [loading, setLoading] = useState(true);
+  const [ragDataSources, setRagDataSources] = useState<RagDataSource[]>([]);
+  const [error, setError] = useState<Error | null>(null);
+
   const [targetCollection, setTargetCollection] = useState<
     RagDataSource | undefined
   >(undefined);
@@ -127,16 +159,26 @@ export default function RagManagement() {
     getBrowserId();
   }, []);
 
-  // Fetch collections
-  const {
-    data: ragDataSources,
-    isLoading,
-    error,
-  } = useQuery("collectionsList", {
-    queryFn: fetchCollections,
-    onError: () => customToast.error("Failed to fetch collections"),
-    initialData: [],
-  });
+  // Load data effect similar to ModelsDeployedTable approach
+  useEffect(() => {
+    const loadCollections = async () => {
+      setLoading(true);
+      try {
+        // Add delay to simulate network latency (for testing only)
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        const data = await fetchCollections();
+        setRagDataSources(data);
+      } catch (err) {
+        setError(err as Error);
+        customToast.error("Failed to fetch collections");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCollections();
+  }, []);
 
   // Delete collection mutation
   const deleteCollectionMutation = useMutation({
@@ -148,6 +190,12 @@ export default function RagManagement() {
     },
     onSuccess: (_data, variables: { collectionName: string }) => {
       queryClient.invalidateQueries(["collectionsList"]);
+
+      // Update local state
+      setRagDataSources((prev) =>
+        prev.filter((rds) => rds.name !== variables.collectionName)
+      );
+
       customToast.success("Collection deleted successfully");
       customToast.success(`Deleted collection ${variables.collectionName}`);
     },
@@ -156,11 +204,21 @@ export default function RagManagement() {
   // Create collection
   const createCollectionMutation = useMutation({
     mutationFn: createCollection,
-    onSuccess: (_data, variables) => {
+    onSuccess: async (_data, variables) => {
       customToast.success(
         `RAG Datasource created successfully: ${variables.collectionName}`
       );
-      queryClient.invalidateQueries(["collectionsList"]);
+
+      // Refresh the data
+      setLoading(true);
+      try {
+        const data = await fetchCollections();
+        setRagDataSources(data);
+      } catch (err) {
+        console.error("Error fetching collections:", err);
+      } finally {
+        setLoading(false);
+      }
     },
     onError: (error: any) => {
       console.error("Error in createCollectionMutation:", error);
@@ -177,28 +235,31 @@ export default function RagManagement() {
     onError: (_error, { file, collectionName }) => {
       customToast.error(`Error uploading ${file.name} to ${collectionName}`);
     },
-    onSuccess: (_data, { file, collectionName }) => {
+    onSuccess: async (_data, { file, collectionName }) => {
       setCollectionsUploading(
         collectionsUploading.filter((e) => e !== collectionName)
       );
       customToast.success(`Uploaded ${file.name} to ${collectionName}`);
-      queryClient.invalidateQueries(["collectionsList"]); // Refresh to update file name
+
+      // Refresh the data
+      setLoading(true);
+      try {
+        const data = await fetchCollections();
+        setRagDataSources(data);
+      } catch (err) {
+        console.error("Error fetching collections:", err);
+      } finally {
+        setLoading(false);
+      }
     },
     onSettled: () => {
       setTargetCollection(undefined);
     },
   });
 
-  if (isLoading) {
-    return (
-      <TableWrapper>
-        <Card
-          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg flex justify-center items-center h-96`}
-        >
-          <Spinner size="lg" />
-        </Card>
-      </TableWrapper>
-    );
+  // Show skeleton while loading
+  if (loading) {
+    return <RagManagementSkeleton />;
   }
 
   if (error) {
@@ -208,7 +269,7 @@ export default function RagManagement() {
           className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg p-8`}
         >
           <div className="text-red-600 dark:text-red-400">
-            Error loading collections: {(error as Error).message}
+            Error loading collections: {error.message}
           </div>
         </Card>
       </TableWrapper>
