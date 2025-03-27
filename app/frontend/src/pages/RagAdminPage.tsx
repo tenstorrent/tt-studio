@@ -14,7 +14,7 @@ const RagAdminPage = () => {
           }}
         ></div>
         <div
-          className="flex flex-grow justify-center items-center w-full h-screen pt-60"
+          className="flex flex-grow justify-center items-center w-full h-screen pt-96"
           style={{ zIndex: 1 }}
         >
           <RagAdmin />
