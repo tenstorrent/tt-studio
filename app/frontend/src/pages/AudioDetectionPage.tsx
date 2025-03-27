@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import SpeechToTextApp from "../components/speechToText/speechToTextApp";
 
 const ObjectDetectionPage = () => {
   return (
@@ -14,10 +15,9 @@ const ObjectDetectionPage = () => {
         ></div>
         <div
           className="flex flex-grow justify-center items-center w-full h-screen"
-          // hack to prevent maskImage from applying to neighbour div
           style={{ zIndex: 1 }}
         >
-          Audio Detection
+          <SpeechToTextApp />
         </div>
       </div>
     </>
