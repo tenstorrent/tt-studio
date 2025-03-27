@@ -216,6 +216,20 @@ def base_docker_config():
 # using friendly strings prefixed with id_ is more helpful for debugging
 model_implmentations_list = [
     ModelImpl(
+        model_name="Stable-Diffusion-1.4-Blackhole",
+        model_id="id_stable_diffusionv_1.4_blackholev0.1.0",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-1.4-src-base",
+        image_tag="v0.0.1-tt-metal-42a61c43e6c6",
+        device_configurations={DeviceConfigurations.N150},
+        docker_config=base_docker_config(),
+        shm_size="32G",
+        service_port=7000,
+        service_route="/enqueue",
+        health_route="/",
+        setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.IMAGE_GENERATION,
+    ),
+    ModelImpl(
         model_name="Stable-Diffusion-3.5-medium",
         model_id="id_stable_diffusion_3.5_mediumv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
