@@ -35,7 +35,6 @@ const padWithLeadingZeros = (num: number, length: number): string => {
 
 export const AudioRecorderWithVisualizer = ({
   className,
-  timerClassName,
   onRecordingComplete,
 }: Props) => {
   const { theme } = useTheme();
@@ -50,7 +49,7 @@ export const AudioRecorderWithVisualizer = ({
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   // Calculate the hours, minutes, and seconds from the timer
-  const hours = Math.floor(timer / 3600);
+  // const hours = Math.floor(timer / 3600);
   const minutes = Math.floor((timer % 3600) / 60);
   const seconds = timer % 60;
 
@@ -168,6 +167,7 @@ export const AudioRecorderWithVisualizer = ({
     setIsRecordingStopped(true);
     clearTimeout(timerTimeout);
   }
+
   function sendToAPI() {
     if (!audioBlob) return;
 
@@ -183,10 +183,24 @@ export const AudioRecorderWithVisualizer = ({
       onRecordingComplete(audioBlob);
     }
 
-    // Reset states
+    // Reset recording states and clear audio UI but preserve the actual blob
+    // for the conversation view
     setIsRecordingStopped(false);
+    setAudioUrl(null); // Clear the audio URL to hide the player
     setTimer(0);
+
+    // Clear the canvas
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const canvasCtx = canvas.getContext("2d");
+      if (canvasCtx) {
+        const WIDTH = canvas.width;
+        const HEIGHT = canvas.height;
+        canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
+      }
+    }
   }
+
   function resetRecording() {
     const { mediaRecorder, stream, analyser, audioContext } =
       mediaRecorderRef.current;
