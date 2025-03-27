@@ -8,8 +8,6 @@ import {
   MessageSquare,
   Clock,
   Pencil as Edit,
-  Send,
-  Square,
 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
@@ -60,6 +58,7 @@ export function MainContent({
   const [showRecordingInterface, setShowRecordingInterface] = useState(true);
   const [justSentRecording, setJustSentRecording] = useState(false);
   const [hasRecordedBefore, setHasRecordedBefore] = useState(false);
+  const [forceShowTranscription, setForceShowTranscription] = useState(false);
 
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -80,15 +79,16 @@ export function MainContent({
     setAudioBlob(recordedBlob);
     setHasRecordedBefore(true);
 
-    // Create a new URL from the blob - use the original blob type
-    const url = URL.createObjectURL(
-      new Blob([recordedBlob], { type: recordedBlob.type })
-    );
-    setAudioUrl(url);
+    // No need to create a preview URL in MainContent
+    // Let the AudioRecorderWithVisualizer handle the preview
 
     // Process the audio with the API
     await processAudioWithAPI(recordedBlob);
+
+    // Set a flag to force showing the transcription view after processing
+    setForceShowTranscription(true);
   };
+
   const processAudioWithAPI = async (audioBlob: Blob) => {
     setIsProcessing(true);
 
@@ -105,8 +105,15 @@ export function MainContent({
       // Set flag that we just sent a recording
       setJustSentRecording(true);
 
-      // Switch to conversation view after sending
+      // IMPORTANT: Switch to conversation view to show the transcription
       setShowRecordingInterface(false);
+
+      // Ensure the view is scrolled to the new message
+      setTimeout(() => {
+        if (conversationEndRef.current) {
+          conversationEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 300);
 
       console.log("Transcription successful:", transcriptionText);
       // toast({
@@ -162,6 +169,7 @@ export function MainContent({
     setShowRecordingInterface(true);
     setJustSentRecording(false);
     setHasRecordedBefore(true);
+    setForceShowTranscription(false);
   };
 
   // Format time for display
@@ -213,6 +221,21 @@ export function MainContent({
     }
   }, [justSentRecording, selectedConversationData?.transcriptions.length]);
 
+  // This effect tracks when a transcription is added and ensures the view switches
+  useEffect(() => {
+    if (justSentRecording && selectedConversationData) {
+      // Force switch to conversation view after processing
+      setShowRecordingInterface(false);
+
+      // Add a delay before scrolling to ensure the DOM has updated
+      setTimeout(() => {
+        if (conversationEndRef.current) {
+          conversationEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 300);
+    }
+  }, [justSentRecording, selectedConversationData]);
+
   // Focus textarea when editing starts
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -234,6 +257,17 @@ export function MainContent({
     }
   }, [isRecording]);
 
+  // When forceShowTranscription is true, ensure we're showing the transcription view
+  useEffect(() => {
+    if (forceShowTranscription && selectedConversationData) {
+      // Force switch to conversation view
+      setShowRecordingInterface(false);
+
+      // Reset the flag
+      setForceShowTranscription(false);
+    }
+  }, [forceShowTranscription, selectedConversationData]);
+
   return (
     <div className="flex-1 p-6 overflow-auto">
       <div className="max-w-4xl mx-auto">
@@ -246,9 +280,17 @@ export function MainContent({
               onClick={toggleView}
               className="text-base px-6"
             >
-              {showRecordingInterface
-                ? "View Conversation"
-                : "Record New Audio"}
+              {showRecordingInterface ? (
+                <>
+                  <MessageSquare className="h-5 w-5 mr-2" />
+                  View Conversation
+                </>
+              ) : (
+                <>
+                  <Mic className="h-5 w-5 mr-2" />
+                  Record New Audio
+                </>
+              )}
             </Button>
           </div>
         )}
@@ -268,10 +310,12 @@ export function MainContent({
                 {isProcessing ? "Processing..." : "Record Your Speech"}
               </h2>
 
-              <AudioRecorderWithVisualizer
-                className="mb-4"
-                onRecordingComplete={handleRecordingComplete}
-              />
+              <div className="mb-4">
+                <AudioRecorderWithVisualizer
+                  className="mb-4"
+                  onRecordingComplete={handleRecordingComplete}
+                />
+              </div>
 
               {isProcessing && (
                 <div className="mt-6 p-4 border border-border rounded-md bg-muted/50">
@@ -284,6 +328,7 @@ export function MainContent({
                 </div>
               )}
 
+              {/* Remove this section - only show audio preview in the AudioRecorderWithVisualizer
               {audioBlob && !isProcessing && (
                 <div className="mt-6">
                   <p className="font-medium mb-3">Audio Preview:</p>
@@ -293,8 +338,17 @@ export function MainContent({
                     src={audioUrl || undefined}
                     controls
                   />
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      onClick={() => processAudioWithAPI(audioBlob)}
+                      className="flex items-center gap-2"
+                    >
+                      <Send className="h-5 w-5" />
+                      Send Recording
+                    </Button>
+                  </div>
                 </div>
-              )}
+              )} */}
             </Card>
           </>
         ) : selectedConversation && selectedConversationData ? (
@@ -454,11 +508,11 @@ export function MainContent({
                           hasRecordedBefore && "text-red-500"
                         )}
                       />
-                      <span className="font-medium">
+                      {/* <span className="font-medium">
                         {hasRecordedBefore
                           ? "Record Another Audio Message"
                           : "Record New Audio Message"}
-                      </span>
+                      </span> */}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -489,7 +543,10 @@ export function MainContent({
                     "flex items-center justify-center"
                   )}
                 >
-                  <Mic className="h-7 w-7" />
+                  <Mic
+                    className="h-7 w-7 text-white"
+                    style={{ color: "white" }}
+                  />
                   {hasRecordedBefore && (
                     <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full"></span>
                   )}
