@@ -29,37 +29,37 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
           "error",
           (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
             console.log("proxy error", err);
-          },
+          }
         );
         proxy.on(
           "proxyReq",
           (
             proxyReq: ClientRequest,
             req: IncomingMessage,
-            _res: ServerResponse,
+            _res: ServerResponse
           ) => {
             console.log("Sending Request to the Target:", req.method, req.url);
-          },
+          }
         );
         proxy.on(
           "proxyRes",
           (
             proxyRes: IncomingMessage,
             req: IncomingMessage,
-            _res: ServerResponse,
+            _res: ServerResponse
           ) => {
             console.log(
               "Received Response from the Target:",
               proxyRes.statusCode,
-              req.url,
+              req.url
             );
-          },
+          }
         );
       },
       rewrite: (path: string) =>
         path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
     },
-  ]),
+  ])
 );
 
 // Add specific proxy configuration for the /reset-board endpoint
@@ -78,10 +78,33 @@ proxyConfig["/reset-board"] = {
       console.log(
         "Received Response from the Target:",
         proxyRes.statusCode,
-        req.url,
+        req.url
       );
     });
   },
+};
+// !remove / uncomment out for usage in tt-studio 
+proxyConfig["/api/transcribe"] = {
+  target:
+    "https://tt-metal-whisper-distil-large-v3-api-71a29de5.workload.tenstorrent.com",
+  changeOrigin: true,
+  secure: true,
+  configure: (proxy) => {
+    proxy.on("error", (err) => {
+      console.log("Transcription proxy error", err);
+    });
+    proxy.on("proxyReq", (proxyReq, req) => {
+      console.log("Sending transcription request:", req.method, req.url);
+    });
+    proxy.on("proxyRes", (proxyRes, req) => {
+      console.log(
+        "Received transcription response:",
+        proxyRes.statusCode,
+        req.url
+      );
+    });
+  },
+  rewrite: (path) => path.replace("/api/transcribe", "/inference"),
 };
 
 // https://vitejs.dev/config/
