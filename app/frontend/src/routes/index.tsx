@@ -13,6 +13,8 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => (
     <div className="main-content ">{children}</div>
   </>
 );
+import ImageGenPage from "../pages/ImageGenPage";
+import NotFoundPage from "../pages/NotFoundPage";
 
 const AppRouter = () => {
   // Get routes from configuration
@@ -38,6 +40,8 @@ const AppRouter = () => {
                   element={<MainLayout>{route.element}</MainLayout>}
                 />
               ))}
+            <Route path="/image-generation" element={<ImageGenPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Router>
       </ModelsProvider>
