@@ -58,6 +58,7 @@ const supportedMimeTypes = {
     "text/x-c++src",
     "text/x-typescript",
   ],
+  pdfFiles: ["application/pdf"],
 };
 
 const getFileExtension = (filename: string): string => {
@@ -173,6 +174,14 @@ export const isTextFile = (file: File): boolean => {
   console.log(
     `File type check: ${file.type} - Is supported text/code file: ${result}`
   );
+  return result;
+};
+
+export const isPdfFile = (file: File): boolean => {
+  const result =
+    supportedMimeTypes.pdfFiles.includes(file.type) ||
+    file.name.toLowerCase().endsWith(".pdf");
+  console.log(`File type check: ${file.type} - Is PDF file: ${result}`);
   return result;
 };
 

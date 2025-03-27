@@ -99,9 +99,11 @@ const ForwardedSelect = React.forwardRef<
   <Select {...props}>
     <SelectTrigger
       ref={ref}
-      className="w-full md:w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm"
+      className="w-full md:w-[220px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm"
     >
-      <SelectValue placeholder="Select RAG context" />
+      <SelectValue placeholder="Select RAG context">
+        {props.value ? "RAG Selected!" : null}
+      </SelectValue>
     </SelectTrigger>
     {props.children}
   </Select>
@@ -140,6 +142,9 @@ export default function Header({
   setIsAgentSelected,
   isMobileView = false, // Default to false if not provided
 }: HeaderProps) {
+  // Log ragDataSources to console to inspect its structure
+  console.log("RAG Data Sources:", ragDataSources);
+
   const [selectedAIAgent, setSelectedAIAgent] = useState<string | null>(null);
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   // const navigate = useNavigate();
@@ -513,15 +518,28 @@ export default function Header({
                 }}
               >
                 <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
-                  {ragDataSources.map((c) => (
-                    <SelectItem
-                      key={c.id}
-                      value={c.name}
-                      className="text-white hover:bg-[#7C68FA]/20 text-xs"
-                    >
-                      {c.name}
-                    </SelectItem>
-                  ))}
+                  {ragDataSources.map((c) => {
+                    return (
+                      <SelectItem
+                        key={c.id}
+                        value={c.name}
+                        className={`text-white hover:bg-[#7C68FA]/20 text-xs ${
+                          ragDatasource?.name === c.name
+                            ? "border border-white"
+                            : ""
+                        }`}
+                      >
+                        <span className="flex flex-col">
+                          <span>{c.name}</span>
+                          {c.metadata?.last_uploaded_document && (
+                            <span className="text-gray-400 text-xs">
+                              {c.metadata.last_uploaded_document}
+                            </span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
                   {ragDatasource && (
                     <SelectItem
                       value="remove"
@@ -599,9 +617,20 @@ export default function Header({
                       <SelectItem
                         key={c.id}
                         value={c.name}
-                        className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                        className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
+                          ragDatasource?.name === c.name
+                            ? "border border-white dark:border-white"
+                            : ""
+                        }`}
                       >
-                        {c.name}
+                        <span className="flex flex-col">
+                          <span>{c.name}</span>
+                          {c.metadata?.last_uploaded_document && (
+                            <span className="text-gray-400 text-xs">
+                              {c.metadata.last_uploaded_document}
+                            </span>
+                          )}
+                        </span>
                       </SelectItem>
                     ))}
                     {ragDatasource && (
