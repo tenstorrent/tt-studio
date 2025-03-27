@@ -83,6 +83,29 @@ proxyConfig["/reset-board"] = {
     });
   },
 };
+// !remove / uncomment out for usage in tt-studio 
+proxyConfig["/api/transcribe"] = {
+  target:
+    "https://tt-metal-whisper-distil-large-v3-api-71a29de5.workload.tenstorrent.com",
+  changeOrigin: true,
+  secure: true,
+  configure: (proxy) => {
+    proxy.on("error", (err) => {
+      console.log("Transcription proxy error", err);
+    });
+    proxy.on("proxyReq", (proxyReq, req) => {
+      console.log("Sending transcription request:", req.method, req.url);
+    });
+    proxy.on("proxyRes", (proxyRes, req) => {
+      console.log(
+        "Received transcription response:",
+        proxyRes.statusCode,
+        req.url
+      );
+    });
+  },
+  rewrite: (path) => path.replace("/api/transcribe", "/inference"),
+};
 
 // https://vitejs.dev/config/
 export default defineConfig({
