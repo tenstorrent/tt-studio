@@ -330,11 +330,14 @@ export function MainContent({
   return (
     <div className="h-full w-full flex flex-col bg-[#1A1A1A] relative">
       {/* Main container with fixed height and scrolling */}
-      <div className="h-full flex flex-col">
-        {/* REMOVED THE FIXED HEADER - It's now in the parent component */}
+      <div className="h-full flex flex-col ">
+        {/* REMOVED the fixed header - Header is now handled in parent component */}
 
-        {/* Scrollable content container */}
-        <div ref={contentContainerRef} className="flex-1 overflow-y-auto">
+        {/* Scrollable content container - with proper z-index to prevent overlapping with header */}
+        <div
+          ref={contentContainerRef}
+          className="flex-1 overflow-y-auto relative z-0"
+        >
           <div className="p-6">
             <div className="max-w-4xl mx-auto w-full">
               {!selectedConversation || showRecordingInterface ? (
