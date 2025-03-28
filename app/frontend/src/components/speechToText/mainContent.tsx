@@ -8,10 +8,10 @@ import {
   MessageSquare,
   Clock,
   Pencil as Edit,
+  Play,
 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
-// import { toast } from "@/hooks/use-toast";
 import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
 import { cn } from "../../lib/utils";
 import {
@@ -42,6 +42,8 @@ interface MainContentProps {
   onNewTranscription: (text: string, audioBlob: Blob) => string;
   isRecording: boolean;
   setIsRecording: (isRecording: boolean) => void;
+  showRecordingInterface: boolean;
+  setShowRecordingInterface: (show: boolean) => void;
   modelID: string;
 }
 
@@ -51,17 +53,20 @@ export function MainContent({
   onNewTranscription,
   isRecording,
   setIsRecording,
+  showRecordingInterface,
+  setShowRecordingInterface,
   modelID,
 }: MainContentProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [showRecordingInterface, setShowRecordingInterface] = useState(true);
   const [justSentRecording, setJustSentRecording] = useState(false);
   const [hasRecordedBefore, setHasRecordedBefore] = useState(false);
   const [forceShowTranscription, setForceShowTranscription] = useState(false);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
 
+  const contentContainerRef = useRef<HTMLDivElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
@@ -69,6 +74,30 @@ export function MainContent({
   const selectedConversationData = selectedConversation
     ? conversations.find((c) => c.id === selectedConversation)
     : null;
+
+  // Improved scroll to bottom helper
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    if (contentContainerRef.current) {
+      // Force a layout calculation to ensure accurate heights
+      contentContainerRef.current.offsetHeight;
+
+      // Direct scrolling approach with setTimeout for reliability
+      setTimeout(() => {
+        if (contentContainerRef.current) {
+          const containerHeight = contentContainerRef.current.clientHeight;
+          const contentHeight = contentContainerRef.current.scrollHeight;
+          contentContainerRef.current.scrollTop =
+            contentHeight - containerHeight + 200; // Add extra 200px to ensure it's fully scrolled
+
+          console.log("Scrolling to bottom:", {
+            scrollHeight: contentHeight,
+            clientHeight: containerHeight,
+            scrollTop: contentHeight - containerHeight,
+          });
+        }
+      }, 100);
+    }
+  };
 
   // Handle recording complete
   const handleRecordingComplete = async (recordedBlob: Blob) => {
@@ -80,9 +109,6 @@ export function MainContent({
     );
     setAudioBlob(recordedBlob);
     setHasRecordedBefore(true);
-
-    // No need to create a preview URL in MainContent
-    // Let the AudioRecorderWithVisualizer handle the preview
 
     // Process the audio with the API
     await processAudioWithAPI(recordedBlob);
@@ -112,27 +138,17 @@ export function MainContent({
 
       // Ensure the view is scrolled to the new message
       setTimeout(() => {
-        if (conversationEndRef.current) {
-          conversationEndRef.current.scrollIntoView({ behavior: "smooth" });
+        if (autoScrollEnabled) {
+          scrollToBottom();
         }
-      }, 300);
+      }, 500); // Increased timeout for more reliable scrolling
 
       console.log("Transcription successful:", transcriptionText);
-      // toast({
-      //   title: "Transcription Complete",
-      //   description: "Your audio has been successfully transcribed.",
-      // });
     } catch (error) {
       console.error("Error processing audio:", error);
       alert(
         `Transcription Error: ${error instanceof Error ? error.message : "Unknown error"}`
       );
-      // toast({
-      //   title: "Transcription Error",
-      //   description:
-      //     "There was an error processing your audio. Please try again.",
-      //   variant: "destructive",
-      // });
     } finally {
       setIsProcessing(false);
     }
@@ -141,37 +157,33 @@ export function MainContent({
   // Copy transcription to clipboard
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    // toast({
-    //   title: "Copied to clipboard",
-    //   description: "The transcription has been copied to your clipboard",
-    // });
   };
 
   // Save edited transcription
   const saveTranscription = () => {
     setIsEditing(null);
-    // In a real app, you would update the transcription in your state/database here
-    // toast({
-    //   title: "Changes saved",
-    //   description: "Your edits have been saved successfully",
-    // });
-  };
-
-  // Toggle between recording interface and transcription view
-  const toggleView = () => {
-    setShowRecordingInterface(!showRecordingInterface);
-    if (!showRecordingInterface) {
-      setJustSentRecording(false);
-    }
   };
 
   // Start a new recording
   const startNewRecording = () => {
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.src = "";
+    }
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+      setAudioUrl(null);
+    }
+
     setIsRecording(true);
     setShowRecordingInterface(true);
     setJustSentRecording(false);
     setHasRecordedBefore(true);
     setForceShowTranscription(false);
+
+    setTimeout(() => {
+      console.log("Starting new recording session");
+    }, 100);
   };
 
   // Format time for display
@@ -216,12 +228,35 @@ export function MainContent({
     }));
   };
 
+  // Initialize the view when a conversation is loaded
+  useEffect(() => {
+    if (selectedConversationData) {
+      console.log("Selected conversation changed, initializing view");
+
+      // Slight delay to ensure the DOM is ready
+      setTimeout(() => {
+        if (selectedConversationData.transcriptions.length > 0) {
+          scrollToBottom("auto");
+        }
+      }, 200); // Increased timeout for more reliable scrolling
+    }
+  }, [selectedConversation]);
+
   // Scroll to bottom of conversation when new message is added
   useEffect(() => {
-    if (justSentRecording && conversationEndRef.current) {
-      conversationEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (justSentRecording && autoScrollEnabled) {
+      console.log("New recording added, scrolling to bottom");
+
+      // Add a longer delay to ensure the DOM has updated
+      setTimeout(() => {
+        scrollToBottom();
+      }, 500); // Increased timeout for more reliable scrolling
     }
-  }, [justSentRecording, selectedConversationData?.transcriptions.length]);
+  }, [
+    justSentRecording,
+    selectedConversationData?.transcriptions.length,
+    autoScrollEnabled,
+  ]);
 
   // This effect tracks when a transcription is added and ensures the view switches
   useEffect(() => {
@@ -231,12 +266,12 @@ export function MainContent({
 
       // Add a delay before scrolling to ensure the DOM has updated
       setTimeout(() => {
-        if (conversationEndRef.current) {
-          conversationEndRef.current.scrollIntoView({ behavior: "smooth" });
+        if (autoScrollEnabled) {
+          scrollToBottom();
         }
-      }, 300);
+      }, 500); // Increased timeout for more reliable scrolling
     }
-  }, [justSentRecording, selectedConversationData]);
+  }, [justSentRecording, selectedConversationData, autoScrollEnabled]);
 
   // Focus textarea when editing starts
   useEffect(() => {
@@ -267,302 +302,378 @@ export function MainContent({
 
       // Reset the flag
       setForceShowTranscription(false);
+
+      // Scroll to bottom
+      setTimeout(() => {
+        if (autoScrollEnabled) {
+          scrollToBottom();
+        }
+      }, 500); // Increased timeout for more reliable scrolling
     }
-  }, [forceShowTranscription, selectedConversationData]);
+  }, [forceShowTranscription, selectedConversationData, autoScrollEnabled]);
+
+  // Setup scroll event listener to detect when user manually scrolls
+  useEffect(() => {
+    const container = contentContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      if (!container) return;
+
+      const isAtBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        200; // Increased threshold for better detection
+
+      // Only update if there's a change to prevent unnecessary renders
+      if (isAtBottom !== autoScrollEnabled) {
+        setAutoScrollEnabled(isAtBottom);
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
 
   return (
-    <div className="flex-1 p-6 overflow-auto">
-      <div className="max-w-4xl mx-auto">
-        {/* Toggle button between recording and transcription view */}
-        {selectedConversation && (
-          <div className="mb-4 flex justify-end">
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={toggleView}
-              className="text-base px-6"
-            >
-              {showRecordingInterface ? (
-                <>
-                  <MessageSquare className="h-5 w-5 mr-2" />
-                  View Conversation
-                </>
-              ) : (
-                <>
-                  <Mic className="h-5 w-5 mr-2" />
-                  Record New Audio
-                </>
-              )}
-            </Button>
-          </div>
-        )}
+    // This is the main container - it should take full height and handle scrolling
+    <div className="flex flex-col h-full">
+      {/* Scrollable content container */}
+      <div
+        ref={contentContainerRef}
+        className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1A1A1A] to-[#222222]"
+      >
+        <div className="p-6">
+          <div className="max-w-4xl mx-auto w-full">
+            {!selectedConversation || showRecordingInterface ? (
+              <>
+                <div className="mb-8">
+                  <h1 className="text-3xl font-bold mb-4 text-TT-purple">
+                    Record Your Speech
+                  </h1>
+                  <p className="text-TT-purple-tint1 dark:text-TT-purple-tint1">
+                    Record your voice and convert it to text instantly. Follow
+                    the steps below to get started.
+                  </p>
+                </div>
 
-        {!selectedConversation || showRecordingInterface ? (
-          <>
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold mb-4">Record Your Speech</h1>
-              <p className="text-muted-foreground">
-                Record your voice and convert it to text instantly. Follow the
-                steps below to get started.
-              </p>
-            </div>
+                <Card className="mb-8 p-8 bg-[#222222]/80 backdrop-blur-sm border-TT-purple-shade/50 dark:border-TT-purple/30 shadow-lg shadow-TT-purple/5">
+                  <h2 className="text-xl font-semibold mb-6 text-TT-purple">
+                    {isProcessing ? "Processing..." : ""}
+                  </h2>
 
-            <Card className="mb-8 p-8 bg-background/50 backdrop-blur-sm">
-              <h2 className="text-xl font-semibold mb-6">
-                {isProcessing ? "Processing..." : "Record Your Speech"}
-              </h2>
-
-              <div className="mb-4">
-                <AudioRecorderWithVisualizer
-                  className="mb-4"
-                  onRecordingComplete={handleRecordingComplete}
-                />
-              </div>
-
-              {isProcessing && (
-                <div className="mt-6 p-4 border border-border rounded-md bg-muted/50">
-                  <div className="flex items-center">
-                    <Loader2 className="h-5 w-5 mr-3 animate-spin" />
-                    <p className="font-medium">
-                      Sending to API and processing your audio...
-                    </p>
+                  <div className="mb-4">
+                    <AudioRecorderWithVisualizer
+                      className="mb-4"
+                      onRecordingComplete={handleRecordingComplete}
+                    />
                   </div>
-                </div>
-              )}
 
-              {/* Remove this section - only show audio preview in the AudioRecorderWithVisualizer
-              {audioBlob && !isProcessing && (
-                <div className="mt-6">
-                  <p className="font-medium mb-3">Audio Preview:</p>
-                  <audio
-                    ref={audioElementRef}
-                    className="w-full"
-                    src={audioUrl || undefined}
-                    controls
-                  />
-                  <div className="mt-4 flex justify-end">
-                    <Button
-                      onClick={() => processAudioWithAPI(audioBlob)}
-                      className="flex items-center gap-2"
-                    >
-                      <Send className="h-5 w-5" />
-                      Send Recording
-                    </Button>
-                  </div>
-                </div>
-              )} */}
-            </Card>
-          </>
-        ) : selectedConversation && selectedConversationData ? (
-          <div className="space-y-6">
-            <Card className="p-6 bg-background/50 backdrop-blur-sm">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">
-                  {selectedConversationData.title}
-                </h2>
-                <div className="text-sm text-muted-foreground">
-                  {selectedConversationData.transcriptions.length}{" "}
-                  {selectedConversationData.transcriptions.length === 1
-                    ? "message"
-                    : "messages"}
-                </div>
-              </div>
-            </Card>
-
-            {/* Display transcriptions grouped by date */}
-            {groupTranscriptionsByDate(
-              selectedConversationData.transcriptions
-            ).map((group) => (
-              <div key={group.date} className="space-y-4">
-                <div className="flex items-center gap-2 px-2">
-                  <div className="h-px bg-border flex-grow"></div>
-                  <div className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded-full flex items-center">
-                    <Clock className="h-3 w-3 mr-1" />
-                    {group.date}
-                  </div>
-                  <div className="h-px bg-border flex-grow"></div>
-                </div>
-
-                {group.items.map((transcription, index) => (
-                  <Card
-                    key={transcription.id}
-                    className={cn(
-                      "p-5 bg-background/50 backdrop-blur-sm border-l-4",
-                      index % 2 === 0
-                        ? "border-l-purple-500"
-                        : "border-l-blue-500",
-                      justSentRecording &&
-                        index === group.items.length - 1 &&
-                        group ===
-                          groupTranscriptionsByDate(
-                            selectedConversationData.transcriptions
-                          )[
-                            groupTranscriptionsByDate(
-                              selectedConversationData.transcriptions
-                            ).length - 1
-                          ]
-                        ? "ring-2 ring-purple-500/50 animate-pulse"
-                        : ""
-                    )}
-                  >
-                    <div className="flex justify-between items-center mb-3">
-                      <div className="flex items-center gap-2">
-                        <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-sm font-medium">
-                          {formatTime(transcription.date)}
+                  {isProcessing && (
+                    <div className="mt-6 p-4 border border-TT-purple-shade/50 rounded-md bg-TT-purple-shade/20">
+                      <div className="flex items-center">
+                        <Loader2 className="h-5 w-5 mr-3 animate-spin text-TT-purple" />
+                        <p className="font-medium text-TT-purple">
+                          Sending to API and processing your audio...
                         </p>
-                        {justSentRecording &&
-                          index === group.items.length - 1 &&
-                          group ===
-                            groupTranscriptionsByDate(
-                              selectedConversationData.transcriptions
-                            )[
-                              groupTranscriptionsByDate(
-                                selectedConversationData.transcriptions
-                              ).length - 1
-                            ] && (
-                            <span className="text-xs bg-purple-500/20 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full">
-                              New
-                            </span>
-                          )}
-                      </div>
-                      <div className="flex space-x-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => copyToClipboard(transcription.text)}
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        {isEditing === transcription.id ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={saveTranscription}
-                          >
-                            <Save className="h-4 w-4" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setIsEditing(transcription.id)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="icon">
-                          <Trash className="h-4 w-4" />
-                        </Button>
                       </div>
                     </div>
-
-                    {/* Audio preview */}
-                    {transcription.audioBlob && (
-                      <div className="mb-3 bg-muted/30 p-3 rounded-md">
-                        <audio
-                          className="w-full"
-                          src={
-                            transcription.audioBlob
-                              ? URL.createObjectURL(transcription.audioBlob)
-                              : undefined
-                          }
-                          controls
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      {isEditing === transcription.id ? (
-                        <textarea
-                          ref={textareaRef}
-                          className="w-full min-h-[100px] p-3 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                          defaultValue={transcription.text}
-                        ></textarea>
-                      ) : (
-                        <div className="p-3 rounded-md bg-muted/10 min-h-[60px]">
-                          {transcription.text}
+                  )}
+                </Card>
+              </>
+            ) : selectedConversation && selectedConversationData ? (
+              <div className="flex flex-col">
+                {/* Display transcriptions grouped by date */}
+                <div className="mb-6">
+                  {groupTranscriptionsByDate(
+                    selectedConversationData.transcriptions
+                  ).map((group) => (
+                    <div key={group.date} className="mb-8">
+                      <div className="flex items-center gap-2 px-2 mb-4">
+                        <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
+                        <div className="text-xs font-medium text-white bg-TT-purple-shade/60 px-3 py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20">
+                          <Clock className="h-3 w-3 mr-1 text-TT-purple-tint1" />
+                          {group.date}
                         </div>
-                      )}
+                        <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
+                      </div>
+
+                      <div className="space-y-4">
+                        {group.items.map((transcription, index) => (
+                          <Card
+                            key={transcription.id}
+                            className={cn(
+                              "p-5 bg-[#222222]/80 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
+                              index % 2 === 0
+                                ? "border-l-TT-purple-accent border-y border-r border-TT-purple-shade/30"
+                                : "border-l-TT-blue border-y border-r border-TT-blue-shade/30",
+                              justSentRecording &&
+                                index === group.items.length - 1 &&
+                                group ===
+                                  groupTranscriptionsByDate(
+                                    selectedConversationData.transcriptions
+                                  )[
+                                    groupTranscriptionsByDate(
+                                      selectedConversationData.transcriptions
+                                    ).length - 1
+                                  ]
+                                ? "ring-2 ring-TT-purple/30 bg-TT-purple-shade/10 animate-pulse"
+                                : ""
+                            )}
+                          >
+                            <div className="flex justify-between items-center mb-3">
+                              <div className="flex items-center gap-2">
+                                <MessageSquare className="h-4 w-4 text-TT-purple" />
+                                <p className="text-sm font-medium text-TT-purple-tint1">
+                                  {formatTime(transcription.date)}
+                                </p>
+                                {justSentRecording &&
+                                  index === group.items.length - 1 &&
+                                  group ===
+                                    groupTranscriptionsByDate(
+                                      selectedConversationData.transcriptions
+                                    )[
+                                      groupTranscriptionsByDate(
+                                        selectedConversationData.transcriptions
+                                      ).length - 1
+                                    ] && (
+                                    <span className="text-xs bg-TT-purple-accent/20 text-TT-purple-accent px-2 py-0.5 rounded-full">
+                                      New
+                                    </span>
+                                  )}
+                              </div>
+                              <div className="flex space-x-2">
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          copyToClipboard(transcription.text)
+                                        }
+                                        className="hover:bg-TT-blue-shade/20 text-TT-blue"
+                                      >
+                                        <Copy className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Copy to clipboard
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+
+                                {isEditing === transcription.id ? (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={saveTranscription}
+                                          className="hover:bg-TT-green-shade/20 text-TT-green"
+                                        >
+                                          <Save className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        Save changes
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                ) : (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() =>
+                                            setIsEditing(transcription.id)
+                                          }
+                                          className="hover:bg-TT-yellow-shade/20 text-TT-yellow"
+                                        >
+                                          <Edit className="h-4 w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        Edit transcription
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="hover:bg-TT-red-shade/20 text-TT-red"
+                                      >
+                                        <Trash className="h-4 w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Delete transcription
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                            </div>
+
+                            {/* Audio preview */}
+                            {transcription.audioBlob && (
+                              <div className="mb-3 rounded-md border border-TT-purple-shade/50 bg-[#1A1A1A]/90 backdrop-blur-sm">
+                                <div className="flex items-center gap-2 p-3">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      const audio = document.getElementById(
+                                        `audio-${transcription.id}`
+                                      ) as HTMLAudioElement;
+                                      if (audio.paused) {
+                                        audio.play();
+                                      } else {
+                                        audio.pause();
+                                      }
+                                    }}
+                                    className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
+                                  >
+                                    <Play className="h-4 w-4" />
+                                  </Button>
+                                  <div className="flex-1">
+                                    <audio
+                                      id={`audio-${transcription.id}`}
+                                      className="w-full 
+                                        [&::-webkit-media-controls-panel]:bg-[#1A1A1A]/90
+                                        [&::-webkit-media-controls-play-button]:hidden 
+                                        [&::-webkit-media-controls-current-time-display]:text-TT-purple-tint1
+                                        [&::-webkit-media-controls-time-remaining-display]:text-TT-purple-tint1
+                                        [&::-webkit-media-controls-timeline]:accent-TT-purple"
+                                      src={
+                                        transcription.audioBlob
+                                          ? URL.createObjectURL(
+                                              transcription.audioBlob
+                                            )
+                                          : undefined
+                                      }
+                                      controls
+                                      ref={audioElementRef}
+                                      style={{ height: "32px" }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {isEditing === transcription.id ? (
+                              <textarea
+                                ref={textareaRef}
+                                className="w-full min-h-[100px] p-3 border border-TT-purple-shade/50 rounded-md bg-[#1A1A1A] text-white focus:outline-none focus:ring-2 focus:ring-TT-purple"
+                                defaultValue={transcription.text}
+                              ></textarea>
+                            ) : (
+                              <div className="p-4 rounded-lg bg-[#1E1E1E] text-white min-h-[60px] border border-[#2A2A2A] shadow-[inset_1px_1px_0px_rgba(0,0,0,0.4),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)] relative group transition-all duration-200">
+                                <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-TT-purple/5 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none"></div>
+
+                                <div className="flex items-center gap-2 mb-2.5">
+                                  <div className="h-1.5 w-1.5 rounded-full bg-TT-purple-accent opacity-80"></div>
+                                  <div className="text-xs text-TT-purple-tint1 opacity-80 font-medium tracking-wide">
+                                    Transcription
+                                  </div>
+                                </div>
+
+                                <div className="text-TT-purple-tint2 leading-relaxed">
+                                  {transcription.text}
+                                </div>
+
+                                <div className="text-right text-xs text-TT-purple-shade/70 mt-3 opacity-60 font-mono">
+                                  {
+                                    transcription.text
+                                      .split(/\s+/)
+                                      .filter(Boolean).length
+                                  }{" "}
+                                  words
+                                </div>
+                              </div>
+                            )}
+                          </Card>
+                        ))}
+                      </div>
                     </div>
-                  </Card>
-                ))}
-              </div>
-            ))}
+                  ))}
+                </div>
 
-            {/* Add new recording button at bottom of conversation */}
-            <div
-              className="flex justify-center items-center py-8 mt-4 border-2 border-dashed border-border rounded-lg bg-muted/20 hover:bg-muted/30 transition-colors"
-              ref={conversationEndRef}
-            >
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={startNewRecording}
-                      variant="default"
-                      size="lg"
-                      className="flex items-center gap-2 px-6"
-                    >
-                      <Mic
-                        className={cn(
-                          "h-5 w-5",
-                          hasRecordedBefore && "text-red-500"
-                        )}
-                      />
-                      {/* <span className="font-medium">
-                        {hasRecordedBefore
-                          ? "Record Another Audio Message"
-                          : "Record New Audio Message"}
-                      </span> */}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {hasRecordedBefore
-                      ? "Continue the conversation with another recording"
-                      : "Start recording your first message"}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {/* Floating record button - only show when in transcription view */}
-      {selectedConversation && !showRecordingInterface && (
-        <div className="fixed bottom-8 right-8">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={startNewRecording}
-                  size="lg"
-                  className={cn(
-                    "h-16 w-16 rounded-full shadow-lg",
-                    "bg-purple-600 hover:bg-purple-700",
-                    "transition-all duration-200 ease-in-out",
-                    "flex items-center justify-center"
-                  )}
+                {/* Add new recording button at bottom of conversation with improved styling */}
+                <div
+                  className="py-10 border-2 border-dashed border-TT-purple/40 rounded-lg bg-gradient-to-r from-[#1A1A1A] to-[#222222] hover:bg-gradient-to-r hover:from-[#222222] hover:to-[#1A1A1A] transition-colors flex justify-center mb-52 mt-8 relative"
+                  ref={conversationEndRef}
                 >
-                  <Mic
-                    className="h-7 w-7 text-white"
-                    style={{ color: "white" }}
-                  />
-                  {hasRecordedBefore && (
-                    <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full"></span>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                {hasRecordedBefore
-                  ? "Record another message"
-                  : "Start recording"}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+                  <Button
+                    onClick={startNewRecording}
+                    variant="default"
+                    size="lg"
+                    className="flex items-center gap-3 px-8 py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
+                  >
+                    <Mic className="h-5 w-5 text-white" />
+                    <span>
+                      {hasRecordedBefore
+                        ? "Record Another Audio Message"
+                        : "Record New Audio Message"}
+                    </span>
+                  </Button>
+
+                  {/* Fixed floating mic button with proper positioning */}
+                  <div className="absolute -right-3 -top-3 z-20">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={startNewRecording}
+                            size="sm"
+                            className={cn(
+                              "h-14 w-14 rounded-full shadow-lg shadow-TT-purple/20",
+                              "bg-TT-purple-accent hover:bg-TT-purple",
+                              "transition-all duration-200 ease-in-out",
+                              "flex items-center justify-center relative",
+                              "border-2 border-[#1A1A1A]" // Added border to match background
+                            )}
+                          >
+                            {/* Pulse animation */}
+                            <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse"></span>
+                            <Mic className="h-6 w-6 text-white relative z-10" />
+
+                            {/* Notification dot with improved positioning */}
+                            {hasRecordedBefore && (
+                              <span className="absolute -top-1 -right-1 h-6 w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md border border-[#1A1A1A]">
+                                <span className="text-xs text-white font-bold">
+                                  +
+                                </span>
+                              </span>
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <div className="flex items-center gap-2">
+                            <Mic className="h-4 w-4 text-TT-purple-accent" />
+                            Record new message
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                </div>
+
+                {/* Extra padding div to ensure there's room to scroll */}
+                <div className="h-32"></div>
+              </div>
+            ) : null}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
