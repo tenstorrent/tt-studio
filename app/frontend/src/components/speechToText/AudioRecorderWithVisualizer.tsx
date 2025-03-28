@@ -102,8 +102,6 @@ export const AudioRecorderWithVisualizer = ({
           };
 
           // Choose the best supported audio format
-          // Important: We need to use audio/webm for most browsers
-          // as audio/wav is often not supported by MediaRecorder
           const mimeType = MediaRecorder.isTypeSupported("audio/webm")
             ? "audio/webm"
             : MediaRecorder.isTypeSupported("audio/wav")
@@ -131,13 +129,12 @@ export const AudioRecorderWithVisualizer = ({
         });
     }
   }
+
   function stopRecording() {
     if (!isRecording) return;
 
     recorder.onstop = () => {
       // Create blob from recorded chunks
-      // IMPORTANT: Keep the original MIME type from the recorder
-      // Don't force audio/wav type here as it might not be WAV format internally
       const recordedMimeType = recorder.mimeType || "audio/webm";
       console.log("Recording MIME type:", recordedMimeType);
 
@@ -318,8 +315,11 @@ export const AudioRecorderWithVisualizer = ({
       // Create gradient for waveform
       const gradient = canvasCtx.createLinearGradient(0, 0, 0, HEIGHT);
 
-      // Use theme-appropriate colors
-      if (theme === "dark") {
+      // Use theme-appropriate colors or default to dark theme colors if in a dark-themed container
+      if (
+        theme === "dark" ||
+        document.documentElement.classList.contains("dark")
+      ) {
         gradient.addColorStop(0, "#c084fc"); // Purple top
         gradient.addColorStop(0.5, "#a855f7"); // Mid purple
         gradient.addColorStop(1, "#7c3aed"); // Deep purple
@@ -423,13 +423,13 @@ export const AudioRecorderWithVisualizer = ({
                 "font-mono text-lg font-medium px-3 py-1 rounded-md border",
                 isRecording
                   ? "bg-red-500/10 border-red-500/30 text-red-500"
-                  : "bg-muted border-border"
+                  : "bg-muted border-border dark:bg-[#222222] dark:border-TT-purple/20 dark:text-gray-200"
               )}
             >
               <Clock className="h-4 w-4 mr-2 inline-block" />
               {formattedTime}
             </div>
-            <span className="text-sm font-medium">
+            <span className="text-sm font-medium dark:text-gray-300">
               {isRecording
                 ? "Recording..."
                 : isRecordingStopped
@@ -440,7 +440,7 @@ export const AudioRecorderWithVisualizer = ({
         </div>
 
         {/* Waveform container */}
-        <div className="w-full h-16 rounded-md border overflow-hidden">
+        <div className="w-full h-16 rounded-md border overflow-hidden dark:border-TT-purple/20 bg-white dark:bg-[#222222]">
           <canvas
             ref={canvasRef}
             className="w-full h-full"
@@ -451,14 +451,16 @@ export const AudioRecorderWithVisualizer = ({
 
         {/* Audio player - shown after stopping recording */}
         {isRecordingStopped && audioUrl && (
-          <div className="w-full mt-4 p-3 bg-muted/20 rounded-md border border-border">
+          <div className="w-full mt-4 p-3 bg-muted/20 rounded-md border border-border dark:bg-[#222222]/50 dark:border-TT-purple/20">
             <div className="flex justify-between items-center mb-2">
-              <p className="text-sm font-medium">Preview Recording:</p>
+              <p className="text-sm font-medium dark:text-gray-200">
+                Preview Recording:
+              </p>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={togglePlayPause}
-                className="h-8 w-8 p-0 flex items-center justify-center"
+                className="h-8 w-8 p-0 flex items-center justify-center dark:text-gray-200 dark:hover:bg-[#2A2A2A]"
               >
                 {isPlaying ? (
                   <Pause className="h-4 w-4" />
@@ -509,10 +511,7 @@ export const AudioRecorderWithVisualizer = ({
                     className="h-12 w-12 rounded-full flex items-center justify-center bg-gray-200 dark:bg-gray-700 border-0"
                     style={{ backgroundColor: "#e5e7eb", color: "#000" }}
                   >
-                    <Square
-                      className="h-5 w-5"
-                      style={{ color: "currentColor" }}
-                    />
+                    <Square className="h-5 w-5 dark:text-white" />
                     <span className="sr-only">Stop recording</span>
                   </button>
                 </TooltipTrigger>
@@ -528,7 +527,7 @@ export const AudioRecorderWithVisualizer = ({
                   {/* Modified to ensure visible in both light and dark themes */}
                   <div
                     onClick={startRecording}
-                    className="h-16 w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-gray-800 border-2 border-purple-500 cursor-pointer shadow-lg"
+                    className="h-16 w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-purple-500 cursor-pointer shadow-lg"
                     style={{ boxShadow: "0 0 0 2px rgba(168, 85, 247, 0.5)" }}
                   >
                     <Mic
@@ -573,7 +572,7 @@ export const AudioRecorderWithVisualizer = ({
         </div>
 
         {/* Instruction text */}
-        <p className="text-sm text-muted-foreground text-center mt-2">
+        <p className="text-sm text-muted-foreground dark:text-gray-400 text-center mt-2">
           {getInstructionText()}
         </p>
       </div>
