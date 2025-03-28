@@ -130,7 +130,8 @@ export default function SpeechToTextApp() {
 
               {/* Main content area */}
               <div className="flex flex-col flex-1 bg-white dark:bg-[#2A2A2A] border-l border-gray-200 dark:border-TT-purple/20 min-w-0 min-h-0">
-                <div className="h-14 border-b border-gray-200 dark:border-TT-purple/20 flex items-center px-4 bg-gray-100 dark:bg-[#222222] shrink-0">
+                {/* Fixed header - moved outside scrollable container and made sticky */}
+                <div className="h-14 border-b border-gray-200 dark:border-TT-purple/20 flex items-center px-4 bg-gray-100 dark:bg-[#222222] shrink-0 sticky top-0 z-10">
                   <SidebarTrigger className="mr-4 text-TT-purple hover:text-TT-purple-accent" />
                   <h1 className="text-xl font-semibold text-TT-purple dark:text-TT-purple truncate">
                     {selectedConversation
@@ -140,7 +141,7 @@ export default function SpeechToTextApp() {
                   </h1>
                 </div>
 
-                {/* Content wrapper with proper containment */}
+                {/* Content wrapper - now header is outside */}
                 <div className="flex-1 overflow-hidden bg-gray-50 dark:bg-[#2A2A2A] border-t border-gray-200 dark:border-TT-purple/20 min-h-0">
                   <MainContent
                     conversations={conversations}
