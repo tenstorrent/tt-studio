@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Clock,
   Pencil as Edit,
+  Play,
 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
@@ -550,18 +551,50 @@ export function MainContent({
 
                           {/* Audio preview */}
                           {transcription.audioBlob && (
-                            <div className="mb-3 bg-white dark:bg-[#222222] p-3 rounded-md border border-TT-purple-shade dark:border-TT-purple/20">
-                              <audio
-                                className="w-full"
-                                src={
-                                  transcription.audioBlob
-                                    ? URL.createObjectURL(
-                                        transcription.audioBlob
-                                      )
-                                    : undefined
-                                }
-                                controls
-                              />
+                            <div className="mb-3 rounded-md border bg-white/50 dark:bg-[#1A1A1A]/90 backdrop-blur-sm border-border dark:border-TT-purple/20">
+                              <div className="flex items-center gap-2 p-3">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    const audio = document.getElementById(
+                                      `audio-${transcription.id}`
+                                    ) as HTMLAudioElement;
+                                    if (audio.paused) {
+                                      audio.play();
+                                    } else {
+                                      audio.pause();
+                                    }
+                                  }}
+                                  className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-shade hover:bg-TT-purple/10 dark:text-purple-400 dark:hover:text-purple-300 dark:hover:bg-purple-900/20"
+                                >
+                                  <Play className="h-4 w-4" />
+                                </Button>
+                                <div className="flex-1">
+                                  <audio
+                                    id={`audio-${transcription.id}`}
+                                    className="w-full 
+                                      [&::-webkit-media-controls-panel]:bg-white/50 
+                                      [&::-webkit-media-controls-panel]:dark:bg-[#1A1A1A]/90
+                                      [&::-webkit-media-controls-play-button]:hidden 
+                                      [&::-webkit-media-controls-current-time-display]:text-foreground
+                                      [&::-webkit-media-controls-current-time-display]:dark:text-white
+                                      [&::-webkit-media-controls-time-remaining-display]:text-foreground
+                                      [&::-webkit-media-controls-time-remaining-display]:dark:text-white
+                                      [&::-webkit-media-controls-timeline]:accent-TT-purple
+                                      [&::-webkit-media-controls-timeline]:dark:accent-purple-400"
+                                    src={
+                                      transcription.audioBlob
+                                        ? URL.createObjectURL(
+                                            transcription.audioBlob
+                                          )
+                                        : undefined
+                                    }
+                                    controls
+                                    style={{ height: "32px" }}
+                                  />
+                                </div>
+                              </div>
                             </div>
                           )}
 
