@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React, { useMemo, useRef, useEffect } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -13,7 +12,7 @@ import {
   FileText,
   Image,
   Eye,
-  Speech,
+  AudioLines,
   type LucideIcon,
 } from "lucide-react";
 
@@ -81,7 +80,7 @@ export default function NavBar() {
   const navLinkClass = useMemo(
     () =>
       `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`,
-    [textColor],
+    [textColor]
   );
 
   const getNavLinkClass = (isActive: boolean, isChatUIIcon = false) => {
@@ -126,7 +125,7 @@ export default function NavBar() {
       case ModelType.SpeechRecognition:
         return ({ className }: {className: string}) => {
           return (
-            <Speech className={className} />
+            <AudioLines className={className} />
           )
         }
     }
@@ -192,7 +191,9 @@ export default function NavBar() {
                 </h4>
               )}
             </a>
-            <NavigationMenu className={`w-full ${isVerticalLayout ? "mt-4" : ""}`}>
+            <NavigationMenu
+              className={`w-full ${isVerticalLayout ? "mt-4" : ""}`}
+            >
               <NavigationMenuList
                 className={`flex ${
                   isVerticalLayout

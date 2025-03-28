@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import HomePage from "../pages/HomePage";
@@ -13,6 +13,7 @@ import LogsPage from "../pages/LogsPage";
 import ObjectDetectionPage from "../pages/ObjectDetectionPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import NotFoundPage from "../pages/NotFoundPage";
+import AudioDetectionPage from "../pages/AudioDetectionPage.tsx";
 
 const AppRouter = () => {
   return (
@@ -28,6 +29,7 @@ const AppRouter = () => {
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/object-detection" element={<ObjectDetectionPage />} />
             <Route path="/image-generation" element={<ImageGenPage />} />
+            <Route path="/audio-detection" element={<AudioDetectionPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Router>

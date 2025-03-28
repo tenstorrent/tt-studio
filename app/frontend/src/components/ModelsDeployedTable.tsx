@@ -22,7 +22,6 @@ import StatusBadge from "./StatusBadge";
 import HealthBadge from "./HealthBadge";
 import {
   fetchModels,
-  getModelTypeFromName,
   deleteModel,
   handleRedeploy,
   ModelType,
@@ -45,7 +44,7 @@ import {
   MessageSquare,
   AlertCircle,
   Eye,
-  Speech,
+  AudioLines,
 } from "lucide-react";
 import {
   Tooltip,
@@ -149,7 +148,7 @@ export default function ModelsDeployedTable() {
       case ModelType.ObjectDetection:
         return <Eye className="w-4 h-4 mr-2" />
       case ModelType.SpeechRecognition:
-        return <Speech className="w-4 h-4 mr-2" />
+        return <AudioLines className="w-4 h-4 mr-2" />
       default:
         return <MessageSquare className="w-4 h-4 mr-2" />
     }
@@ -163,6 +162,8 @@ export default function ModelsDeployedTable() {
         return "ImageGeneration";
       case ModelType.ObjectDetection:
         return "ObjectDetection";
+      case ModelType.SpeechRecognition:
+        return "SpeechRecognition";
       default:
         return "ChatUI"
     }

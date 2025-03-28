@@ -207,21 +207,9 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/image-generation";
     case ModelType.ObjectDetection:
       return "/object-detection";
+    case ModelType.SpeechRecognition:
+      return "/audio-detection";
     default:
       return "/chat-ui"; // /chat-ui is the default
   }
-};
-
-export const getModelTypeFromName = (modelName: string): string => {
-  // TODO: remove this hack once we enumerate the types of models #<ISSUE_NUMBER>
-  // this should eventually become a switch-case statement
-  var modelType: string;
-  if (modelName.includes("yolo")) {
-    modelType = ModelType.ObjectDetectionModel;
-  } else if (modelName.includes("diffusion")) {
-    modelType = ModelType.ImageGeneration;
-  } else {
-    modelType = ModelType.ChatModel;
-  }
-  return modelType;
 };
