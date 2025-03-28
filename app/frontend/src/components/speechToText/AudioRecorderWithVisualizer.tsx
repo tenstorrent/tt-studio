@@ -308,25 +308,27 @@ export const AudioRecorderWithVisualizer = ({
     const WIDTH = canvas.width;
     const HEIGHT = canvas.height;
 
-    const drawWaveform = (dataArray: Uint8Array) => {
+    const drawWaveform = (
+      dataArray: string | any[] | Uint8Array<ArrayBuffer>
+    ) => {
       if (!canvasCtx) return;
       canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
 
-      // Create gradient for waveform
+      // Create gradient for waveform using TT color palette
       const gradient = canvasCtx.createLinearGradient(0, 0, 0, HEIGHT);
 
-      // Use theme-appropriate colors or default to dark theme colors if in a dark-themed container
+      // Use theme-appropriate colors from the TT palette
       if (
         theme === "dark" ||
         document.documentElement.classList.contains("dark")
       ) {
-        gradient.addColorStop(0, "#c084fc"); // Purple top
-        gradient.addColorStop(0.5, "#a855f7"); // Mid purple
-        gradient.addColorStop(1, "#7c3aed"); // Deep purple
+        gradient.addColorStop(0, "#D0C6FF"); // TT.purple.tint1
+        gradient.addColorStop(0.5, "#BCB3F7"); // TT.purple.DEFAULT
+        gradient.addColorStop(1, "#7C68FA"); // TT.purple.accent
       } else {
-        gradient.addColorStop(0, "#8b5cf6"); // Lighter purple top
-        gradient.addColorStop(0.5, "#7c3aed"); // Mid purple
-        gradient.addColorStop(1, "#6d28d9"); // Deeper purple
+        gradient.addColorStop(0, "#BCB3F7"); // TT.purple.DEFAULT
+        gradient.addColorStop(0.5, "#7C68FA"); // TT.purple.accent
+        gradient.addColorStop(1, "#4B456E"); // TT.purple.shade
       }
 
       const barWidth = 4;
@@ -334,30 +336,52 @@ export const AudioRecorderWithVisualizer = ({
       const maxBarHeight = HEIGHT * 0.8;
       const numBars = Math.floor(WIDTH / (barWidth + spacing));
 
+      // Add some visual dynamics based on frequency analysis
       for (let i = 0; i < numBars; i++) {
+        // Get normalized value (0-1) from the data array
         const value = dataArray[i % dataArray.length] / 255.0;
+
+        // Calculate amplitude-based bar height with a minimum size
         const barHeight = Math.max(4, value * maxBarHeight);
+
+        // Position calculations
         const x = i * (barWidth + spacing);
         const y = (HEIGHT - barHeight) / 2;
 
-        // Add glow effect
-        canvasCtx.shadowBlur = 5;
-        canvasCtx.shadowColor = theme === "dark" ? "#c084fc" : "#8b5cf6";
+        // Enhanced glow effect - stronger in dark mode
+        canvasCtx.shadowBlur = theme === "dark" ? 8 : 6;
+        canvasCtx.shadowColor = theme === "dark" ? "#7C68FA" : "#BCB3F7"; // TT.purple.accent or TT.purple.DEFAULT
 
-        canvasCtx.fillStyle = gradient;
-        canvasCtx.fillRect(x, y, barWidth, barHeight);
+        // Apply subtle amplitude-based color variation
+        if (value > 0.7) {
+          // High amplitude - use accent color with more glow
+          canvasCtx.fillStyle = theme === "dark" ? "#D0C6FF" : "#7C68FA"; // TT.purple.tint1 or TT.purple.accent
+          canvasCtx.shadowBlur = theme === "dark" ? 12 : 8;
+        } else {
+          // Normal amplitude - use gradient
+          canvasCtx.fillStyle = gradient;
+        }
+
+        // Draw bar with rounded top
+        canvasCtx.beginPath();
+        canvasCtx.roundRect(x, y, barWidth, barHeight, [2, 2, 0, 0]);
+        canvasCtx.fill();
 
         // Reset shadow for next iteration
         canvasCtx.shadowBlur = 0;
       }
     };
 
+    // Update the visualizeVolume function to add a slight animation effect
     const visualizeVolume = () => {
       if (!mediaRecorderRef.current?.analyser) return;
 
       const analyser = mediaRecorderRef.current.analyser;
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
+
+      // For animation effect
+      let frameCount = 0;
 
       const draw = () => {
         if (!isRecording) {
@@ -367,9 +391,23 @@ export const AudioRecorderWithVisualizer = ({
           }
           return;
         }
+
+        frameCount++;
         animationRef.current = requestAnimationFrame(draw);
         analyser.getByteFrequencyData(dataArray);
-        drawWaveform(dataArray);
+
+        // Apply subtle animation enhancement to the visualization
+        const enhancedData = new Uint8Array(dataArray.length);
+        for (let i = 0; i < dataArray.length; i++) {
+          // Add a subtle wave effect based on frameCount
+          const pulseFactor = 1 + 0.05 * Math.sin(frameCount * 0.05 + i * 0.1);
+          enhancedData[i] = Math.min(
+            255,
+            Math.floor(dataArray[i] * pulseFactor)
+          );
+        }
+
+        drawWaveform(enhancedData);
       };
 
       draw();
