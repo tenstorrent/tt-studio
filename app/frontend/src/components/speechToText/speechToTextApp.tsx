@@ -3,6 +3,8 @@ import { AppSidebar } from "@/src/components/speechToText/appSidebar";
 import { MainContent } from "@/src/components/speechToText/mainContent";
 import { SidebarProvider, SidebarTrigger } from "@/src/components/ui/sidebar";
 import { Card } from "../ui/card";
+import { useLocation } from "react-router-dom";
+import { customToast } from "../CustomToaster";
 
 interface Transcription {
   id: string;
@@ -27,6 +29,22 @@ export default function SpeechToTextApp() {
   const [isRecording, setIsRecording] = useState(false);
   const [conversationCounter, setConversationCounter] = useState(1);
   const [showRecordingInterface, setShowRecordingInterface] = useState(false);
+
+  const location = useLocation();
+  const [modelID, setModelID] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (location.state) {
+      if (!location.state.containerID) {
+        customToast.error(
+          "modelID is unavailable. Try navigating here from the Models Deployed tab",
+        );
+        return;
+      }
+      setModelID(location.state.containerID);
+      console.log(location.state.containerID);
+    }
+  }, [location.state, modelID]);
 
   // Function to create a new conversation
   const handleNewConversation = () => {
@@ -140,6 +158,7 @@ export default function SpeechToTextApp() {
                 onNewTranscription={handleNewTranscription}
                 isRecording={isRecording}
                 setIsRecording={setIsRecording}
+                modelID={modelID}
               />
             </div>
           </SidebarProvider>

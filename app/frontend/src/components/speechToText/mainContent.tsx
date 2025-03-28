@@ -42,6 +42,7 @@ interface MainContentProps {
   onNewTranscription: (text: string, audioBlob: Blob) => string;
   isRecording: boolean;
   setIsRecording: (isRecording: boolean) => void;
+  modelID: string;
 }
 
 export function MainContent({
@@ -50,6 +51,7 @@ export function MainContent({
   onNewTranscription,
   isRecording,
   setIsRecording,
+  modelID,
 }: MainContentProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export function MainContent({
       console.log("Processing audio with API, type:", audioBlob.type);
 
       // Use the sendAudioRecording function instead of direct fetch
-      const data = await sendAudioRecording(audioBlob);
+      const data = await sendAudioRecording(audioBlob, { modelID });
 
       // Create the new transcription and add it to the conversation
       const transcriptionText = data.text;
