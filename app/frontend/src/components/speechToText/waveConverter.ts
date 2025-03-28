@@ -10,7 +10,7 @@ export function isWavFormat(blob: Blob): boolean {
 // Function to convert any audio blob to WAV format with a specific sample rate
 export async function convertToWav(
   audioBlob: Blob,
-  targetSampleRate = 16000
+  targetSampleRate = 16_000 // 16kHz
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     // Create a new FileReader
@@ -22,7 +22,7 @@ export async function convertToWav(
         // Get the audio context
         const AudioContext =
           window.AudioContext || (window as any).webkitAudioContext;
-        const audioContext = new AudioContext();
+        const audioContext = new AudioContext({ sampleRate: targetSampleRate });
 
         // Decode the audio data
         const arrayBuffer = event.target?.result as ArrayBuffer;
