@@ -341,11 +341,17 @@ export function MainContent({
                 variant="outline"
                 size="lg"
                 onClick={toggleView}
-                className="text-base px-6 border-TT-purple hover:bg-TT-purple-shade/20 dark:text-white"
+                className={cn(
+                  "text-base px-6",
+                  "border-TT-purple/20 hover:border-TT-purple",
+                  "hover:bg-TT-purple-shade/10",
+                  "dark:border-TT-purple/20 dark:hover:border-TT-purple-tint1",
+                  "dark:text-white"
+                )}
               >
                 {showRecordingInterface ? (
                   <>
-                    <MessageSquare className="h-5 w-5 mr-2 text-TT-purple" />
+                    <MessageSquare className="h-5 w-5 mr-2 text-TT-purple-accent" />
                     View Conversation
                   </>
                 ) : (
@@ -575,14 +581,13 @@ export function MainContent({
                                     id={`audio-${transcription.id}`}
                                     className="w-full 
                                       [&::-webkit-media-controls-panel]:bg-white/50 
-                                      [&::-webkit-media-controls-panel]:dark:bg-[#1A1A1A]/90
+                                      [&::-webkit-media-controls-panel]:dark:bg-[#222222]/50 
                                       [&::-webkit-media-controls-play-button]:hidden 
-                                      [&::-webkit-media-controls-current-time-display]:text-foreground
-                                      [&::-webkit-media-controls-current-time-display]:dark:text-white
-                                      [&::-webkit-media-controls-time-remaining-display]:text-foreground
-                                      [&::-webkit-media-controls-time-remaining-display]:dark:text-white
-                                      [&::-webkit-media-controls-timeline]:accent-TT-purple
-                                      [&::-webkit-media-controls-timeline]:dark:accent-purple-400"
+                                      [&::-webkit-media-controls-current-time-display]:text-gray-700 
+                                      [&::-webkit-media-controls-current-time-display]:dark:text-gray-300
+                                      [&::-webkit-media-controls-time-remaining-display]:text-gray-700 
+                                      [&::-webkit-media-controls-time-remaining-display]:dark:text-gray-300
+                                      [&::-webkit-media-controls-timeline]:accent-TT-purple"
                                     src={
                                       transcription.audioBlob
                                         ? URL.createObjectURL(
@@ -617,52 +622,42 @@ export function MainContent({
                   </div>
                 ))}
               </div>
-
-              {/* Add new recording button at bottom of conversation */}
-              <div
-                className="flex-none py-8 border-2 border-dashed border-TT-purple-shade rounded-lg bg-white dark:bg-[#2A2A2A] hover:bg-TT-purple-shade/10 dark:hover:bg-TT-purple/10 transition-colors flex justify-center mb-14 mt-4"
-                ref={conversationEndRef}
-              >
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        onClick={startNewRecording}
-                        variant="default"
-                        size="lg"
-                        className="flex items-center gap-2 px-6 bg-TT-purple hover:bg-TT-purple-shade text-white"
-                      >
-                        <Mic
-                          className={cn(
-                            "h-5 w-5",
-                            hasRecordedBefore ? "text-white" : "text-white"
-                          )}
-                        />
-                        <span className="font-medium">
-                          {hasRecordedBefore
-                            ? "Record Another Audio Message"
-                            : "Record New Audio Message"}
-                        </span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">
-                      <div className="flex items-center gap-2">
-                        <Mic className="h-4 w-4 text-TT-purple-accent" />
-                        {hasRecordedBefore
-                          ? "Record another message"
-                          : "Start recording"}
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
             </div>
           ) : null}
         </div>
       </div>
 
-      {/* Floating record button - only show when in transcription view */}
-      {selectedConversation && !showRecordingInterface && (
+      {/* Keep the dashed border section with improved visibility and button */}
+      <div
+        className="flex-none py-8 border-2 border-dashed border-TT-purple/40 dark:border-TT-purple-tint1/30 rounded-lg bg-white/50 dark:bg-[#1A1A1A]/50 backdrop-blur-sm"
+        ref={conversationEndRef}
+      >
+        <div className="flex flex-col items-center justify-center gap-4">
+          <Button
+            onClick={startNewRecording}
+            variant="default"
+            size="lg"
+            className={cn(
+              "h-14 px-6",
+              "bg-gradient-to-r from-TT-purple-accent to-TT-purple",
+              "hover:from-TT-purple-shade hover:to-TT-purple-accent",
+              "text-white font-medium",
+              "rounded-full",
+              "flex items-center gap-3",
+              "shadow-lg hover:shadow-TT-purple/30",
+              "transition-all duration-300",
+              "border-2 border-transparent hover:border-TT-purple-tint1/20",
+              "transform hover:scale-[1.02] active:scale-[0.98]"
+            )}
+          >
+            <Mic className="h-5 w-5 text-white" />
+            <span>Record Another Audio Message</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Floating button with consistent styling */}
+      {selectedConversation && (
         <div className="fixed bottom-8 right-8">
           <TooltipProvider>
             <Tooltip>
@@ -671,24 +666,24 @@ export function MainContent({
                   onClick={startNewRecording}
                   size="lg"
                   className={cn(
-                    "h-16 w-16 rounded-full shadow-lg",
-                    "bg-TT-purple hover:bg-TT-purple-shade",
+                    "h-16 w-16 rounded-full",
+                    "bg-TT-purple-accent hover:bg-TT-purple-shade",
+                    "shadow-lg hover:shadow-TT-purple/30",
                     "transition-all duration-200 ease-in-out",
-                    "flex items-center justify-center"
+                    "flex items-center justify-center",
+                    "border-2 border-transparent hover:border-TT-purple-tint1/20"
                   )}
                 >
-                  <Mic className="h-7 w-7" style={{ color: "white" }} />
+                  <Mic className="h-7 w-7 text-white" />
                   {hasRecordedBefore && (
-                    <span className="absolute -top-1 -right-1 h-3 w-3 bg-TT-red rounded-full"></span>
+                    <span className="absolute -top-1 -right-1 h-3 w-3 bg-TT-red-accent rounded-full" />
                   )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">
                 <div className="flex items-center gap-2">
                   <Mic className="h-4 w-4 text-TT-purple-accent" />
-                  {hasRecordedBefore
-                    ? "Record another message"
-                    : "Start recording"}
+                  Record another message
                 </div>
               </TooltipContent>
             </Tooltip>
