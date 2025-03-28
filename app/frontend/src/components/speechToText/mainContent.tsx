@@ -350,7 +350,7 @@ export function MainContent({
                   </>
                 ) : (
                   <>
-                    <Mic className="h-5 w-5 mr-2 text-TT-red" />
+                    <Mic className="h-5 w-5 mr-2 text-TT-purple-accent" />
                     Record New Audio
                   </>
                 )}
@@ -551,7 +551,7 @@ export function MainContent({
 
                           {/* Audio preview */}
                           {transcription.audioBlob && (
-                            <div className="mb-3 rounded-md border bg-white/50 dark:bg-[#1A1A1A]/90 backdrop-blur-sm border-border dark:border-TT-purple/20">
+                            <div className="mb-3 rounded-md border bg-white/50 dark:bg-[#222222]/50 backdrop-blur-sm border-border dark:border-TT-purple/20">
                               <div className="flex items-center gap-2 p-3">
                                 <Button
                                   variant="ghost"
@@ -635,7 +635,7 @@ export function MainContent({
                         <Mic
                           className={cn(
                             "h-5 w-5",
-                            hasRecordedBefore && "text-TT-red"
+                            hasRecordedBefore ? "text-white" : "text-white"
                           )}
                         />
                         <span className="font-medium">
@@ -645,10 +645,13 @@ export function MainContent({
                         </span>
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>
-                      {hasRecordedBefore
-                        ? "Continue the conversation with another recording"
-                        : "Start recording your first message"}
+                    <TooltipContent side="left">
+                      <div className="flex items-center gap-2">
+                        <Mic className="h-4 w-4 text-TT-purple-accent" />
+                        {hasRecordedBefore
+                          ? "Record another message"
+                          : "Start recording"}
+                      </div>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -681,9 +684,12 @@ export function MainContent({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">
-                {hasRecordedBefore
-                  ? "Record another message"
-                  : "Start recording"}
+                <div className="flex items-center gap-2">
+                  <Mic className="h-4 w-4 text-TT-purple-accent" />
+                  {hasRecordedBefore
+                    ? "Record another message"
+                    : "Start recording"}
+                </div>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
