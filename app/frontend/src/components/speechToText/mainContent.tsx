@@ -553,19 +553,37 @@ export function MainContent({
                               </div>
                             )}
 
-                            <div>
-                              {isEditing === transcription.id ? (
-                                <textarea
-                                  ref={textareaRef}
-                                  className="w-full min-h-[100px] p-3 border border-TT-purple-shade/50 rounded-md bg-[#1A1A1A] text-white focus:outline-none focus:ring-2 focus:ring-TT-purple"
-                                  defaultValue={transcription.text}
-                                ></textarea>
-                              ) : (
-                                <div className="p-4 rounded-md bg-[#1A1A1A] text-white min-h-[60px] border border-TT-purple-shade/30 shadow-inner">
+                            {isEditing === transcription.id ? (
+                              <textarea
+                                ref={textareaRef}
+                                className="w-full min-h-[100px] p-3 border border-TT-purple-shade/50 rounded-md bg-[#1A1A1A] text-white focus:outline-none focus:ring-2 focus:ring-TT-purple"
+                                defaultValue={transcription.text}
+                              ></textarea>
+                            ) : (
+                              <div className="p-4 rounded-lg bg-[#1E1E1E] text-white min-h-[60px] border border-[#2A2A2A] shadow-[inset_1px_1px_0px_rgba(0,0,0,0.4),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)] relative group transition-all duration-200">
+                                <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-TT-purple/5 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none"></div>
+
+                                <div className="flex items-center gap-2 mb-2.5">
+                                  <div className="h-1.5 w-1.5 rounded-full bg-TT-purple-accent opacity-80"></div>
+                                  <div className="text-xs text-TT-purple-tint1 opacity-80 font-medium tracking-wide">
+                                    Transcription
+                                  </div>
+                                </div>
+
+                                <div className="text-TT-purple-tint2 leading-relaxed">
                                   {transcription.text}
                                 </div>
-                              )}
-                            </div>
+
+                                <div className="text-right text-xs text-TT-purple-shade/70 mt-3 opacity-60 font-mono">
+                                  {
+                                    transcription.text
+                                      .split(/\s+/)
+                                      .filter(Boolean).length
+                                  }{" "}
+                                  words
+                                </div>
+                              </div>
+                            )}
                           </Card>
                         ))}
                       </div>
