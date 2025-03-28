@@ -592,8 +592,8 @@ export function MainContent({
                     </span>
                   </Button>
 
-                  {/* Improved floating mic button with animation */}
-                  <div className="absolute -right-4 -top-4">
+                  {/* Fixed floating mic button with proper positioning */}
+                  <div className="absolute -right-3 -top-3 z-20">
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -601,18 +601,20 @@ export function MainContent({
                             onClick={startNewRecording}
                             size="sm"
                             className={cn(
-                              "h-12 w-12 rounded-full shadow-lg shadow-TT-purple/20",
+                              "h-14 w-14 rounded-full shadow-lg shadow-TT-purple/20",
                               "bg-TT-purple-accent hover:bg-TT-purple",
                               "transition-all duration-200 ease-in-out",
                               "flex items-center justify-center relative",
-                              "overflow-hidden"
+                              "border-2 border-[#1A1A1A]" // Added border to match background
                             )}
                           >
-                            {/* Ripple animation behind the mic icon */}
-                            <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse-ripple-x"></span>
-                            <Mic className="h-5 w-5 text-white relative z-10" />
+                            {/* Pulse animation */}
+                            <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse"></span>
+                            <Mic className="h-6 w-6 text-white relative z-10" />
+
+                            {/* Notification dot with improved positioning */}
                             {hasRecordedBefore && (
-                              <span className="absolute -top-1 -right-1 h-5 w-5 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md">
+                              <span className="absolute -top-1 -right-1 h-6 w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md border border-[#1A1A1A]">
                                 <span className="text-xs text-white font-bold">
                                   +
                                 </span>
@@ -632,7 +634,7 @@ export function MainContent({
                 </div>
 
                 {/* Extra padding div to ensure there's room to scroll */}
-                <div className="h-24"></div>
+                <div className="h-32"></div>
               </div>
             ) : null}
           </div>
