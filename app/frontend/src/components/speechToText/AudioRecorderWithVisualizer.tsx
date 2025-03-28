@@ -426,7 +426,7 @@ export const AudioRecorderWithVisualizer = ({
                   : "bg-muted border-border dark:bg-[#222222] dark:border-TT-purple/20 dark:text-gray-200"
               )}
             >
-              <Clock className="h-4 w-4 mr-2 inline-block" />
+              <Clock className="h-4 w-4 mr-2 inline-block text-TT-purple dark:text-TT-purple-accent" />
               {formattedTime}
             </div>
             <span className="text-sm font-medium dark:text-gray-300">
@@ -457,7 +457,7 @@ export const AudioRecorderWithVisualizer = ({
                 variant="ghost"
                 size="sm"
                 onClick={togglePlayPause}
-                className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-shade hover:bg-TT-purple/10 dark:text-purple-400 dark:hover:text-purple-300 dark:hover:bg-purple-900/20"
+                className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple-accent hover:text-TT-purple-shade hover:bg-TT-purple/10 dark:text-TT-purple dark:hover:text-TT-purple-tint1 dark:hover:bg-TT-purple/20"
               >
                 {isPlaying ? (
                   <Pause className="h-4 w-4" />
@@ -496,10 +496,9 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <button
                     onClick={resetRecording}
-                    className="h-12 w-12 rounded-full flex items-center justify-center bg-red-600 hover:bg-red-700 border-0 text-white"
-                    style={{ color: "white", backgroundColor: "#dc2626" }}
+                    className="h-12 w-12 rounded-full flex items-center justify-center bg-TT-red-accent hover:bg-TT-red-shade border-0 text-white transition-colors duration-200"
                   >
-                    <Trash className="h-5 w-5" style={{ color: "white" }} />
+                    <Trash className="h-5 w-5 text-white" />
                     <span className="sr-only">Reset recording</span>
                   </button>
                 </TooltipTrigger>
@@ -515,10 +514,9 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <button
                     onClick={stopRecording}
-                    className="h-12 w-12 rounded-full flex items-center justify-center bg-gray-200 dark:bg-gray-700 border-0"
-                    style={{ backgroundColor: "#e5e7eb", color: "#000" }}
+                    className="h-12 w-12 rounded-full flex items-center justify-center bg-TT-red hover:bg-TT-red-accent border-0 transition-colors duration-200"
                   >
-                    <Square className="h-5 w-5 dark:text-white" />
+                    <Square className="h-5 w-5 text-white" />
                     <span className="sr-only">Stop recording</span>
                   </button>
                 </TooltipTrigger>
@@ -533,28 +531,28 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <div
                     onClick={startRecording}
-                    className="h-16 w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-purple-500 cursor-pointer shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 hover:shadow-purple-400/30 dark:hover:shadow-purple-600/30 hover:border-purple-400 dark:hover:border-purple-600"
+                    className="h-16 w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-TT-purple-accent cursor-pointer shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 hover:shadow-TT-purple-accent/30 dark:hover:shadow-TT-purple/30 hover:border-TT-purple dark:hover:border-TT-purple-tint1"
                     style={{
-                      boxShadow: "0 0 0 2px rgba(168, 85, 247, 0.5)",
+                      boxShadow: "0 0 0 2px rgba(124, 104, 250, 0.3)", // TT-purple-accent with opacity
                       transform: "translateY(0)",
                       transition:
                         "transform 0.2s, box-shadow 0.2s, border-color 0.2s",
                     }}
                   >
-                    <Mic
-                      className="h-7 w-7 text-purple-600 dark:text-purple-400 transition-colors duration-200 group-hover:text-purple-500"
-                      style={{ color: "rgb(147, 51, 234)" }}
-                    />
+                    <Mic className="h-7 w-7 text-TT-purple-accent dark:text-TT-purple-tint1 transition-colors duration-200" />
                     {hasRecordedBefore && (
-                      <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full"></span>
+                      <span className="absolute -top-1 -right-1 h-3 w-3 bg-TT-red rounded-full"></span>
                     )}
                     <span className="sr-only">Start recording</span>
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  {hasRecordedBefore
-                    ? "Click to record again"
-                    : "Click to start recording"}
+                  <div className="flex items-center gap-2">
+                    <Mic className="h-4 w-4 text-TT-purple-accent" />
+                    {hasRecordedBefore
+                      ? "Click to record again"
+                      : "Click to start recording"}
+                  </div>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -567,10 +565,9 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <button
                     onClick={sendToAPI}
-                    className="h-12 px-6 rounded-full flex items-center bg-purple-600 hover:bg-purple-700 text-white border-0"
-                    style={{ backgroundColor: "#9333ea", color: "white" }}
+                    className="h-12 px-6 rounded-full flex items-center bg-TT-purple-accent hover:bg-TT-purple-shade text-white border-0"
                   >
-                    <Send className="h-5 w-5 mr-2" style={{ color: "white" }} />
+                    <Send className="h-5 w-5 mr-2 text-white" />
                     <span>Send</span>
                   </button>
                 </TooltipTrigger>
