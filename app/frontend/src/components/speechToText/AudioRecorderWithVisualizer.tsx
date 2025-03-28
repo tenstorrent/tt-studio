@@ -451,16 +451,13 @@ export const AudioRecorderWithVisualizer = ({
 
         {/* Audio player - shown after stopping recording */}
         {isRecordingStopped && audioUrl && (
-          <div className="w-full mt-4 p-3 bg-muted/20 rounded-md border border-border dark:bg-[#222222]/50 dark:border-TT-purple/20">
-            <div className="flex justify-between items-center mb-2">
-              <p className="text-sm font-medium dark:text-gray-200">
-                Preview Recording:
-              </p>
+          <div className="w-full mt-4 p-3 rounded-md border bg-white/50 dark:bg-[#1A1A1A]/90 backdrop-blur-sm border-border dark:border-TT-purple/20">
+            <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={togglePlayPause}
-                className="h-8 w-8 p-0 flex items-center justify-center dark:text-gray-200 dark:hover:bg-[#2A2A2A]"
+                className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-shade hover:bg-TT-purple/10 dark:text-purple-400 dark:hover:text-purple-300 dark:hover:bg-purple-900/20"
               >
                 {isPlaying ? (
                   <Pause className="h-4 w-4" />
@@ -468,15 +465,25 @@ export const AudioRecorderWithVisualizer = ({
                   <Play className="h-4 w-4" />
                 )}
               </Button>
+              <div className="flex-1">
+                <audio
+                  ref={audioRef}
+                  className="w-full 
+                    [&::-webkit-media-controls-panel]:bg-white/50 
+                    [&::-webkit-media-controls-panel]:dark:bg-[#1A1A1A]/90
+                    [&::-webkit-media-controls-play-button]:hidden 
+                    [&::-webkit-media-controls-current-time-display]:text-gray-700 
+                    [&::-webkit-media-controls-current-time-display]:dark:text-gray-200
+                    [&::-webkit-media-controls-time-remaining-display]:text-gray-700 
+                    [&::-webkit-media-controls-time-remaining-display]:dark:text-gray-200
+                    [&::-webkit-media-controls-timeline]:accent-TT-purple"
+                  src={audioUrl}
+                  controls
+                  onEnded={handleAudioEnded}
+                  style={{ height: "32px" }}
+                />
+              </div>
             </div>
-            <audio
-              ref={audioRef}
-              className="w-full"
-              src={audioUrl}
-              controls
-              onEnded={handleAudioEnded}
-              style={{ display: "block" }}
-            />
           </div>
         )}
 
@@ -524,14 +531,18 @@ export const AudioRecorderWithVisualizer = ({
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  {/* Modified to ensure visible in both light and dark themes */}
                   <div
                     onClick={startRecording}
-                    className="h-16 w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-purple-500 cursor-pointer shadow-lg"
-                    style={{ boxShadow: "0 0 0 2px rgba(168, 85, 247, 0.5)" }}
+                    className="h-16 w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-purple-500 cursor-pointer shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 hover:shadow-purple-400/30 dark:hover:shadow-purple-600/30 hover:border-purple-400 dark:hover:border-purple-600"
+                    style={{
+                      boxShadow: "0 0 0 2px rgba(168, 85, 247, 0.5)",
+                      transform: "translateY(0)",
+                      transition:
+                        "transform 0.2s, box-shadow 0.2s, border-color 0.2s",
+                    }}
                   >
                     <Mic
-                      className="h-7 w-7 text-purple-600 dark:text-purple-400"
+                      className="h-7 w-7 text-purple-600 dark:text-purple-400 transition-colors duration-200 group-hover:text-purple-500"
                       style={{ color: "rgb(147, 51, 234)" }}
                     />
                     {hasRecordedBefore && (
