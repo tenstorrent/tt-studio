@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import { useState, useEffect } from "react";
 import { AppSidebar } from "@/src/components/speechToText/appSidebar";
 import { MainContent } from "@/src/components/speechToText/mainContent";
@@ -106,41 +109,48 @@ export default function SpeechToTextApp() {
   }, [conversationCounter]);
 
   return (
-    <div className="flex flex-col overflow-auto w-10/12 mx-auto">
-      <Card className="flex flex-col w-full h-full shadow-lg">
-        <div className="flex h-screen w-full dark:bg-black bg-white dark:bg-grid-white/[0.2] bg-grid-black/[0.2] relative">
-          <div className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white [mask-image:radial-gradient(ellipse_at_center,transparent_60%,black_100%)]" />
-
+    <div className="w-4/5 h-4/5 mx-auto my-auto p-4">
+      <Card className="flex flex-col w-full h-full overflow-hidden shadow-xl bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-TT-purple/20 backdrop-blur-sm">
+        <div className="flex-1 overflow-hidden flex flex-col relative">
           <SidebarProvider defaultOpen={true}>
-            <AppSidebar
-              conversations={conversations}
-              selectedConversation={selectedConversation}
-              onSelectConversation={(id) => {
-                setSelectedConversation(id);
-                setIsRecording(false);
-                setShowRecordingInterface(false);
-              }}
-              onNewConversation={handleNewConversation}
-            />
-
-            <div className="flex flex-col flex-1">
-              <div className="h-14 border-b flex items-center px-4">
-                <SidebarTrigger className="mr-4" />
-                <h1 className="text-xl font-semibold">
-                  {selectedConversation
-                    ? conversations.find((c) => c.id === selectedConversation)
-                        ?.title || "Speech to Text"
-                    : "New Conversation"}
-                </h1>
+            <div className="flex h-full w-full relative">
+              {/* Sidebar component */}
+              <div className="border-r border-gray-200 dark:border-TT-purple/20 overflow-y-auto">
+                <AppSidebar
+                  conversations={conversations}
+                  selectedConversation={selectedConversation}
+                  onSelectConversation={(id) => {
+                    setSelectedConversation(id);
+                    setIsRecording(false);
+                    setShowRecordingInterface(false);
+                  }}
+                  onNewConversation={handleNewConversation}
+                />
               </div>
 
-              <MainContent
-                conversations={conversations}
-                selectedConversation={selectedConversation}
-                onNewTranscription={handleNewTranscription}
-                isRecording={isRecording}
-                setIsRecording={setIsRecording}
-              />
+              {/* Main content area */}
+              <div className="flex flex-col flex-1 bg-white dark:bg-[#2A2A2A] border-l border-gray-200 dark:border-TT-purple/20 min-w-0 min-h-0">
+                <div className="h-14 border-b border-gray-200 dark:border-TT-purple/20 flex items-center px-4 bg-gray-100 dark:bg-[#222222] shrink-0">
+                  <SidebarTrigger className="mr-4 text-TT-purple hover:text-TT-purple-accent" />
+                  <h1 className="text-xl font-semibold text-TT-purple dark:text-TT-purple truncate">
+                    {selectedConversation
+                      ? conversations.find((c) => c.id === selectedConversation)
+                          ?.title || "Speech to Text"
+                      : "New Conversation"}
+                  </h1>
+                </div>
+
+                {/* Content wrapper with proper containment */}
+                <div className="flex-1 overflow-hidden bg-gray-50 dark:bg-[#2A2A2A] border-t border-gray-200 dark:border-TT-purple/20 min-h-0">
+                  <MainContent
+                    conversations={conversations}
+                    selectedConversation={selectedConversation}
+                    onNewTranscription={handleNewTranscription}
+                    isRecording={isRecording}
+                    setIsRecording={setIsRecording}
+                  />
+                </div>
+              </div>
             </div>
           </SidebarProvider>
         </div>
