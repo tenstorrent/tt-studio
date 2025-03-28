@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import SpeechToTextApp from "../components/speechToText/speechToTextApp";
 
-const ObjectDetectionPage = () => {
+const AudioDetectionPage = () => {
   return (
     <>
       <div className="h-screen w-full dark:bg-black bg-white dark:bg-grid-white/[0.2] bg-grid-black/[0.2] relative flex items-center justify-center">
@@ -24,4 +24,4 @@ const ObjectDetectionPage = () => {
   );
 };
 
-export default ObjectDetectionPage;
+export default AudioDetectionPage;
