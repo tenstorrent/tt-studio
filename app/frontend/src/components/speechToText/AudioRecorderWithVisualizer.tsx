@@ -77,6 +77,23 @@ export const AudioRecorderWithVisualizer = ({
   const sampleRate = 16_000; // 16kHz sample rate
 
   function startRecording() {
+    if (mediaRecorderRef.current.stream) {
+      mediaRecorderRef.current.stream
+        .getTracks()
+        .forEach((track) => track.stop());
+      mediaRecorderRef.current.stream = null;
+    }
+
+    if (
+      mediaRecorderRef.current.audioContext &&
+      mediaRecorderRef.current.audioContext.state !== "closed"
+    ) {
+      mediaRecorderRef.current.audioContext.close().catch((err) => {
+        console.error("Error closing previous AudioContext:", err);
+      });
+      mediaRecorderRef.current.audioContext = null;
+    }
+
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       navigator.mediaDevices
         .getUserMedia({
@@ -157,7 +174,44 @@ export const AudioRecorderWithVisualizer = ({
       const url = URL.createObjectURL(recordBlob);
       setAudioUrl(url);
 
+      // Clear the recording chunks array
       recordingChunks = [];
+
+      // Completely release the microphone by stopping all tracks
+      if (mediaRecorderRef.current.stream) {
+        console.log("Stopping all tracks and releasing microphone");
+        mediaRecorderRef.current.stream.getTracks().forEach((track) => {
+          track.stop();
+          console.log("Track stopped:", track.kind);
+        });
+        mediaRecorderRef.current.stream = null;
+      }
+
+      // Clear the mediaRecorder reference
+      mediaRecorderRef.current.mediaRecorder = null;
+
+      // Also close the audio context to fully release audio resources
+      if (
+        mediaRecorderRef.current.audioContext &&
+        mediaRecorderRef.current.audioContext.state !== "closed"
+      ) {
+        mediaRecorderRef.current.audioContext
+          .close()
+          .then(() => {
+            console.log("AudioContext closed successfully");
+          })
+          .catch((err) => {
+            console.error("Error closing AudioContext:", err);
+          });
+        mediaRecorderRef.current.audioContext = null;
+      }
+
+      // Disconnect the analyser if it exists
+      if (mediaRecorderRef.current.analyser) {
+        mediaRecorderRef.current.analyser.disconnect();
+        mediaRecorderRef.current.analyser = null;
+      }
+
       setHasRecordedBefore(true);
     };
 
@@ -227,6 +281,14 @@ export const AudioRecorderWithVisualizer = ({
       URL.revokeObjectURL(audioUrl);
     }
 
+    // Reset all state
+    mediaRecorderRef.current = {
+      stream: null,
+      analyser: null,
+      mediaRecorder: null,
+      audioContext: null,
+    };
+
     setIsRecording(false);
     setIsRecordingStopped(false);
     setAudioBlob(null);
@@ -286,6 +348,23 @@ export const AudioRecorderWithVisualizer = ({
       }
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+      }
+
+      // Make sure to fully clean up all audio resources when component unmounts
+      const { stream, audioContext, analyser } = mediaRecorderRef.current;
+
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+
+      if (analyser) {
+        analyser.disconnect();
+      }
+
+      if (audioContext && audioContext.state !== "closed") {
+        audioContext.close().catch((err) => {
+          console.error("Error closing AudioContext on unmount:", err);
+        });
       }
     };
   }, [audioUrl]);

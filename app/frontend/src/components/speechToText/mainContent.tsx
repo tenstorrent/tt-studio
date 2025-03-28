@@ -164,11 +164,24 @@ export function MainContent({
 
   // Start a new recording
   const startNewRecording = () => {
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.src = "";
+    }
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+      setAudioUrl(null);
+    }
+
     setIsRecording(true);
     setShowRecordingInterface(true);
     setJustSentRecording(false);
     setHasRecordedBefore(true);
     setForceShowTranscription(false);
+
+    setTimeout(() => {
+      console.log("Starting new recording session");
+    }, 100);
   };
 
   // Format time for display
@@ -546,6 +559,7 @@ export function MainContent({
                                           : undefined
                                       }
                                       controls
+                                      ref={audioElementRef}
                                       style={{ height: "32px" }}
                                     />
                                   </div>
