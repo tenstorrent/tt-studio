@@ -324,10 +324,11 @@ export function MainContent({
   return (
     // This is the main container - it should take full height and handle scrolling
     <div className="flex flex-col h-full">
-      {/* Removed toggle view button as it's now in the header */}
-
       {/* Scrollable content container */}
-      <div ref={contentContainerRef} className="flex-1 overflow-y-auto">
+      <div
+        ref={contentContainerRef}
+        className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1A1A1A] to-[#222222]"
+      >
         <div className="p-6">
           <div className="max-w-4xl mx-auto w-full">
             {!selectedConversation || showRecordingInterface ? (
@@ -336,13 +337,13 @@ export function MainContent({
                   <h1 className="text-3xl font-bold mb-4 text-TT-purple">
                     Record Your Speech
                   </h1>
-                  <p className="text-muted-foreground dark:text-gray-300">
+                  <p className="text-TT-purple-tint1 dark:text-TT-purple-tint1">
                     Record your voice and convert it to text instantly. Follow
                     the steps below to get started.
                   </p>
                 </div>
 
-                <Card className="mb-8 p-8 bg-background/50 backdrop-blur-sm border-TT-purple-shade dark:bg-[#2A2A2A]/50 dark:border-TT-purple/20">
+                <Card className="mb-8 p-8 bg-[#222222]/80 backdrop-blur-sm border-TT-purple-shade/50 dark:border-TT-purple/30 shadow-lg shadow-TT-purple/5">
                   <h2 className="text-xl font-semibold mb-6 text-TT-purple">
                     {isProcessing ? "Processing..." : ""}
                   </h2>
@@ -355,7 +356,7 @@ export function MainContent({
                   </div>
 
                   {isProcessing && (
-                    <div className="mt-6 p-4 border border-TT-purple-shade rounded-md bg-TT-purple-shade/20">
+                    <div className="mt-6 p-4 border border-TT-purple-shade/50 rounded-md bg-TT-purple-shade/20">
                       <div className="flex items-center">
                         <Loader2 className="h-5 w-5 mr-3 animate-spin text-TT-purple" />
                         <p className="font-medium text-TT-purple">
@@ -368,8 +369,6 @@ export function MainContent({
               </>
             ) : selectedConversation && selectedConversationData ? (
               <div className="flex flex-col">
-                {/* Removed conversation title card as it's now in the header */}
-
                 {/* Display transcriptions grouped by date */}
                 <div className="mb-6">
                   {groupTranscriptionsByDate(
@@ -377,12 +376,12 @@ export function MainContent({
                   ).map((group) => (
                     <div key={group.date} className="mb-8">
                       <div className="flex items-center gap-2 px-2 mb-4">
-                        <div className="h-px bg-TT-slate-shade flex-grow dark:bg-gray-600"></div>
-                        <div className="text-xs font-medium text-TT-slate bg-TT-slate-shade px-2 py-1 rounded-full flex items-center dark:bg-gray-700 dark:text-gray-300">
-                          <Clock className="h-3 w-3 mr-1 text-TT-slate dark:text-gray-300" />
+                        <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
+                        <div className="text-xs font-medium text-white bg-TT-purple-shade/60 px-3 py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20">
+                          <Clock className="h-3 w-3 mr-1 text-TT-purple-tint1" />
                           {group.date}
                         </div>
-                        <div className="h-px bg-TT-slate-shade flex-grow dark:bg-gray-600"></div>
+                        <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
                       </div>
 
                       <div className="space-y-4">
@@ -390,10 +389,10 @@ export function MainContent({
                           <Card
                             key={transcription.id}
                             className={cn(
-                              "p-5 bg-background/50 backdrop-blur-sm border-l-4 dark:bg-[#2A2A2A]/70",
+                              "p-5 bg-[#222222]/80 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
                               index % 2 === 0
-                                ? "border-l-TT-purple"
-                                : "border-l-TT-blue",
+                                ? "border-l-TT-purple-accent border-y border-r border-TT-purple-shade/30"
+                                : "border-l-TT-blue border-y border-r border-TT-blue-shade/30",
                               justSentRecording &&
                                 index === group.items.length - 1 &&
                                 group ===
@@ -404,14 +403,14 @@ export function MainContent({
                                       selectedConversationData.transcriptions
                                     ).length - 1
                                   ]
-                                ? "ring-2 ring-TT-purple/30 animate-pulse"
+                                ? "ring-2 ring-TT-purple/30 bg-TT-purple-shade/10 animate-pulse"
                                 : ""
                             )}
                           >
                             <div className="flex justify-between items-center mb-3">
                               <div className="flex items-center gap-2">
                                 <MessageSquare className="h-4 w-4 text-TT-purple" />
-                                <p className="text-sm font-medium dark:text-gray-200">
+                                <p className="text-sm font-medium text-TT-purple-tint1">
                                   {formatTime(transcription.date)}
                                 </p>
                                 {justSentRecording &&
@@ -424,7 +423,7 @@ export function MainContent({
                                         selectedConversationData.transcriptions
                                       ).length - 1
                                     ] && (
-                                    <span className="text-xs bg-TT-purple-shade text-TT-purple px-2 py-0.5 rounded-full">
+                                    <span className="text-xs bg-TT-purple-accent/20 text-TT-purple-accent px-2 py-0.5 rounded-full">
                                       New
                                     </span>
                                   )}
@@ -511,7 +510,7 @@ export function MainContent({
 
                             {/* Audio preview */}
                             {transcription.audioBlob && (
-                              <div className="mb-3 rounded-md border bg-white/50 dark:bg-[#222222]/50 backdrop-blur-sm border-border dark:border-TT-purple/20">
+                              <div className="mb-3 rounded-md border border-TT-purple-shade/50 bg-[#1A1A1A]/90 backdrop-blur-sm">
                                 <div className="flex items-center gap-2 p-3">
                                   <Button
                                     variant="ghost"
@@ -526,7 +525,7 @@ export function MainContent({
                                         audio.pause();
                                       }
                                     }}
-                                    className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-shade hover:bg-TT-purple/10 dark:text-purple-400 dark:hover:text-purple-300 dark:hover:bg-purple-900/20"
+                                    className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
                                   >
                                     <Play className="h-4 w-4" />
                                   </Button>
@@ -534,13 +533,10 @@ export function MainContent({
                                     <audio
                                       id={`audio-${transcription.id}`}
                                       className="w-full 
-                                        [&::-webkit-media-controls-panel]:bg-white/50 
-                                        [&::-webkit-media-controls-panel]:dark:bg-[#222222]/50 
+                                        [&::-webkit-media-controls-panel]:bg-[#1A1A1A]/90
                                         [&::-webkit-media-controls-play-button]:hidden 
-                                        [&::-webkit-media-controls-current-time-display]:text-gray-700 
-                                        [&::-webkit-media-controls-current-time-display]:dark:text-gray-300
-                                        [&::-webkit-media-controls-time-remaining-display]:text-gray-700 
-                                        [&::-webkit-media-controls-time-remaining-display]:dark:text-gray-300
+                                        [&::-webkit-media-controls-current-time-display]:text-TT-purple-tint1
+                                        [&::-webkit-media-controls-time-remaining-display]:text-TT-purple-tint1
                                         [&::-webkit-media-controls-timeline]:accent-TT-purple"
                                       src={
                                         transcription.audioBlob
@@ -561,11 +557,11 @@ export function MainContent({
                               {isEditing === transcription.id ? (
                                 <textarea
                                   ref={textareaRef}
-                                  className="w-full min-h-[100px] p-3 border border-input rounded-md bg-white dark:bg-[#222222] dark:text-white focus:outline-none focus:ring-2 focus:ring-TT-purple"
+                                  className="w-full min-h-[100px] p-3 border border-TT-purple-shade/50 rounded-md bg-[#1A1A1A] text-white focus:outline-none focus:ring-2 focus:ring-TT-purple"
                                   defaultValue={transcription.text}
                                 ></textarea>
                               ) : (
-                                <div className="p-3 rounded-md bg-white dark:bg-[#222222] dark:text-white min-h-[60px] border border-muted">
+                                <div className="p-4 rounded-md bg-[#1A1A1A] text-white min-h-[60px] border border-TT-purple-shade/30 shadow-inner">
                                   {transcription.text}
                                 </div>
                               )}
@@ -577,16 +573,16 @@ export function MainContent({
                   ))}
                 </div>
 
-                {/* Add new recording button at bottom of conversation with increased margin */}
+                {/* Add new recording button at bottom of conversation with improved styling */}
                 <div
-                  className="py-10 border-2 border-dashed border-TT-purple/60 rounded-lg bg-[#1A1A1A] hover:bg-[#252525] transition-colors flex justify-center mb-52 mt-8 relative"
+                  className="py-10 border-2 border-dashed border-TT-purple/40 rounded-lg bg-gradient-to-r from-[#1A1A1A] to-[#222222] hover:bg-gradient-to-r hover:from-[#222222] hover:to-[#1A1A1A] transition-colors flex justify-center mb-52 mt-8 relative"
                   ref={conversationEndRef}
                 >
                   <Button
                     onClick={startNewRecording}
                     variant="default"
                     size="lg"
-                    className="flex items-center gap-3 px-6 py-6 bg-gradient-to-r from-TT-purple-accent to-TT-purple hover:from-TT-purple-shade hover:to-TT-purple-accent text-white transition-all duration-300 font-medium"
+                    className="flex items-center gap-3 px-8 py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
                   >
                     <Mic className="h-5 w-5 text-white" />
                     <span>
@@ -596,7 +592,7 @@ export function MainContent({
                     </span>
                   </Button>
 
-                  {/* Improved floating mic button positioning */}
+                  {/* Improved floating mic button with animation */}
                   <div className="absolute -right-4 -top-4">
                     <TooltipProvider>
                       <Tooltip>
@@ -605,15 +601,18 @@ export function MainContent({
                             onClick={startNewRecording}
                             size="sm"
                             className={cn(
-                              "h-12 w-12 rounded-full shadow-lg",
-                              "bg-TT-purple-accent hover:bg-TT-purple-shade",
+                              "h-12 w-12 rounded-full shadow-lg shadow-TT-purple/20",
+                              "bg-TT-purple-accent hover:bg-TT-purple",
                               "transition-all duration-200 ease-in-out",
-                              "flex items-center justify-center relative"
+                              "flex items-center justify-center relative",
+                              "overflow-hidden"
                             )}
                           >
-                            <Mic className="h-5 w-5 text-white" />
+                            {/* Ripple animation behind the mic icon */}
+                            <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse-ripple-x"></span>
+                            <Mic className="h-5 w-5 text-white relative z-10" />
                             {hasRecordedBefore && (
-                              <span className="absolute -top-1 -right-1 h-5 w-5 bg-TT-red-accent rounded-full flex items-center justify-center">
+                              <span className="absolute -top-1 -right-1 h-5 w-5 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md">
                                 <span className="text-xs text-white font-bold">
                                   +
                                 </span>
