@@ -27,11 +27,14 @@ export const runInference = async (
     setIsStreaming(true);
 
     console.log("Uploaded files:", request.files);
+    console.log("RAG Datasource:", ragDatasource);
 
     let ragContext: { documents: string[] } | null = null;
 
     if (ragDatasource) {
-      console.log("Fetching RAG context for the given request...");
+      console.log(
+        `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
+      );
       ragContext = await getRagContext(request, ragDatasource);
       console.log("RAG context fetched:", ragContext);
     }
