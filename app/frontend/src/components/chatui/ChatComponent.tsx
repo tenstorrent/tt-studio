@@ -693,16 +693,28 @@ export default function ChatComponent() {
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
-        {/* Improved mobile handle with pill indicator */}
+        {/* Minimal mobile handle with chevron indicator */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (
           <div
             ref={swipeAreaRef}
-            className="fixed top-0 left-0 h-full w-14 z-50 cursor-pointer flex items-center justify-start"
+            className="fixed top-1/2 -translate-y-1/2 left-0 h-24 w-6 z-50 cursor-pointer flex items-center justify-start" // reduced size and centered vertically
             style={{ touchAction: "none" }}
             onClick={toggleHistoryPanel}
           >
-            <div className="w-8 h-48 bg-white dark:bg-[#2A2A2A] rounded-r-lg flex items-center justify-center">
-              <div className="w-1.5 h-24 bg-gray-300 dark:bg-gray-600 rounded-full"></div>
+            <div className="w-5 h-24 bg-white dark:bg-[#2A2A2A] rounded-r-lg flex items-center justify-center">
+              <svg
+                className="w-4 h-4 text-gray-400 dark:text-gray-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
             </div>
           </div>
         )}
@@ -762,12 +774,12 @@ export default function ChatComponent() {
               exit={screenSize.isMobileView ? { x: "-100%" } : { width: 0 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className={`h-full overflow-hidden 
-  p-4 bg-white dark:bg-black
-  ${
-    screenSize.isMobileView
-      ? "fixed top-0 left-0 w-[90%] max-w-sm z-50 shadow-xl rounded-r-lg"
-      : "relative flex-shrink-0"
-  }`}
+        p-4 bg-white dark:bg-black
+        ${
+          screenSize.isMobileView
+            ? "fixed top-0 left-0 w-[90%] max-w-sm z-50 shadow-xl rounded-r-lg"
+            : "relative flex-shrink-0"
+        }`}
             >
               <HistoryPanel
                 conversations={
