@@ -27,7 +27,6 @@ export function HistoryPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [touchedId, setTouchedId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   // Check if device is mobile
@@ -44,23 +43,8 @@ export function HistoryPanel({
     };
   }, []);
 
-  // Handle touch events for mobile
-  const handleTouchStart = (id: string) => {
-    if (isMobile) {
-      setTouchedId(id);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (isMobile) {
-      // Keep the touched state for a brief moment to allow button interaction
-      setTimeout(() => {
-        setTouchedId(null);
-      }, 2000);
-    }
-  };
-
-  const handleEditStart = (id: string, title: string) => {
+  const handleEditStart = (id: string, title: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     setEditingId(id);
     setEditTitle(title);
   };
@@ -118,91 +102,91 @@ export function HistoryPanel({
         </div>
       </div>
       <ScrollArea className="flex-grow px-4">
-        <div className="space-y-1">
+        <div className="space-y-2">
           {filteredConversations.map((conversation) => (
-            <div
-              key={`conv-${conversation.id}`}
-              className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all duration-200 
-                ${
-                  conversation.id === currentConversationId
-                    ? "bg-slate-200 dark:bg-[#3A3A3A]"
-                    : "hover:bg-slate-100 dark:hover:bg-[#2A2A2A]"
-                }`}
-              onClick={() => onSelectConversation(conversation.id)}
-              onTouchStart={() => handleTouchStart(conversation.id)}
-              onTouchEnd={handleTouchEnd}
-            >
-              <div className="flex items-center flex-grow min-w-0">
-                <MessageSquare className="shrink-0 mr-2 h-4 w-4 text-zinc-400" />
-                {editingId === conversation.id ? (
-                  <Input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onBlur={() => handleEditSave(conversation.id)}
-                    onKeyDown={(e) => handleEditKeyDown(e, conversation.id)}
-                    className="h-6 text-sm bg-transparent dark:bg-[#2A2A2A] border-0 focus:ring-2 focus:ring-[#7C68FA]"
-                    autoFocus
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <span className="truncate text-slate-800 dark:text-slate-200">
-                    {searchQuery &&
-                    conversation.title
-                      .toLowerCase()
-                      .includes(searchQuery.toLowerCase())
-                      ? conversation.title
-                          .split(new RegExp(`(${searchQuery})`, "gi"))
-                          .map((part: string, partIndex: number) =>
-                            part.toLowerCase() === searchQuery.toLowerCase() ? (
-                              <span
-                                key={`highlight-${conversation.id}-${partIndex}`}
-                                className="bg-[#7C68FA]/30"
-                              >
-                                {part}
-                              </span>
-                            ) : (
-                              <span
-                                key={`normal-${conversation.id}-${partIndex}`}
-                              >
-                                {part}
-                              </span>
-                            )
-                          )
-                      : conversation.title}
-                  </span>
-                )}
-              </div>
+            <div key={`conv-${conversation.id}`} className="relative group">
+              {/* Main conversation item */}
               <div
-                className={`flex items-center shrink-0 gap-1 ${
-                  isMobile
-                    ? touchedId === conversation.id
-                      ? "opacity-100"
-                      : "opacity-0"
-                    : "opacity-0 group-hover:opacity-100"
-                } transition-opacity`}
+                className={`flex items-center justify-between p-2 ${isMobile ? "p-3" : "p-2"} rounded-lg cursor-pointer transition-all duration-200 
+                  ${
+                    conversation.id === currentConversationId
+                      ? "bg-slate-200 dark:bg-[#3A3A3A]"
+                      : "hover:bg-slate-100 dark:hover:bg-[#2A2A2A]"
+                  }`}
+                onClick={() => onSelectConversation(conversation.id)}
               >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 hover:bg-slate-200 dark:hover:bg-[#3A3A3A] hover:text-[#7C68FA] transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleEditStart(conversation.id, conversation.title);
-                  }}
+                <div className="flex items-center flex-grow min-w-0 pr-16">
+                  {" "}
+                  {/* Added padding right for buttons */}
+                  <MessageSquare
+                    className={`shrink-0 mr-2 ${isMobile ? "h-5 w-5" : "h-4 w-4"} text-zinc-400`}
+                  />
+                  {editingId === conversation.id ? (
+                    <Input
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onBlur={() => handleEditSave(conversation.id)}
+                      onKeyDown={(e) => handleEditKeyDown(e, conversation.id)}
+                      className={`${isMobile ? "h-8" : "h-6"} text-sm bg-transparent dark:bg-[#2A2A2A] border-0 focus:ring-2 focus:ring-[#7C68FA]`}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span
+                      className={`truncate text-slate-800 dark:text-slate-200 ${isMobile ? "text-base" : "text-sm"} max-w-[calc(100%-40px)]`}
+                    >
+                      {searchQuery &&
+                      conversation.title
+                        .toLowerCase()
+                        .includes(searchQuery.toLowerCase())
+                        ? conversation.title
+                            .split(new RegExp(`(${searchQuery})`, "gi"))
+                            .map((part: string, partIndex: number) =>
+                              part.toLowerCase() ===
+                              searchQuery.toLowerCase() ? (
+                                <span
+                                  key={`highlight-${conversation.id}-${partIndex}`}
+                                  className="bg-[#7C68FA]/30"
+                                >
+                                  {part}
+                                </span>
+                              ) : (
+                                <span
+                                  key={`normal-${conversation.id}-${partIndex}`}
+                                >
+                                  {part}
+                                </span>
+                              )
+                            )
+                        : conversation.title}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Action buttons positioned absolutely */}
+              <div
+                className={`absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10 
+                  ${isMobile ? "opacity-100" : "opacity-0 group-hover:opacity-100"} 
+                  transition-opacity`}
+              >
+                <button
+                  onClick={(e) =>
+                    handleEditStart(conversation.id, conversation.title, e)
+                  }
+                  className="p-2 rounded-full bg-[#7C68FA]/20 flex items-center justify-center"
                 >
-                  <Edit2 className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 hover:bg-slate-200 dark:hover:bg-[#3A3A3A] hover:text-[#7C68FA] transition-colors"
+                  <Edit2 className="h-4 w-4 text-[#7C68FA] dark:text-[#7C68FA]" />
+                </button>
+                <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onDeleteConversation(conversation.id);
                   }}
+                  className="p-2 rounded-full bg-red-500/10 flex items-center justify-center"
                 >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
+                  <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
+                </button>
               </div>
             </div>
           ))}
@@ -211,9 +195,9 @@ export function HistoryPanel({
       <div className="flex-none p-4">
         <Button
           onClick={onCreateNewConversation}
-          className="w-full bg-[#7C68FA] dark:bg-[#7C68FA] hover:bg-[#7C68FA]/80 dark:hover:bg-[#7C68FA]/90 text-white transition-colors flex items-center justify-center gap-2 py-4 rounded-lg"
+          className={`w-full bg-[#7C68FA] dark:bg-[#7C68FA] hover:bg-[#7C68FA]/80 dark:hover:bg-[#7C68FA]/90 text-white transition-colors flex items-center justify-center gap-2 ${isMobile ? "py-5 text-base" : "py-4"} rounded-lg`}
         >
-          <PlusCircle className="h-4 w-4" />
+          <PlusCircle className={`${isMobile ? "h-5 w-5" : "h-4 w-4"}`} />
           New Chat
         </Button>
       </div>

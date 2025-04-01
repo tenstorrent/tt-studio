@@ -690,34 +690,19 @@ export default function ChatComponent() {
     name: model.modelName || model.name || "", // Use modelName from Model type or fall back to name
   }));
 
-  // Move the handleSwipeAreaTouchMove function inside ChatComponent
-  function handleSwipeAreaTouchMove(this: HTMLDivElement, ev: TouchEvent) {
-    if (!screenSize.isMobileView || touchStartXRef.current === null) return;
-
-    const currentX = ev.touches[0].clientX;
-    const deltaX = currentX - touchStartXRef.current;
-
-    // Update the touchMoveX state to reflect the swipe distance
-    setTouchMoveX(deltaX);
-
-    // Prevent default to avoid triggering browser gestures
-    if (ev.cancelable) {
-      ev.preventDefault();
-    }
-  }
-
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
+        {/* Improved mobile handle with pill indicator */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (
           <div
             ref={swipeAreaRef}
-            className="fixed top-0 left-0 h-full w-12 z-50 cursor-pointer flex items-center justify-start"
+            className="fixed top-0 left-0 h-full w-14 z-50 cursor-pointer flex items-center justify-start"
             style={{ touchAction: "none" }}
             onClick={toggleHistoryPanel}
           >
-            <div className="w-6 h-36 bg-white dark:bg-[#2A2A2A] rounded-r-lg flex items-center justify-center">
-              <div className="w-1 h-16 bg-gray-300 dark:bg-gray-600 rounded-full"></div>
+            <div className="w-8 h-48 bg-white dark:bg-[#2A2A2A] rounded-r-lg flex items-center justify-center">
+              <div className="w-1.5 h-24 bg-gray-300 dark:bg-gray-600 rounded-full"></div>
             </div>
           </div>
         )}
@@ -780,7 +765,7 @@ export default function ChatComponent() {
   p-4 bg-white dark:bg-black
   ${
     screenSize.isMobileView
-      ? "fixed top-0 left-0 w-4/5 max-w-xs z-50 shadow-xl rounded-r-lg"
+      ? "fixed top-0 left-0 w-[90%] max-w-sm z-50 shadow-xl rounded-r-lg"
       : "relative flex-shrink-0"
   }`}
             >
