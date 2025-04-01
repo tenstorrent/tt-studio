@@ -709,14 +709,17 @@ export default function ChatComponent() {
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
-        {/* Simple visible handle without icons */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (
           <div
             ref={swipeAreaRef}
-            className="fixed top-0 left-0 h-full w-2 bg-gray-800 opacity-80 z-50 cursor-pointer"
+            className="fixed top-0 left-0 h-full w-12 z-50 cursor-pointer flex items-center justify-start"
             style={{ touchAction: "none" }}
             onClick={toggleHistoryPanel}
-          />
+          >
+            <div className="w-6 h-36 bg-white dark:bg-[#2A2A2A] rounded-r-lg flex items-center justify-center">
+              <div className="w-1 h-16 bg-gray-300 dark:bg-gray-600 rounded-full"></div>
+            </div>
+          </div>
         )}
 
         {/* Swipe indicator that appears when dragging the handle */}
@@ -773,13 +776,13 @@ export default function ChatComponent() {
               }
               exit={screenSize.isMobileView ? { x: "-100%" } : { width: 0 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
-              className={`h-full overflow-hidden border-r border-gray-200 dark:border-gray-900 
-                p-4 bg-white dark:bg-black
-                ${
-                  screenSize.isMobileView
-                    ? "fixed top-0 left-0 w-4/5 max-w-xs z-50 shadow-xl"
-                    : "relative flex-shrink-0"
-                }`}
+              className={`h-full overflow-hidden 
+  p-4 bg-white dark:bg-black
+  ${
+    screenSize.isMobileView
+      ? "fixed top-0 left-0 w-4/5 max-w-xs z-50 shadow-xl rounded-r-lg"
+      : "relative flex-shrink-0"
+  }`}
             >
               <HistoryPanel
                 conversations={
