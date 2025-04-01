@@ -156,6 +156,18 @@ export default function InputArea({
   const [pdfFileName, setPdfFileName] = useState("");
   const navigate = useNavigate();
 
+  // Add a meta viewport setting effect
+  useEffect(() => {
+    // Ensure proper viewport meta tag settings for mobile
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    if (viewportMeta) {
+      viewportMeta.setAttribute(
+        "content",
+        "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      );
+    }
+  }, []);
+
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
       textareaRef.current.focus();
@@ -170,13 +182,22 @@ export default function InputArea({
 
   const adjustTextareaHeight = () => {
     if (textareaRef.current) {
+      // Reset height first to get accurate scrollHeight
       textareaRef.current.style.height = "auto";
-      const maxHeight = isMobileView ? 120 : 200;
+
+      // Set appropriate max heights for mobile vs desktop
+      const maxHeight = isMobileView ? 80 : 200;
+
+      // Calculate new height (minimum 36px for mobile to show a line of text)
+      const minHeight = isMobileView ? 36 : 24;
       const scrollHeight = Math.min(
-        textareaRef.current.scrollHeight,
+        Math.max(textareaRef.current.scrollHeight, minHeight),
         maxHeight
       );
+
       textareaRef.current.style.height = `${scrollHeight}px`;
+
+      // Only enable scrolling when content exceeds the maximum height
       textareaRef.current.style.overflowY =
         textareaRef.current.scrollHeight > maxHeight ? "auto" : "hidden";
     }
@@ -501,12 +522,15 @@ export default function InputArea({
             onChange={handleTextAreaInput}
             onKeyDown={handleKeyPress}
             placeholder={isMobileView ? "Type message..." : "Enter your prompt"}
-            className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-sm sm:text-base overflow-y-auto py-1"
+            className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-base leading-normal overflow-y-auto py-1 px-1"
             disabled={isStreaming}
             rows={1}
             style={{
-              minHeight: isMobileView ? "20px" : "24px",
-              maxHeight: isMobileView ? "120px" : "200px",
+              minHeight: isMobileView ? "36px" : "24px",
+              maxHeight: isMobileView ? "80px" : "200px",
+              fontSize: isMobileView ? "16px" : "inherit", // Force 16px on mobile to prevent auto-zoom
+              lineHeight: isMobileView ? "1.2" : "inherit",
+              WebkitAppearance: "none", // Removes default iOS styling
             }}
             aria-label="Chat input"
             onFocus={() => setIsFocused(true)}
@@ -514,7 +538,7 @@ export default function InputArea({
           />
 
           <div className="flex justify-between items-center mt-2">
-            <div className="flex gap-1 sm:gap-2 items-center">
+            <div className="flex gap-2 items-center">
               <div className="relative group">
                 <TooltipProvider>
                   <Tooltip>
@@ -588,13 +612,13 @@ export default function InputArea({
                       rounded-full flex items-center transition-all duration-200 touch-manipulation
                       ${
                         isMobileView
-                          ? "justify-center h-7 w-7 p-0"
+                          ? "justify-center h-8 w-8 p-0"
                           : "justify-center gap-1.5 px-3 py-1"
                       }
                     `}
                     aria-label="Start a new chat"
                   >
-                    <Plus className={isMobileView ? "h-3 w-3" : "h-4 w-4"} />
+                    <Plus className={isMobileView ? "h-4 w-4" : "h-4 w-4"} />
                     {!isMobileView && <span className="text-xs">New chat</span>}
                   </Button>
                   {isMobileView && (
@@ -631,7 +655,7 @@ export default function InputArea({
                   }
                   className={`
                     bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
-                    ${isMobileView ? "px-2 py-1 text-xs" : "px-4 py-2 text-sm"} 
+                    ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                     rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
                     ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
                   `}
@@ -640,7 +664,7 @@ export default function InputArea({
                   }
                 >
                   {isMobileView ? (
-                    <Send className="h-3 w-3" />
+                    <Send className="h-4 w-4" />
                   ) : (
                     <>
                       Generate
