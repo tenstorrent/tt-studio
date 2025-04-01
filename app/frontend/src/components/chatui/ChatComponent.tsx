@@ -76,6 +76,12 @@ export default function ChatComponent() {
   });
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
+  // Add refs and state for swipe gesture
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartTimeRef = useRef<number | null>(null);
+  const [touchMoveX, setTouchMoveX] = useState<number | null>(null);
+  const swipeAreaRef = useRef<HTMLDivElement>(null);
+
   // Validate and fix chat threads if needed
   useEffect(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
@@ -189,6 +195,89 @@ export default function ChatComponent() {
 
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Set up swipe gesture handlers
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+      if (!screenSize.isMobileView) return;
+
+      touchStartXRef.current = e.touches[0].clientX;
+      touchStartTimeRef.current = Date.now();
+      setTouchMoveX(null);
+
+      // Prevent default to ensure we don't trigger browser back
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!screenSize.isMobileView || touchStartXRef.current === null) return;
+
+      const currentX = e.touches[0].clientX;
+      const deltaX = currentX - touchStartXRef.current;
+
+      // Process the drag for the handle
+      if (deltaX > 0) {
+        setTouchMoveX(deltaX);
+
+        // Prevent default to avoid any browser gestures
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (
+        !screenSize.isMobileView ||
+        touchStartXRef.current === null ||
+        touchStartTimeRef.current === null
+      )
+        return;
+
+      const touchEndX = e.changedTouches[0].clientX;
+      const deltaX = touchEndX - touchStartXRef.current;
+      const deltaTime = Date.now() - touchStartTimeRef.current;
+
+      // Open panel if swipe is greater than 100px or if swipe velocity is high enough
+      if (
+        (deltaX > 100 || (deltaX > 50 && deltaTime < 300)) &&
+        !isHistoryPanelOpen
+      ) {
+        setIsHistoryPanelOpen(true);
+      }
+
+      // Reset touch tracking
+      touchStartXRef.current = null;
+      touchStartTimeRef.current = null;
+      setTouchMoveX(null);
+    };
+
+    // Add touch events just to our handle element
+    const swipeArea = swipeAreaRef.current;
+    if (swipeArea) {
+      // For the handle, we use non-passive events to be able to preventDefault
+      swipeArea.addEventListener("touchstart", handleTouchStart, {
+        passive: false,
+      });
+      swipeArea.addEventListener("touchmove", handleTouchMove, {
+        passive: false,
+      });
+      swipeArea.addEventListener("touchend", handleTouchEnd);
+    }
+
+    return () => {
+      if (swipeArea) {
+        swipeArea.removeEventListener("touchstart", handleTouchStart);
+        swipeArea.removeEventListener("touchmove", handleTouchMove);
+        swipeArea.removeEventListener("touchend", handleTouchEnd);
+      }
+      document.removeEventListener("touchstart", handleTouchStart);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [screenSize.isMobileView, isHistoryPanelOpen]);
 
   // Auto-scroll chat container
   useEffect(() => {
@@ -439,10 +528,6 @@ export default function ChatComponent() {
                     currentHistory[currentHistory.length - 1];
                   if (!updatedMessage) return msg;
 
-                  // console.log(
-                  //   "Inference stats received:",
-                  //   updatedMessage.inferenceStats
-                  // );
                   return {
                     ...msg,
                     text: updatedMessage.text || msg.text,
@@ -605,9 +690,47 @@ export default function ChatComponent() {
     name: model.modelName || model.name || "", // Use modelName from Model type or fall back to name
   }));
 
+  // Move the handleSwipeAreaTouchMove function inside ChatComponent
+  function handleSwipeAreaTouchMove(this: HTMLDivElement, ev: TouchEvent) {
+    if (!screenSize.isMobileView || touchStartXRef.current === null) return;
+
+    const currentX = ev.touches[0].clientX;
+    const deltaX = currentX - touchStartXRef.current;
+
+    // Update the touchMoveX state to reflect the swipe distance
+    setTouchMoveX(deltaX);
+
+    // Prevent default to avoid triggering browser gestures
+    if (ev.cancelable) {
+      ev.preventDefault();
+    }
+  }
+
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
+        {/* Simple visible handle without icons */}
+        {screenSize.isMobileView && !isHistoryPanelOpen && (
+          <div
+            ref={swipeAreaRef}
+            className="fixed top-0 left-0 h-full w-2 bg-gray-800 opacity-80 z-50 cursor-pointer"
+            style={{ touchAction: "none" }}
+            onClick={toggleHistoryPanel}
+          />
+        )}
+
+        {/* Swipe indicator that appears when dragging the handle */}
+        {touchMoveX !== null && !isHistoryPanelOpen && (
+          <div
+            className="fixed top-0 left-0 h-full bg-gray-800 z-40 opacity-80"
+            style={{
+              width: `${Math.min(touchMoveX, window.innerWidth * 0.8)}px`,
+              borderRight: "2px solid rgba(255,255,255,0.2)",
+              transition: "width 0.05s ease",
+            }}
+          />
+        )}
+
         {/* Mobile history panel overlay */}
         <AnimatePresence initial={false} mode="wait">
           {isHistoryPanelOpen && screenSize.isMobileView && (
