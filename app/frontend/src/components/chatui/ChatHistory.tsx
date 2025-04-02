@@ -189,7 +189,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     }
   }, []);
 
-  // --- Scroll Event Handler with Enhanced Detection ---
+  // --- UPDATED: Scroll Event Handler with Enhanced Detection ---
   const handleScroll = useCallback(() => {
     if (!viewportRef.current || isAutoScrollingRef.current) {
       // Skip scroll handling during programmatic scrolling
@@ -198,24 +198,26 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
     const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
 
-    // Detect any manual scrolling
+    // Detection improvements
     const previousScrollTop = lastScrollTopRef.current;
     const scrollChange = Math.abs(scrollTop - previousScrollTop);
 
     // Update last scroll position
     lastScrollTopRef.current = scrollTop;
 
-    // Use a small threshold to be sensitive to user scrolling
-    const isUserScroll = scrollChange > 1;
+    // Reduce sensitivity threshold to detect smaller scrolls
+    const isUserScroll = scrollChange > 0.5;
 
-    // Check if we're near the bottom (within 30px)
-    const isNearBottom = scrollHeight - scrollTop <= clientHeight + 30;
+    // Make threshold larger (50px instead of 30px) for better detection
+    const isNearBottom = scrollHeight - scrollTop <= clientHeight + 50;
 
     // Update bottom status ref
     isAtBottomRef.current = isNearBottom;
 
-    // Always update the scroll button visibility - show button when not at bottom
-    setIsScrollButtonVisible(!isNearBottom);
+    // IMPORTANT: Always update scroll button visibility when not at bottom
+    // AND when there's actually enough content to scroll
+    const isContentScrollable = scrollHeight > clientHeight + 10;
+    setIsScrollButtonVisible(isContentScrollable && !isNearBottom);
 
     // If user is manually scrolling up (away from bottom), unlock scroll
     if (isUserScroll && !isNearBottom) {
@@ -269,6 +271,19 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       });
     }
   }, [chatHistory, scrollToBottom]);
+
+  // NEW EFFECT: Check content length on chat history changes
+  useEffect(() => {
+    // Force check if content is scrollable when chat history changes
+    if (viewportRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
+      const isNearBottom = scrollHeight - scrollTop <= clientHeight + 50;
+      const isContentScrollable = scrollHeight > clientHeight + 10;
+
+      // Set button visibility if content is scrollable and not at bottom
+      setIsScrollButtonVisible(isContentScrollable && !isNearBottom);
+    }
+  }, [chatHistory]);
 
   // Streaming auto-scroll behavior
   useEffect(() => {
@@ -518,9 +533,8 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
         </ScrollArea.Root>
       )}
 
-      {/* SCROLL TO BOTTOM BUTTON - WITH LOCK INDICATOR */}
       {isScrollButtonVisible && (
-        <div className="absolute bottom-4 right-4 flex flex-col items-center gap-2">
+        <div className="absolute bottom-4 right-4 flex flex-col items-center gap-2 z-50">
           {/* Show locked status icon if enabled */}
           {isScrollLocked && (
             <div className="text-xs flex items-center gap-1 bg-background/80 backdrop-blur-sm p-1 rounded text-foreground">
@@ -536,7 +550,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
             }
             variant="outline"
             size="icon"
-            className={`h-10 w-10 rounded-full shadow-lg bg-background/80 backdrop-blur-sm border-border text-foreground hover:bg-muted transition-opacity duration-300 z-10 ${isScrollLocked ? "border-blue-500" : ""}`}
+            className={`h-10 w-10 rounded-full shadow-lg bg-background/80 backdrop-blur-sm border-border text-foreground hover:bg-muted transition-opacity duration-300 z-50 ${
+              isScrollLocked ? "border-blue-500" : ""
+            }`}
             onClick={() => {
               // Scroll to bottom
               scrollToBottom();
