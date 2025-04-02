@@ -53,7 +53,16 @@ export default [
       ...reactPlugin.configs.recommended.rules,
       ...reactHooksPlugin.configs.recommended.rules,
       ...a11yPlugin.configs.recommended.rules,
-      "prettier/prettier": "error",
+      "prettier/prettier": [
+        "error",
+        {
+          semi: true,
+          trailingComma: "all",
+          singleQuote: false,
+          printWidth: 100,
+          tabWidth: 2,
+        },
+      ],
       "react/react-in-jsx-scope": "off", // React 17+ JSX transform
       "react/prop-types": "off",
       "@typescript-eslint/explicit-module-boundary-types": "off",
