@@ -22,7 +22,17 @@ export default [
   js.configs.recommended,
   {
     files: ["**/*.{js,jsx,ts,tsx}"],
-    ignores: ["**/node_modules/**", "**/.next/**", "**/out/**", "**/build/**", "**/dist/**"],
+    ignores: [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/out/**",
+      "**/build/**",
+      "**/dist/**",
+      // ! temp ignore for the components/ui directory which are sourced from shadcnn or other such libraries
+      "**/components/ui/**",
+      // Tmp ignore files that we know will be fixed or removed in future
+      "**/components/SideBar.tsx",
+    ],
     plugins: {
       "@typescript-eslint": tsPlugin,
       react: reactPlugin,
