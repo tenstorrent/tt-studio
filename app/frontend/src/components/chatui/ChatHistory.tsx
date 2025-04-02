@@ -3,7 +3,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { ChevronDown, Database, File, X } from "lucide-react";
+import { ChevronDown, Database, File, X, Lock } from "lucide-react";
 import { Button } from "../ui/button";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
@@ -134,12 +134,15 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     isExtraLargeScreen: boolean;
   }>({ isLargeScreen: false, isExtraLargeScreen: false });
 
-  // --- IMPROVED SCROLLING STATE REFS ---
+  // --- SCROLL STATE REFS ---
   const userHasScrolledAwayRef = useRef(false);
   const prevChatHistoryLengthRef = useRef(chatHistory.length);
   const isAutoScrollingRef = useRef(false); // Track if scroll is from our code vs user
   const lastScrollTopRef = useRef(0); // Remember last scroll position for better detection
-  // --- END SCROLLING STATE REFS ---
+  const isAtBottomRef = useRef(true); // Track if user is at bottom
+  const isScrollLockedRef = useRef(false); // Track if scroll is locked to bottom
+  const [isScrollLocked, setIsScrollLocked] = useState(false); // For UI updates
+  // --- END SCROLL STATE REFS ---
 
   const shouldShowMessageIndicator = useCallback(() => {
     // Check if streaming AND last message is from user
@@ -164,28 +167,29 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     return () => window.removeEventListener("resize", checkScreenSize);
   }, []);
 
-  // --- IMPROVED SCROLLING FUNCTIONS ---
-  const smoothScrollTo = useCallback((yPosition: number) => {
+  // --- SCROLLING FUNCTIONS ---
+  const scrollToBottom = useCallback(() => {
     if (viewportRef.current) {
       // Set flag to indicate this is an auto-scroll
       isAutoScrollingRef.current = true;
-      viewportRef.current.scrollTo({ top: yPosition, behavior: "smooth" });
+      // Use scrollHeight to get the total scrollable height
+      viewportRef.current.scrollTo({
+        top: viewportRef.current.scrollHeight,
+        behavior: "smooth",
+      });
 
-      // Clear the flag after animation likely finished
+      // Reset various scroll tracking states
+      userHasScrolledAwayRef.current = false;
+      isAtBottomRef.current = true;
+
+      // Clear auto-scroll flag after animation
       setTimeout(() => {
         isAutoScrollingRef.current = false;
-      }, 300); // Typical scroll animation duration
+      }, 300);
     }
   }, []);
 
-  const scrollToBottom = useCallback(() => {
-    if (viewportRef.current) {
-      // Use scrollHeight to get the total scrollable height
-      smoothScrollTo(viewportRef.current.scrollHeight);
-    }
-  }, [smoothScrollTo]);
-
-  // --- IMPROVED Scroll Event Handler with Enhanced User Scroll Detection ---
+  // --- Scroll Event Handler with Enhanced Detection ---
   const handleScroll = useCallback(() => {
     if (!viewportRef.current || isAutoScrollingRef.current) {
       // Skip scroll handling during programmatic scrolling
@@ -194,32 +198,37 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
     const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
 
-    // Detect any manual scrolling and immediately stop auto-scrolling
+    // Detect any manual scrolling
     const previousScrollTop = lastScrollTopRef.current;
     const scrollChange = Math.abs(scrollTop - previousScrollTop);
 
-    // Update last scroll position after checking
+    // Update last scroll position
     lastScrollTopRef.current = scrollTop;
 
-    // Use a smaller threshold to be more sensitive to user scrolling
-    const isUserScroll = scrollChange > 3; // Lower threshold to detect more subtle user scrolls
+    // Use a small threshold to be sensitive to user scrolling
+    const isUserScroll = scrollChange > 1;
 
-    // Increased buffer for detecting bottom position
-    const isNearBottom = scrollHeight - scrollTop <= clientHeight + 100;
+    // Check if we're near the bottom (within 30px)
+    const isNearBottom = scrollHeight - scrollTop <= clientHeight + 30;
 
-    // Always update the scroll button visibility
+    // Update bottom status ref
+    isAtBottomRef.current = isNearBottom;
+
+    // Always update the scroll button visibility - show button when not at bottom
     setIsScrollButtonVisible(!isNearBottom);
 
-    // If user manually scrolled (and isn't at the bottom), disable auto-scrolling
+    // If user is manually scrolling up (away from bottom), unlock scroll
     if (isUserScroll && !isNearBottom) {
+      // Only trigger state update if there's an actual change
+      if (isScrollLockedRef.current) {
+        isScrollLockedRef.current = false;
+        setIsScrollLocked(false);
+      }
       userHasScrolledAwayRef.current = true;
-
-      // Log detection of manual scroll (for debugging)
-      // console.log('Manual scroll detected, auto-scroll disabled');
     }
   }, []);
 
-  // Attach scroll listener using useEffect with improved handling
+  // Attach scroll listener
   useEffect(() => {
     const viewport = viewportRef.current;
     if (viewport) {
@@ -228,83 +237,77 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     }
   }, [handleScroll]);
 
-  // --- ENHANCED Effect to Handle Auto-Scrolling on New Messages with Improved User Scroll Detection ---
+  // Handle Auto-Scrolling for New Messages
   useEffect(() => {
     const currentLength = chatHistory.length;
     const previousLength = prevChatHistoryLengthRef.current;
+
+    // Only update the history length reference
+    prevChatHistoryLengthRef.current = currentLength;
 
     // Only process if there's a new message
     if (currentLength > previousLength && viewportRef.current) {
       const newMessage = chatHistory[currentLength - 1];
 
-      // Schedule scroll logic after the next paint using requestAnimationFrame
-      // This ensures DOM has updated before we check scroll positions
+      // Schedule scroll logic after the next paint
       requestAnimationFrame(() => {
-        if (!viewportRef.current) return; // Guard against component unmount
+        if (!viewportRef.current) return;
 
+        // Always scroll to bottom for user messages
         if (newMessage.sender === "user") {
-          // User sent a message: Always scroll to the bottom and reset scrolled state
           scrollToBottom();
-          // Reset user scroll flag when user sends a message
           userHasScrolledAwayRef.current = false;
-        } else if (newMessage.sender === "assistant") {
-          // Assistant sent a message: ONLY scroll if the user hasn't scrolled away
-          if (!userHasScrolledAwayRef.current) {
+        }
+        // For assistant messages, only scroll if locked or at bottom
+        else if (newMessage.sender === "assistant") {
+          if (isScrollLockedRef.current || isAtBottomRef.current) {
             scrollToBottom();
           } else {
-            // If user has manually scrolled away, show the scroll button
             setIsScrollButtonVisible(true);
-            // Optional: Log for debugging
-            // console.log('Respecting user scroll position - not auto-scrolling');
           }
         }
       });
     }
-
-    // Update the ref *after* processing the logic for this render
-    prevChatHistoryLengthRef.current = currentLength;
   }, [chatHistory, scrollToBottom]);
 
-  // Enhanced handling for streaming messages with better respect for user scrolling
+  // Streaming auto-scroll behavior
   useEffect(() => {
-    if (isStreaming && viewportRef.current) {
-      // During streaming, check if we're at the bottom, and if so, stay there
-      const checkAndScrollIfNeeded = () => {
-        // Immediately exit if user has manually scrolled away
-        if (!viewportRef.current || userHasScrolledAwayRef.current) return;
+    if (!isStreaming || !viewportRef.current) return;
 
-        const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-        const isNearBottom = scrollHeight - scrollTop <= clientHeight + 100;
+    // Only auto-scroll when streaming if we're locked or at bottom
+    let animationFrameId: number;
 
-        if (isNearBottom) {
-          // If we're near the bottom during streaming, stay at the bottom
-          // Use direct scrollTop assignment for smoother experience
-          isAutoScrollingRef.current = true; // Signal this is an auto-scroll
-          viewportRef.current.scrollTop = scrollHeight;
+    const autoScrollIfLocked = () => {
+      if (!viewportRef.current) return;
 
-          // Reset the auto-scroll flag after a short delay
-          setTimeout(() => {
-            isAutoScrollingRef.current = false;
-          }, 50);
-        }
-      };
+      // Check if we should auto-scroll
+      if (isScrollLockedRef.current) {
+        // Lock is enabled, force scroll to bottom
+        isAutoScrollingRef.current = true;
+        viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        setTimeout(() => {
+          isAutoScrollingRef.current = false;
+        }, 10);
+      }
 
-      // Use requestAnimationFrame for smoother scrolling during streaming
-      let animationFrameId: number;
-      const scheduleCheck = () => {
-        checkAndScrollIfNeeded();
-        animationFrameId = requestAnimationFrame(scheduleCheck);
-      };
+      // Continue the loop
+      animationFrameId = requestAnimationFrame(autoScrollIfLocked);
+    };
 
-      // Start the animation frame loop
-      scheduleCheck();
-
-      // Clean up when effect is unmounted
-      return () => cancelAnimationFrame(animationFrameId);
+    // Start the loop if scroll is locked
+    if (isScrollLockedRef.current) {
+      animationFrameId = requestAnimationFrame(autoScrollIfLocked);
     }
+
+    // Clean up the animation frame
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [isStreaming]);
 
-  // Other callbacks (toggleMinimizeFile, handleFileClick)
+  // Other callbacks
   const toggleMinimizeFile = useCallback((fileId: string) => {
     setMinimizedFiles((prev) => {
       const newSet = new Set(prev);
@@ -322,7 +325,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     setSelectedFile({ url: fileUrl, name: fileName, isImage });
   }, []);
 
-  // Responsive helpers - MODIFIED FOR OPTIMAL WIDTH
+  // Responsive helpers
   const getContainerWidth = () => {
     if (isMobileView) return "w-full";
     if (screenSize.isExtraLargeScreen) return "max-w-[97%] w-full"; // Wider container
@@ -330,7 +333,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     return "max-w-[97%] w-full"; // Wider container
   };
 
-  // MODIFIED FOR WIDER CHAT BUBBLES
   const getBubbleMaxWidth = () => {
     if (isMobileView) return "max-w-[95vw]"; // Increased from "max-w-[85vw]"
     if (screenSize.isExtraLargeScreen) return "max-w-[95%]"; // Increased from "max-w-[90%]"
@@ -340,11 +342,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
   return (
     <div
-      className={`flex flex-col w-full flex-grow ${
-        isMobileView
-          ? "pt-4"
-          : "pt-4 pb-2" /* Keep top/bottom padding, remove side padding */
-      } font-rmMono relative overflow-hidden`}
+      className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} font-rmMono relative overflow-hidden`}
     >
       {chatHistory.length === 0 && !isStreaming ? (
         <ChatExamples
@@ -361,11 +359,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           >
             {/* INNER CONTAINER - ADJUSTED PADDING WITH WIDER WIDTH */}
             <div
-              className={`p-2 sm:p-3 border border-gray-700 rounded-lg ${
-                isMobileView
-                  ? "mx-0 border-x-0 rounded-none"
-                  : "mx-0" /* Removed horizontal margin */
-              } ${getContainerWidth()}`}
+              className={`p-2 sm:p-3 border border-gray-700 rounded-lg ${isMobileView ? "mx-0 border-x-0 rounded-none" : "mx-0"} ${getContainerWidth()}`}
             >
               {/* CHAT MESSAGES */}
               {chatHistory.map((message, index) => (
@@ -418,16 +412,15 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                                   /[.,!?;:]$/,
                                   ""
                                 );
-                                const punctuation =
-                                  segment !== cleanUrl
-                                    ? segment.slice(cleanUrl.length)
-                                    : "";
+                                const punctuation = segment.slice(
+                                  cleanUrl.length
+                                );
                                 return (
                                   <React.Fragment key={i}>
                                     <a
                                       href={
                                         cleanUrl.startsWith("www.")
-                                          ? `http://${cleanUrl}`
+                                          ? `https://${cleanUrl}`
                                           : cleanUrl
                                       }
                                       target="_blank"
@@ -502,7 +495,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
               {shouldShowMessageIndicator() && (
                 <div className={`mb-3 sm:mb-4 flex flex-col items-start`}>
                   <div
-                    className={`chat-bubble bg-TT-slate text-white p-2 sm:p-3 rounded-lg mb-1 ${isMobileView ? "text-sm" : "text-base"} ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm`}
+                    className={`chat-bubble bg-TT-slate text-white p-2 sm:p-3 rounded-lg mb-1 ${
+                      isMobileView ? "text-sm" : "text-base"
+                    } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm`}
                   >
                     <div className="w-full text-left">
                       <MessageIndicator isMobileView={isMobileView} />
@@ -523,25 +518,38 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
         </ScrollArea.Root>
       )}
 
-      {/* SCROLL TO BOTTOM BUTTON */}
+      {/* SCROLL TO BOTTOM BUTTON - WITH LOCK INDICATOR */}
       {isScrollButtonVisible && (
-        <Button
-          aria-label="Scroll to bottom"
-          variant="outline"
-          size="icon"
-          className={`absolute ${
-            isMobileView
-              ? "bottom-2 right-2 h-9 w-9"
-              : "bottom-4 right-4 h-10 w-10"
-          }
-            rounded-full shadow-lg bg-background/80 backdrop-blur-sm border-border text-foreground hover:bg-muted transition-opacity duration-300 z-10`}
-          onClick={() => {
-            scrollToBottom();
-            userHasScrolledAwayRef.current = false; // Reset the flag when user clicks to scroll
-          }}
-        >
-          <ChevronDown className={`${isMobileView ? "h-5 w-5" : "h-6 w-6"}`} />
-        </Button>
+        <div className="absolute bottom-4 right-4 flex flex-col items-center gap-2">
+          {/* Show locked status icon if enabled */}
+          {isScrollLocked && (
+            <div className="text-xs flex items-center gap-1 bg-background/80 backdrop-blur-sm p-1 rounded text-foreground">
+              <Lock size={12} />
+              <span>Locked</span>
+            </div>
+          )}
+          <Button
+            aria-label={
+              isScrollLocked
+                ? "Unlock and scroll to bottom"
+                : "Lock and scroll to bottom"
+            }
+            variant="outline"
+            size="icon"
+            className={`h-10 w-10 rounded-full shadow-lg bg-background/80 backdrop-blur-sm border-border text-foreground hover:bg-muted transition-opacity duration-300 z-10 ${isScrollLocked ? "border-blue-500" : ""}`}
+            onClick={() => {
+              // Scroll to bottom
+              scrollToBottom();
+              // Toggle scroll lock
+              const newLockState = !isScrollLockedRef.current;
+              isScrollLockedRef.current = newLockState;
+              setIsScrollLocked(newLockState);
+              userHasScrolledAwayRef.current = false;
+            }}
+          >
+            <ChevronDown className="h-6 w-6" />
+          </Button>
+        </div>
       )}
 
       {/* FILE VIEWER DIALOG */}

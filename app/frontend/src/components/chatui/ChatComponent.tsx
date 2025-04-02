@@ -281,11 +281,12 @@ export default function ChatComponent() {
 
   // Auto-scroll chat container
   useEffect(() => {
+    // Only auto-scroll when switching between threads
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop =
         chatContainerRef.current.scrollHeight;
     }
-  }, [chatThreads, currentThreadIndex]);
+  }, [currentThreadIndex]); // Remove chatThreads from dependency array
 
   // Safe getter for current thread
   const getCurrentThread = useCallback(() => {
