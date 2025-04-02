@@ -17,12 +17,7 @@ import {
   DialogTrigger,
   DialogDescription,
 } from "./ui/dialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "./ui/accordion";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { ScrollArea } from "./ui/scroll-area";
 import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
 
@@ -40,11 +35,9 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const [fullOutput, setFullOutput] = useState<string | null>(null);
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverIconColor =
-    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const hoverIconColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
   const buttonBackgroundColor = theme === "dark" ? "bg-zinc-900" : "bg-white";
-  const hoverButtonBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
+  const hoverButtonBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
   // Function to delete all deployed models
   const deleteAllModels = async (): Promise<void> => {
@@ -54,10 +47,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
       for (const model of models) {
         await customToast.promise(deleteModel(model.id), {
           loading: `Deleting Model ID: ${model.id.substring(0, 4)}...`,
-          success: `Model ID: ${model.id.substring(
-            0,
-            4,
-          )} deleted successfully.`,
+          success: `Model ID: ${model.id.substring(0, 4)} deleted successfully.`,
           error: `Failed to delete Model ID: ${model.id.substring(0, 4)}.`,
         });
       }
@@ -78,7 +68,6 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     let success = true;
     const statusCode = response.status;
 
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -126,9 +115,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
 
     if (!success) {
       if (statusCode === 501) {
-        throw new Error(
-          "No Tenstorrent devices detected or functionality not implemented.",
-        );
+        throw new Error("No Tenstorrent devices detected or functionality not implemented.");
       } else {
         throw new Error("Command failed or no devices detected");
       }
@@ -212,28 +199,22 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         <DialogHeader>
           <div className="flex items-center mb-4">
             <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
-            <DialogTitle className="text-lg font-semibold">
-              Reset Card
-            </DialogTitle>
+            <DialogTitle className="text-lg font-semibold">Reset Card</DialogTitle>
           </div>
           <DialogDescription className="text-left">
             Are you sure you want to reset the card?
           </DialogDescription>
         </DialogHeader>
-        <div
-          className={`mb-4 ${
-            theme === "dark" ? "text-gray-400" : "text-gray-500"
-          }`}
-        >
+        <div className={`mb-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
           <div className="border-l-4 border-red-600 pl-2">
             <div className="font-bold">
-              Warning! This action will stop all deployed models and might
-              interrupt ongoing processes.
+              Warning! This action will stop all deployed models and might interrupt ongoing
+              processes.
             </div>
             {resetHistory.length > 0 && (
               <div className="mt-2">
-                Note: This card was reset in the last 5 minutes. Frequent resets
-                may cause issues. Please wait before resetting again.
+                Note: This card was reset in the last 5 minutes. Frequent resets may cause issues.
+                Please wait before resetting again.
               </div>
             )}
           </div>
@@ -248,9 +229,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         )}
         <Accordion type="single" collapsible className="mt-4">
           <AccordionItem value="history">
-            <AccordionTrigger className="text-md font-semibold">
-              Reset History
-            </AccordionTrigger>
+            <AccordionTrigger className="text-md font-semibold">Reset History</AccordionTrigger>
             <AccordionContent>
               <ul className="list-disc pl-5 mt-2 text-sm">
                 {resetHistory.length > 0 ? (
@@ -265,9 +244,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           </AccordionItem>
           {fullOutput && (
             <AccordionItem value="output">
-              <AccordionTrigger className="text-md font-semibold">
-                Command Output
-              </AccordionTrigger>
+              <AccordionTrigger className="text-md font-semibold">Command Output</AccordionTrigger>
               <AccordionContent>
                 <ScrollArea className="h-48 w-full overflow-auto rounded-md border">
                   <div

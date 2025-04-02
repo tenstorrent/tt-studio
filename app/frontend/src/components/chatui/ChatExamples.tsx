@@ -3,16 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "../ui/button";
-import {
-  MessageCircle,
-  Smile,
-  CloudSun,
-  Lightbulb,
-  Code,
-  Book,
-  Globe,
-  Rocket,
-} from "lucide-react";
+import { MessageCircle, Smile, CloudSun, Lightbulb, Code, Book, Globe, Rocket } from "lucide-react";
 
 interface ChatExamplesProps {
   logo: string;
@@ -71,27 +62,21 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
   // Show fewer examples on mobile to prevent crowding
   const exampleCount = isMobileView ? 2 : 4;
 
-  const [displayedExamples, setDisplayedExamples] = useState(
-    allExamples.slice(0, exampleCount)
-  );
+  const [displayedExamples, setDisplayedExamples] = useState(allExamples.slice(0, exampleCount));
 
   useEffect(() => {
     const interval = setInterval(
       () => {
         setDisplayedExamples((prevExamples) => {
           const nextIndex =
-            (allExamples.indexOf(prevExamples[prevExamples.length - 1]) + 1) %
-            allExamples.length;
+            (allExamples.indexOf(prevExamples[prevExamples.length - 1]) + 1) % allExamples.length;
           return [
             ...allExamples.slice(nextIndex, nextIndex + exampleCount),
-            ...allExamples.slice(
-              0,
-              Math.max(0, exampleCount - (allExamples.length - nextIndex))
-            ),
+            ...allExamples.slice(0, Math.max(0, exampleCount - (allExamples.length - nextIndex))),
           ];
         });
       },
-      isMobileView ? 10000 : 15000
+      isMobileView ? 10000 : 15000,
     ); // Rotate a bit faster on mobile
 
     return () => clearInterval(interval);
@@ -127,9 +112,7 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
                 className: isMobileView ? "h-5 w-5" : "h-6 w-6",
               })}
             </span>
-            <span
-              className={`${isMobileView ? "text-xs" : "text-sm"} font-medium`}
-            >
+            <span className={`${isMobileView ? "text-xs" : "text-sm"} font-medium`}>
               {example.text}
             </span>
           </Button>

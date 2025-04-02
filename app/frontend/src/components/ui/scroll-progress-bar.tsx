@@ -5,12 +5,7 @@
 //  SPDX-License-Identifier: MIT
 
 import React from "react";
-import {
-  motion,
-  useMotionValueEvent,
-  useScroll,
-  useTransform,
-} from "framer-motion";
+import { motion, useMotionValueEvent, useScroll, useTransform } from "framer-motion";
 import { cn } from "../../lib/utils";
 
 interface ScrollProgressBarType {

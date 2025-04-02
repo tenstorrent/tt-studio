@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-
 import { Button } from "./ui/button";
 import { useStepper } from "./ui/stepper";
 import { UseFormReturn, FieldValues } from "react-hook-form";
@@ -80,4 +79,3 @@ export function StepperFormActions<
     </div>
   );
 }
-

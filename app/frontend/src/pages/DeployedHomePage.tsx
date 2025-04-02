@@ -10,8 +10,7 @@ const DeployedHomePage = () => {
         <div
           className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
           style={{
-            maskImage:
-              "radial-gradient(ellipse at center, transparent 65%, black 100%)",
+            maskImage: "radial-gradient(ellipse at center, transparent 65%, black 100%)",
           }}
         ></div>
         <div className="flex flex-grow justify-center items-center w-full py-8 md:py-0 md:h-screen">

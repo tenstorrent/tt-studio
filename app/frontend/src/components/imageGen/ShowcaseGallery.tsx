@@ -50,9 +50,7 @@ const showcaseImages = [
   },
 ];
 
-const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({
-  onStartGenerating,
-}) => {
+const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({ onStartGenerating }) => {
   return (
     <div className="flex flex-col items-center w-full h-full overflow-x-hidden">
       <div className="w-full flex-grow overflow-y-auto">

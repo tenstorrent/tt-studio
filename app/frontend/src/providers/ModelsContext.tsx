@@ -22,9 +22,7 @@ interface ModelsContextType {
 
 const ModelsContext = createContext<ModelsContextType | undefined>(undefined);
 
-export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [models, setModels] = useState<Model[]>([]);
 
   const refreshModels = useCallback(async () => {

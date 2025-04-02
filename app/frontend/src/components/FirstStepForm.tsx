@@ -7,21 +7,8 @@ import * as z from "zod";
 import axios from "axios";
 import { useEffect, useState } from "react";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "./ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
 import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
@@ -128,11 +115,7 @@ export function FirstStepForm({
             </FormItem>
           )}
         />
-        <StepperFormActions
-          form={form}
-          removeDynamicSteps={() => {}}
-          isSubmitting={isSubmitting}
-        />
+        <StepperFormActions form={form} removeDynamicSteps={() => {}} isSubmitting={isSubmitting} />
       </form>
     </Form>
   );

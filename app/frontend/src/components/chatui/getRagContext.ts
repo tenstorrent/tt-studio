@@ -5,14 +5,10 @@ import { InferenceRequest, RagDataSource } from "./types.ts";
 
 export const getRagContext = async (
   request: InferenceRequest,
-  ragDatasource: RagDataSource | undefined
+  ragDatasource: RagDataSource | undefined,
 ) => {
   const ragContext: { documents: string[] } = { documents: [] };
-  console.log(
-    "2^^^Fetching RAG context for the given request...",
-    request,
-    ragDatasource
-  );
+  console.log("2^^^Fetching RAG context for the given request...", request, ragDatasource);
 
   if (!ragDatasource) return ragContext;
 
@@ -21,15 +17,12 @@ export const getRagContext = async (
     const browserId = localStorage.getItem("tt_studio_browser_id");
     console.log(`Browser ID: ${browserId}`);
 
-    const response = await axios.get(
-      `/collections-api/${ragDatasource.name}/query`,
-      {
-        params: { query: request.text },
-        headers: {
-          "X-Browser-ID": browserId,
-        },
-      }
-    );
+    const response = await axios.get(`/collections-api/${ragDatasource.name}/query`, {
+      params: { query: request.text },
+      headers: {
+        "X-Browser-ID": browserId,
+      },
+    });
     if (response?.data) {
       ragContext.documents = response.data.documents;
     }

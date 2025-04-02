@@ -78,7 +78,7 @@ export function HistoryPanel({
   // Convert back to array and filter by search query
   const uniqueConversations = Array.from(conversationMap.values());
   const filteredConversations = uniqueConversations.filter((conversation) =>
-    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
+    conversation.title.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -136,14 +136,11 @@ export function HistoryPanel({
                       className={`truncate text-slate-800 dark:text-slate-200 ${isMobile ? "text-base" : "text-sm"} max-w-[calc(100%-40px)]`}
                     >
                       {searchQuery &&
-                      conversation.title
-                        .toLowerCase()
-                        .includes(searchQuery.toLowerCase())
+                      conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
                         ? conversation.title
                             .split(new RegExp(`(${searchQuery})`, "gi"))
                             .map((part: string, partIndex: number) =>
-                              part.toLowerCase() ===
-                              searchQuery.toLowerCase() ? (
+                              part.toLowerCase() === searchQuery.toLowerCase() ? (
                                 <span
                                   key={`highlight-${conversation.id}-${partIndex}`}
                                   className="bg-[#7C68FA]/30"
@@ -151,12 +148,8 @@ export function HistoryPanel({
                                   {part}
                                 </span>
                               ) : (
-                                <span
-                                  key={`normal-${conversation.id}-${partIndex}`}
-                                >
-                                  {part}
-                                </span>
-                              )
+                                <span key={`normal-${conversation.id}-${partIndex}`}>{part}</span>
+                              ),
                             )
                         : conversation.title}
                     </span>
@@ -171,9 +164,7 @@ export function HistoryPanel({
                   transition-opacity`}
               >
                 <button
-                  onClick={(e) =>
-                    handleEditStart(conversation.id, conversation.title, e)
-                  }
+                  onClick={(e) => handleEditStart(conversation.id, conversation.title, e)}
                   className="p-2 rounded-full bg-[#7C68FA]/20 flex items-center justify-center"
                 >
                   <Edit2 className="h-4 w-4 text-[#7C68FA] dark:text-[#7C68FA]" />

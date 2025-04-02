@@ -12,10 +12,7 @@ import ImageInputArea from "./ImageInputArea";
 import type { StableDiffusionChatProps } from "./types/chat";
 import { useChat } from "./hooks/useChat";
 
-const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
-  onBack,
-  modelID,
-}) => {
+const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({ onBack, modelID }) => {
   const {
     messages,
     textInput,

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 export interface Message {
   id: string;
-  sender: 'user' | 'bot';
+  sender: "user" | "bot";
   text: string;
   image?: string;
 }

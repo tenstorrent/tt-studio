@@ -2,12 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React from "react";
 import { Badge } from "./ui/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 interface StatusBadgeProps {
   status: string;
@@ -25,8 +20,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     }
   })();
 
-  const variant =
-    status.toLowerCase() === "running" ? "default" : "destructive";
+  const variant = status.toLowerCase() === "running" ? "default" : "destructive";
 
   return (
     <TooltipProvider>

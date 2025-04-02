@@ -103,7 +103,7 @@ export const FileUpload = ({
               }}
               className={cn(
                 "relative group-hover/file:shadow-2xl z-40 bg-white dark:bg-neutral-900 flex items-center justify-center h-32 w-full max-w-[8rem] mx-auto rounded-md",
-                "shadow-[0px_10px_50px_rgba(0,0,0,0.1)]"
+                "shadow-[0px_10px_50px_rgba(0,0,0,0.1)]",
               )}
             >
               {isDragActive ? (
@@ -127,7 +127,7 @@ export const FileUpload = ({
                   layoutId="file-upload"
                   className={cn(
                     "relative overflow-hidden z-40 bg-white dark:bg-neutral-900 flex flex-col items-start justify-start md:h-24 p-4 w-full mx-auto rounded-md",
-                    "shadow-sm"
+                    "shadow-sm",
                   )}
                 >
                   <div className="flex justify-between w-full items-center gap-4 p-2">
@@ -159,13 +159,8 @@ export const FileUpload = ({
                       {lastFile.type}
                     </motion.p>
 
-                    <motion.p
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      layout
-                    >
-                      modified{" "}
-                      {new Date(lastFile.lastModified).toLocaleDateString()}
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} layout>
+                      modified {new Date(lastFile.lastModified).toLocaleDateString()}
                     </motion.p>
                   </div>
                 </motion.div>
@@ -227,7 +222,7 @@ export function GridPattern() {
               }`}
             />
           );
-        })
+        }),
       )}
     </div>
   );

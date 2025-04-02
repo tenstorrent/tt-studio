@@ -7,14 +7,7 @@ import { Card } from "../ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import SourcePicker from "./SourcePicker";
 import WebcamPicker from "./WebcamPicker";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { Detection, DetectionMetadata } from "./types/objectDetection";
 import { updateBoxPositions } from "../object_detection/utlis/detectionUtlis";
 
@@ -43,12 +36,7 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   useEffect(() => {
     if (isLiveMode || detections.length > 0) {
-      const updatedDetections = updateBoxPositions(
-        containerRef,
-        null,
-        metadata,
-        detections,
-      );
+      const updatedDetections = updateBoxPositions(containerRef, null, metadata, detections);
       setScaledDetections(updatedDetections);
     }
   }, [isLiveMode, detections, metadata]);

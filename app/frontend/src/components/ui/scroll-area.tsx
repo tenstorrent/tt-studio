@@ -36,19 +36,17 @@ const ScrollBar = React.forwardRef<
     orientation={orientation}
     className={cn(
       "flex touch-none select-none transition-colors duration-200 ease-in-out",
-      orientation === "vertical" &&
-        "h-full w-2.5 border-l border-l-transparent p-[1px]",
-      orientation === "horizontal" &&
-        "h-2.5 flex-col border-t border-t-transparent p-[1px]",
+      orientation === "vertical" && "h-full w-2.5 border-l border-l-transparent p-[1px]",
+      orientation === "horizontal" && "h-2.5 flex-col border-t border-t-transparent p-[1px]",
       "hover:bg-zinc-200 dark:hover:bg-zinc-700", // Subtle zinc hover effect for light and dark mode
-      className
+      className,
     )}
     {...props}
   >
     <ScrollAreaPrimitive.ScrollAreaThumb
       className={cn(
         "relative flex-1 rounded-full bg-zinc-300 dark:bg-zinc-600", // Zinc gray for light and dark mode
-        "hover:bg-zinc-400 dark:hover:bg-zinc-500" // Subtle hover effect
+        "hover:bg-zinc-400 dark:hover:bg-zinc-500", // Subtle hover effect
       )}
     />
   </ScrollAreaPrimitive.ScrollAreaScrollbar>

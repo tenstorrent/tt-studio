@@ -23,8 +23,7 @@ export function RagManagementSkeleton() {
       <div
         className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
         style={{
-          maskImage:
-            "radial-gradient(ellipse at center, transparent 20%, black 100%)",
+          maskImage: "radial-gradient(ellipse at center, transparent 20%, black 100%)",
         }}
       ></div>
       <div className="flex flex-col h-screen w-full px-4 md:px-20 pt-8 md:pt-8 pb-16 md:pb-28 overflow-hidden mt-8">
@@ -47,12 +46,8 @@ export function RagManagementSkeleton() {
                   <Skeleton className="h-8 w-64 mx-auto" />
                 </TableCaption>
                 <TableHeader>
-                  <TableRow
-                    className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
-                  >
-                    <TableHead className="w-8 p-2">
-                      {/* Empty for expansion button */}
-                    </TableHead>
+                  <TableRow className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}>
+                    <TableHead className="w-8 p-2">{/* Empty for expansion button */}</TableHead>
                     <TableHead className="text-left">
                       <div className="flex items-center gap-2">
                         <Skeleton className="h-4 w-4 rounded-full" />
@@ -76,10 +71,7 @@ export function RagManagementSkeleton() {
                 <TableBody className="animate-pulse">
                   {/* Simple rows without expansions */}
                   {[...Array(7)].map((_, i) => (
-                    <TableRow
-                      key={`row-${i}`}
-                      className="hover:bg-gray-50 dark:hover:bg-zinc-800"
-                    >
+                    <TableRow key={`row-${i}`} className="hover:bg-gray-50 dark:hover:bg-zinc-800">
                       <TableCell className="w-8 p-2">
                         <Skeleton className="h-6 w-6 rounded-md" />
                       </TableCell>
@@ -166,9 +158,7 @@ export function RagAdminSkeleton() {
             <Skeleton className="h-8 w-48 mx-auto" />
           </TableCaption>
           <TableHeader>
-            <TableRow
-              className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
-            >
+            <TableRow className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}>
               <TableHead className="text-left">
                 <div className="flex items-center gap-2">
                   <Skeleton className="h-4 w-4 rounded-full" />

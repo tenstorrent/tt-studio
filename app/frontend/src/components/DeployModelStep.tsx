@@ -9,7 +9,7 @@ import { Weight } from "./SelectionSteps";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../providers/ModelsContext";
 import { useRefresh } from "../providers/RefreshContext";
-import { Cpu, Sliders } from 'lucide-react';
+import { Cpu, Sliders } from "lucide-react";
 import axios from "axios";
 
 export function DeployModelStep({
@@ -34,9 +34,7 @@ export function DeployModelStep({
         try {
           const response = await axios.get(`/docker-api/get_containers/`);
           const models = response.data;
-          const model = models.find(
-            (m: { id: string; name: string }) => m.id === selectedModel,
-          );
+          const model = models.find((m: { id: string; name: string }) => m.id === selectedModel);
           if (model) {
             setModelName(model.name);
           }
@@ -94,9 +92,7 @@ export function DeployModelStep({
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">
-                Model:
-              </span>
+              <span className="text-sm text-gray-800 dark:text-gray-400">Model:</span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {modelName}
               </span>
@@ -105,9 +101,7 @@ export function DeployModelStep({
           {(selectedWeight || customWeight) && (
             <div className="flex items-center space-x-2">
               <Sliders className="text-TT-purple-accent" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">
-                Weight:
-              </span>
+              <span className="text-sm text-gray-800 dark:text-gray-400">Weight:</span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {selectedWeight || (customWeight && customWeight.name)}
               </span>
@@ -119,4 +113,3 @@ export function DeployModelStep({
     </>
   );
 }
-

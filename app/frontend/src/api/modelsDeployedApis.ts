@@ -57,9 +57,7 @@ export const ModelType = {
 
 export const fetchModels = async (): Promise<Model[]> => {
   try {
-    const response = await axios.get<{ [key: string]: ContainerData }>(
-      statusURl
-    );
+    const response = await axios.get<{ [key: string]: ContainerData }>(statusURl);
     const data = response.data;
 
     const models: Model[] = Object.keys(data).map((key) => {
@@ -67,7 +65,7 @@ export const fetchModels = async (): Promise<Model[]> => {
       const portMapping = Object.keys(container.port_bindings)
         .map(
           (port) =>
-            `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`
+            `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`,
         )
         .join(", ");
 
@@ -110,25 +108,16 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       customToast.error("Failed to stop the container");
       throw new Error("Failed to stop the container");
     } else {
-      customToast.success(
-        `Model ID: ${truncatedModelId} has been deleted successfully.`
-      );
+      customToast.success(`Model ID: ${truncatedModelId} has been deleted successfully.`);
 
-      if (
-        response.data.reset_response &&
-        response.data.reset_response.status === "success"
-      ) {
-        customToast.success(
-          `Model ID: ${truncatedModelId} has been reset successfully.`
-        );
+      if (response.data.reset_response && response.data.reset_response.status === "success") {
+        customToast.success(`Model ID: ${truncatedModelId} has been reset successfully.`);
       } else {
         customToast.error(`Board Reset failed.`);
       }
 
       console.log(
-        `Reset Output: ${
-          response.data.reset_response?.output || "No reset output available"
-        }`
+        `Reset Output: ${response.data.reset_response?.output || "No reset output available"}`,
       );
     }
 
@@ -139,18 +128,14 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       customToast.error(
         `Failed to delete Model ID: ${truncatedModelId} - ${
           error.response?.data.message || error.message
-        }`
+        }`,
       );
     } else if (error instanceof Error) {
       console.error("Error stopping the container:", error.message);
-      customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`
-      );
+      customToast.error(`Failed to delete Model ID: ${truncatedModelId} - ${error.message}`);
     } else {
       console.error("Unknown error stopping the container", error);
-      customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - Unknown error`
-      );
+      customToast.error(`Failed to delete Model ID: ${truncatedModelId} - Unknown error`);
     }
     throw error;
   }
@@ -163,7 +148,7 @@ export const handleRedeploy = (modelName: string): void => {
 export const handleModelNavigationClick = (
   modelID: string,
   modelName: string,
-  navigate: NavigateFunction
+  navigate: NavigateFunction,
 ): void => {
   const modelType = getModelTypeFromName(modelName);
   const destination = getDestinationFromModelType(modelType);

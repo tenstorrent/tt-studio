@@ -2,12 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React from "react";
 import type { CodeToHtmlOptions } from "@llm-ui/code";
-import {
-  loadHighlighter,
-  useCodeBlockToHtml,
-  allLangs,
-  allLangsAlias,
-} from "@llm-ui/code";
+import { loadHighlighter, useCodeBlockToHtml, allLangs, allLangsAlias } from "@llm-ui/code";
 import parseHtml from "html-react-parser";
 import { getHighlighterCore } from "shiki/core";
 import { bundledLanguagesInfo } from "shiki/langs";
@@ -110,9 +105,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ blockMatch }) => {
 
   return (
     <div className="relative group">
-      <div className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">
-        {renderCode()}
-      </div>
+      <div className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">{renderCode()}</div>
       <button
         className="absolute top-2 right-2 bg-gray-700 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={() => navigator.clipboard.writeText(code)}

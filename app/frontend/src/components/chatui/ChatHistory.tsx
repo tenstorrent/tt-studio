@@ -29,9 +29,7 @@ const RagPill: React.FC<{
     <Database size={12} />
     <span>{ragDatasource.name}</span>
     {ragDatasource.metadata?.last_uploaded_document && (
-      <span className="text-gray-400">
-        · {ragDatasource.metadata.last_uploaded_document}
-      </span>
+      <span className="text-gray-400">· {ragDatasource.metadata.last_uploaded_document}</span>
     )}
   </div>
 );
@@ -42,10 +40,7 @@ interface FileViewerDialogProps {
   onClose: () => void;
 }
 
-const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
-  file,
-  onClose,
-}) => {
+const FileViewerDialog: React.FC<FileViewerDialogProps> = ({ file, onClose }) => {
   if (!file) return null;
 
   return (
@@ -54,9 +49,7 @@ const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
         <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
         <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-900 rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto z-50">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-white truncate max-w-[80%]">
-              {file.name}
-            </h3>
+            <h3 className="text-lg font-medium text-white truncate max-w-[80%]">{file.name}</h3>
             <Dialog.Close asChild>
               <button className="text-gray-400 hover:text-white">
                 <X className="h-6 w-6" />
@@ -335,8 +328,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const handleFileClick = useCallback((fileUrl: string, fileName: string) => {
     const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
     const extension = fileName.split(".").pop()?.toLowerCase() || "";
-    const isImage =
-      imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
+    const isImage = imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
     setSelectedFile({ url: fileUrl, name: fileName, isImage });
   }, []);
 
@@ -360,11 +352,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} font-rmMono relative overflow-hidden`}
     >
       {chatHistory.length === 0 && !isStreaming ? (
-        <ChatExamples
-          logo={logo}
-          setTextInput={setTextInput}
-          isMobileView={isMobileView}
-        />
+        <ChatExamples logo={logo} setTextInput={setTextInput} isMobileView={isMobileView} />
       ) : (
         <ScrollArea.Root className="flex-grow h-full overflow-hidden">
           {/* VIEWPORT */}
@@ -419,17 +407,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                           <p className="text-white whitespace-pre-wrap break-words">
                             {message.text.split(/(\s+)/).map((segment, i) => {
                               // Split by space, keeping spaces
-                              const isUrl = /^(https?:\/\/|www\.)\S+/i.test(
-                                segment
-                              );
+                              const isUrl = /^(https?:\/\/|www\.)\S+/i.test(segment);
                               if (isUrl) {
-                                const cleanUrl = segment.replace(
-                                  /[.,!?;:]$/,
-                                  ""
-                                );
-                                const punctuation = segment.slice(
-                                  cleanUrl.length
-                                );
+                                const cleanUrl = segment.replace(/[.,!?;:]$/, "");
+                                const punctuation = segment.slice(cleanUrl.length);
                                 return (
                                   <React.Fragment key={i}>
                                     <a
@@ -492,18 +473,16 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                     </div>
                   )}
                   {/* Files for Assistant (if applicable, though usually attached to user prompt) */}
-                  {message.sender === "assistant" &&
-                    message.files &&
-                    message.files.length > 0 && (
-                      <div className="mt-2">
-                        <FileDisplay
-                          files={message.files}
-                          minimizedFiles={minimizedFiles}
-                          toggleMinimizeFile={toggleMinimizeFile}
-                          onFileClick={handleFileClick}
-                        />
-                      </div>
-                    )}
+                  {message.sender === "assistant" && message.files && message.files.length > 0 && (
+                    <div className="mt-2">
+                      <FileDisplay
+                        files={message.files}
+                        minimizedFiles={minimizedFiles}
+                        toggleMinimizeFile={toggleMinimizeFile}
+                        onFileClick={handleFileClick}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
               {/* Streaming Indicator */}
@@ -544,9 +523,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           )}
           <Button
             aria-label={
-              isScrollLocked
-                ? "Unlock and scroll to bottom"
-                : "Lock and scroll to bottom"
+              isScrollLocked ? "Unlock and scroll to bottom" : "Lock and scroll to bottom"
             }
             variant="outline"
             size="icon"
@@ -569,10 +546,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       )}
 
       {/* FILE VIEWER DIALOG */}
-      <FileViewerDialog
-        file={selectedFile}
-        onClose={() => setSelectedFile(null)}
-      />
+      <FileViewerDialog file={selectedFile} onClose={() => setSelectedFile(null)} />
     </div>
   );
 };

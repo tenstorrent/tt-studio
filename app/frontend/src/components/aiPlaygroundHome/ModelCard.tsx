@@ -80,9 +80,7 @@ export function ModelCard({
                   style={{
                     backgroundColor: filter,
                     mixBlendMode: "overlay",
-                    boxShadow: isHovered
-                      ? "inset 0 0 30px rgba(0,0,0,0.3)"
-                      : "none",
+                    boxShadow: isHovered ? "inset 0 0 30px rgba(0,0,0,0.3)" : "none",
                   }}
                 />
               )}

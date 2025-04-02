@@ -11,15 +11,8 @@ interface SpinnerProps extends React.HTMLAttributes<HTMLSpanElement> {
   size?: "xs" | "sm" | "md" | "lg";
 }
 
-export const Spinner: React.FC<SpinnerProps> = ({
-  className,
-  size = "md",
-  ...props
-}) => {
+export const Spinner: React.FC<SpinnerProps> = ({ className, size = "md", ...props }) => {
   return (
-    <span
-      className={cn("loading loading-spinner", `loading-${size}`, className)}
-      {...props}
-    />
+    <span className={cn("loading loading-spinner", `loading-${size}`, className)} {...props} />
   );
 };

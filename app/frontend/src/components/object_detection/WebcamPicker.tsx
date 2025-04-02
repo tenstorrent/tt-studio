@@ -13,15 +13,14 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
   setIsCameraOn,
   modelID,
 }) => {
-  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } =
-    useWebcam(
-      setDetections,
-      setLiveMode,
-      setIsLoading,
-      setIsStreaming,
-      setIsCameraOn,
-      modelID,
-    );
+  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } = useWebcam(
+    setDetections,
+    setLiveMode,
+    setIsLoading,
+    setIsStreaming,
+    setIsCameraOn,
+    modelID,
+  );
 
   // stop capture on component unmount
   // must use useLayoutEffect here so that cleanup function is

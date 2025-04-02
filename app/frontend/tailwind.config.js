@@ -3,6 +3,8 @@
 
 import svgToDataUri from "mini-svg-data-uri";
 import flattenColorPalette from "tailwindcss/lib/util/flattenColorPalette";
+import tailwindcssAnimate from "tailwindcss-animate";
+import daisyui from "daisyui";
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -12,6 +14,7 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
     "app/**/*.{ts,tsx}",
     "components/**/*.{ts,tsx}",
+    "*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     container: {
@@ -165,9 +168,9 @@ export default {
     },
   },
   plugins: [
-    require("tailwindcss-animate"),
+    tailwindcssAnimate,
     addVariablesForColors,
-    function ({ matchUtilities, theme }) {
+    ({ matchUtilities, theme }) => {
       matchUtilities(
         {
           "bg-grid": (value) => ({
@@ -192,13 +195,13 @@ export default {
         },
       );
     },
-    require("daisyui"),
+    daisyui,
   ],
 };
 
 function addVariablesForColors({ addBase, theme }) {
-  let allColors = flattenColorPalette(theme("colors"));
-  let newVars = Object.fromEntries(
+  const allColors = flattenColorPalette(theme("colors"));
+  const newVars = Object.fromEntries(
     Object.entries(allColors).map(([key, val]) => [`--${key}`, val]),
   );
 

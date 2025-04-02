@@ -2,12 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import type {
-  InferenceRequest,
-  RagDataSource,
-  ChatMessage,
-  InferenceStats,
-} from "./types";
+import type { InferenceRequest, RagDataSource, ChatMessage, InferenceStats } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
@@ -21,7 +16,7 @@ export const runInference = async (
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
   isAgentSelected: boolean,
-  threadId: number
+  threadId: number,
 ) => {
   try {
     setIsStreaming(true);
@@ -54,10 +49,7 @@ export const runInference = async (
 
         // Merge with existing RAG context if any
         if (ragContext) {
-          ragContext.documents = [
-            ...ragContext.documents,
-            ...fileRagContext.documents,
-          ];
+          ragContext.documents = [...ragContext.documents, ...fileRagContext.documents];
         } else {
           ragContext = fileRagContext;
         }
@@ -66,13 +58,10 @@ export const runInference = async (
         console.log("Processing with combined RAG context:", ragContext);
         messages = generatePrompt(
           chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-          ragContext
+          ragContext,
         );
       } else if (file.image_url?.url || file) {
-        console.log(
-          "Image file detected, using image_url message structure",
-          file.image_url?.url
-        );
+        console.log("Image file detected, using image_url message structure", file.image_url?.url);
         messages = [
           {
             role: "user",
@@ -126,7 +115,7 @@ export const runInference = async (
       console.log("RAG context being passed to generatePrompt:", ragContext);
       messages = generatePrompt(
         chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-        ragContext
+        ragContext,
       );
     }
 
@@ -158,9 +147,7 @@ export const runInference = async (
     if (!isAgentSelected) {
       requestBody = {
         ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
-        ...(apiUrlDefined
-          ? { model: "meta-llama/Llama-3.1-70B-Instruct" }
-          : {}),
+        ...(apiUrlDefined ? { model: "meta-llama/Llama-3.1-70B-Instruct" } : {}),
         messages: messages,
         max_tokens: 512,
         stream: true,
@@ -181,10 +168,7 @@ export const runInference = async (
       };
     }
 
-    console.log(
-      "Sending request to model:",
-      JSON.stringify(requestBody, null, 2)
-    );
+    console.log("Sending request to model:", JSON.stringify(requestBody, null, 2));
 
     const response = await fetch(API_URL, {
       method: "POST",
@@ -251,10 +235,7 @@ export const runInference = async (
                     tokens_prefilled: jsonData.tokens_prefilled,
                     context_length: jsonData.context_length,
                   };
-                  console.log(
-                    "Final Inference Stats received:",
-                    inferenceStats
-                  );
+                  console.log("Final Inference Stats received:", inferenceStats);
                   continue; // Skip processing this chunk as part of the generated text
                 }
               }
@@ -284,10 +265,7 @@ export const runInference = async (
     setIsStreaming(false);
 
     if (inferenceStats) {
-      console.log(
-        "Updating chat history with inference stats:",
-        inferenceStats
-      );
+      console.log("Updating chat history with inference stats:", inferenceStats);
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];

@@ -8,17 +8,14 @@ const MAX_MESSAGES_PER_THREAD = 100;
 
 export function usePersistentState<T>(
   key: string,
-  initialValue: T
+  initialValue: T,
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [state, setState] = useState<T>(() => {
     try {
       const storedValue = localStorage.getItem(key);
       return storedValue ? JSON.parse(storedValue) : initialValue;
     } catch (error) {
-      console.error(
-        `Error loading state from localStorage for key ${key}:`,
-        error
-      );
+      console.error(`Error loading state from localStorage for key ${key}:`, error);
       return initialValue;
     }
   });
@@ -31,9 +28,7 @@ export function usePersistentState<T>(
         if (key === "chat_threads") {
           let prunedData = [...data];
           if (prunedData.length > MAX_THREADS) {
-            console.log(
-              `Pruning threads from ${prunedData.length} to ${MAX_THREADS}`
-            );
+            console.log(`Pruning threads from ${prunedData.length} to ${MAX_THREADS}`);
             prunedData = prunedData.slice(-MAX_THREADS);
           }
 
@@ -66,7 +61,7 @@ export function usePersistentState<T>(
         return data;
       }
     },
-    [key]
+    [key],
   );
 
   // Function to save state to localStorage with error handling
@@ -77,10 +72,7 @@ export function usePersistentState<T>(
         localStorage.setItem(key, serializedState);
       } catch (error) {
         // Handle quota exceeded error
-        if (
-          error instanceof DOMException &&
-          error.name === "QuotaExceededError"
-        ) {
+        if (error instanceof DOMException && error.name === "QuotaExceededError") {
           console.warn("Storage quota exceeded, attempting to prune data");
 
           try {
@@ -95,10 +87,7 @@ export function usePersistentState<T>(
               console.error("Still cannot save after pruning:", innerError);
 
               // Last resort: clear localStorage
-              if (
-                innerError instanceof DOMException &&
-                innerError.name === "QuotaExceededError"
-              ) {
+              if (innerError instanceof DOMException && innerError.name === "QuotaExceededError") {
                 console.warn("Clearing localStorage as last resort");
                 try {
                   // Save current keys to restore later (except the problematic one)
@@ -106,8 +95,7 @@ export function usePersistentState<T>(
                   for (let i = 0; i < localStorage.length; i++) {
                     const storageKey = localStorage.key(i);
                     if (storageKey && storageKey !== key) {
-                      keysToRestore[storageKey] =
-                        localStorage.getItem(storageKey) || "";
+                      keysToRestore[storageKey] = localStorage.getItem(storageKey) || "";
                     }
                   }
 
@@ -119,24 +107,16 @@ export function usePersistentState<T>(
                     try {
                       localStorage.setItem(k, v);
                     } catch (restoreError) {
-                      console.error(
-                        `Failed to restore key ${k}:`,
-                        restoreError
-                      );
+                      console.error(`Failed to restore key ${k}:`, restoreError);
                     }
                   });
 
                   // Try to save our pruned state
                   try {
                     localStorage.setItem(key, JSON.stringify(prunedState));
-                    console.log(
-                      "Successfully saved after clearing localStorage"
-                    );
+                    console.log("Successfully saved after clearing localStorage");
                   } catch (finalError) {
-                    console.error(
-                      "Failed to save even after clearing localStorage:",
-                      finalError
-                    );
+                    console.error("Failed to save even after clearing localStorage:", finalError);
                   }
                 } catch (clearError) {
                   console.error("Failed to clear localStorage:", clearError);
@@ -147,14 +127,11 @@ export function usePersistentState<T>(
             console.error("Error during data pruning:", pruneError);
           }
         } else {
-          console.error(
-            `Error saving state to localStorage for key ${key}:`,
-            error
-          );
+          console.error(`Error saving state to localStorage for key ${key}:`, error);
         }
       }
     },
-    [key, pruneData]
+    [key, pruneData],
   );
 
   // Save state to localStorage whenever it changes

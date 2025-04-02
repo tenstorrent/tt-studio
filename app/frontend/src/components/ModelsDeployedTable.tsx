@@ -46,12 +46,7 @@ import {
   AlertCircle,
   Eye,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
@@ -92,8 +87,7 @@ export default function ModelsDeployedTable() {
       setLoadingModels((prev) => [...prev, modelId]);
       try {
         const response = await deleteModel(modelId);
-        const resetOutput =
-          response.reset_response?.output || "No reset output available";
+        const resetOutput = response.reset_response?.output || "No reset output available";
         console.log(`Reset Output in tsx: ${resetOutput}`);
 
         setFadingModels((prev) => [...prev, modelId]);
@@ -119,9 +113,7 @@ export default function ModelsDeployedTable() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setModels((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id)),
-      );
+      setModels((prevModels) => prevModels.filter((model) => !fadingModels.includes(model.id)));
       setFadingModels([]);
     }, 3000);
     return () => clearTimeout(timer);
@@ -143,13 +135,13 @@ export default function ModelsDeployedTable() {
     const modelType = getModelTypeFromName(modelName);
     switch (modelType) {
       case ModelType.ChatModel:
-        return <MessageSquare className="w-4 h-4 mr-2" />
+        return <MessageSquare className="w-4 h-4 mr-2" />;
       case ModelType.ImageGeneration:
-        return <Image className="w-4 h-4 mr-2" />
+        return <Image className="w-4 h-4 mr-2" />;
       case ModelType.ObjectDetectionModel:
-        return <Eye className="w-4 h-4 mr-2" />
+        return <Eye className="w-4 h-4 mr-2" />;
       default:
-        return <MessageSquare className="w-4 h-4 mr-2" />
+        return <MessageSquare className="w-4 h-4 mr-2" />;
     }
   };
 
@@ -163,7 +155,7 @@ export default function ModelsDeployedTable() {
       case ModelType.ObjectDetectionModel:
         return "ObjectDetection";
       default:
-        return "ChatUI"
+        return "ChatUI";
     }
   };
 
@@ -192,9 +184,7 @@ export default function ModelsDeployedTable() {
           <TableHeader>
             <TableRow
               className={`${
-                theme === "dark"
-                  ? "bg-zinc-900 rounded-lg"
-                  : "bg-zinc-200 rounded-lg"
+                theme === "dark" ? "bg-zinc-900 rounded-lg" : "bg-zinc-200 rounded-lg"
               }`}
             >
               <TableHead className="text-left">
@@ -230,21 +220,17 @@ export default function ModelsDeployedTable() {
                       ? "bg-zinc-900 opacity-50"
                       : "bg-zinc-200 opacity-50"
                     : ""
-                } ${
-                  pulsatingModels.includes(model.id) ? "animate-pulse" : ""
-                } rounded-lg`}
+                } ${pulsatingModels.includes(model.id) ? "animate-pulse" : ""} rounded-lg`}
               >
                 <TableCell className="text-left">
                   <CopyableText text={model.id} />
                 </TableCell>
-                <TableCell className="text-left">
-                  {model.image || "N/A"}
-                </TableCell>
+                <TableCell className="text-left">{model.image || "N/A"}</TableCell>
                 <TableCell className="text-left">
                   {model.status ? <StatusBadge status={model.status} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
-                  {model.health ?<HealthBadge deployId={model.id} /> : "N/A"}
+                  {model.health ? <HealthBadge deployId={model.id} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
                   {model.ports ? <CopyableText text={model.ports} /> : "N/A"}
@@ -256,9 +242,7 @@ export default function ModelsDeployedTable() {
                   <div className="flex gap-2">
                     {fadingModels.includes(model.id) ? (
                       <Button
-                        onClick={() =>
-                          model.image && handleRedeploy(model.image)
-                        }
+                        onClick={() => model.image && handleRedeploy(model.image)}
                         className={`${
                           theme === "light"
                             ? "bg-zinc-700 hover:bg-zinc-600 text-white"
@@ -296,11 +280,7 @@ export default function ModelsDeployedTable() {
                               <Button
                                 onClick={() =>
                                   model.name &&
-                                  handleModelNavigationClick(
-                                    model.id,
-                                    model.name,
-                                    navigate,
-                                  )
+                                  handleModelNavigationClick(model.id, model.name, navigate)
                                 }
                                 className={`${
                                   theme === "dark"
@@ -319,13 +299,11 @@ export default function ModelsDeployedTable() {
                             <TooltipContent className="bg-gray-700 text-white">
                               {isLLaMAModel(model.name || "") ? (
                                 <p>
-                                  Warning: First-time inference may take up to
-                                  an hour. Subsequent runs may take 5-7 minutes.
+                                  Warning: First-time inference may take up to an hour. Subsequent
+                                  runs may take 5-7 minutes.
                                 </p>
                               ) : (
-                                <p>
-                                  {getModelToolTip(model.name)}
-                                </p>
+                                <p>{getModelToolTip(model.name)}</p>
                               )}
                             </TooltipContent>
                           </Tooltip>
@@ -338,10 +316,7 @@ export default function ModelsDeployedTable() {
             ))}
           </TableBody>
         </Table>
-        <ScrollBar
-          className="scrollbar-thumb-rounded"
-          orientation="horizontal"
-        />
+        <ScrollBar className="scrollbar-thumb-rounded" orientation="horizontal" />
       </ScrollArea>
     </Card>
   );

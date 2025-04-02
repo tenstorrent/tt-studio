@@ -36,9 +36,7 @@ export default function ChatComponent() {
   const [files, setFiles] = useState<FileData[]>([]);
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
-  const [ragDatasource, setRagDatasource] = useState<
-    RagDataSource | undefined
-  >();
+  const [ragDatasource, setRagDatasource] = useState<RagDataSource | undefined>();
   const { data: ragDataSources } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     initialData: [],
@@ -52,20 +50,19 @@ export default function ChatComponent() {
   };
 
   // Updated structure to include titles directly in the threads
-  const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>(
-    "chat_threads",
-    [defaultThread]
-  );
+  const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>("chat_threads", [
+    defaultThread,
+  ]);
 
-  const [currentThreadIndex, setCurrentThreadIndex] =
-    usePersistentState<number>("current_thread_index", 0);
+  const [currentThreadIndex, setCurrentThreadIndex] = usePersistentState<number>(
+    "current_thread_index",
+    0,
+  );
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
-  const [reRenderingMessageId, setReRenderingMessageId] = useState<
-    string | null
-  >(null);
+  const [reRenderingMessageId, setReRenderingMessageId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
   const [isAgentSelected, setIsAgentSelected] = useState<boolean>(false);
@@ -85,9 +82,7 @@ export default function ChatComponent() {
   // Validate and fix chat threads if needed
   useEffect(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
-      console.warn(
-        "ChatThreads is not an array or is empty, resetting to default"
-      );
+      console.warn("ChatThreads is not an array or is empty, resetting to default");
       setChatThreads([defaultThread]);
       setCurrentThreadIndex(0);
       return;
@@ -123,13 +118,7 @@ export default function ChatComponent() {
         }
       }
     }
-  }, [
-    chatThreads,
-    setChatThreads,
-    currentThreadIndex,
-    setCurrentThreadIndex,
-    defaultThread,
-  ]);
+  }, [chatThreads, setChatThreads, currentThreadIndex, setCurrentThreadIndex, defaultThread]);
 
   // Load model information from location state and fetch deployed models
   useEffect(() => {
@@ -241,10 +230,7 @@ export default function ChatComponent() {
       const deltaTime = Date.now() - touchStartTimeRef.current;
 
       // Open panel if swipe is greater than 100px or if swipe velocity is high enough
-      if (
-        (deltaX > 100 || (deltaX > 50 && deltaTime < 300)) &&
-        !isHistoryPanelOpen
-      ) {
+      if ((deltaX > 100 || (deltaX > 50 && deltaTime < 300)) && !isHistoryPanelOpen) {
         setIsHistoryPanelOpen(true);
       }
 
@@ -283,8 +269,7 @@ export default function ChatComponent() {
   useEffect(() => {
     // Only auto-scroll when switching between threads
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop =
-        chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [currentThreadIndex]); // Remove chatThreads from dependency array
 
@@ -325,9 +310,7 @@ export default function ChatComponent() {
 
       if (continuationMessageId) {
         updatedMessages = (threadToUse.messages || []).map((msg) =>
-          msg.id === continuationMessageId
-            ? { ...msg, text: msg.text + " [Continuing...] " }
-            : msg
+          msg.id === continuationMessageId ? { ...msg, text: msg.text + " [Continuing...] " } : msg,
         );
       } else {
         // Store ragDatasource in the user message
@@ -359,7 +342,7 @@ export default function ChatComponent() {
                     title: userMessage.text.substring(0, 30),
                     messages: updatedMessages,
                   }
-                : thread
+                : thread,
             );
           });
         }
@@ -368,13 +351,10 @@ export default function ChatComponent() {
       // If this was the first message, continue with inference
       if (!continuationMessageId) {
         setChatThreads((prevThreads) => {
-          if (!Array.isArray(prevThreads))
-            return [{ ...threadToUse, messages: updatedMessages }];
+          if (!Array.isArray(prevThreads)) return [{ ...threadToUse, messages: updatedMessages }];
 
           return prevThreads.map((thread, idx) =>
-            idx === currentThreadIndex
-              ? { ...thread, messages: updatedMessages }
-              : thread
+            idx === currentThreadIndex ? { ...thread, messages: updatedMessages } : thread,
           );
         });
       }
@@ -398,42 +378,32 @@ export default function ChatComponent() {
         updatedMessages,
         (newHistory) => {
           setChatThreads((prevThreads) => {
-            if (!Array.isArray(prevThreads))
-              return [{ ...threadToUse, messages: [] }];
+            if (!Array.isArray(prevThreads)) return [{ ...threadToUse, messages: [] }];
 
             const currentThreadFromState = prevThreads[currentThreadIndex];
             if (!currentThreadFromState) return prevThreads;
 
             const currentMessages = currentThreadFromState.messages || [];
             const processedHistory =
-              typeof newHistory === "function"
-                ? newHistory(currentMessages)
-                : newHistory;
+              typeof newHistory === "function" ? newHistory(currentMessages) : newHistory;
 
             // Safety check for processedHistory
             if (!Array.isArray(processedHistory)) return prevThreads;
 
             const lastMessage = processedHistory[processedHistory.length - 1];
             const finalMessages =
-              lastMessage &&
-              lastMessage.sender === "assistant" &&
-              !lastMessage.id
-                ? [
-                    ...processedHistory.slice(0, -1),
-                    { ...lastMessage, id: uuidv4() },
-                  ]
+              lastMessage && lastMessage.sender === "assistant" && !lastMessage.id
+                ? [...processedHistory.slice(0, -1), { ...lastMessage, id: uuidv4() }]
                 : processedHistory;
 
             return prevThreads.map((thread, idx) =>
-              idx === currentThreadIndex
-                ? { ...thread, messages: finalMessages }
-                : thread
+              idx === currentThreadIndex ? { ...thread, messages: finalMessages } : thread,
             );
           });
         },
         setIsStreaming,
         isAgentSelected,
-        currentThreadIndex
+        currentThreadIndex,
       );
 
       setTextInput("");
@@ -453,7 +423,7 @@ export default function ChatComponent() {
       getCurrentThread,
       defaultThread,
       setCurrentThreadIndex,
-    ]
+    ],
   );
 
   const handleReRender = useCallback(
@@ -461,21 +431,13 @@ export default function ChatComponent() {
       const currentThread = getCurrentThread();
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
-      const messageToReRender = currentThread.messages.find(
-        (msg) => msg.id === messageId
-      );
-      if (
-        !messageToReRender ||
-        messageToReRender.sender !== "assistant" ||
-        !modelID
-      )
-        return;
+      const messageToReRender = currentThread.messages.find((msg) => msg.id === messageId);
+      if (!messageToReRender || messageToReRender.sender !== "assistant" || !modelID) return;
 
       const userMessage = currentThread.messages.find(
         (msg) =>
           msg.sender === "user" &&
-          currentThread.messages.indexOf(msg) <
-            currentThread.messages.indexOf(messageToReRender)
+          currentThread.messages.indexOf(msg) < currentThread.messages.indexOf(messageToReRender),
       );
       if (!userMessage) return;
 
@@ -500,10 +462,7 @@ export default function ChatComponent() {
             if (!Array.isArray(prevThreads)) return [defaultThread];
 
             const currentThreadFromState = prevThreads[currentThreadIndex];
-            if (
-              !currentThreadFromState ||
-              !Array.isArray(currentThreadFromState.messages)
-            )
+            if (!currentThreadFromState || !Array.isArray(currentThreadFromState.messages))
               return prevThreads;
 
             let currentHistory;
@@ -511,9 +470,7 @@ export default function ChatComponent() {
               currentHistory = newHistory;
             } else if (typeof newHistory === "function") {
               const result = newHistory(currentThreadFromState.messages);
-              currentHistory = Array.isArray(result)
-                ? result
-                : currentThreadFromState.messages;
+              currentHistory = Array.isArray(result) ? result : currentThreadFromState.messages;
             } else {
               currentHistory = currentThreadFromState.messages;
             }
@@ -522,34 +479,28 @@ export default function ChatComponent() {
               return prevThreads;
             }
 
-            const updatedMessages = currentThreadFromState.messages.map(
-              (msg) => {
-                if (msg.id === messageId) {
-                  const updatedMessage =
-                    currentHistory[currentHistory.length - 1];
-                  if (!updatedMessage) return msg;
+            const updatedMessages = currentThreadFromState.messages.map((msg) => {
+              if (msg.id === messageId) {
+                const updatedMessage = currentHistory[currentHistory.length - 1];
+                if (!updatedMessage) return msg;
 
-                  return {
-                    ...msg,
-                    text: updatedMessage.text || msg.text,
-                    inferenceStats:
-                      updatedMessage.inferenceStats as InferenceStats,
-                  };
-                }
-                return msg;
+                return {
+                  ...msg,
+                  text: updatedMessage.text || msg.text,
+                  inferenceStats: updatedMessage.inferenceStats as InferenceStats,
+                };
               }
-            );
+              return msg;
+            });
 
             return prevThreads.map((thread, idx) =>
-              idx === currentThreadIndex
-                ? { ...thread, messages: updatedMessages }
-                : thread
+              idx === currentThreadIndex ? { ...thread, messages: updatedMessages } : thread,
             );
           });
         },
         setIsStreaming,
         isAgentSelected,
-        currentThreadIndex
+        currentThreadIndex,
       );
 
       setReRenderingMessageId(null);
@@ -562,7 +513,7 @@ export default function ChatComponent() {
       setChatThreads,
       isAgentSelected,
       defaultThread,
-    ]
+    ],
   );
 
   const handleContinue = useCallback(
@@ -570,15 +521,12 @@ export default function ChatComponent() {
       const currentThread = getCurrentThread();
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
-      const messageToContinue = currentThread.messages.find(
-        (msg) => msg.id === messageId
-      );
-      if (!messageToContinue || messageToContinue.sender !== "assistant")
-        return;
+      const messageToContinue = currentThread.messages.find((msg) => msg.id === messageId);
+      if (!messageToContinue || messageToContinue.sender !== "assistant") return;
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [getCurrentThread]
+    [getCurrentThread],
   );
 
   const handleSelectConversation = useCallback(
@@ -606,7 +554,7 @@ export default function ChatComponent() {
       screenSize.isMobileView,
       setChatThreads,
       defaultThread,
-    ]
+    ],
   );
 
   // Create a new conversation with a unique ID
@@ -645,13 +593,7 @@ export default function ChatComponent() {
     if (screenSize.isMobileView) {
       setIsHistoryPanelOpen(false);
     }
-  }, [
-    chatThreads,
-    setChatThreads,
-    setCurrentThreadIndex,
-    screenSize.isMobileView,
-    defaultThread,
-  ]);
+  }, [chatThreads, setChatThreads, setCurrentThreadIndex, screenSize.isMobileView, defaultThread]);
 
   // Function to toggle history panel with smooth transition
   const toggleHistoryPanel = () => {
@@ -673,13 +615,8 @@ export default function ChatComponent() {
   useEffect(() => {
     const currentThread = getCurrentThread();
     if (currentThread && Array.isArray(currentThread.messages)) {
-      const lastMessage =
-        currentThread.messages[currentThread.messages.length - 1];
-      if (
-        lastMessage &&
-        lastMessage.sender === "assistant" &&
-        lastMessage.inferenceStats
-      ) {
+      const lastMessage = currentThread.messages[currentThread.messages.length - 1];
+      if (lastMessage && lastMessage.sender === "assistant" && lastMessage.inferenceStats) {
         // console.log("Inference stats updated:", lastMessage.inferenceStats);
       }
     }
@@ -787,9 +724,7 @@ export default function ChatComponent() {
                   Array.isArray(chatThreads)
                     ? chatThreads.map((thread) => ({
                         id: thread?.id || "0",
-                        title:
-                          thread?.title ||
-                          `New Chat ${parseInt(thread?.id || "0") + 1}`,
+                        title: thread?.title || `New Chat ${parseInt(thread?.id || "0") + 1}`,
                       }))
                     : [{ id: "0", title: "New Chat 1" }]
                 }
@@ -798,16 +733,11 @@ export default function ChatComponent() {
                 onCreateNewConversation={createNewConversation}
                 onDeleteConversation={(id) => {
                   setChatThreads((prevThreads) => {
-                    if (
-                      !Array.isArray(prevThreads) ||
-                      prevThreads.length <= 1
-                    ) {
+                    if (!Array.isArray(prevThreads) || prevThreads.length <= 1) {
                       return [defaultThread];
                     }
 
-                    const newThreads = prevThreads.filter(
-                      (thread) => thread.id !== id
-                    );
+                    const newThreads = prevThreads.filter((thread) => thread.id !== id);
 
                     if (newThreads.length === 0) {
                       return [defaultThread];
@@ -828,7 +758,7 @@ export default function ChatComponent() {
                     if (!Array.isArray(prevThreads)) return [defaultThread];
 
                     return prevThreads.map((thread) =>
-                      thread.id === id ? { ...thread, title: newTitle } : thread
+                      thread.id === id ? { ...thread, title: newTitle } : thread,
                     );
                   });
                 }}
@@ -863,16 +793,11 @@ export default function ChatComponent() {
             setIsAgentSelected={setIsAgentSelected}
             isMobileView={screenSize.isMobileView}
           />
-          <div
-            ref={chatContainerRef}
-            className="flex-grow overflow-y-auto px-1 sm:px-2 md:px-4"
-          >
+          <div ref={chatContainerRef} className="flex-grow overflow-y-auto px-1 sm:px-2 md:px-4">
             <ChatHistory
               chatHistory={(() => {
                 const currentThread = getCurrentThread();
-                return Array.isArray(currentThread?.messages)
-                  ? currentThread.messages
-                  : [];
+                return Array.isArray(currentThread?.messages) ? currentThread.messages : [];
               })()}
               logo={logo}
               setTextInput={setTextInput}

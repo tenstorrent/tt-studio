@@ -21,10 +21,7 @@ export interface DetectionMetadata {
 }
 
 export interface WebcamPickerProps {
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void;
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
   setLiveMode: (mode: boolean) => void;
   videoRef: React.RefObject<HTMLVideoElement>;
   setIsLoading: (isLoading: boolean) => void;

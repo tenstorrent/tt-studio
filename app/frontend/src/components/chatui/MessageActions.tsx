@@ -28,9 +28,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   inferenceStats,
   messageContent,
 }) => {
-  const [completeMessage, setCompleteMessage] = useState<string>(
-    messageContent || ""
-  );
+  const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");
 
   // Update the complete message when streaming finishes
   useEffect(() => {
@@ -76,21 +74,11 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             <Clipboard className="h-4 w-4" />
             <span className="sr-only">Copy message</span>
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleThumbsUp}
-            className="h-8 w-8 p-0"
-          >
+          <Button variant="ghost" size="icon" onClick={handleThumbsUp} className="h-8 w-8 p-0">
             <ThumbsUp className="h-4 w-4" />
             <span className="sr-only">Thumbs up</span>
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleThumbsDown}
-            className="h-8 w-8 p-0"
-          >
+          <Button variant="ghost" size="icon" onClick={handleThumbsDown} className="h-8 w-8 p-0">
             <ThumbsDown className="h-4 w-4" />
             <span className="sr-only">Thumbs down</span>
           </Button>

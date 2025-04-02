@@ -54,8 +54,7 @@ export default function StepperDemo() {
 
   const addCustomStep = () => {
     setSteps((prevSteps) => {
-      const customStepIndex =
-        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const customStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const customStep = {
         label: "Custom Step",
         description: "Upload Custom Weights",
@@ -73,8 +72,7 @@ export default function StepperDemo() {
 
   const addFineTuneStep = () => {
     setSteps((prevSteps) => {
-      const fineTuneStepIndex =
-        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const fineTuneStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const fineTuneStep = {
         label: "Fine-Tune Step",
         description: "Link to Fine Tuner",
@@ -92,10 +90,7 @@ export default function StepperDemo() {
 
   const removeDynamicSteps = () => {
     setSteps((prevSteps) =>
-      prevSteps.filter(
-        (step) =>
-          step.label !== "Custom Step" && step.label !== "Fine-Tune Step",
-      ),
+      prevSteps.filter((step) => step.label !== "Custom Step" && step.label !== "Fine-Tune Step"),
     );
   };
 
@@ -107,9 +102,7 @@ export default function StepperDemo() {
 
     const model_id = selectedModel || "0";
     const weights_id =
-      selectedWeight === "Default Weights"
-        ? ""
-        : customWeight?.weights_id || selectedWeight;
+      selectedWeight === "Default Weights" ? "" : customWeight?.weights_id || selectedWeight;
 
     const payload = JSON.stringify({
       model_id,
@@ -183,11 +176,7 @@ export default function StepperDemo() {
                 return (
                   <Step key={stepProps.label} {...stepProps}>
                     <div className="flex flex-col items-center w-full justify-center p-10">
-                      <Button
-                        onClick={() =>
-                          customToast.success("Link to Fine Tuner activated")
-                        }
-                      >
+                      <Button onClick={() => customToast.success("Link to Fine Tuner activated")}>
                         Link to Fine Tuner
                       </Button>
                     </div>

@@ -18,19 +18,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Button } from "../ui/button";
 import { PanelRight, X, Home, Menu, Eye, Mic } from "lucide-react";
 import logo from "../../assets/tt_logo.svg";
@@ -67,10 +56,7 @@ const ModelSelector = React.forwardRef<
   }
 >(({ modelsDeployed, setModelID, setModelName }, ref) => (
   <DropdownMenu>
-    <DropdownMenuTrigger
-      ref={ref}
-      className="flex items-center gap-1 focus:outline-none"
-    >
+    <DropdownMenuTrigger ref={ref} className="flex items-center gap-1 focus:outline-none">
       <BreadcrumbEllipsis className="h-4 w-4 text-gray-600" />
       <span className="sr-only">Toggle menu</span>
     </DropdownMenuTrigger>
@@ -292,12 +278,7 @@ export default function Header({
 
         {/* Mobile hamburger menu button */}
         {isMobileView && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleMobileMenu}
-            className="md:hidden"
-          >
+          <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="md:hidden">
             <Menu className="h-4 w-4" />
           </Button>
         )}
@@ -309,21 +290,10 @@ export default function Header({
           {/* App Title */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <img
-                src={logo || "/placeholder.svg"}
-                alt="TT Logo"
-                className="h-6 w-auto mr-2"
-              />
-              <span className="text-white text-base font-bold">
-                AI Playground
-              </span>
+              <img src={logo || "/placeholder.svg"} alt="TT Logo" className="h-6 w-auto mr-2" />
+              <span className="text-white text-base font-bold">AI Playground</span>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleMobileMenu}
-              className="text-white"
-            >
+            <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="text-white">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -361,30 +331,9 @@ export default function Header({
                   stroke="currentColor"
                   strokeWidth="2"
                 />
-                <line
-                  x1="8"
-                  y1="7"
-                  x2="16"
-                  y2="7"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-                <line
-                  x1="8"
-                  y1="12"
-                  x2="16"
-                  y2="12"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-                <line
-                  x1="8"
-                  y1="17"
-                  x2="16"
-                  y2="17"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
+                <line x1="8" y1="7" x2="16" y2="7" stroke="currentColor" strokeWidth="2" />
+                <line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" strokeWidth="2" />
+                <line x1="8" y1="17" x2="16" y2="17" stroke="currentColor" strokeWidth="2" />
               </svg>
               <span className="text-white text-sm">RAG Management</span>
             </Link>
@@ -439,9 +388,7 @@ export default function Header({
           {/* Panel Status */}
           <div className="mt-4 border-t border-[#7C68FA]/20 pt-3">
             <div className="flex items-center justify-between">
-              <span className="text-white text-xs font-medium">
-                History Panel
-              </span>
+              <span className="text-white text-xs font-medium">History Panel</span>
               <div className="flex items-center">
                 <span className="text-white text-xs mr-2">
                   {isHistoryPanelOpen ? "Open" : "Closed"}
@@ -467,9 +414,7 @@ export default function Header({
           <div className="mt-3 space-y-2">
             {modelsDeployed.length > 0 && (
               <div>
-                <span className="text-white text-xs font-medium block mb-1">
-                  Current Model
-                </span>
+                <span className="text-white text-xs font-medium block mb-1">Current Model</span>
                 <Select
                   value={modelName || ""}
                   onValueChange={(v) => {
@@ -499,18 +444,14 @@ export default function Header({
             )}
 
             <div>
-              <span className="text-white text-xs font-medium block mb-1">
-                RAG Context
-              </span>
+              <span className="text-white text-xs font-medium block mb-1">RAG Context</span>
               <ForwardedSelect
                 value={ragDatasource ? ragDatasource.name : ""}
                 onValueChange={(v) => {
                   if (v === "remove") {
                     setRagDatasource(undefined);
                   } else {
-                    const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v
-                    );
+                    const dataSource = ragDataSources.find((rds) => rds.name === v);
                     if (dataSource) {
                       setRagDatasource(dataSource);
                     }
@@ -524,9 +465,7 @@ export default function Header({
                         key={c.id}
                         value={c.name}
                         className={`text-white hover:bg-[#7C68FA]/20 text-xs ${
-                          ragDatasource?.name === c.name
-                            ? "border border-white"
-                            : ""
+                          ragDatasource?.name === c.name ? "border border-white" : ""
                         }`}
                       >
                         <span className="flex flex-col">
@@ -541,10 +480,7 @@ export default function Header({
                     );
                   })}
                   {ragDatasource && (
-                    <SelectItem
-                      value="remove"
-                      className="text-red-500 hover:bg-red-900/20 text-xs"
-                    >
+                    <SelectItem value="remove" className="text-red-500 hover:bg-red-900/20 text-xs">
                       <span className="flex items-center">
                         <X className="mr-2 h-3 w-3" />
                         Remove RAG context
@@ -557,9 +493,7 @@ export default function Header({
 
             {modelsDeployed.length > 0 && (
               <div>
-                <span className="text-white text-xs font-medium block mb-1">
-                  AI Agent
-                </span>
+                <span className="text-white text-xs font-medium block mb-1">AI Agent</span>
                 <ForwardedAISelect
                   value={selectedAIAgent || ""}
                   onValueChange={handleAgentSelection}
@@ -603,9 +537,7 @@ export default function Header({
                     if (v === "remove") {
                       setRagDatasource(undefined);
                     } else {
-                      const dataSource = ragDataSources.find(
-                        (rds) => rds.name === v
-                      );
+                      const dataSource = ragDataSources.find((rds) => rds.name === v);
                       if (dataSource) {
                         setRagDatasource(dataSource);
                       }
@@ -648,11 +580,7 @@ export default function Header({
                 </ForwardedSelect>
               </TooltipTrigger>
               <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                <p>
-                  {ragDatasource
-                    ? "Change or remove RAG context"
-                    : "Select RAG context"}
-                </p>
+                <p>{ragDatasource ? "Change or remove RAG context" : "Select RAG context"}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -690,11 +618,7 @@ export default function Header({
                   </ForwardedAISelect>
                 </TooltipTrigger>
                 <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <p>
-                    {selectedAIAgent
-                      ? "Change or remove AI agent"
-                      : "Select AI Agent"}
-                  </p>
+                  <p>{selectedAIAgent ? "Change or remove AI agent" : "Select AI Agent"}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

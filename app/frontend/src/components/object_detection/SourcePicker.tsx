@@ -2,19 +2,12 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { FileUpload } from "../ui/file-upload";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Detection,
-  DetectionMetadata,
-  InferenceRequest,
-} from "./types/objectDetection";
+import { Detection, DetectionMetadata, InferenceRequest } from "./types/objectDetection";
 import { runInference } from "./utlis/runInference";
 
 interface SourcePickerProps {
   containerRef: React.RefObject<HTMLDivElement>;
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void;
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
   setLiveMode: (mode: boolean) => void;
   scaledDetections: Detection[];
   modelID: string;

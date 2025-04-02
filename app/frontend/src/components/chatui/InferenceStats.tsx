@@ -2,23 +2,10 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useState } from "react";
-import {
-  BarChart2,
-  Clock,
-  Zap,
-  Hash,
-  AlignJustify,
-  FileText,
-  Gauge,
-} from "lucide-react";
+import { BarChart2, Clock, Zap, Hash, AlignJustify, FileText, Gauge } from "lucide-react";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import type { InferenceStatsProps } from "./types";
 
 export default function Component({ stats }: InferenceStatsProps) {
@@ -27,8 +14,7 @@ export default function Component({ stats }: InferenceStatsProps) {
   if (!stats) return null;
 
   const formatValue = (value: number | undefined) => {
-    if (typeof value !== "number")
-      return { value: "N/A", unit: "", isSmall: false };
+    if (typeof value !== "number") return { value: "N/A", unit: "", isSmall: false };
 
     // Convert to milliseconds if value is small (less than 0.1 seconds)
     if (value < 0.1) {
@@ -142,15 +128,10 @@ export default function Component({ stats }: InferenceStatsProps) {
           <div className="space-y-6 sm:space-y-8 py-4 sm:py-6 border-t border-zinc-800">
             {sections.map((section, i) => (
               <div key={i} className="space-y-3 sm:space-y-4">
-                <h3 className="text-base sm:text-lg font-medium text-white/90">
-                  {section.title}
-                </h3>
+                <h3 className="text-base sm:text-lg font-medium text-white/90">{section.title}</h3>
                 <div className="grid grid-cols-3 gap-2 sm:gap-8">
                   {section.stats.map((stat, j) => (
-                    <div
-                      key={j}
-                      className="text-center space-y-1 rounded-lg p-2 bg-zinc-900/50"
-                    >
+                    <div key={j} className="text-center space-y-1 rounded-lg p-2 bg-zinc-900/50">
                       <div className="flex justify-center mb-1 sm:mb-2 text-white/70">
                         {stat.icon}
                       </div>
@@ -175,26 +156,23 @@ export default function Component({ stats }: InferenceStatsProps) {
                 Round trip time:{" "}
                 {
                   formatValue(
-                    (stats.user_ttft_s || 0) +
-                      (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                    (stats.user_ttft_s || 0) + (stats.user_tpot || 0) * (stats.tokens_decoded || 0),
                   ).value
                 }
                 {formatValue(
-                  (stats.user_ttft_s || 0) +
-                    (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                  (stats.user_ttft_s || 0) + (stats.user_tpot || 0) * (stats.tokens_decoded || 0),
                 ).isSmall ? (
                   <span className="text-red-400">
                     {
                       formatValue(
                         (stats.user_ttft_s || 0) +
-                          (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                          (stats.user_tpot || 0) * (stats.tokens_decoded || 0),
                       ).unit
                     }
                   </span>
                 ) : (
                   formatValue(
-                    (stats.user_ttft_s || 0) +
-                      (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                    (stats.user_ttft_s || 0) + (stats.user_tpot || 0) * (stats.tokens_decoded || 0),
                   ).unit
                 )}
               </span>
@@ -202,8 +180,7 @@ export default function Component({ stats }: InferenceStatsProps) {
             <div className="flex items-center gap-1">
               <Hash className="h-3 w-3 text-white/60" />
               <span className="whitespace-nowrap">
-                Model:{" "}
-                <span className="text-TT-purple-accent">Tenstorrent</span>
+                Model: <span className="text-TT-purple-accent">Tenstorrent</span>
                 /Meta-Llama 3.1 70B
               </span>
             </div>
