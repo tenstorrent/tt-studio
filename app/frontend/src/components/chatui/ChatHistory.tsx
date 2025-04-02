@@ -95,9 +95,7 @@ interface ChatHistoryProps {
   ragDatasource?: {
     id: string;
     name: string;
-    metadata?: {
-      /* ... */
-    };
+    metadata?: object;
   };
   isMobileView?: boolean;
 }
@@ -110,7 +108,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   onReRender,
   onContinue,
   reRenderingMessageId,
-  ragDatasource,
   isMobileView = false,
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);

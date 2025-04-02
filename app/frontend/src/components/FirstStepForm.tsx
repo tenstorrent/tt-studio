@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -29,14 +28,15 @@ export function FirstStepForm({
   const [models, setModels] = useState<Model[]>([]);
 
   useEffect(() => {
-    console.log("fetching models", getModelsUrl);
     const fetchModels = async () => {
       try {
         const response = await axios.get<Model[]>(getModelsUrl);
-        console.log("fetched models:", response.data);
+
         setModels(response.data);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (error) {
-        console.error("Error fetching models:", error);
+        customToast.error("Error fetching models");
+        // console.error("Error fetching models:", error);
       }
     };
 
@@ -52,7 +52,7 @@ export function FirstStepForm({
 
   useEffect(() => {
     setFormError(!!form.formState.errors.model);
-  }, [form.formState.errors]);
+  }, [form.formState.errors, setFormError]);
 
   const onSubmit = async (data: z.infer<typeof FirstFormSchema>) => {
     setIsSubmitting(true);

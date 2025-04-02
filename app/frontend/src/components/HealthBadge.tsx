@@ -11,10 +11,13 @@ interface HealthBadgeProps {
 type HealthStatus = "healthy" | "unavailable" | "unhealthy" | "unknown";
 
 const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
-  console.log("HealthBadge component rendered", deployId);
+  // customToast.info
+
+  // console.log("HealthBadge component rendered", deployId);
   const [health, setHealth] = useState<HealthStatus>("unknown");
   const [isLoading, setIsLoading] = useState(true);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const fetchHealth = async () => {
     try {
       const response = await fetch(`/models-api/health/?deploy_id=${deployId}`, {
@@ -28,6 +31,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
       } else {
         setHealth("unknown");
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (e) {
       setHealth("unknown");
     } finally {
@@ -39,7 +43,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
     fetchHealth();
     const intervalId = setInterval(fetchHealth, 5000); // 5 seconds
     return () => clearInterval(intervalId);
-  }, [deployId]);
+  }, [deployId, fetchHealth]);
 
   const getStatusColor = () => {
     switch (health) {

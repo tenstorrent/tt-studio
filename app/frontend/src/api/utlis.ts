@@ -1,11 +1,15 @@
 import { useEffect } from "react";
 
-export function setTitleBasedOnEnvironment() {
+// Convert to a custom Hook (starts with 'use')
+export function useTitleBasedOnEnvironment() {
   useEffect(() => {
-    // const isLocalhost = window.location.hostname === "localhost";
     const defaultTitle = import.meta.env.VITE_APP_TITLE || "TT-Studio";
-    console.log("defaultTitle", defaultTitle);
-
     document.title = defaultTitle;
   }, []);
+}
+
+// If you need to use this in a component
+export function TitleSetter() {
+  useTitleBasedOnEnvironment();
+  return null; // or return any component you need
 }

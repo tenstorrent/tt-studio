@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-"use client";
-
 import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { useStepper } from "./ui/stepper";
@@ -11,7 +9,7 @@ import { useModels } from "../providers/ModelsContext";
 import { useRefresh } from "../providers/RefreshContext";
 import { Cpu, Sliders } from "lucide-react";
 import axios from "axios";
-
+import { customToast } from "./CustomToaster";
 export function DeployModelStep({
   handleDeploy,
   selectedModel,
@@ -38,8 +36,10 @@ export function DeployModelStep({
           if (model) {
             setModelName(model.name);
           }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (error) {
-          console.error("Error fetching model name:", error);
+          customToast.error("Error fetching model name");
+          // console.error("Error fetching model name:", error);
         }
       }
     };

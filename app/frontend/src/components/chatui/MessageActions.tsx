@@ -20,10 +20,10 @@ interface MessageActionsProps {
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
-  messageId,
-  onReRender,
-  onContinue,
-  isReRendering,
+  // messageId,
+  // onReRender,
+  // onContinue,
+  // isReRendering,
   isStreaming,
   inferenceStats,
   messageContent,
@@ -43,8 +43,9 @@ const MessageActions: React.FC<MessageActionsProps> = ({
         await navigator.clipboard.writeText(completeMessage);
         customToast.success("Message copied to clipboard");
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
-      console.error("Failed to copy text: ", err);
+      // console.error("Failed to copy text: ", err);
       customToast.error("Failed to copy message");
     }
   };

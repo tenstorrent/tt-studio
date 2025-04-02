@@ -14,7 +14,7 @@ const FileUploader = () => {
     const file = event.target.files ? event.target.files[0] : null;
     if (file) {
       setFileName(file.name);
-      console.log("Selected file:", file.name); // Log the file name
+      // Log the file name
       setIsLinked(false); // Reset linking status on new file selection
       simulateLinkingAction();
     } else {

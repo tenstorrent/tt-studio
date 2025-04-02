@@ -19,10 +19,7 @@ import NotFoundPage from "../pages/NotFoundPage";
 const AppRouter = () => {
   // Get routes from configuration
   const routes = getRoutes();
-
-  // Log environment variables for debugging
-  console.log("isDeployedEnabled", import.meta.env.VITE_ENABLE_DEPLOYED === "true");
-
+  // Filter out routes that are not to be displayed
   return (
     <RefreshProvider>
       <ModelsProvider>

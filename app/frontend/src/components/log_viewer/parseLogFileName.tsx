@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 "use client";
 export function parseLogFileName() {
+  // eslint-disable-next-line react/display-name
   return (name: string) => {
     const parts = name.split("_");
     if (parts.length > 2) {

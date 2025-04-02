@@ -95,10 +95,15 @@ export default function RagAdmin() {
         customToast.error("Authentication failed");
         setError("Invalid credentials");
       }
-    } catch (err: any) {
-      console.error("Authentication error:", err);
-      customToast.error(err.response?.data?.error || "Authentication failed");
-      setError(err.response?.data?.error || "Authentication failed");
+    } catch (err) {
+      // console.error("Authentication error:", err);
+      if (axios.isAxiosError(err)) {
+        customToast.error(err.response?.data?.error || "Authentication failed");
+        setError(err.response?.data?.error || "Authentication failed");
+      } else {
+        customToast.error("An unexpected error occurred");
+        setError("An unexpected error occurred");
+      }
     } finally {
       setLoginLoading(false);
     }
@@ -118,13 +123,18 @@ export default function RagAdmin() {
 
       setCollections(response.data);
       customToast.success(`Retrieved ${response.data.length} collections`);
-    } catch (err: any) {
-      console.error("Error fetching collections:", err);
-      customToast.error(err.response?.data?.error || "Failed to fetch collections");
-      setError(err.response?.data?.error || "Failed to fetch collections");
+    } catch (err: unknown) {
+      // console.error("Error fetching collections:", err);
+      if (axios.isAxiosError(err)) {
+        customToast.error(err.response?.data?.error || "Failed to fetch collections");
+        setError(err.response?.data?.error || "Failed to fetch collections");
+      } else {
+        customToast.error("An unexpected error occurred");
+        setError("An unexpected error occurred");
+      }
 
       // If unauthorized, log out
-      if (err.response?.status === 401) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
         setIsAuthenticated(false);
       }
     } finally {
@@ -151,12 +161,15 @@ export default function RagAdmin() {
       } else {
         customToast.error("Failed to delete collection");
       }
-    } catch (err: any) {
-      console.error("Error deleting collection:", err);
-      customToast.error(err.response?.data?.error || "Failed to delete collection");
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        customToast.error(err.response?.data?.error || "Failed to delete collection");
+      } else {
+        customToast.error("An unexpected error occurred");
+      }
 
       // If unauthorized, log out
-      if (err.response?.status === 401) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
         setIsAuthenticated(false);
       }
     } finally {
@@ -370,8 +383,8 @@ export default function RagAdmin() {
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete Collection</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Are you sure you want to delete the collection "{item.name}" (ID:{" "}
-                          {item.id})?
+                          Are you sure you want to delete the collection &quot;{item.name}&quot;
+                          (ID: {item.id})?
                           <br />
                           <br />
                           <strong className="text-red-500">This action cannot be undone.</strong>

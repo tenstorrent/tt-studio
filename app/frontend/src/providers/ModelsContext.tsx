@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
-
 import React, { createContext, useContext, useState, useCallback } from "react";
 import { fetchModels } from "../api/modelsDeployedApis";
+import { customToast } from "../components/CustomToaster";
 
 export interface Model {
   id: string;
@@ -29,8 +28,8 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const fetchedModels = await fetchModels();
       setModels(fetchedModels);
-    } catch (error) {
-      console.error("Error refreshing models:", error);
+    } catch {
+      customToast.error("Error refreshing models");
     }
   }, []);
 

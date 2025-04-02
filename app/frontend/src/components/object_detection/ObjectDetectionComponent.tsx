@@ -17,10 +17,31 @@ export const ObjectDetectionComponent: React.FC = () => {
   const [metadata, setMetadata] = useState<DetectionMetadata | null>(null);
   const [isLiveMode, setIsLiveMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Removed unused isLoading state
   const [isLoading, setIsLoading] = useState(false);
+
   const [isStreaming, setIsStreaming] = useState(false);
+
   const [isCameraOn, setIsCameraOn] = useState(false);
+
+  useEffect(() => {
+    if (isLoading) {
+      customToast.info("Loading... Please wait.");
+    }
+  }, [isLoading]);
+  useEffect(() => {
+    if (isStreaming) {
+      customToast.info("Streaming... Please wait.");
+    }
+  }, [isStreaming]);
+  useEffect(() => {
+    if (isCameraOn) {
+      customToast.info("Camera is on... Please wait.");
+    }
+  }, [isCameraOn]);
 
   const handleSetDetections = useCallback(
     (data: { boxes: Detection[]; metadata: DetectionMetadata }) => {
@@ -73,7 +94,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                 setDetections={handleSetDetections}
                 setLiveMode={handleSetLiveMode}
                 scaledDetections={scaledDetections}
-                modelID={modelID}
+                modelID={modelID ?? ""}
               />
             </div>
           </TabsContent>
@@ -89,7 +110,8 @@ export const ObjectDetectionComponent: React.FC = () => {
                   setIsLoading={setIsLoading}
                   setIsStreaming={setIsStreaming}
                   setIsCameraOn={setIsCameraOn}
-                  modelID={modelID}
+                  modelID={modelID ?? ""}
+                  videoRef={videoRef}
                 />
                 {isLiveMode && (
                   <div className="absolute inset-0 pointer-events-none">

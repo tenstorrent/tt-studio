@@ -23,21 +23,21 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
       target: VITE_BACKEND_URL,
       changeOrigin: true,
       secure: true,
-      // debug logging
+      // debug logging removed
       configure: (proxy: HttpProxy.Server) => {
-        proxy.on("error", (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
-          console.log("proxy error", err);
+        proxy.on("error", (_err: Error, _req: IncomingMessage, _res: ServerResponse) => {
+          // Error handling removed
         });
         proxy.on(
           "proxyReq",
-          (proxyReq: ClientRequest, req: IncomingMessage, _res: ServerResponse) => {
-            console.log("Sending Request to the Target:", req.method, req.url);
+          (_proxyReq: ClientRequest, _req: IncomingMessage, _res: ServerResponse) => {
+            // Request logging removed
           },
         );
         proxy.on(
           "proxyRes",
-          (proxyRes: IncomingMessage, req: IncomingMessage, _res: ServerResponse) => {
-            console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
+          (_proxyRes: IncomingMessage, _req: IncomingMessage, _res: ServerResponse) => {
+            // Response logging removed
           },
         );
       },
@@ -52,14 +52,14 @@ proxyConfig["/reset-board"] = {
   changeOrigin: true,
   secure: true,
   configure: (proxy) => {
-    proxy.on("error", (err) => {
-      console.log("proxy error", err);
+    proxy.on("error", (_err: Error) => {
+      // Error handling removed
     });
-    proxy.on("proxyReq", (proxyReq, req) => {
-      console.log("Sending Request to the Target:", req.method, req.url);
+    proxy.on("proxyReq", (_proxyReq: ClientRequest, _req: IncomingMessage) => {
+      // Request logging removed
     });
-    proxy.on("proxyRes", (proxyRes, req) => {
-      console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
+    proxy.on("proxyRes", (_proxyRes: IncomingMessage, _req: IncomingMessage) => {
+      // Response logging removed
     });
   },
 };

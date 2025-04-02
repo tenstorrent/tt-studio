@@ -21,7 +21,7 @@ export function usePersistentState<T>(
   });
 
   const pruneData = useCallback(
-    (data: any): any => {
+    (data: unknown): unknown => {
       if (!Array.isArray(data)) return data;
 
       try {

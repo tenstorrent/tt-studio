@@ -22,7 +22,8 @@ export const fetchCollections = async () => {
     }
     return [];
   } catch (error) {
-    console.error("Error fetching collections:", error);
+    customToast.error("Error fetching collections");
+    // console.error("Error fetching collections:", error);
     throw error;
   }
 };
@@ -34,7 +35,7 @@ export const createCollection = async ({ collectionName }: { collectionName: str
     });
     return response.data;
   } catch (error) {
-    console.error("Error creating collection:", error);
+    customToast.error("Error creating collection");
     // Extract error message from the response if available
     if (axios.isAxiosError(error) && error.response?.data?.error) {
       customToast.error("Collection name already exists");
@@ -48,7 +49,8 @@ export const deleteCollection = async ({ collectionName }: { collectionName: str
   try {
     return await axios.delete(`${collectionsAPIURL}/${collectionName}`);
   } catch (error) {
-    console.error("Error deleting collection:", error);
+    customToast.error("Error deleting collection");
+    // console.error("Error deleting collection:", error);
     throw error;
   }
 };
@@ -71,7 +73,7 @@ export const uploadDocument = async ({
       },
     });
   } catch (error) {
-    console.error("Error uploading document:", error);
+    customToast.error("Error uploading document");
     throw error;
   }
 };

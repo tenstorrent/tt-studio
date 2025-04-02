@@ -81,7 +81,7 @@ export const fetchModels = async (): Promise<Model[]> => {
 
     return models;
   } catch (error) {
-    console.error("Error fetching models:", error);
+    // console.error("Error fetching models:", error);
     customToast.error("Failed to fetch models.");
     throw error;
   }
@@ -91,14 +91,12 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
   const truncatedModelId = modelId.substring(0, 4);
   try {
     const payload = JSON.stringify({ container_id: modelId });
-    console.log("Payload:", payload);
 
     const response = await axios.post<StopResponse>(stopModelsURL, payload, {
       headers: {
         "Content-Type": "application/json",
       },
     });
-    console.log("Response: on ts from backend", response);
 
     if (
       response.data.status !== "success" ||
@@ -116,25 +114,23 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
         customToast.error(`Board Reset failed.`);
       }
 
-      console.log(
-        `Reset Output: ${response.data.reset_response?.output || "No reset output available"}`,
-      );
+      //
     }
 
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      console.error("Error stopping the container:", error.response?.data);
+      // console.error("Error stopping the container:", error.response?.data);
       customToast.error(
         `Failed to delete Model ID: ${truncatedModelId} - ${
           error.response?.data.message || error.message
         }`,
       );
     } else if (error instanceof Error) {
-      console.error("Error stopping the container:", error.message);
+      // console.error("Error stopping the container:", error.message);
       customToast.error(`Failed to delete Model ID: ${truncatedModelId} - ${error.message}`);
     } else {
-      console.error("Unknown error stopping the container", error);
+      // console.error("Unknown error stopping the container", error);
       customToast.error(`Failed to delete Model ID: ${truncatedModelId} - Unknown error`);
     }
     throw error;
@@ -152,15 +148,15 @@ export const handleModelNavigationClick = (
 ): void => {
   const modelType = getModelTypeFromName(modelName);
   const destination = getDestinationFromModelType(modelType);
-  console.log(`${modelType} button clicked for model: ${modelID}`);
-  console.log(`Opening ${modelType} for model: ${modelName}`);
+  //
+  //
   customToast.success(`${destination.slice(1)} page opened!`);
 
   navigate(destination, {
     state: { containerID: modelID, modelName: modelName },
   });
 
-  console.log(`Navigated to ${destination} page`);
+  //
 };
 
 export const getDestinationFromModelType = (modelType: string): string => {
@@ -193,11 +189,13 @@ export const getModelTypeFromName = (modelName: string): string => {
 export const checkDeployedModels = async (): Promise<boolean> => {
   try {
     const fetchedModels = await fetchModels();
-    console.log("Fetched models:", fetchedModels);
+    //
     return fetchedModels !== null && fetchedModels.length > 0;
-  } catch (error) {
-    console.log("Error fetching models:", error);
-    console.error("Error checking deployed models:", error);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  } catch (_error) {
+    customToast.error("Error fetching models");
+    //
+    // console.error("Error checking deployed models:", error);
     return false;
   }
 };

@@ -10,6 +10,7 @@ interface MarkdownComponentProps {
   children: string;
 }
 
+// eslint-disable-next-line react/display-name
 const MarkdownComponent: React.FC<MarkdownComponentProps> = React.memo(({ children }) => {
   const components: Partial<Components> = useMemo(
     () => ({
@@ -32,7 +33,13 @@ const MarkdownComponent: React.FC<MarkdownComponentProps> = React.memo(({ childr
           {children}
         </a>
       ),
-      code: ({ inline, className, children, ...props }) => {
+      code: (props) => {
+        // Use type assertion to include 'inline' prop
+        const { inline, className, children, ...rest } = props as {
+          inline?: boolean;
+          className?: string;
+          children: React.ReactNode;
+        };
         const match = /language-(\w+)/.exec(className || "");
         if (!inline && match) {
           return (
@@ -45,7 +52,7 @@ const MarkdownComponent: React.FC<MarkdownComponentProps> = React.memo(({ childr
           );
         }
         return (
-          <code className={`${className} bg-gray-800 rounded px-1`} {...props}>
+          <code className={`${className} bg-gray-800 rounded px-1`} {...rest}>
             {children}
           </code>
         );
