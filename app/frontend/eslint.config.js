@@ -8,6 +8,17 @@ import prettierPlugin from "eslint-plugin-prettier";
 import prettierConfig from "eslint-config-prettier";
 
 export default [
+  {
+    // Global settings to recognize built-in types
+    languageOptions: {
+      globals: {
+        ...tsPlugin.configs.recommended.globals,
+        // Additional global types you might need
+        HTMLDivElement: "readonly",
+        React: "readonly",
+      },
+    },
+  },
   js.configs.recommended,
   {
     files: ["**/*.{js,jsx,ts,tsx}"],
@@ -68,6 +79,7 @@ export default [
       "@typescript-eslint/explicit-module-boundary-types": "off",
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
       "jsx-a11y/anchor-is-valid": "off",
+      "no-undef": "off", // Disabled as TypeScript handles type checking
       "no-console": "warn",
     },
   },
