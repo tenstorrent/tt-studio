@@ -81,6 +81,7 @@ export default function ChatComponent() {
   const touchStartTimeRef = useRef<number | null>(null);
   const [touchMoveX, setTouchMoveX] = useState<number | null>(null);
   const swipeAreaRef = useRef<HTMLDivElement>(null);
+  const [isHandleTouched, setIsHandleTouched] = useState(false);
 
   // Validate and fix chat threads if needed
   useEffect(() => {
@@ -204,9 +205,9 @@ export default function ChatComponent() {
       touchStartXRef.current = e.touches[0].clientX;
       touchStartTimeRef.current = Date.now();
       setTouchMoveX(null);
+      setIsHandleTouched(true); // Set state to touched when interaction starts
 
-      // Prevent default to ensure we don't trigger browser back
-      if (e.cancelable) {
+      if (e.touches[0].clientX < 20 && e.cancelable) {
         e.preventDefault();
       }
     };
@@ -217,12 +218,10 @@ export default function ChatComponent() {
       const currentX = e.touches[0].clientX;
       const deltaX = currentX - touchStartXRef.current;
 
-      // Process the drag for the handle
-      if (deltaX > 0) {
+      if (deltaX > 10) {
         setTouchMoveX(deltaX);
 
-        // Prevent default to avoid any browser gestures
-        if (e.cancelable) {
+        if (touchStartXRef.current < 20 && e.cancelable) {
           e.preventDefault();
         }
       }
@@ -240,9 +239,8 @@ export default function ChatComponent() {
       const deltaX = touchEndX - touchStartXRef.current;
       const deltaTime = Date.now() - touchStartTimeRef.current;
 
-      // Open panel if swipe is greater than 100px or if swipe velocity is high enough
       if (
-        (deltaX > 100 || (deltaX > 50 && deltaTime < 300)) &&
+        (deltaX > 70 || (deltaX > 40 && deltaTime < 250)) &&
         !isHistoryPanelOpen
       ) {
         setIsHistoryPanelOpen(true);
@@ -252,12 +250,12 @@ export default function ChatComponent() {
       touchStartXRef.current = null;
       touchStartTimeRef.current = null;
       setTouchMoveX(null);
+      setIsHandleTouched(false); // Reset touched state when interaction ends
     };
 
-    // Add touch events just to our handle element
+    // Add touch events just to our handle element for better control
     const swipeArea = swipeAreaRef.current;
     if (swipeArea) {
-      // For the handle, we use non-passive events to be able to preventDefault
       swipeArea.addEventListener("touchstart", handleTouchStart, {
         passive: false,
       });
@@ -273,9 +271,6 @@ export default function ChatComponent() {
         swipeArea.removeEventListener("touchmove", handleTouchMove);
         swipeArea.removeEventListener("touchend", handleTouchEnd);
       }
-      document.removeEventListener("touchstart", handleTouchStart);
-      document.removeEventListener("touchmove", handleTouchMove);
-      document.removeEventListener("touchend", handleTouchEnd);
     };
   }, [screenSize.isMobileView, isHistoryPanelOpen]);
 
@@ -694,17 +689,31 @@ export default function ChatComponent() {
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
-        {/* Minimal mobile handle with chevron indicator */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (
           <div
             ref={swipeAreaRef}
-            className="fixed top-1/2 -translate-y-1/2 left-0 h-24 w-6 z-50 cursor-pointer flex items-center justify-start" // reduced size and centered vertically
-            style={{ touchAction: "none" }}
+            className="fixed top-0 left-0 h-full w-12 z-50 flex items-center justify-start pointer-events-auto"
+            style={{ touchAction: "pan-y" }} // Allow vertical scrolling but capture horizontal swipes
             onClick={toggleHistoryPanel}
+            onTouchStart={() => setIsHandleTouched(true)}
+            onTouchEnd={() => setIsHandleTouched(false)}
+            onTouchCancel={() => setIsHandleTouched(false)}
           >
-            <div className="w-5 h-24 bg-white dark:bg-[#2A2A2A] rounded-r-lg flex items-center justify-center">
+            <div
+              className={`h-48 w-8 rounded-r-lg flex items-center justify-center transition-all duration-200 
+                ${
+                  isHandleTouched || touchMoveX !== null
+                    ? "bg-white/90 dark:bg-[#2A2A2A]/90 shadow-md border-r border-t border-b border-gray-200 dark:border-gray-700"
+                    : "bg-white/30 dark:bg-[#2A2A2A]/30 border-r border-t border-b border-gray-200/30 dark:border-gray-700/30"
+                }`}
+            >
               <svg
-                className="w-4 h-4 text-gray-400 dark:text-gray-600"
+                className={`w-5 h-5 transition-opacity duration-200
+                  ${
+                    isHandleTouched || touchMoveX !== null
+                      ? "text-gray-600 dark:text-gray-400 opacity-100"
+                      : "text-gray-600/60 dark:text-gray-400/60 opacity-60"
+                  }`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -720,16 +729,32 @@ export default function ChatComponent() {
           </div>
         )}
 
-        {/* Swipe indicator that appears when dragging the handle */}
         {touchMoveX !== null && !isHistoryPanelOpen && (
           <div
-            className="fixed top-0 left-0 h-full bg-gray-800 z-40 opacity-80"
+            className="fixed top-0 left-0 h-full bg-gray-800 z-40 opacity-70"
             style={{
-              width: `${Math.min(touchMoveX, window.innerWidth * 0.8)}px`,
-              borderRight: "2px solid rgba(255,255,255,0.2)",
+              width: `${Math.min(touchMoveX, window.innerWidth * 0.7)}px`,
+              borderRight: "2px solid rgba(255,255,255,0.4)",
+              boxShadow: "0 0 15px rgba(0,0,0,0.3)",
               transition: "width 0.05s ease",
             }}
-          />
+          >
+            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+              <svg
+                className="w-6 h-6 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </div>
+          </div>
         )}
 
         {/* Mobile history panel overlay */}
