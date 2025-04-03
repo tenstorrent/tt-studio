@@ -80,7 +80,9 @@ export default function ChatComponent() {
   const touchStartXRef = useRef<number | null>(null);
   const touchStartTimeRef = useRef<number | null>(null);
   const [touchMoveX, setTouchMoveX] = useState<number | null>(null);
+  const [leftSwipeX, setLeftSwipeX] = useState<number | null>(null);
   const swipeAreaRef = useRef<HTMLDivElement>(null);
+  const historyPanelRef = useRef<HTMLDivElement>(null);
   const [isHandleTouched, setIsHandleTouched] = useState(false);
 
   // Validate and fix chat threads if needed
@@ -202,12 +204,24 @@ export default function ChatComponent() {
     const handleTouchStart = (e: TouchEvent) => {
       if (!screenSize.isMobileView) return;
 
+      // Store initial touch position
       touchStartXRef.current = e.touches[0].clientX;
       touchStartTimeRef.current = Date.now();
-      setTouchMoveX(null);
-      setIsHandleTouched(true); // Set state to touched when interaction starts
 
-      if (e.touches[0].clientX < 20 && e.cancelable) {
+      // Reset swipe states
+      setTouchMoveX(null);
+      setLeftSwipeX(null);
+
+      // Set touch state
+      setIsHandleTouched(true);
+
+      // Only prevent default for touches near edges
+      if (
+        (e.touches[0].clientX < 20 ||
+          (isHistoryPanelOpen &&
+            e.touches[0].clientX > window.innerWidth - 20)) &&
+        e.cancelable
+      ) {
         e.preventDefault();
       }
     };
@@ -218,10 +232,20 @@ export default function ChatComponent() {
       const currentX = e.touches[0].clientX;
       const deltaX = currentX - touchStartXRef.current;
 
-      if (deltaX > 10) {
+      // For right swipe to open panel
+      if (deltaX > 10 && !isHistoryPanelOpen) {
         setTouchMoveX(deltaX);
 
         if (touchStartXRef.current < 20 && e.cancelable) {
+          e.preventDefault();
+        }
+      }
+
+      // For left swipe to close panel
+      if (deltaX < -10 && isHistoryPanelOpen && screenSize.isMobileView) {
+        setLeftSwipeX(deltaX);
+
+        if (e.cancelable) {
           e.preventDefault();
         }
       }
@@ -239,6 +263,7 @@ export default function ChatComponent() {
       const deltaX = touchEndX - touchStartXRef.current;
       const deltaTime = Date.now() - touchStartTimeRef.current;
 
+      // Open panel on right swipe
       if (
         (deltaX > 70 || (deltaX > 40 && deltaTime < 250)) &&
         !isHistoryPanelOpen
@@ -246,15 +271,27 @@ export default function ChatComponent() {
         setIsHistoryPanelOpen(true);
       }
 
+      // Close panel on left swipe
+      if (
+        (deltaX < -70 || (deltaX < -40 && deltaTime < 250)) &&
+        isHistoryPanelOpen &&
+        screenSize.isMobileView
+      ) {
+        setIsHistoryPanelOpen(false);
+      }
+
       // Reset touch tracking
       touchStartXRef.current = null;
       touchStartTimeRef.current = null;
       setTouchMoveX(null);
-      setIsHandleTouched(false); // Reset touched state when interaction ends
+      setLeftSwipeX(null);
+      setIsHandleTouched(false);
     };
 
-    // Add touch events just to our handle element for better control
+    // Add touch events to elements
     const swipeArea = swipeAreaRef.current;
+    const historyPanel = historyPanelRef.current;
+
     if (swipeArea) {
       swipeArea.addEventListener("touchstart", handleTouchStart, {
         passive: false,
@@ -265,11 +302,28 @@ export default function ChatComponent() {
       swipeArea.addEventListener("touchend", handleTouchEnd);
     }
 
+    // Add touch events to history panel for left swipe to close
+    if (historyPanel && isHistoryPanelOpen && screenSize.isMobileView) {
+      historyPanel.addEventListener("touchstart", handleTouchStart, {
+        passive: false,
+      });
+      historyPanel.addEventListener("touchmove", handleTouchMove, {
+        passive: false,
+      });
+      historyPanel.addEventListener("touchend", handleTouchEnd);
+    }
+
     return () => {
       if (swipeArea) {
         swipeArea.removeEventListener("touchstart", handleTouchStart);
         swipeArea.removeEventListener("touchmove", handleTouchMove);
         swipeArea.removeEventListener("touchend", handleTouchEnd);
+      }
+
+      if (historyPanel) {
+        historyPanel.removeEventListener("touchstart", handleTouchStart);
+        historyPanel.removeEventListener("touchmove", handleTouchMove);
+        historyPanel.removeEventListener("touchend", handleTouchEnd);
       }
     };
   }, [screenSize.isMobileView, isHistoryPanelOpen]);
@@ -689,6 +743,7 @@ export default function ChatComponent() {
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
+        {/* Improved mobile handle with translucent styling */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (
           <div
             ref={swipeAreaRef}
@@ -729,6 +784,7 @@ export default function ChatComponent() {
           </div>
         )}
 
+        {/* Swipe indicator with improved feedback */}
         {touchMoveX !== null && !isHistoryPanelOpen && (
           <div
             className="fixed top-0 left-0 h-full bg-gray-800 z-40 opacity-70"
@@ -757,6 +813,37 @@ export default function ChatComponent() {
           </div>
         )}
 
+        {/* Left swipe indicator for closing panel */}
+        {leftSwipeX !== null &&
+          isHistoryPanelOpen &&
+          screenSize.isMobileView && (
+            <div
+              className="fixed top-0 right-0 h-full bg-red-800 z-60 opacity-70"
+              style={{
+                width: `${Math.min(Math.abs(leftSwipeX), window.innerWidth * 0.3)}px`,
+                borderLeft: "2px solid rgba(255,255,255,0.4)",
+                boxShadow: "0 0 15px rgba(0,0,0,0.3)",
+                transition: "width 0.05s ease",
+              }}
+            >
+              <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
+                <svg
+                  className="w-6 h-6 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
+              </div>
+            </div>
+          )}
+
         {/* Mobile history panel overlay */}
         <AnimatePresence initial={false} mode="wait">
           {isHistoryPanelOpen && screenSize.isMobileView && (
@@ -775,6 +862,7 @@ export default function ChatComponent() {
         <AnimatePresence initial={false} mode="wait">
           {isHistoryPanelOpen && (
             <motion.div
+              ref={historyPanelRef}
               initial={screenSize.isMobileView ? { x: "-100%" } : { width: 0 }}
               animate={
                 screenSize.isMobileView
