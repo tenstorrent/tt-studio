@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Skeleton } from "../ui/skeleton";
 import { PlusCircle, MessageSquare, Trash2, Edit2, Search } from "lucide-react";
 
 interface HistoryPanelProps {
@@ -14,6 +15,7 @@ interface HistoryPanelProps {
   onCreateNewConversation: () => void;
   onDeleteConversation: (id: string) => void;
   onEditConversationTitle: (id: string, newTitle: string) => void;
+  isLoading?: boolean;
 }
 
 export function HistoryPanel({
@@ -23,11 +25,16 @@ export function HistoryPanel({
   onCreateNewConversation,
   onDeleteConversation,
   onEditConversationTitle,
+  isLoading: externalIsLoading = false,
 }: HistoryPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [internalIsLoading, setInternalIsLoading] = useState(true);
+  
+  // Combine external and internal loading states
+  const isLoading = externalIsLoading || internalIsLoading;
 
   // Check if device is mobile
   useEffect(() => {
@@ -41,6 +48,13 @@ export function HistoryPanel({
     return () => {
       window.removeEventListener("resize", checkMobile);
     };
+  }, []);
+  
+  // Show initial loading effect when component mounts
+  useEffect(() => {
+    // Clear internal loading after a short delay to show the animation
+    const timer = setTimeout(() => setInternalIsLoading(false), 800);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleEditStart = (id: string, title: string, e: React.MouseEvent) => {
@@ -80,6 +94,24 @@ export function HistoryPanel({
   const filteredConversations = uniqueConversations.filter((conversation) =>
     conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Show skeleton if loading, regardless of mobile state
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-full rounded-lg border border-slate-200 bg-white dark:bg-[#1C1C1C] dark:border-[#7C68FA]/20 p-4 space-y-4">
+        <div className="flex-none space-y-4">
+          <Skeleton className="h-10 w-3/4" /> {/* Chats header */}
+          <Skeleton className="h-9 w-full" /> {/* Search bar */}
+          <Skeleton className="h-10 w-full" /> {/* New chat button */}
+        </div>
+        <div className="flex-grow space-y-3">
+          {[...Array(6)].map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full" /> /* Chat items */
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full rounded-lg border border-slate-200 bg-white dark:bg-[#1C1C1C] dark:border-[#7C68FA]/20">

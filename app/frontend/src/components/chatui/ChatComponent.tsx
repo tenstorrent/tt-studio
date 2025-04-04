@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
+import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
 import logo from "../../assets/tt_logo.svg";
 import { fetchModels } from "../../api/modelsDeployedApis";
@@ -33,6 +34,8 @@ interface ChatThread {
 }
 
 export default function ChatComponent() {
+  // Show loading state on initial load
+  const [isLoading, setIsLoading] = useState(true);
   const [files, setFiles] = useState<FileData[]>([]);
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
@@ -84,6 +87,18 @@ export default function ChatComponent() {
   const swipeAreaRef = useRef<HTMLDivElement>(null);
   const historyPanelRef = useRef<HTMLDivElement>(null);
   const [isHandleTouched, setIsHandleTouched] = useState(false);
+
+  // Show initial loading effect when component mounts
+  useEffect(() => {
+    // Start with loading state
+    setIsLoading(true);
+    
+    // Clear loading after a short delay to show the animation
+    const timer = setTimeout(() => setIsLoading(false), 800);
+    return () => clearTimeout(timer);
+  }, []);
+  
+  // We've removed the loading state initialization to prevent getting stuck
 
   // Validate and fix chat threads if needed
   useEffect(() => {
@@ -180,8 +195,18 @@ export default function ChatComponent() {
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
+      const wasMobile = screenSize.isMobileView;
+      const isMobileNow = width < 768;
+      
+      // Show loading state when transitioning between mobile and desktop views
+      if (wasMobile !== isMobileNow) {
+        setIsLoading(true);
+        // Clear loading after a short delay
+        setTimeout(() => setIsLoading(false), 300);
+      }
+      
       setScreenSize({
-        isMobileView: width < 768,
+        isMobileView: isMobileNow,
         isLargeScreen: width >= 1280,
         isExtraLargeScreen: width >= 1600,
       });
@@ -197,7 +222,7 @@ export default function ChatComponent() {
     handleResize();
 
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  }, [screenSize.isMobileView]);
 
   // Set up swipe gesture handlers
   useEffect(() => {
@@ -740,6 +765,21 @@ export default function ChatComponent() {
     name: model.modelName || model.name || "", // Use modelName from Model type or fall back to name
   }));
 
+  // Show skeleton loader while loading - AFTER all hooks are defined
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-screen w-full p-4 space-y-4">
+        <Skeleton className="h-16 w-full rounded-lg" /> {/* Header */}
+        <div className="flex-grow space-y-4 overflow-hidden">
+          <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
+          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" /> {/* Response */}
+          <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
+        </div>
+        <Skeleton className="h-16 w-full rounded-lg" /> {/* Input area */}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
@@ -896,6 +936,7 @@ export default function ChatComponent() {
         }`}
             >
               <HistoryPanel
+                isLoading={isLoading}
                 conversations={
                   Array.isArray(chatThreads)
                     ? chatThreads.map((thread) => ({
