@@ -36,6 +36,7 @@
 
 // Read environment variable for Vite
 const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
+const isRagAdminEnabled = import.meta.env.VITE_ENABLE_RAG_ADMIN === "true";
 
 import HomePage from "../pages/HomePage";
 import ModelsDeployed from "../pages/ModelsDeployed";
@@ -45,6 +46,7 @@ import LogsPage from "../pages/LogsPage";
 import ObjectDetectionPage from "../pages/ObjectDetectionPage";
 import DeployedHomePage from "../pages/DeployedHomePage";
 import NotFoundPage from "../pages/404Page";
+import RagAdminPage from "../pages/RagAdminPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -90,6 +92,11 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/deployed-home",
       element: <DeployedHomePage />,
       condition: !isDeployedEnabled,
+    },
+    {
+      path: "/rag-admin",
+      element: <RagAdminPage />,
+      condition: isRagAdminEnabled, // Only enable if the env flag is set
     },
     {
       // catch all for all other routes
