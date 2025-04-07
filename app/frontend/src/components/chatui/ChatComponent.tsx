@@ -102,6 +102,8 @@ export default function ChatComponent() {
     return () => clearTimeout(timer);
   }, []);
 
+  // We've removed the loading state initialization to prevent getting stuck
+
   // Validate and fix chat threads if needed
   useEffect(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
@@ -802,7 +804,8 @@ export default function ChatComponent() {
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Header */}
         <div className="flex-grow space-y-4 overflow-hidden">
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
-          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" />
+          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" />{" "}
+          {/* Response */}
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
         </div>
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Input area */}
