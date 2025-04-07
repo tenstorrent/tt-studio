@@ -19,8 +19,8 @@ TT-Studio enables rapid deployment of TT Inference servers locally and is optimi
 5. [Documentation](#documentation)
    - [Frontend Documentation](#frontend-documentation)
    - [Backend API Documentation](#backend-api-documentation)
-   - [Running vLLM Models in TT-Studio])
-
+   - [Running vLLM Models in TT-Studio](#running-vllm-model(s)-and-mock-vllm-model-in-tt-Studio)  
+   - [Running AI Agent with Chat LLM Models in TT-Studio](#running-ai-agent-in-tt-Studio)  
 
 ---
 ## Prerequisites
@@ -199,6 +199,9 @@ If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt
 
 - **Running vLLM Model(s) and Mock vLLM Model in TT-Studio**: [HowToRun_vLLM_Models.md](HowToRun_vLLM_Models.md)  
   Step-by-step instructions on how to configure and run the vLLM model(s) using TT-Studio.
+
+- **Running AI Agent with Chat LLM Models in TT-Studio**: [app/api/agent_control/README.md](app/api/agent_control/README.md)
+   Instructions on how to run AI Agent by providing an API Key. 
 
 - **Contribution Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)  
   If you’re interested in contributing to the project, please refer to our contribution guidelines. This includes setting up a development environment, code standards, and the process for submitting pull requests.

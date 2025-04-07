@@ -41,3 +41,6 @@ db.sqlite3
 !app/frontend/third-party-licenses.txt
 !requirements-dev.txt
 
+app/frontend/src/assets/*
+app/frontend/src/assets.zip
+app/frontend/src/assets/tt_logo.svg

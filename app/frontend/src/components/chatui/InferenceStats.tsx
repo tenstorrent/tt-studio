@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import { useState } from "react";
 import {
   BarChart2,
@@ -119,7 +120,7 @@ export default function Component({ stats }: InferenceStatsProps) {
               variant="ghost"
               size="sm"
               onClick={() => setOpen(true)}
-              className="text-gray-500 p-1 h-auto hover:bg-black/10"
+              className="text-gray-500 p-1 h-auto hover:bg-black/10 rounded-full"
             >
               <BarChart2 className="h-4 w-4" />
               <span className="sr-only">Show Speed Insights</span>
@@ -130,7 +131,7 @@ export default function Component({ stats }: InferenceStatsProps) {
       </TooltipProvider>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-[95vw] sm:max-w-[500px] p-4 sm:p-6 bg-black text-white border-zinc-800">
+        <DialogContent className="max-w-[95vw] sm:max-w-[500px] p-4 sm:p-6 bg-black text-white border-zinc-800 rounded-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl font-medium text-white">
               <Zap className="h-8 w-8 sm:h-10 sm:w-10 text-TT-purple-accent" />
@@ -146,7 +147,10 @@ export default function Component({ stats }: InferenceStatsProps) {
                 </h3>
                 <div className="grid grid-cols-3 gap-2 sm:gap-8">
                   {section.stats.map((stat, j) => (
-                    <div key={j} className="text-center space-y-1">
+                    <div
+                      key={j}
+                      className="text-center space-y-1 rounded-lg p-2 bg-zinc-900/50"
+                    >
                       <div className="flex justify-center mb-1 sm:mb-2 text-white/70">
                         {stat.icon}
                       </div>
