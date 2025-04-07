@@ -453,17 +453,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             })}
                           </p>
                         )}
-                        {/* Render files directly below text if they exist */}
-                        {message.files && message.files.length > 0 && (
-                          <div className="mt-2">
-                            <FileDisplay
-                              files={message.files}
-                              minimizedFiles={minimizedFiles}
-                              toggleMinimizeFile={toggleMinimizeFile}
-                              onFileClick={handleFileClick}
-                            />
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -491,19 +480,17 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       <RagPill ragDatasource={message.ragDatasource} />
                     </div>
                   )}
-                  {/* Files for Assistant (if applicable, though usually attached to user prompt) */}
-                  {message.sender === "assistant" &&
-                    message.files &&
-                    message.files.length > 0 && (
-                      <div className="mt-2">
-                        <FileDisplay
-                          files={message.files}
-                          minimizedFiles={minimizedFiles}
-                          toggleMinimizeFile={toggleMinimizeFile}
-                          onFileClick={handleFileClick}
-                        />
-                      </div>
-                    )}
+                  {/* Files for both User and Assistant messages */}
+                  {message.files && message.files.length > 0 && (
+                    <div className="mt-2">
+                      <FileDisplay
+                        files={message.files}
+                        minimizedFiles={minimizedFiles}
+                        toggleMinimizeFile={toggleMinimizeFile}
+                        onFileClick={handleFileClick}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
               {/* Streaming Indicator */}
