@@ -80,8 +80,7 @@ body {
 .neu {
   background-color: var(--background);
   border-radius: var(--radius);
-  box-shadow:
-    10px 10px 20px var(--neu-shadow-dark),
+  box-shadow: 10px 10px 20px var(--neu-shadow-dark);
   box-shadow:
     10px 10px 20px var(--neu-shadow-dark),
     -10px -10px 20px var(--neu-shadow);
