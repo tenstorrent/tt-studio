@@ -47,6 +47,8 @@ import ObjectDetectionPage from "../pages/ObjectDetectionPage";
 import DeployedHomePage from "../pages/DeployedHomePage";
 import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
+import ImageGenPage from "../pages/ImageGenPage";
+import AudioDetectionPage from "../pages/AudioDetectionPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -97,6 +99,16 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/rag-admin",
       element: <RagAdminPage />,
       condition: isRagAdminEnabled, // Only enable if the env flag is set
+    },
+    {
+      path: "/image-generation",
+      element: <ImageGenPage />,
+      condition: true,
+    },
+    {
+      path: "/audio-detection",
+      element: <AudioDetectionPage />,
+      condition: true,
     },
     {
       // catch all for all other routes
