@@ -24,13 +24,19 @@ export const runInference = async (
 
   try {
     const startTime = performance.now();
-    const response = await axios.post(
-      `/models-api/object-detection/`,
-      formData,
-      {
-        headers: { "Content-Type": "multipart/form-data" },
-      },
-    );
+    const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
+    const useCloudEndpoint =
+      request.deploy_id === null ||
+      request.deploy_id === "null" ||
+      apiUrlDefined;
+
+    const API_URL = useCloudEndpoint
+      ? "/models-api/object-detection-cloud/"
+      : "/models-api/object-detection/";
+
+    const response = await axios.post(API_URL, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
     const endTime = performance.now();
     const requestLatency = endTime - startTime;
     // handle imageSourceElement types
@@ -45,7 +51,9 @@ export const runInference = async (
     const detectionMetadata: DetectionMetadata = {
       width: width,
       height: height,
-      inferenceTime: response.data.inference_time || (1/(requestLatency/1000)).toFixed(2),
+      inferenceTime:
+        response.data.inference_time ||
+        (1 / (requestLatency / 1000)).toFixed(2),
     };
     const detections: Detection[] = response.data.map(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,7 +69,7 @@ export const runInference = async (
           name: className,
         };
         return detection;
-      },
+      }
     );
     setDetections({ boxes: detections, metadata: detectionMetadata });
   } catch (error) {
