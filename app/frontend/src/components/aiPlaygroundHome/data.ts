@@ -60,7 +60,7 @@ export const models: Model[] = [
     id: "whisper",
     title: "Whisper",
     image: "src/assets/whisper.svg",
-    path: "audio",
+    path: "audio-detection",
     filter: "#74C5DF",
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
