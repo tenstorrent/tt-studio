@@ -348,7 +348,7 @@ export function MainContent({
               <>
                 <div className="mb-8">
                   <h1 className="text-3xl font-bold mb-4 text-TT-purple">
-                    Record Your Speech
+                    ML-Powered Speech Recognition
                   </h1>
                   <p className="text-TT-purple-tint1 dark:text-TT-purple-tint1">
                     Record your voice and convert it to text instantly. Follow
@@ -614,7 +614,7 @@ export function MainContent({
                     onClick={startNewRecording}
                     variant="default"
                     size="lg"
-                    className="flex items-center gap-3 px-8 py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
+                    className="flex items-center gap-3 px-8 py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple-accent hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
                   >
                     <Mic className="h-5 w-5 text-white" />
                     <span>
