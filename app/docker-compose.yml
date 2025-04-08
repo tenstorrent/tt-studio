@@ -78,13 +78,9 @@ services:
       - VITE_ENABLE_RAG_ADMIN
       - VITE_TEST_AUDIO_URL
       - VITE_TEST_AUDIO_AUTH
-
     # volumes:
     #! for development mount api changes
-    #   - ./frontend:/frontend
-    volumes:
-      #! for development mount api changes
-      - ./frontend:/frontend
+    # - ./frontend:/frontend
     # command: sh
     command: bash -c "npm i && npm run dev"
 
