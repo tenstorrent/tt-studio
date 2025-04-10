@@ -15,8 +15,8 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => (
   </>
 );
 
-import NotFoundPage from "../pages/NotFoundPage";
-import AudioDetectionPage from "../pages/AudioDetectionPage.tsx";
+// import NotFoundPage from "../pages/NotFoundPage";
+// import AudioDetectionPage from "../pages/AudioDetectionPage.tsx";
 
 const AppRouter = () => {
   // Get routes from configuration
@@ -43,8 +43,8 @@ const AppRouter = () => {
                 />
               ))}
             {/* <Route path="/image-generation" element={<ImageGenPage />} /> */}
-            <Route path="/audio-detection" element={<AudioDetectionPage />} />
-            <Route path="*" element={<NotFoundPage />} />
+            {/* <Route path="/audio-detection" element={<AudioDetectionPage />} /> */}
+            {/* <Route path="*" element={<NotFoundPage />} /> */}
           </Routes>
         </Router>
       </ModelsProvider>
