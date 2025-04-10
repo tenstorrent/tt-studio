@@ -17,6 +17,8 @@ import {
 } from "../ui/table";
 import { Detection, DetectionMetadata } from "./types/objectDetection";
 import { updateBoxPositions } from "../object_detection/utlis/detectionUtlis";
+// Import icons
+import { Clock, Maximize2, Video, Image, Activity, Tag } from "lucide-react";
 
 export const ObjectDetectionComponent: React.FC = () => {
   const [detections, setDetections] = useState<Detection[]>([]);
@@ -28,13 +30,18 @@ export const ObjectDetectionComponent: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
+  const [webcamControls, setWebcamControls] = useState<React.ReactNode>(null);
+
+  const handleSetWebcamControls = useCallback((controls: React.ReactNode) => {
+    setWebcamControls(controls);
+  }, []);
 
   const handleSetDetections = useCallback(
     (data: { boxes: Detection[]; metadata: DetectionMetadata }) => {
       setDetections(Array.isArray(data.boxes) ? data.boxes : []);
       setMetadata(data.metadata);
     },
-    [],
+    []
   );
 
   const handleSetLiveMode = useCallback((mode: boolean) => {
@@ -47,7 +54,7 @@ export const ObjectDetectionComponent: React.FC = () => {
         containerRef,
         null,
         metadata,
-        detections,
+        detections
       );
       setScaledDetections(updatedDetections);
     }
@@ -61,7 +68,7 @@ export const ObjectDetectionComponent: React.FC = () => {
     if (location.state) {
       if (!location.state.containerID) {
         customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab",
+          "modelID is unavailable. Try navigating here from the Models Deployed tab"
         );
         return;
       }
@@ -70,16 +77,57 @@ export const ObjectDetectionComponent: React.FC = () => {
     }
   }, [location.state, modelID, modelName]);
 
+  // Function to get the confidence color class
+  const getConfidenceColorClass = (confidence: number) => {
+    if (confidence > 0.7) return "border-green-500";
+    if (confidence > 0.5) return "border-yellow-500";
+    return "border-red-500";
+  };
+
+  // Function to get the background color class for the label
+  const getLabelColorClass = (confidence: number) => {
+    if (confidence > 0.7) return "bg-green-500";
+    if (confidence > 0.5) return "bg-yellow-500";
+    return "bg-red-500";
+  };
+
+  // Function to get the table cell text color for confidence
+  const getConfidenceTextColorClass = (confidence: number) => {
+    if (confidence > 0.7) return "text-green-600";
+    if (confidence > 0.5) return "text-yellow-600";
+    return "text-red-600";
+  };
+
   return (
-    <div className="flex flex-col overflow-scroll h-full gap-8 w-3/4 mx-auto max-w-7xl px-4 md:px-8 py-10">
-      <Card className="border-2 p-4 rounded-md space-y-4">
-        <Tabs defaultValue="webcam" className="w-full">
+    <div className="flex flex-col h-screen w-full sm:w-[90%] md:w-3/4 mx-auto max-w-7xl px-2 sm:px-4 py-4 sm:py-6">
+      {/* Removed overflow-scroll from parent container and set max height */}
+      <Card className="border-2 p-4 rounded-md space-y-4 h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] flex flex-col overflow-hidden">
+        <Tabs
+          defaultValue="webcam"
+          className="w-full"
+          onValueChange={(value) => {
+            // Clear detections when switching tabs
+            setDetections([]);
+            setScaledDetections([]);
+            setMetadata(null);
+            setIsLiveMode(false);
+          }}
+        >
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="file">File Upload</TabsTrigger>
-            <TabsTrigger value="webcam">Webcam</TabsTrigger>
+            <TabsTrigger value="file" className="flex items-center gap-2">
+              <Image size={16} />
+              <span>File Upload</span>
+            </TabsTrigger>
+            <TabsTrigger value="webcam" className="flex items-center gap-2">
+              <Video size={16} />
+              <span>Webcam</span>
+            </TabsTrigger>
           </TabsList>
-          <TabsContent value="file">
-            <div className="relative flex flex-col ">
+          <TabsContent
+            value="file"
+            className="flex-grow overflow-hidden flex flex-col"
+          >
+            <div className="relative flex flex-col flex-grow">
               <SourcePicker
                 containerRef={containerRef}
                 setDetections={handleSetDetections}
@@ -89,12 +137,16 @@ export const ObjectDetectionComponent: React.FC = () => {
               />
             </div>
           </TabsContent>
-          <TabsContent value="webcam" className="h-full">
-            <div className="h-full flex flex-col items-center">
-              {/* aspect ratio must be 4:3 because that is source webcam resolution is */}
-              {/* if we don't constrain the aspect ratio of the container then the boxes */}
-              {/* will be scaled with an incorrect aspect ratio */}
-              <div ref={containerRef} className="relative w-[75%] aspect-[4/3]">
+          <TabsContent
+            value="webcam"
+            className="flex-grow overflow-hidden flex flex-col"
+          >
+            <div className="flex flex-col items-center gap-4 h-full">
+              {/* Video container - only contains the video feed */}
+              <div
+                ref={containerRef}
+                className="relative w-full sm:w-[90%] md:w-[75%] aspect-video bg-black/5 rounded-md overflow-hidden"
+              >
                 <WebcamPicker
                   setDetections={handleSetDetections}
                   setLiveMode={handleSetLiveMode}
@@ -102,70 +154,146 @@ export const ObjectDetectionComponent: React.FC = () => {
                   setIsStreaming={setIsStreaming}
                   setIsCameraOn={setIsCameraOn}
                   modelID={modelID}
+                  setExternalControls={handleSetWebcamControls}
+                  videoOnly={true}
                 />
                 {isLiveMode && (
                   <div className="absolute inset-0 pointer-events-none">
                     {scaledDetections.map((detection, index) => (
                       <div
                         key={index}
-                        className="absolute border-2 border-red-500 z-20"
+                        className={`absolute border-2 ${getConfidenceColorClass(detection.confidence)} z-20 rounded-sm`}
                         style={{
                           left: `${detection.scaledXmin ?? detection.xmin}px`,
                           top: `${detection.scaledYmin ?? detection.ymin}px`,
                           width: `${detection.scaledWidth ?? detection.xmax - detection.xmin}px`,
                           height: `${detection.scaledHeight ?? detection.ymax - detection.ymin}px`,
+                          transition: "all 0.1s ease-in-out",
                         }}
                       >
-                        <span className="absolute top-0 left-0 bg-red-500 text-white text-xs px-1">
-                          {detection.name} ({detection.confidence.toFixed(4)})
+                        <span
+                          className={`absolute top-0 left-0 ${getLabelColorClass(detection.confidence)} text-white text-xs px-1 py-0.5 rounded-br-sm truncate max-w-full`}
+                        >
+                          {detection.name} ({detection.confidence.toFixed(2)})
                         </span>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+
+              {/* Controls container - completely separate from the video feed */}
+              <div className="w-full sm:w-[90%] md:w-[75%]">
+                {webcamControls}
+              </div>
             </div>
           </TabsContent>
         </Tabs>
 
         {metadata && (
-          <div className="text-sm text-gray-500">
-            Input image width and height: {metadata.width} x {metadata.height}
-            <br />
-            Frame Rate: {metadata.inferenceTime} FPS
+          <div className="flex flex-col sm:flex-row gap-4 bg-muted p-3 rounded-md">
+            <div className="flex items-center gap-2">
+              <Maximize2 size={18} className="text-muted-foreground" />
+              <span className="text-sm font-medium">
+                Dimensions:{" "}
+                <span className="font-bold">
+                  {metadata.width} × {metadata.height}
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock size={18} className="text-muted-foreground" />
+              <span className="text-sm font-medium">
+                FPS:{" "}
+                <span className="font-bold">
+                  {typeof metadata.inferenceTime === "number"
+                    ? metadata.inferenceTime.toFixed(1)
+                    : metadata.inferenceTime}
+                </span>
+              </span>
+            </div>
+            {scaledDetections.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Tag size={18} className="text-muted-foreground" />
+                <span className="text-sm font-medium">
+                  Detections:{" "}
+                  <span className="font-bold">{scaledDetections.length}</span>
+                </span>
+              </div>
+            )}
           </div>
         )}
 
         {scaledDetections.length > 0 && (
-          <div className="p-4 mt-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead></TableHead>
-                  <TableHead>x-min</TableHead>
-                  <TableHead>y-min</TableHead>
-                  <TableHead>x-max</TableHead>
-                  <TableHead>y-max</TableHead>
-                  <TableHead>confidence</TableHead>
-                  <TableHead>class id</TableHead>
-                  <TableHead>class name</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {scaledDetections.map((detection, index) => (
-                  <TableRow key={index}>
-                    <TableCell>{index}</TableCell>
-                    <TableCell>{detection.xmin?.toFixed(4)}</TableCell>
-                    <TableCell>{detection.ymin?.toFixed(4)}</TableCell>
-                    <TableCell>{detection.xmax?.toFixed(4)}</TableCell>
-                    <TableCell>{detection.ymax?.toFixed(4)}</TableCell>
-                    <TableCell>{detection.confidence?.toFixed(4)}</TableCell>
-                    <TableCell>{detection.class}</TableCell>
-                    <TableCell>{detection.name}</TableCell>
+          <div className="p-2 sm:p-4 flex-shrink overflow-auto max-h-[calc(40vh-2rem)]">
+            <div className="flex items-center gap-2 mb-3 sticky top-0 bg-background py-2 z-10">
+              <Activity size={18} />
+              <span className="font-semibold">Detection Results</span>
+            </div>
+            <div className="overflow-x-auto">
+              <Table className="text-sm sm:text-base w-full text-xs">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      #
+                    </TableHead>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      x-min
+                    </TableHead>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      y-min
+                    </TableHead>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      x-max
+                    </TableHead>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      y-max
+                    </TableHead>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      conf
+                    </TableHead>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      id
+                    </TableHead>
+                    <TableHead className="px-1 sm:px-4 py-2 whitespace-nowrap">
+                      name
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {scaledDetections.map((detection, index) => (
+                    <TableRow key={index}>
+                      <TableCell className="px-1 sm:px-4 py-2">
+                        {index}
+                      </TableCell>
+                      <TableCell className="px-1 sm:px-4 py-2">
+                        {detection.xmin?.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="px-1 sm:px-4 py-2">
+                        {detection.ymin?.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="px-1 sm:px-4 py-2">
+                        {detection.xmax?.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="px-1 sm:px-4 py-2">
+                        {detection.ymax?.toFixed(2)}
+                      </TableCell>
+                      <TableCell
+                        className={`px-1 sm:px-4 py-2 font-medium ${getConfidenceTextColorClass(detection.confidence)}`}
+                      >
+                        {detection.confidence?.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="px-1 sm:px-4 py-2">
+                        {detection.class}
+                      </TableCell>
+                      <TableCell className="px-1 sm:px-4 py-2 font-medium">
+                        {detection.name}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         )}
       </Card>

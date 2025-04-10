@@ -39,7 +39,7 @@ export function VoiceInput({
       });
       return uniqueWords.join(" ");
     },
-    [],
+    []
   );
 
   const stopAudioAnalysis = useCallback(() => {
@@ -75,7 +75,7 @@ export function VoiceInput({
       const bar = bars[i];
       if (bar) {
         const barIndex = Math.floor(
-          (i / barCount) * dataArrayRef.current.length,
+          (i / barCount) * dataArrayRef.current.length
         );
         const barHeight = (dataArrayRef.current[barIndex] / 255) * 100;
         bar.style.height = `${Math.max(4, barHeight)}%`;
@@ -98,7 +98,7 @@ export function VoiceInput({
       audioContextRef.current = new AudioContextConstructor();
       analyserRef.current = audioContextRef.current.createAnalyser();
       sourceRef.current = audioContextRef.current.createMediaStreamSource(
-        streamRef.current,
+        streamRef.current
       );
       sourceRef.current.connect(analyserRef.current);
       analyserRef.current.fftSize = 32;
@@ -143,7 +143,7 @@ export function VoiceInput({
 
         if (!SpeechRecognitionConstructor) {
           throw new Error(
-            "SpeechRecognition is not supported in this browser.",
+            "SpeechRecognition is not supported in this browser."
           );
         }
 
@@ -168,7 +168,7 @@ export function VoiceInput({
         };
 
         recognitionRef.current.onerror = (
-          event: SpeechRecognitionErrorEvent,
+          event: SpeechRecognitionErrorEvent
         ) => {
           console.error("Speech recognition error", event.error);
           setErrorMessage(`Error: ${event.error}`);

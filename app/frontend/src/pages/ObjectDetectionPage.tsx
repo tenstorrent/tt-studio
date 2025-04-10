@@ -5,7 +5,7 @@ import { ObjectDetectionComponent } from "../components/object_detection/ObjectD
 const ObjectDetectionPage = () => {
   return (
     <>
-      <div className="h-screen w-full dark:bg-black bg-white dark:bg-grid-white/[0.2] bg-grid-black/[0.2] relative flex items-center justify-center">
+      <div className="min-h-screen pt-16 md:pt-0 w-full dark:bg-black bg-white dark:bg-grid-white/[0.2] bg-grid-black/[0.2] relative flex items-center justify-center">
         <div
           className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
           style={{
@@ -14,9 +14,10 @@ const ObjectDetectionPage = () => {
           }}
         ></div>
         <div
-          className="flex flex-grow justify-center items-center w-full h-screen"
-          // hack to prevent maskImage from applying to neighbour div
-          style={{zIndex: 1}}>
+          className="flex flex-grow justify-center items-center w-full h-full"
+          // hack to prevent maskImage from applying to neighbor div
+          style={{ zIndex: 1 }}
+        >
           <ObjectDetectionComponent />
         </div>
       </div>

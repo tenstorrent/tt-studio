@@ -1,5 +1,3 @@
-"use client";
-
 import { useState } from "react";
 import { Search, Settings, Plus, MessageSquare, Moon, Sun } from "lucide-react";
 import { Button } from "../ui/button";
@@ -173,16 +171,16 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="space-y-2">
-        <div className="flex items-center justify-between px-4 pt-4">
-          <h2 className="text-xl font-semibold">Conversations</h2>
+        <div className="flex items-center justify-between px-3 sm:px-4 pt-4">
+          <h2 className="text-lg sm:text-xl font-semibold">Conversations</h2>
         </div>
 
-        <div className="px-4 flex items-center space-x-2">
+        <div className="px-3 sm:px-4 flex items-center space-x-2">
           <div className="relative flex-1">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <SidebarInput
-              placeholder="Search in conversations"
-              className="pl-8"
+              placeholder="Search"
+              className="pl-8 h-9 text-sm"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -201,7 +199,7 @@ export function AppSidebar({
 
       <SidebarContent>
         {searchQuery && (
-          <div className="px-4 py-2 text-xs text-muted-foreground">
+          <div className="px-3 sm:px-4 py-2 text-xs text-muted-foreground">
             {filteredConversations.length === 0
               ? "No conversations found"
               : `Found in ${filteredConversations.length} conversation${filteredConversations.length === 1 ? "" : "s"}`}
@@ -217,7 +215,7 @@ export function AppSidebar({
                     <SidebarMenuButton
                       asChild
                       isActive={selectedConversation === conversation.id}
-                      className="flex flex-col items-start py-3"
+                      className="flex flex-col items-start py-2 sm:py-3 px-3 sm:px-4 touch-manipulation"
                     >
                       <button
                         onClick={() => onSelectConversation(conversation.id)}
@@ -225,7 +223,7 @@ export function AppSidebar({
                         <div className="flex items-start w-full">
                           <MessageSquare className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" />
                           <div className="flex-1 overflow-hidden">
-                            <div className="font-medium">
+                            <div className="font-medium text-sm sm:text-base">
                               {highlightMatch(conversation.title, searchQuery)}
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
@@ -271,7 +269,7 @@ export function AppSidebar({
                                   getPreviewText(conversation)
                                 )}
                               </span>
-                              <div className="flex justify-between items-center mt-1">
+                              <div className="flex justify-between items-center mt-1 flex-wrap gap-1">
                                 <span className="text-xs bg-secondary px-1.5 py-0.5 rounded-sm">
                                   {conversation.transcriptions.length}{" "}
                                   {conversation.transcriptions.length === 1
@@ -302,12 +300,17 @@ export function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter>
-        <div className="p-4 border-t border-border flex justify-between items-center">
-          <Button variant="outline" size="icon">
+        <div className="p-3 sm:p-4 border-t border-border flex justify-between items-center">
+          <Button variant="outline" size="icon" className="h-10 w-10">
             <Settings className="h-4 w-4" />
           </Button>
           {/* Theme Toggle */}
-          <Button variant="outline" size="icon" onClick={toggleTheme}>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleTheme}
+            className="h-10 w-10"
+          >
             <Sun className="h-4 w-4 dark:hidden" />
             <Moon className="h-4 w-4 hidden dark:block" />
           </Button>

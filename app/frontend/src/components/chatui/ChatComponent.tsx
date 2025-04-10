@@ -92,13 +92,11 @@ export default function ChatComponent() {
   useEffect(() => {
     // Start with loading state
     setIsLoading(true);
-    
+
     // Clear loading after a short delay to show the animation
     const timer = setTimeout(() => setIsLoading(false), 800);
     return () => clearTimeout(timer);
   }, []);
-  
-  // We've removed the loading state initialization to prevent getting stuck
 
   // Validate and fix chat threads if needed
   useEffect(() => {
@@ -197,14 +195,14 @@ export default function ChatComponent() {
       const width = window.innerWidth;
       const wasMobile = screenSize.isMobileView;
       const isMobileNow = width < 768;
-      
+
       // Show loading state when transitioning between mobile and desktop views
       if (wasMobile !== isMobileNow) {
         setIsLoading(true);
         // Clear loading after a short delay
         setTimeout(() => setIsLoading(false), 300);
       }
-      
+
       setScreenSize({
         isMobileView: isMobileNow,
         isLargeScreen: width >= 1280,
@@ -772,7 +770,7 @@ export default function ChatComponent() {
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Header */}
         <div className="flex-grow space-y-4 overflow-hidden">
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
-          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" /> {/* Response */}
+          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" />
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
         </div>
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Input area */}
@@ -1001,25 +999,35 @@ export default function ChatComponent() {
         </AnimatePresence>
 
         <div
-          className={`flex flex-col flex-grow min-w-0 p-2 sm:p-4 ${getContentMaxWidth()} overflow-hidden`}
+          className={`flex flex-col flex-grow min-w-0 ${
+            screenSize.isMobileView ? "h-[100dvh] fixed inset-0" : "p-2 sm:p-4"
+          } ${getContentMaxWidth()} overflow-hidden`}
         >
-          <Header
-            modelName={modelName}
-            modelsDeployed={headerModelsDeployed}
-            setModelID={setModelID}
-            setModelName={setModelName}
-            ragDataSources={ragDataSources}
-            ragDatasource={ragDatasource}
-            setRagDatasource={setRagDatasource}
-            isHistoryPanelOpen={isHistoryPanelOpen}
-            setIsHistoryPanelOpen={setIsHistoryPanelOpen}
-            isAgentSelected={isAgentSelected}
-            setIsAgentSelected={setIsAgentSelected}
-            isMobileView={screenSize.isMobileView}
-          />
+          <div
+            className={`${screenSize.isMobileView ? "sticky top-0 z-10 bg-background" : ""}`}
+          >
+            <Header
+              modelName={modelName}
+              modelsDeployed={headerModelsDeployed}
+              setModelID={setModelID}
+              setModelName={setModelName}
+              ragDataSources={ragDataSources}
+              ragDatasource={ragDatasource}
+              setRagDatasource={setRagDatasource}
+              isHistoryPanelOpen={isHistoryPanelOpen}
+              setIsHistoryPanelOpen={setIsHistoryPanelOpen}
+              isAgentSelected={isAgentSelected}
+              setIsAgentSelected={setIsAgentSelected}
+              isMobileView={screenSize.isMobileView}
+            />
+          </div>
           <div
             ref={chatContainerRef}
-            className="flex-grow overflow-y-auto px-1 sm:px-2 md:px-4"
+            className={`flex-grow overflow-y-auto ${
+              screenSize.isMobileView
+                ? "px-1 pb-[120px] pt-2"
+                : "px-1 sm:px-2 md:px-4"
+            }`}
           >
             <ChatHistory
               chatHistory={(() => {
@@ -1038,18 +1046,22 @@ export default function ChatComponent() {
               isMobileView={screenSize.isMobileView}
             />
           </div>
-          <InputArea
-            textInput={textInput}
-            setTextInput={setTextInput}
-            handleInference={() => handleInference(null)}
-            isStreaming={isStreaming}
-            isListening={isListening}
-            setIsListening={setIsListening}
-            files={files}
-            setFiles={setFiles}
-            isMobileView={screenSize.isMobileView}
-            onCreateNewConversation={createNewConversation}
-          />
+          <div
+            className={`${screenSize.isMobileView ? "fixed bottom-0 left-0 right-0 bg-background" : ""}`}
+          >
+            <InputArea
+              textInput={textInput}
+              setTextInput={setTextInput}
+              handleInference={() => handleInference(null)}
+              isStreaming={isStreaming}
+              isListening={isListening}
+              setIsListening={setIsListening}
+              files={files}
+              setFiles={setFiles}
+              isMobileView={screenSize.isMobileView}
+              onCreateNewConversation={createNewConversation}
+            />
+          </div>
         </div>
       </Card>
     </div>

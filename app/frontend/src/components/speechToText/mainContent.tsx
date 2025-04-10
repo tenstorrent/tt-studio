@@ -342,22 +342,22 @@ export function MainContent({
         ref={contentContainerRef}
         className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1A1A1A] to-[#222222]"
       >
-        <div className="p-6">
+        <div className="p-2 sm:p-4 md:p-6">
           <div className="max-w-4xl mx-auto w-full">
             {!selectedConversation || showRecordingInterface ? (
               <>
-                <div className="mb-8">
-                  <h1 className="text-3xl font-bold mb-4 text-TT-purple">
+                <div className="mb-4 sm:mb-8">
+                  <h1 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-4 text-TT-purple">
                     ML-Powered Speech Recognition
                   </h1>
-                  <p className="text-TT-purple-tint1 dark:text-TT-purple-tint1">
+                  <p className="text-sm sm:text-base text-TT-purple-tint1 dark:text-TT-purple-tint1">
                     Record your voice and convert it to text instantly. Follow
                     the steps below to get started.
                   </p>
                 </div>
 
-                <Card className="mb-8 p-8 bg-[#222222]/80 backdrop-blur-sm border-TT-purple-shade/50 dark:border-TT-purple/30 shadow-lg shadow-TT-purple/5">
-                  <h2 className="text-xl font-semibold mb-6 text-TT-purple">
+                <Card className="mb-4 sm:mb-8 p-4 sm:p-8 bg-[#222222]/80 backdrop-blur-sm border-TT-purple-shade/50 dark:border-TT-purple/30 shadow-lg shadow-TT-purple/5">
+                  <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 text-TT-purple">
                     {isProcessing ? "Processing..." : ""}
                   </h2>
 
@@ -369,10 +369,10 @@ export function MainContent({
                   </div>
 
                   {isProcessing && (
-                    <div className="mt-6 p-4 border border-TT-purple-shade/50 rounded-md bg-TT-purple-shade/20">
+                    <div className="mt-4 sm:mt-6 p-3 sm:p-4 border border-TT-purple-shade/50 rounded-md bg-TT-purple-shade/20">
                       <div className="flex items-center">
-                        <Loader2 className="h-5 w-5 mr-3 animate-spin text-TT-purple" />
-                        <p className="font-medium text-TT-purple">
+                        <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 animate-spin text-TT-purple" />
+                        <p className="text-sm sm:text-base font-medium text-TT-purple">
                           Sending to API and processing your audio...
                         </p>
                       </div>
@@ -383,26 +383,26 @@ export function MainContent({
             ) : selectedConversation && selectedConversationData ? (
               <div className="flex flex-col">
                 {/* Display transcriptions grouped by date */}
-                <div className="mb-6">
+                <div className="mb-4 sm:mb-6">
                   {groupTranscriptionsByDate(
                     selectedConversationData.transcriptions
                   ).map((group) => (
-                    <div key={group.date} className="mb-8">
-                      <div className="flex items-center gap-2 px-2 mb-4">
+                    <div key={group.date} className="mb-6 sm:mb-8">
+                      <div className="flex items-center gap-2 px-2 mb-3 sm:mb-4">
                         <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
-                        <div className="text-xs font-medium text-white bg-TT-purple-shade/60 px-3 py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20">
+                        <div className="text-xs font-medium text-white bg-TT-purple-shade/60 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20">
                           <Clock className="h-3 w-3 mr-1 text-TT-purple-tint1" />
                           {group.date}
                         </div>
                         <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
                       </div>
 
-                      <div className="space-y-4">
+                      <div className="space-y-3 sm:space-y-4">
                         {group.items.map((transcription, index) => (
                           <Card
                             key={transcription.id}
                             className={cn(
-                              "p-5 bg-[#222222]/80 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
+                              "p-3 sm:p-5 bg-[#222222]/80 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
                               index % 2 === 0
                                 ? "border-l-TT-purple-accent border-y border-r border-TT-purple-shade/30"
                                 : "border-l-TT-blue border-y border-r border-TT-blue-shade/30",
@@ -420,10 +420,10 @@ export function MainContent({
                                 : ""
                             )}
                           >
-                            <div className="flex justify-between items-center mb-3">
-                              <div className="flex items-center gap-2">
-                                <MessageSquare className="h-4 w-4 text-TT-purple" />
-                                <p className="text-sm font-medium text-TT-purple-tint1">
+                            <div className="flex justify-between items-center mb-2 sm:mb-3">
+                              <div className="flex items-center gap-1 sm:gap-2">
+                                <MessageSquare className="h-3 w-3 sm:h-4 sm:w-4 text-TT-purple" />
+                                <p className="text-xs sm:text-sm font-medium text-TT-purple-tint1">
                                   {formatTime(transcription.date)}
                                 </p>
                                 {justSentRecording &&
@@ -436,12 +436,12 @@ export function MainContent({
                                         selectedConversationData.transcriptions
                                       ).length - 1
                                     ] && (
-                                    <span className="text-xs bg-TT-purple-accent/20 text-TT-purple-accent px-2 py-0.5 rounded-full">
+                                    <span className="text-xs bg-TT-purple-accent/20 text-TT-purple-accent px-1.5 sm:px-2 py-0.5 rounded-full">
                                       New
                                     </span>
                                   )}
                               </div>
-                              <div className="flex space-x-2">
+                              <div className="flex space-x-1 sm:space-x-2">
                                 <TooltipProvider>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -451,9 +451,9 @@ export function MainContent({
                                         onClick={() =>
                                           copyToClipboard(transcription.text)
                                         }
-                                        className="hover:bg-TT-blue-shade/20 text-TT-blue"
+                                        className="h-8 w-8 hover:bg-TT-blue-shade/20 text-TT-blue"
                                       >
-                                        <Copy className="h-4 w-4" />
+                                        <Copy className="h-3 w-3 sm:h-4 sm:w-4" />
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
@@ -470,9 +470,9 @@ export function MainContent({
                                           variant="ghost"
                                           size="icon"
                                           onClick={saveTranscription}
-                                          className="hover:bg-TT-green-shade/20 text-TT-green"
+                                          className="h-8 w-8 hover:bg-TT-green-shade/20 text-TT-green"
                                         >
-                                          <Save className="h-4 w-4" />
+                                          <Save className="h-3 w-3 sm:h-4 sm:w-4" />
                                         </Button>
                                       </TooltipTrigger>
                                       <TooltipContent>
@@ -490,9 +490,9 @@ export function MainContent({
                                           onClick={() =>
                                             setIsEditing(transcription.id)
                                           }
-                                          className="hover:bg-TT-yellow-shade/20 text-TT-yellow"
+                                          className="h-8 w-8 hover:bg-TT-yellow-shade/20 text-TT-yellow"
                                         >
-                                          <Edit className="h-4 w-4" />
+                                          <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
                                         </Button>
                                       </TooltipTrigger>
                                       <TooltipContent>
@@ -508,9 +508,9 @@ export function MainContent({
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="hover:bg-TT-red-shade/20 text-TT-red"
+                                        className="h-8 w-8 hover:bg-TT-red-shade/20 text-TT-red"
                                       >
-                                        <Trash className="h-4 w-4" />
+                                        <Trash className="h-3 w-3 sm:h-4 sm:w-4" />
                                       </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
@@ -523,8 +523,8 @@ export function MainContent({
 
                             {/* Audio preview */}
                             {transcription.audioBlob && (
-                              <div className="mb-3 rounded-md border border-TT-purple-shade/50 bg-[#1A1A1A]/90 backdrop-blur-sm">
-                                <div className="flex items-center gap-2 p-3">
+                              <div className="mb-2 sm:mb-3 rounded-md border border-TT-purple-shade/50 bg-[#1A1A1A]/90 backdrop-blur-sm">
+                                <div className="flex items-center gap-1 sm:gap-2 p-2 sm:p-3">
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -538,9 +538,9 @@ export function MainContent({
                                         audio.pause();
                                       }
                                     }}
-                                    className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
+                                    className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
                                   >
-                                    <Play className="h-4 w-4" />
+                                    <Play className="h-3 w-3 sm:h-4 sm:w-4" />
                                   </Button>
                                   <div className="flex-1">
                                     <audio
@@ -570,25 +570,25 @@ export function MainContent({
                             {isEditing === transcription.id ? (
                               <textarea
                                 ref={textareaRef}
-                                className="w-full min-h-[100px] p-3 border border-TT-purple-shade/50 rounded-md bg-[#1A1A1A] text-white focus:outline-none focus:ring-2 focus:ring-TT-purple"
+                                className="w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 border border-TT-purple-shade/50 rounded-md bg-[#1A1A1A] text-white focus:outline-none focus:ring-2 focus:ring-TT-purple text-sm sm:text-base"
                                 defaultValue={transcription.text}
                               ></textarea>
                             ) : (
-                              <div className="p-4 rounded-lg bg-[#1E1E1E] text-white min-h-[60px] border border-[#2A2A2A] shadow-[inset_1px_1px_0px_rgba(0,0,0,0.4),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)] relative group transition-all duration-200">
+                              <div className="p-3 sm:p-4 rounded-lg bg-[#1E1E1E] text-white min-h-[60px] border border-[#2A2A2A] shadow-[inset_1px_1px_0px_rgba(0,0,0,0.4),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)] relative group transition-all duration-200">
                                 <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-TT-purple/5 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none"></div>
 
-                                <div className="flex items-center gap-2 mb-2.5">
+                                <div className="flex items-center gap-2 mb-1.5 sm:mb-2.5">
                                   <div className="h-1.5 w-1.5 rounded-full bg-TT-purple-accent opacity-80"></div>
                                   <div className="text-xs text-TT-purple-tint1 opacity-80 font-medium tracking-wide">
                                     Transcription
                                   </div>
                                 </div>
 
-                                <div className="text-TT-purple-tint2 leading-relaxed">
+                                <div className="text-sm sm:text-base text-TT-purple-tint2 leading-relaxed">
                                   {transcription.text}
                                 </div>
 
-                                <div className="text-right text-xs text-TT-purple-shade/70 mt-3 opacity-60 font-mono">
+                                <div className="text-right text-xs text-TT-purple-shade/70 mt-2 sm:mt-3 opacity-60 font-mono">
                                   {
                                     transcription.text
                                       .split(/\s+/)
@@ -607,20 +607,20 @@ export function MainContent({
 
                 {/* Add new recording button at bottom of conversation with improved styling */}
                 <div
-                  className="py-10 border-2 border-dashed border-TT-purple/40 rounded-lg bg-gradient-to-r from-[#1A1A1A] to-[#222222] hover:bg-gradient-to-r hover:from-[#222222] hover:to-[#1A1A1A] transition-colors flex justify-center mb-52 mt-8 relative"
+                  className="py-6 sm:py-10 border-2 border-dashed border-TT-purple/40 rounded-lg bg-gradient-to-r from-[#1A1A1A] to-[#222222] hover:bg-gradient-to-r hover:from-[#222222] hover:to-[#1A1A1A] transition-colors flex justify-center mb-24 sm:mb-52 mt-4 sm:mt-8 relative"
                   ref={conversationEndRef}
                 >
                   <Button
                     onClick={startNewRecording}
                     variant="default"
                     size="lg"
-                    className="flex items-center gap-3 px-8 py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple-accent hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
+                    className="flex items-center gap-2 sm:gap-3 px-4 sm:px-8 py-2 sm:py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple-accent hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
                   >
-                    <Mic className="h-5 w-5 text-white" />
-                    <span>
+                    <Mic className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
+                    <span className="text-sm sm:text-base">
                       {hasRecordedBefore
-                        ? "Record Another Audio Message"
-                        : "Record New Audio Message"}
+                        ? "Record Another Message"
+                        : "Record New Message"}
                     </span>
                   </Button>
 
@@ -633,7 +633,7 @@ export function MainContent({
                             onClick={startNewRecording}
                             size="sm"
                             className={cn(
-                              "h-14 w-14 rounded-full shadow-lg shadow-TT-purple/20",
+                              "h-12 w-12 sm:h-14 sm:w-14 rounded-full shadow-lg shadow-TT-purple/20",
                               "bg-TT-purple-accent hover:bg-TT-purple",
                               "transition-all duration-200 ease-in-out",
                               "flex items-center justify-center relative",
@@ -641,12 +641,12 @@ export function MainContent({
                             )}
                           >
                             {/* Pulse animation */}
-                            <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse"></span>
-                            <Mic className="h-6 w-6 text-white relative z-10" />
+                            <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse rounded-full"></span>
+                            <Mic className="h-5 w-5 sm:h-6 sm:w-6 text-white relative z-10" />
 
                             {/* Notification dot with improved positioning */}
                             {hasRecordedBefore && (
-                              <span className="absolute -top-1 -right-1 h-6 w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md border border-[#1A1A1A]">
+                              <span className="absolute -top-1 -right-1 h-5 w-5 sm:h-6 sm:w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md border border-[#1A1A1A]">
                                 <span className="text-xs text-white font-bold">
                                   +
                                 </span>
@@ -666,7 +666,7 @@ export function MainContent({
                 </div>
 
                 {/* Extra padding div to ensure there's room to scroll */}
-                <div className="h-32"></div>
+                <div className="h-16 sm:h-32"></div>
               </div>
             ) : null}
           </div>
