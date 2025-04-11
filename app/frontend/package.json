@@ -35,6 +35,7 @@
     "@radix-ui/react-tooltip": "^1.1.8",
     "@tabler/icons-react": "^3.26.0",
     "@tanstack/react-query": "^5.56.2",
+    "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.20",
     "axios": "^1.7.7",
     "class-variance-authority": "^0.7.1",
@@ -62,7 +63,7 @@
     "shiki": "^1.23.1",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
-    "uuid": "^11.0.3",
+    "uuid": "^11.1.0",
     "vaul": "^1.1.1",
     "zod": "^3.23.8"
   },
