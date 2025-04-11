@@ -36,6 +36,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
+import { v4 as uuidv4 } from "uuid";
 
 // Spinner component with size variants
 type SpinnerProps = {
@@ -72,7 +73,7 @@ const getBrowserId = (): string => {
   let browserId = localStorage.getItem(BROWSER_ID_KEY);
 
   if (!browserId) {
-    browserId = crypto.randomUUID();
+    browserId = uuidv4();
     localStorage.setItem(BROWSER_ID_KEY, browserId);
   }
 
