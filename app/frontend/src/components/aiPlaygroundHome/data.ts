@@ -49,7 +49,7 @@ import type { Model, Task } from "./types";
 export const models: Model[] = [
   {
     id: "llama",
-    title: "Llama 3.1 70B",
+    title: "Llama 3.3 70B",
     image: "src/assets/llama-image.svg",
     path: "/chat-ui",
     filter: "#323968",

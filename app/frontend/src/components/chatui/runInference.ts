@@ -159,7 +159,7 @@ export const runInference = async (
       requestBody = {
         ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
         ...(apiUrlDefined
-          ? { model: "meta-llama/Llama-3.1-70B-Instruct" }
+          ? { model: "meta-llama/Llama-3.3-70B-Instruct" }
           : {}),
         messages: messages,
         max_tokens: 512,

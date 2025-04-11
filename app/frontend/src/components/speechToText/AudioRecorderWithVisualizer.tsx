@@ -533,22 +533,22 @@ export const AudioRecorderWithVisualizer = ({
 
   return (
     <div className={cn("w-full", className)}>
-      <div className="flex flex-col space-y-4">
+      <div className="flex flex-col space-y-3 sm:space-y-4">
         {/* Timer display */}
         <div className="flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <div
               className={cn(
-                "font-mono text-lg font-medium px-3 py-1 rounded-md border",
+                "font-mono text-base sm:text-lg font-medium px-2 sm:px-3 py-1 rounded-md border",
                 isRecording
                   ? "bg-red-500/10 border-red-500/30 text-red-500"
                   : "bg-muted border-border dark:bg-[#222222] dark:border-TT-purple/20 dark:text-gray-200"
               )}
             >
-              <Clock className="h-4 w-4 mr-2 inline-block text-TT-purple dark:text-TT-purple-accent" />
+              <Clock className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 inline-block text-TT-purple dark:text-TT-purple-accent" />
               {formattedTime}
             </div>
-            <span className="text-sm font-medium dark:text-gray-300">
+            <span className="text-xs sm:text-sm font-medium dark:text-gray-300">
               {isRecording
                 ? "Recording..."
                 : isRecordingStopped
@@ -559,7 +559,7 @@ export const AudioRecorderWithVisualizer = ({
         </div>
 
         {/* Waveform container */}
-        <div className="w-full h-16 rounded-md border overflow-hidden dark:border-TT-purple/20 bg-white dark:bg-[#222222]">
+        <div className="w-full h-12 sm:h-16 rounded-md border overflow-hidden dark:border-TT-purple/20 bg-white dark:bg-[#222222]">
           <canvas
             ref={canvasRef}
             className="w-full h-full"
@@ -570,8 +570,8 @@ export const AudioRecorderWithVisualizer = ({
 
         {/* Audio player - shown after stopping recording */}
         {isRecordingStopped && audioUrl && (
-          <div className="w-full mt-4 p-3 rounded-md border bg-white/50 dark:bg-[#1A1A1A]/90 backdrop-blur-sm border-border dark:border-TT-purple/20">
-            <div className="flex items-center gap-2">
+          <div className="w-full mt-3 sm:mt-4 p-2 sm:p-3 rounded-md border bg-white/50 dark:bg-[#1A1A1A]/90 backdrop-blur-sm border-border dark:border-TT-purple/20">
+            <div className="flex items-center gap-1 sm:gap-2">
               <Button
                 variant="ghost"
                 size="sm"
@@ -579,9 +579,9 @@ export const AudioRecorderWithVisualizer = ({
                 className="h-8 w-8 p-0 flex items-center justify-center text-TT-purple-accent hover:text-TT-purple-shade hover:bg-TT-purple/10 dark:text-TT-purple dark:hover:text-TT-purple-tint1 dark:hover:bg-TT-purple/20"
               >
                 {isPlaying ? (
-                  <Pause className="h-4 w-4" />
+                  <Pause className="h-3 w-3 sm:h-4 sm:w-4" />
                 ) : (
-                  <Play className="h-4 w-4" />
+                  <Play className="h-3 w-3 sm:h-4 sm:w-4" />
                 )}
               </Button>
               <div className="flex-1">
@@ -607,7 +607,7 @@ export const AudioRecorderWithVisualizer = ({
         )}
 
         {/* Controls - centered with larger buttons */}
-        <div className="flex justify-center items-center space-x-4 mt-4">
+        <div className="flex justify-center items-center space-x-3 sm:space-x-4 mt-3 sm:mt-4">
           {/* Reset button */}
           {(isRecording || isRecordingStopped) && (
             <TooltipProvider>
@@ -615,9 +615,9 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <button
                     onClick={resetRecording}
-                    className="h-12 w-12 rounded-full flex items-center justify-center bg-TT-red-accent hover:bg-TT-red-shade border-0 text-white transition-colors duration-200"
+                    className="h-10 w-10 sm:h-12 sm:w-12 rounded-full flex items-center justify-center bg-TT-red-accent hover:bg-TT-red-shade border-0 text-white transition-colors duration-200"
                   >
-                    <Trash className="h-5 w-5 text-white" />
+                    <Trash className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                     <span className="sr-only">Reset recording</span>
                   </button>
                 </TooltipTrigger>
@@ -633,9 +633,9 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <button
                     onClick={stopRecording}
-                    className="h-12 w-12 rounded-full flex items-center justify-center bg-TT-red hover:bg-TT-red-accent border-0 transition-colors duration-200"
+                    className="h-10 w-10 sm:h-12 sm:w-12 rounded-full flex items-center justify-center bg-TT-red hover:bg-TT-red-accent border-0 transition-colors duration-200"
                   >
-                    <Square className="h-5 w-5 text-white" />
+                    <Square className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                     <span className="sr-only">Stop recording</span>
                   </button>
                 </TooltipTrigger>
@@ -650,7 +650,7 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <div
                     onClick={startRecording}
-                    className="h-16 w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-TT-purple-accent cursor-pointer shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 hover:shadow-TT-purple-accent/30 dark:hover:shadow-TT-purple/30 hover:border-TT-purple dark:hover:border-TT-purple-tint1"
+                    className="h-14 w-14 sm:h-16 sm:w-16 rounded-full relative flex items-center justify-center bg-white dark:bg-[#222222] border-2 border-TT-purple-accent cursor-pointer shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 hover:shadow-TT-purple-accent/30 dark:hover:shadow-TT-purple/30 hover:border-TT-purple dark:hover:border-TT-purple-tint1"
                     style={{
                       boxShadow: "0 0 0 2px rgba(124, 104, 250, 0.3)", // TT-purple-accent with opacity
                       transform: "translateY(0)",
@@ -658,7 +658,7 @@ export const AudioRecorderWithVisualizer = ({
                         "transform 0.2s, box-shadow 0.2s, border-color 0.2s",
                     }}
                   >
-                    <Mic className="h-7 w-7 text-TT-purple-accent dark:text-TT-purple-tint1 transition-colors duration-200" />
+                    <Mic className="h-6 w-6 sm:h-7 sm:w-7 text-TT-purple-accent dark:text-TT-purple-tint1 transition-colors duration-200" />
                     {hasRecordedBefore && (
                       <span className="absolute -top-1 -right-1 h-3 w-3 bg-TT-red rounded-full"></span>
                     )}
@@ -684,9 +684,9 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipTrigger asChild>
                   <button
                     onClick={sendToAPI}
-                    className="h-12 px-6 rounded-full flex items-center bg-TT-purple-accent hover:bg-TT-purple-shade text-white border-0"
+                    className="h-10 sm:h-12 px-4 sm:px-6 rounded-full flex items-center bg-TT-purple-accent hover:bg-TT-purple-shade text-white border-0"
                   >
-                    <Send className="h-5 w-5 mr-2 text-white" />
+                    <Send className="h-4 w-4 sm:h-5 sm:w-5 mr-2 text-white" />
                     <span>Send</span>
                   </button>
                 </TooltipTrigger>
@@ -699,7 +699,7 @@ export const AudioRecorderWithVisualizer = ({
         </div>
 
         {/* Instruction text */}
-        <p className="text-sm text-muted-foreground dark:text-gray-400 text-center mt-2">
+        <p className="text-xs sm:text-sm text-muted-foreground dark:text-gray-400 text-center mt-2">
           {getInstructionText()}
         </p>
       </div>
