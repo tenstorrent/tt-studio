@@ -150,6 +150,9 @@ export default function InputArea({
   const [showReplaceDialog, setShowReplaceDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isTouched, setIsTouched] = useState(false);
   const [showBanner, setShowBanner] = useState(true);
   const [touchFeedback, setTouchFeedback] = useState("");
   const [showPdfDialog, setShowPdfDialog] = useState(false);
@@ -205,6 +208,12 @@ export default function InputArea({
 
   const handleTextAreaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setTextInput(e.target.value);
+    setIsTyping(true);
+    // Reset typing indicator after a short delay
+    clearTimeout((window as any).typingTimeout);
+    (window as any).typingTimeout = setTimeout(() => {
+      setIsTyping(false);
+    }, 1000);
     adjustTextareaHeight();
   };
 
@@ -219,6 +228,11 @@ export default function InputArea({
 
   const handleVoiceInput = (transcript: string) => {
     setTextInput((prevText) => prevText + (prevText ? " " : "") + transcript);
+    setIsTyping(true);
+    clearTimeout((window as any).typingTimeout);
+    (window as any).typingTimeout = setTimeout(() => {
+      setIsTyping(false);
+    }, 1000);
     adjustTextareaHeight();
   };
 
@@ -456,14 +470,25 @@ export default function InputArea({
         <div
           className={cn(
             "relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-2 sm:p-4 shadow-lg dark:shadow-2xl border transition-all duration-200",
-            isFocused
-              ? "border-gray-400/50 dark:border-white/20"
-              : "border-gray-200 dark:border-[#7C68FA]/20",
+            isTyping
+              ? "border-[#7C68FA] dark:border-[#7C68FA]/80"
+              : isFocused || isTouched
+                ? "border-[#7C68FA]/70 dark:border-[#7C68FA]/60"
+                : isHovered
+                  ? "border-gray-400/70 dark:border-white/30"
+                  : "border-gray-200 dark:border-[#7C68FA]/20",
             "overflow-hidden"
           )}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onTouchStart={() => setIsTouched(true)}
+          onTouchEnd={() => {
+            // Delay resetting the touch state to give visual feedback
+            setTimeout(() => setIsTouched(false), 300);
+          }}
         >
           {isDragging && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
@@ -535,6 +560,13 @@ export default function InputArea({
             aria-label="Chat input"
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
+            onTouchStart={() => setIsTouched(true)}
+            onTouchEnd={() => {
+              // Don't immediately reset touch state to maintain visual feedback
+              setTimeout(() => {
+                if (!isFocused) setIsTouched(false);
+              }, 300);
+            }}
           />
 
           <div className="flex justify-between items-center mt-2">

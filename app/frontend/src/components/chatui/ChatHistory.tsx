@@ -366,11 +366,18 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           isMobileView={isMobileView}
         />
       ) : (
-        <ScrollArea.Root className="flex-grow h-full overflow-hidden">
+        <ScrollArea.Root
+          className={`relative flex flex-col flex-grow ${
+            isMobileView ? "h-full touch-pan-y" : ""
+          }`}
+        >
           {/* VIEWPORT */}
           <ScrollArea.Viewport
             ref={viewportRef}
-            className="w-full h-full pr-2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+            className={`h-full w-full outline-none ${
+              isMobileView ? "-webkit-overflow-scrolling-touch" : ""
+            }`}
+            onScroll={handleScroll}
           >
             {/* INNER CONTAINER - ADJUSTED PADDING WITH WIDER WIDTH */}
             <div
@@ -510,13 +517,15 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
             </div>
           </ScrollArea.Viewport>
 
-          {/* SCROLLBAR */}
-          <ScrollArea.Scrollbar
-            orientation="vertical"
-            className="flex select-none touch-none p-0.5 bg-transparent transition-colors duration-160 ease-out data-[orientation=vertical]:w-2.5 hover:bg-black/10"
-          >
-            <ScrollArea.Thumb className="flex-1 bg-gray-500 dark:bg-gray-600 rounded-[10px] relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:w-full before:h-full before:min-w-[44px] before:min-h-[44px]" />
-          </ScrollArea.Scrollbar>
+          {/* SCROLLBAR - Hide in mobile view */}
+          {!isMobileView && (
+            <ScrollArea.Scrollbar
+              orientation="vertical"
+              className="flex select-none touch-none p-0.5 bg-transparent transition-colors duration-160 ease-out data-[orientation=vertical]:w-2.5 hover:bg-black/10"
+            >
+              <ScrollArea.Thumb className="flex-1 bg-gray-500 dark:bg-gray-600 rounded-[10px] relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:w-full before:h-full before:min-w-[44px] before:min-h-[44px]" />
+            </ScrollArea.Scrollbar>
+          )}
         </ScrollArea.Root>
       )}
 

@@ -470,8 +470,7 @@ export default function ChatComponent() {
         updatedMessages,
         (newHistory) => {
           setChatThreads((prevThreads) => {
-            if (!Array.isArray(prevThreads))
-              return [{ ...threadToUse, messages: [] }];
+            if (!Array.isArray(prevThreads)) return [defaultThread];
 
             const currentThreadFromState = prevThreads[currentThreadIndex];
             if (!currentThreadFromState) return prevThreads;
@@ -1025,7 +1024,7 @@ export default function ChatComponent() {
             ref={chatContainerRef}
             className={`flex-grow overflow-y-auto ${
               screenSize.isMobileView
-                ? "px-1 pb-[120px] pt-2"
+                ? "px-1 pb-[140px] pt-2" // Increased bottom padding for better scrolling
                 : "px-1 sm:px-2 md:px-4"
             }`}
           >
@@ -1047,7 +1046,16 @@ export default function ChatComponent() {
             />
           </div>
           <div
-            className={`${screenSize.isMobileView ? "fixed bottom-0 left-0 right-0 bg-background" : ""}`}
+            className={`${
+              screenSize.isMobileView
+                ? "fixed bottom-0 left-0 right-0 bg-background border-t border-gray-200 dark:border-gray-800 shadow-lg px-2 pb-safe"
+                : ""
+            }`}
+            style={{
+              paddingBottom: screenSize.isMobileView
+                ? "env(safe-area-inset-bottom, 16px)"
+                : undefined,
+            }}
           >
             <InputArea
               textInput={textInput}
