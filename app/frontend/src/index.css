@@ -1,10 +1,92 @@
-@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    @apply font-sans antialiased;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Chat message styles */
+  .chat-bubble {
+    @apply font-medium leading-relaxed;
+    letter-spacing: -0.011em;
+  }
+
+  .chat-bubble p {
+    @apply mb-4 last:mb-0;
+  }
+
+  .chat-bubble code {
+    @apply font-mono text-[13.5px] leading-relaxed;
+  }
+
+  /* Heading styles */
+  h1 {
+    @apply text-2xl font-semibold tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    @apply text-xl font-semibold tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-medium tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  /* Button text */
+  button,
+  .button {
+    @apply font-medium tracking-tight;
+  }
+
+  /* Input fields */
+  input,
+  textarea {
+    @apply font-normal tracking-tight;
+  }
+
+  .chat-bubble.user {
+    @apply text-[15px];
+  }
+
+  .chat-bubble.assistant {
+    @apply text-[15px];
+  }
+}
+
 body {
-  @apply font-degularDisplay;
+  @apply font-sans;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+button,
+.button,
+a.button {
   font-weight: 500;
 }
 
@@ -133,4 +215,17 @@ body {
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
+}
+
+@keyframes grid {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(calc(var(--cell-size) * -1));
+  }
+}
+
+.animate-grid {
+  animation: grid 3s linear infinite;
 }

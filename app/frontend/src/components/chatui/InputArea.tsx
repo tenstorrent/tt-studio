@@ -547,7 +547,7 @@ export default function InputArea({
             onChange={handleTextAreaInput}
             onKeyDown={handleKeyPress}
             placeholder={isMobileView ? "Type message..." : "Enter your prompt"}
-            className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-base leading-normal overflow-y-auto py-1 px-1"
+            className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
             disabled={isStreaming}
             rows={1}
             style={{
