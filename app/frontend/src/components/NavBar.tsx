@@ -421,10 +421,10 @@ export default function NavBar() {
         onClick: () => handleNavigation("/chat-ui"),
         isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
         tooltipText: isDeployedEnabled
-          ? "Chat UI with Llama 3.1 70B"
+          ? "Chat UI with Llama 3.3 70B"
           : models.length > 0
-            ? "Chat UI with Llama 3.1 70B"
-            : "Deploy a model to use Chat UI with Llama 3.1 70B",
+            ? "Chat UI with Llama 3.3 70B"
+            : "Deploy a model to use Chat UI with Llama 3.3 70B",
         route: "/chat-ui", // Add route for active state detection
       },
       {
@@ -434,10 +434,10 @@ export default function NavBar() {
         onClick: () => handleNavigation("/object-detection"),
         isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
         tooltipText: isDeployedEnabled
-          ? "Object Detection with YOLOv5"
+          ? "Object Detection with YOLOv4"
           : models.length > 0
-            ? "Object Detection with YOLOv5"
-            : "Deploy a model to use Object Detection with YOLOv5",
+            ? "Object Detection with YOLOv4"
+            : "Deploy a model to use Object Detection with YOLOv4",
         route: "/object-detection", // Add route for active state detection
       },
       {
