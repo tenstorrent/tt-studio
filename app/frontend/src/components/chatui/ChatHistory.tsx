@@ -357,7 +357,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
   return (
     <div
-      className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} font-rmMono relative overflow-hidden`}
+      className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} relative overflow-hidden`}
     >
       {chatHistory.length === 0 && !isStreaming ? (
         <ChatExamples
@@ -395,7 +395,13 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                 >
                   {/* Bubble */}
                   <div
-                    className={`chat-bubble ${message.sender === "user" ? "bg-TT-green-accent text-white" : "bg-TT-slate text-white"} p-2 sm:p-3 rounded-lg mb-1 ${isMobileView ? "text-sm" : "text-base"} ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm`}
+                    className={`chat-bubble ${
+                      message.sender === "user"
+                        ? "bg-TT-green-accent text-white"
+                        : "bg-TT-slate text-white"
+                    } p-4 rounded-2xl mb-1 ${
+                      isMobileView ? "text-[15px]" : "text-[15px]"
+                    } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm leading-relaxed`}
                   >
                     {message.sender === "assistant" && (
                       <>
