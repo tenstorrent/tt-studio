@@ -3,9 +3,53 @@
 
 import { Link } from "react-router-dom";
 import type { Model } from "./types";
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import React from "react";
+import {
+  MessageSquare,
+  Image as ImageIcon,
+  Eye,
+  Mic,
+  Cpu,
+  Brain,
+  Bot,
+  Network,
+} from "lucide-react";
+import { HardwareIcon } from "../ui/HardwareIcon";
 
-type ModelCardProps = Omit<Model, "id">;
+type ModelCardProps = Omit<Model, "id"> & {
+  modelType?: "LLM" | "CNN" | "Audio" | "NLP";
+  statusIndicator?: { show: boolean; color: string; animate: boolean };
+  hoverEffects?: {
+    rotate: boolean;
+    scale: number;
+    glow: boolean;
+    particleEffect?: {
+      enabled: boolean;
+      count?: number;
+      speed?: number;
+      color?: string;
+    };
+  };
+  modelTypeIcon?: {
+    position: string;
+    showBackground: boolean;
+    rotate: boolean;
+    size: string;
+  };
+};
+
+const getTPValue = (
+  TTDevice: string | undefined,
+  configValue?: number
+): number => {
+  if (configValue !== undefined) return configValue;
+  if (!TTDevice) return 8;
+  const device = TTDevice.toLowerCase();
+  if (device.includes("n150")) return 2;
+  if (device.includes("galaxy")) return 32;
+  return 8;
+};
 
 export function ModelCard({
   title = "Model Name",
@@ -13,30 +57,250 @@ export function ModelCard({
   path = "/",
   filter,
   TTDevice,
-  poweredByText = "Powered by a Tenstorrent Device!", // default text in case none is provided in data.ts
+  modelType = "LLM",
+  poweredByText = "Powered by a Tenstorrent Device!",
+  tpBadge = {},
+  statusIndicator = { show: true, color: "green-500", animate: true },
+  hoverEffects = {
+    rotate: true,
+    scale: 1.03,
+    glow: true,
+    particleEffect: { enabled: true, count: 10 },
+  },
+  modelTypeIcon = {
+    position: "top-right",
+    showBackground: true,
+    rotate: true,
+    size: "medium",
+  },
 }: ModelCardProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [particles, setParticles] = useState<
+    Array<{ x: number; y: number; opacity: number; speed: number }>
+  >([]);
+  const animationFrameRef = useRef<number>();
+  const lastUpdateRef = useRef<number>();
+
+  // Generate floating particles effect
+  useEffect(() => {
+    if (isHovered && hoverEffects?.particleEffect?.enabled) {
+      const newParticles = Array.from(
+        { length: hoverEffects.particleEffect?.count || 10 },
+        () => ({
+          x: Math.random() * 100,
+          y: Math.random() * 100,
+          opacity: Math.random(),
+          speed:
+            (hoverEffects.particleEffect?.speed || 0.5) + Math.random() * 1.5,
+        })
+      );
+      setParticles(newParticles);
+    } else {
+      setParticles([]);
+    }
+  }, [
+    isHovered,
+    hoverEffects?.particleEffect?.enabled,
+    hoverEffects?.particleEffect?.count,
+    hoverEffects?.particleEffect?.speed,
+  ]);
+
+  // Update particle positions with requestAnimationFrame
+  const updateParticles = useCallback(() => {
+    const now = performance.now();
+    if (!lastUpdateRef.current) lastUpdateRef.current = now;
+    const deltaTime = (now - lastUpdateRef.current) / 16; // Normalize to ~60fps
+
+    setParticles((prevParticles) =>
+      prevParticles
+        .map((particle) => ({
+          ...particle,
+          y: particle.y - particle.speed * deltaTime,
+          opacity: particle.y < 10 ? particle.y / 10 : particle.opacity,
+        }))
+        .filter((particle) => particle.y > 0)
+    );
+
+    lastUpdateRef.current = now;
+    if (particles.length > 0) {
+      animationFrameRef.current = requestAnimationFrame(updateParticles);
+    }
+  }, []);
+
+  // Manage animation frame
+  useEffect(() => {
+    if (particles.length > 0) {
+      animationFrameRef.current = requestAnimationFrame(updateParticles);
+    }
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [particles.length, updateParticles]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = ((e.clientY - rect.top) / rect.height) * 2 - 1;
+    setMousePosition({ x, y });
+  };
+
+  const getModelIcon = () => {
+    if (title.toLowerCase().includes("yolo")) {
+      return <Eye className="w-6 h-6" />;
+    }
+    switch (modelType) {
+      case "CNN":
+        return <Network className="w-6 h-6" />;
+      case "Audio":
+        return <Mic className="w-6 h-6" />;
+      case "NLP":
+        return <Brain className="w-6 h-6" />;
+      default:
+        return <Bot className="w-6 h-6" />; // Default for LLM
+    }
+  };
+
+  const getIconSize = () => {
+    switch (modelTypeIcon.size) {
+      case "small":
+        return "w-4 h-4";
+      case "large":
+        return "w-8 h-8";
+      default:
+        return "w-6 h-6";
+    }
+  };
 
   return (
-    <Link to={path} className="block w-full h-full perspective-[1000px]">
+    <Link to={path} className="block w-full h-full perspective-[2000px]">
       <div
         className="relative h-full transition-all duration-500 ease-out transform-style-3d"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
+        onMouseMove={handleMouseMove}
         onTouchStart={() => setIsHovered(true)}
         onTouchEnd={() => setIsHovered(false)}
+        style={{
+          transform:
+            isHovered && hoverEffects.rotate
+              ? `rotateY(${mousePosition.x * 5}deg) rotateX(${-mousePosition.y * 5}deg)`
+              : "none",
+        }}
       >
+        {/* TP configuration badge */}
         <div
           className={`
-          relative h-full rounded-2xl 
-          bg-[#1a1e24] 
-          transition-all duration-300 ease-out transform-style-3d
-          ${
-            isHovered
-              ? "transform scale-[1.03] rotate-y-[5deg] border-2 border-[var(--TT-purple-accent1)] shadow-[12px_12px_24px_rgba(0,0,0,0.8),0_0_20px_rgba(80,100,120,0.3)]"
-              : "shadow-[8px_8px_16px_rgba(0,0,0,0.8),-4px_-4px_12px_rgba(35,40,45,0.2),inset_1px_1px_2px_rgba(60,70,80,0.1)]"
-          }
-        `}
+            absolute ${tpBadge.position || "-top-2 -left-2"} z-20
+            transition-all duration-500 ease-out transform-style-3d
+            ${isHovered ? "translate-z-[40px] scale-110" : "translate-z-[20px]"}
+          `}
+        >
+          <div
+            className={`
+              px-2 py-1 rounded-lg bg-[#1a1e24] text-[#a0aec0] text-xs font-medium
+              shadow-[0_4px_12px_rgba(0,0,0,0.5)]
+              transition-all duration-300 flex items-center gap-1.5
+              border border-[#2a2e34]
+              ${isHovered ? "text-[var(--TT-purple-accent1)] border-[var(--TT-purple-accent1)]" : ""}
+              cursor-help
+            `}
+            title="Tensor Processor (TP) configuration - Number of tensor processors used for model parallelism"
+          >
+            <div className="flex flex-col gap-[2px] mr-1.5">
+              <div className="w-3 h-[2px] bg-[#ff6b6b]"></div>
+              <div className="w-3 h-[2px] bg-[#ff6b6b]"></div>
+              <div className="w-3 h-[2px] bg-[#ff6b6b]"></div>
+            </div>
+            <span className="font-mono">
+              TP={getTPValue(TTDevice, tpBadge.value)}
+            </span>
+          </div>
+        </div>
+
+        {/* Floating model type badge with status indicator */}
+        <div
+          className={`
+            absolute ${
+              modelTypeIcon.position === "top-right"
+                ? "-top-3 -right-3"
+                : modelTypeIcon.position === "top-left"
+                  ? "-top-3 -left-3"
+                  : modelTypeIcon.position === "bottom-right"
+                    ? "-bottom-3 -right-3"
+                    : "-bottom-3 -left-3"
+            } z-20
+            transition-all duration-500 ease-out transform-style-3d
+            ${isHovered ? "translate-z-[40px] scale-110" : "translate-z-[20px]"}
+          `}
+        >
+          <div className="relative">
+            {/* Status indicator */}
+            {statusIndicator.show && (
+              <div className="absolute -top-1 -right-1 z-30">
+                <div className="relative">
+                  <div
+                    className={`w-2.5 h-2.5 bg-${statusIndicator.color} rounded-full`}
+                  ></div>
+                  {statusIndicator.animate && (
+                    <>
+                      <div
+                        className={`absolute inset-0 w-2.5 h-2.5 bg-${statusIndicator.color} rounded-full animate-ping opacity-75`}
+                      ></div>
+                      <div
+                        className={`absolute inset-0 w-2.5 h-2.5 bg-${statusIndicator.color} rounded-full animate-pulse`}
+                      ></div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Model type icon */}
+            <div
+              className={`
+                p-2 rounded-full
+                bg-[#1a1e24]
+                text-[var(--TT-purple-accent1)]
+                shadow-[0_4px_12px_rgba(0,0,0,0.5)]
+                transition-all duration-300
+                ${isHovered && modelTypeIcon.rotate ? "rotate-[360deg]" : ""}
+              `}
+            >
+              {React.cloneElement(getModelIcon(), { className: getIconSize() })}
+            </div>
+          </div>
+        </div>
+
+        {/* Floating particles */}
+        {particles.map((particle, index) => (
+          <div
+            key={index}
+            className={`absolute w-1 h-1 rounded-full ${hoverEffects.particleEffect?.color || "bg-[var(--TT-purple-accent1)]"}`}
+            style={{
+              left: `${particle.x}%`,
+              top: `${particle.y}%`,
+              opacity: particle.opacity,
+              transform: `translateZ(${20 + Math.random() * 30}px)`,
+            }}
+          />
+        ))}
+
+        <div
+          className={`
+            relative h-full rounded-2xl 
+            bg-[#1a1e24] 
+            transition-all duration-300 ease-out transform-style-3d
+            ${
+              isHovered
+                ? `transform ${hoverEffects.scale ? `scale-[${hoverEffects.scale}]` : ""} 
+                   border-2 border-[var(--TT-purple-accent1)] 
+                   ${hoverEffects.glow ? "shadow-[12px_12px_24px_rgba(0,0,0,0.8),0_0_20px_rgba(80,100,120,0.3)]" : ""}`
+                : "shadow-[8px_8px_16px_rgba(0,0,0,0.8),-4px_-4px_12px_rgba(35,40,45,0.2),inset_1px_1px_2px_rgba(60,70,80,0.1)]"
+            }
+          `}
         >
           <div
             className={`absolute inset-0 rounded-2xl overflow-hidden 
@@ -143,7 +407,7 @@ export function ModelCard({
                   <div
                     className={`
                       px-3 py-1 sm:px-4 sm:py-2 rounded-xl bg-[#1a1e24] text-[#a0aec0] font-medium text-xs sm:text-sm
-                      transition-all duration-300 ease-out
+                      transition-all duration-300 ease-out flex items-center gap-2
                       ${
                         isHovered
                           ? "shadow-[inset_3px_3px_6px_rgba(0,0,0,0.7),inset_-2px_-2px_5px_rgba(40,45,50,0.3)] rotate-y-[5deg] text-[var(--TT-purple-accent1)]"
@@ -151,7 +415,11 @@ export function ModelCard({
                       }
                     `}
                   >
-                    {TTDevice}
+                    <HardwareIcon
+                      type={TTDevice}
+                      className={`w-5 h-5 object-contain filter ${isHovered ? "brightness-125" : ""}`}
+                    />
+                    <span>{TTDevice}</span>
                   </div>
                 </div>
               )}

@@ -55,6 +55,7 @@ export const models: Model[] = [
     filter: "#323968",
     TTDevice: "LoudBox",
     poweredByText: "Powered by TT-LoudBox",
+    modelType: "LLM",
   },
   {
     id: "whisper",
@@ -64,6 +65,7 @@ export const models: Model[] = [
     filter: "#74C5DF",
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
+    modelType: "Audio",
   },
   {
     id: "yolov4",
@@ -73,6 +75,7 @@ export const models: Model[] = [
     filter: "#6FABA0",
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
+    modelType: "CNN",
   },
 ];
 
