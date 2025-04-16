@@ -412,7 +412,7 @@ export default function Header({
                 <circle cx="16" cy="12" r="1" fill="currentColor" />
                 <circle cx="8" cy="12" r="1" fill="currentColor" />
               </svg>
-              <span className="text-white text-sm">Chat UI</span>
+              <span className="text-white text-sm">Chat</span>
             </Link>
 
             {/* Object Detection */}

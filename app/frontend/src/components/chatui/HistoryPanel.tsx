@@ -7,6 +7,12 @@ import { Input } from "../ui/input";
 import { Skeleton } from "../ui/skeleton";
 import { PlusCircle, MessageSquare, Trash2, Edit2, Search } from "lucide-react";
 import { customToast } from "../CustomToaster";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 interface HistoryPanelProps {
   conversations: { id: string; title: string }[];
@@ -221,12 +227,21 @@ export function HistoryPanel({
                     autoFocus
                   />
                 ) : (
-                  <span
-                    className="truncate flex-1"
-                    onClick={() => onSelectConversation(conversation.id)}
-                  >
-                    {highlightSearchText(conversation.title, searchQuery)}
-                  </span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          className="truncate flex-1 text-left"
+                          onClick={() => onSelectConversation(conversation.id)}
+                        >
+                          {highlightSearchText(conversation.title, searchQuery)}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{conversation.title}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
               <div
