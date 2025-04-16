@@ -9,6 +9,7 @@ import { Card } from "../ui/card";
 import { Mic, MessageSquare } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { cn } from "../../lib/utils";
+import { useTheme } from "../../providers/ThemeProvider";
 
 interface Transcription {
   id: string;
@@ -33,6 +34,7 @@ export default function SpeechToTextApp() {
   const [isRecording, setIsRecording] = useState(false);
   const [conversationCounter, setConversationCounter] = useState(1);
   const [showRecordingInterface, setShowRecordingInterface] = useState(false);
+  const { theme } = useTheme();
 
   // Function to create a new conversation
   const handleNewConversation = () => {
@@ -124,11 +126,21 @@ export default function SpeechToTextApp() {
   return (
     <div className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4">
       {/* Main card container with subtle glow effect */}
-      <Card className="flex w-full h-full shadow-xl bg-[#1A1A1A] dark:bg-[#1A1A1A] border border-TT-purple-shade/50 dark:border-TT-purple/20 backdrop-blur-sm overflow-hidden rounded-xl">
+      <Card className={cn(
+        "flex w-full h-full shadow-xl overflow-hidden rounded-xl backdrop-blur-sm",
+        theme === "dark" 
+          ? "bg-[#1A1A1A] border-TT-purple/20" 
+          : "bg-white border-TT-purple-shade/20"
+      )}>
         <SidebarProvider defaultOpen={false}>
           <div className="flex w-full h-full">
             {/* Sidebar - has its own scrolling */}
-            <div className="h-full border-r border-TT-purple/20 overflow-y-auto">
+            <div className={cn(
+              "h-full border-r overflow-y-auto",
+              theme === "dark" 
+                ? "border-TT-purple/20" 
+                : "border-TT-purple-shade/20"
+            )}>
               <AppSidebar
                 conversations={conversations}
                 selectedConversation={selectedConversation}
@@ -142,7 +154,12 @@ export default function SpeechToTextApp() {
             </div>
 
             <div className="flex flex-col flex-1 h-full">
-              <div className="sticky top-0 z-50 h-16 md:h-16 border-b border-TT-purple/30 flex items-center justify-between px-3 md:px-6 bg-gradient-to-r from-[#1A1A1A] via-[#222222] to-[#1A1A1A]">
+              <div className={cn(
+                "sticky top-0 z-50 h-16 md:h-16 border-b flex items-center justify-between px-3 md:px-6",
+                theme === "dark"
+                  ? "border-TT-purple/30 bg-gradient-to-r from-[#1A1A1A] via-[#222222] to-[#1A1A1A]"
+                  : "border-TT-purple-shade/20 bg-gradient-to-r from-white via-gray-50 to-white"
+              )}>
                 <div className="flex items-center">
                   <SidebarTrigger className="mr-2 md:mr-4 text-TT-purple hover:text-TT-purple-accent" />
                   <h1 className="text-lg md:text-xl font-semibold text-TT-purple truncate max-w-[150px] md:max-w-full">
@@ -152,7 +169,12 @@ export default function SpeechToTextApp() {
                       : "New Conversation"}
                   </h1>
                   {selectedConversation && selectedConversationData && (
-                    <div className="ml-2 md:ml-4 text-xs md:text-sm text-TT-purple-tint1 bg-TT-purple-shade/40 px-2 md:px-2.5 py-0.5 md:py-1 rounded-full">
+                    <div className={cn(
+                      "ml-2 md:ml-4 text-xs md:text-sm px-2 md:px-2.5 py-0.5 md:py-1 rounded-full",
+                      theme === "dark"
+                        ? "text-TT-purple-tint1 bg-TT-purple-shade/40"
+                        : "text-TT-purple bg-TT-purple-shade/20"
+                    )}>
                       {selectedConversationData.transcriptions.length || 0}{" "}
                       {selectedConversationData.transcriptions.length === 1
                         ? "message"
@@ -168,9 +190,9 @@ export default function SpeechToTextApp() {
                       onClick={toggleView}
                       className={cn(
                         "text-xs md:text-sm px-2 md:px-4 py-1 md:py-2 h-8 md:h-9",
-                        "border-TT-purple/40 hover:border-TT-purple",
-                        "bg-TT-purple-shade/30 hover:bg-TT-purple-shade/50",
-                        "text-white"
+                        theme === "dark"
+                          ? "border-TT-purple/40 hover:border-TT-purple bg-TT-purple-shade/30 hover:bg-TT-purple-shade/50 text-white"
+                          : "border-TT-purple-shade/40 hover:border-TT-purple bg-TT-purple-shade/10 hover:bg-TT-purple-shade/20 text-gray-900"
                       )}
                     >
                       {showRecordingInterface ? (

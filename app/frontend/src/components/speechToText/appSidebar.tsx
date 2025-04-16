@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Search, Settings, Plus, MessageSquare, Moon, Sun } from "lucide-react";
 import { Button } from "../ui/button";
+import { useTheme } from "../../providers/ThemeProvider";
 
 import {
   Sidebar,
@@ -41,6 +42,7 @@ export function AppSidebar({
   onNewConversation,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const { theme, setTheme } = useTheme();
 
   // Enhanced search to look through all transcription text in each conversation
   const filteredConversations = conversations.filter((conversation) => {
@@ -155,17 +157,9 @@ export function AppSidebar({
     );
   };
 
-  // Add a function for theme toggle
+  // Update theme toggle function 
   const toggleTheme = () => {
-    // This is a placeholder function - implement your actual theme toggle logic here
-    const currentTheme = document.documentElement.classList.contains("dark")
-      ? "dark"
-      : "light";
-    if (currentTheme === "dark") {
-      document.documentElement.classList.remove("dark");
-    } else {
-      document.documentElement.classList.add("dark");
-    }
+    setTheme(theme === "dark" ? "light" : "dark");
   };
 
   return (
