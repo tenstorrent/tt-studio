@@ -42,6 +42,8 @@ export default function ChatComponent() {
   const [ragDatasource, setRagDatasource] = useState<
     RagDataSource | undefined
   >();
+  const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
+    useState(false);
   const { data: ragDataSources } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     initialData: [],
@@ -78,6 +80,8 @@ export default function ChatComponent() {
     isExtraLargeScreen: false,
   });
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const lastScrollPositionRef = useRef(0);
 
   // Add refs and state for swipe gesture
   const touchStartXRef = useRef<number | null>(null);
@@ -168,6 +172,9 @@ export default function ChatComponent() {
 
   // Update RAG datasource when thread changes
   useEffect(() => {
+    // Skip updating if RAG was explicitly deselected
+    if (isRagExplicitlyDeselected) return;
+
     const currentThread = getCurrentThread();
     if (
       currentThread &&
@@ -187,7 +194,7 @@ export default function ChatComponent() {
     } else {
       setRagDatasource(undefined);
     }
-  }, [currentThreadIndex, chatThreads]);
+  }, [currentThreadIndex, chatThreads, isRagExplicitlyDeselected]);
 
   // Handle responsive layout
   useEffect(() => {
@@ -359,6 +366,32 @@ export default function ChatComponent() {
         chatContainerRef.current.scrollHeight;
     }
   }, [currentThreadIndex]); // Remove chatThreads from dependency array
+
+  // Add scroll event listener to track scroll position
+  useEffect(() => {
+    const chatContainer = chatContainerRef.current;
+    if (!chatContainer) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = chatContainer;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50; // 50px threshold
+      setIsScrolledUp(!isAtBottom);
+      lastScrollPositionRef.current = scrollTop;
+    };
+
+    chatContainer.addEventListener("scroll", handleScroll);
+    return () => chatContainer.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Function to scroll to bottom
+  const scrollToBottom = useCallback(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, []);
 
   // Safe getter for current thread
   const getCurrentThread = useCallback(() => {
@@ -1018,13 +1051,14 @@ export default function ChatComponent() {
               isAgentSelected={isAgentSelected}
               setIsAgentSelected={setIsAgentSelected}
               isMobileView={screenSize.isMobileView}
+              setIsRagExplicitlyDeselected={setIsRagExplicitlyDeselected}
             />
           </div>
           <div
             ref={chatContainerRef}
-            className={`flex-grow overflow-y-auto ${
+            className={`flex-grow overflow-y-auto relative ${
               screenSize.isMobileView
-                ? "px-1 pb-[140px] pt-2" // Increased bottom padding for better scrolling
+                ? "px-1 pb-[140px] pt-2"
                 : "px-1 sm:px-2 md:px-4"
             }`}
           >
@@ -1044,6 +1078,36 @@ export default function ChatComponent() {
               ragDatasource={ragDatasource}
               isMobileView={screenSize.isMobileView}
             />
+            {/* Scroll to bottom button */}
+            <AnimatePresence>
+              {isScrolledUp && (
+                <motion.button
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={scrollToBottom}
+                  className="fixed bottom-24 right-4 sm:right-8 md:right-12 z-50 p-2 rounded-full bg-gray-800 text-white shadow-lg hover:bg-gray-700 transition-colors"
+                  style={{
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
+                  }}
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                    />
+                  </svg>
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
           <div
             className={`${

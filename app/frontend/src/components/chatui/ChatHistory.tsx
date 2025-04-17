@@ -12,6 +12,7 @@ import MessageIndicator from "./MessageIndicator";
 import FileDisplay from "./FileDisplay";
 import type { ChatMessage } from "./types";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as Tooltip from "@radix-ui/react-tooltip";
 
 // --- RagPill component (assuming it's defined elsewhere or identical) ---
 const RagPill: React.FC<{
@@ -217,7 +218,12 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     // IMPORTANT: Always update scroll button visibility when not at bottom
     // AND when there's actually enough content to scroll
     const isContentScrollable = scrollHeight > clientHeight + 10;
-    setIsScrollButtonVisible(isContentScrollable && !isNearBottom);
+    const shouldShowButton = isContentScrollable && !isNearBottom;
+
+    // Force update button visibility
+    if (shouldShowButton !== isScrollButtonVisible) {
+      setIsScrollButtonVisible(shouldShowButton);
+    }
 
     // If user is manually scrolling up (away from bottom), unlock scroll
     if (isUserScroll && !isNearBottom) {
@@ -228,7 +234,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       }
       userHasScrolledAwayRef.current = true;
     }
-  }, []);
+  }, [isScrollButtonVisible]);
 
   // Attach scroll listener
   useEffect(() => {
@@ -238,6 +244,22 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       return () => viewport.removeEventListener("scroll", handleScroll);
     }
   }, [handleScroll]);
+
+  // NEW EFFECT: Check content length on chat history changes
+  useEffect(() => {
+    // Force check if content is scrollable when chat history changes
+    if (viewportRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
+      const isNearBottom = scrollHeight - scrollTop <= clientHeight + 50;
+      const isContentScrollable = scrollHeight > clientHeight + 10;
+
+      // Set button visibility if content is scrollable and not at bottom
+      const shouldShowButton = isContentScrollable && !isNearBottom;
+      if (shouldShowButton !== isScrollButtonVisible) {
+        setIsScrollButtonVisible(shouldShowButton);
+      }
+    }
+  }, [chatHistory, isScrollButtonVisible]);
 
   // Handle Auto-Scrolling for New Messages
   useEffect(() => {
@@ -265,25 +287,13 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           if (isScrollLockedRef.current || isAtBottomRef.current) {
             scrollToBottom();
           } else {
+            // Show the scroll button when new assistant messages arrive
             setIsScrollButtonVisible(true);
           }
         }
       });
     }
   }, [chatHistory, scrollToBottom]);
-
-  // NEW EFFECT: Check content length on chat history changes
-  useEffect(() => {
-    // Force check if content is scrollable when chat history changes
-    if (viewportRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isNearBottom = scrollHeight - scrollTop <= clientHeight + 50;
-      const isContentScrollable = scrollHeight > clientHeight + 10;
-
-      // Set button visibility if content is scrollable and not at bottom
-      setIsScrollButtonVisible(isContentScrollable && !isNearBottom);
-    }
-  }, [chatHistory]);
 
   // Streaming auto-scroll behavior
   useEffect(() => {
@@ -535,39 +545,31 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
         </ScrollArea.Root>
       )}
 
+      {/* Scroll button */}
       {isScrollButtonVisible && (
-        <div className="absolute bottom-4 right-4 flex flex-col items-center gap-2 z-50">
-          {/* Show locked status icon if enabled */}
-          {isScrollLocked && (
-            <div className="text-xs flex items-center gap-1 bg-background/80 backdrop-blur-sm p-1 rounded text-foreground">
-              <Lock size={12} />
-              <span>Locked</span>
-            </div>
-          )}
-          <Button
-            aria-label={
-              isScrollLocked
-                ? "Unlock and scroll to bottom"
-                : "Lock and scroll to bottom"
-            }
-            variant="outline"
-            size="icon"
-            className={`h-10 w-10 rounded-full shadow-lg bg-background/80 backdrop-blur-sm border-border text-foreground hover:bg-muted transition-opacity duration-300 z-50 ${
-              isScrollLocked ? "border-blue-500" : ""
-            }`}
-            onClick={() => {
-              // Scroll to bottom
-              scrollToBottom();
-              // Toggle scroll lock
-              const newLockState = !isScrollLockedRef.current;
-              isScrollLockedRef.current = newLockState;
-              setIsScrollLocked(newLockState);
-              userHasScrolledAwayRef.current = false;
-            }}
-          >
-            <ChevronDown className="h-6 w-6" />
-          </Button>
-        </div>
+        <Tooltip.Provider delayDuration={200}>
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <Button
+                onClick={scrollToBottom}
+                className="fixed bottom-24 right-8 h-10 w-10 rounded-full bg-primary shadow-lg hover:bg-primary/90 transition-all duration-200 z-50"
+                size="icon"
+              >
+                <ChevronDown className="h-5 w-5 text-white" />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                className="bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md rounded-md animate-in fade-in-0 zoom-in-95 z-50"
+                side="left"
+                sideOffset={5}
+              >
+                New messages below
+                <Tooltip.Arrow className="fill-popover" />
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+        </Tooltip.Provider>
       )}
 
       {/* FILE VIEWER DIALOG */}

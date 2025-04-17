@@ -48,6 +48,7 @@ interface HeaderProps {
   isAgentSelected: boolean;
   setIsAgentSelected: (value: boolean) => void;
   isMobileView?: boolean;
+  setIsRagExplicitlyDeselected?: (value: boolean) => void;
 }
 interface RagDataSource {
   id: string;
@@ -138,9 +139,9 @@ export default function Header({
   setRagDatasource,
   isHistoryPanelOpen,
   setIsHistoryPanelOpen,
-  // isAgentSelected,
   setIsAgentSelected,
-  isMobileView = false, // Default to false if not provided
+  isMobileView = false,
+  setIsRagExplicitlyDeselected,
 }: HeaderProps) {
   // Log ragDataSources to console to inspect its structure
   console.log("RAG Data Sources:", ragDataSources);
@@ -157,6 +158,20 @@ export default function Header({
     } else {
       setSelectedAIAgent(value); // Set the selected agent
       setIsAgentSelected(true); // Set to true if an agent is selected
+    }
+  };
+
+  // Handle RAG context selection/deselection
+  const handleRagSelection = (value: string) => {
+    if (value === "remove") {
+      setRagDatasource(undefined);
+      setIsRagExplicitlyDeselected?.(true);
+    } else {
+      const dataSource = ragDataSources.find((rds) => rds.name === value);
+      if (dataSource) {
+        setRagDatasource(dataSource);
+        setIsRagExplicitlyDeselected?.(false);
+      }
     }
   };
 
@@ -504,18 +519,7 @@ export default function Header({
               </span>
               <ForwardedSelect
                 value={ragDatasource ? ragDatasource.name : ""}
-                onValueChange={(v) => {
-                  if (v === "remove") {
-                    setRagDatasource(undefined);
-                  } else {
-                    const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v
-                    );
-                    if (dataSource) {
-                      setRagDatasource(dataSource);
-                    }
-                  }
-                }}
+                onValueChange={handleRagSelection}
               >
                 <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
                   {ragDataSources.map((c) => {
@@ -599,18 +603,7 @@ export default function Header({
               <TooltipTrigger asChild>
                 <ForwardedSelect
                   value={ragDatasource ? ragDatasource.name : ""}
-                  onValueChange={(v) => {
-                    if (v === "remove") {
-                      setRagDatasource(undefined);
-                    } else {
-                      const dataSource = ragDataSources.find(
-                        (rds) => rds.name === v
-                      );
-                      if (dataSource) {
-                        setRagDatasource(dataSource);
-                      }
-                    }
-                  }}
+                  onValueChange={handleRagSelection}
                 >
                   <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     {ragDataSources.map((c) => (
