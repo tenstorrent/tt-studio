@@ -71,7 +71,7 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/chat-ui",
+      path: "/chat",
       element: <ChatUI />,
       condition: true,
     },
@@ -106,7 +106,7 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/audio-detection",
+      path: "/speech-to-text",
       element: <AudioDetectionPage />,
       condition: true,
     },
