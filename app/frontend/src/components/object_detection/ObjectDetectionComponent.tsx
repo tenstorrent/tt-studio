@@ -19,6 +19,11 @@ import { Detection, DetectionMetadata } from "./types/objectDetection";
 import { updateBoxPositions } from "../object_detection/utlis/detectionUtlis";
 // Import icons
 import { Clock, Maximize2, Video, Image, Activity, Tag } from "lucide-react";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "../ui/resizable";
 
 export const ObjectDetectionComponent: React.FC = () => {
   const [detections, setDetections] = useState<Detection[]>([]);
