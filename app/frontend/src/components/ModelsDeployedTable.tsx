@@ -157,27 +157,26 @@ export default function ModelsDeployedTable() {
     const modelType = getModelTypeFromName(modelName);
     switch (modelType) {
       case ModelType.ChatModel:
-        return "ChatUI";
+        return "Chat";
       case ModelType.ImageGeneration:
-        return "ImageGeneration";
+        return "Image Generation";
       case ModelType.ObjectDetectionModel:
         return "ObjectDetection";
       default:
-        return "ChatUI"
+        return "Chat";
     }
   };
 
-  const getModelToolTip = (modelName: string) => {
-    const modelType = getModelTypeFromName(modelName);
-    switch (modelType) {
-      case ModelType.ChatModel:
-        return "Open ChatUI for this model";
-      case ModelType.ImageGeneration:
-        return "Open ImageGeneration for this model";
-      case ModelType.ObjectDetectionModel:
-        return "Open ObjectDetection for this model";
+  const getTooltipText = (type: string) => {
+    switch (type) {
+      case "chat":
+        return "Open Chat for this model";
+      case "chat-ui":
+        return "Open Chat for this model";
+      case "image-generation":
+        return "Open Image Generation for this model";
       default:
-        return "Open ChatUI for this model";
+        return `Open ${type} for this model`;
     }
   };
 
@@ -324,7 +323,7 @@ export default function ModelsDeployedTable() {
                                 </p>
                               ) : (
                                 <p>
-                                  {getModelToolTip(model.name)}
+                                  {getTooltipText(getModelTypeLabel(model.name))}
                                 </p>
                               )}
                             </TooltipContent>

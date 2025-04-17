@@ -200,19 +200,25 @@ export function ModelCard({
         >
           <div
             className={`
-              px-2 py-1 rounded-lg bg-[#1a1e24] text-[#a0aec0] text-xs font-medium
-              shadow-[0_4px_12px_rgba(0,0,0,0.5)]
+              px-2 py-1 rounded-lg bg-white dark:bg-[#1a1e24] text-gray-700 dark:text-[#a0aec0] text-xs font-medium
+              shadow-[0_4px_12px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.5)]
               transition-all duration-300 flex items-center gap-1.5
-              border border-[#2a2e34]
-              ${isHovered ? "text-[var(--TT-purple-accent1)] border-[var(--TT-purple-accent1)]" : ""}
+              border border-gray-200 dark:border-[#2a2e34]
+              ${isHovered ? "text-[#7C68FA] border-[#7C68FA]" : ""}
               cursor-help
             `}
             title="Tensor Processor (TP) configuration - Number of tensor processors used for model parallelism"
           >
             <div className="flex flex-col gap-[2px] mr-1.5">
-              <div className="w-3 h-[2px] bg-[#ff6b6b]"></div>
-              <div className="w-3 h-[2px] bg-[#ff6b6b]"></div>
-              <div className="w-3 h-[2px] bg-[#ff6b6b]"></div>
+              <div
+                className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
+              ></div>
+              <div
+                className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
+              ></div>
+              <div
+                className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
+              ></div>
             </div>
             <span className="font-mono">
               TP={getTPValue(TTDevice, tpBadge.value)}
@@ -262,14 +268,17 @@ export function ModelCard({
             <div
               className={`
                 p-2 rounded-full
-                bg-[#1a1e24]
-                text-[var(--TT-purple-accent1)]
-                shadow-[0_4px_12px_rgba(0,0,0,0.5)]
+                bg-white dark:bg-[#1a1e24]
+                text-gray-500
+                shadow-[0_4px_12px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.5)]
                 transition-all duration-300
+                ${isHovered ? "text-red-500" : ""} 
                 ${isHovered && modelTypeIcon.rotate ? "rotate-[360deg]" : ""}
               `}
             >
-              {React.cloneElement(getModelIcon(), { className: getIconSize() })}
+              {React.cloneElement(getModelIcon(), {
+                className: `${getIconSize()} transition-colors duration-300`,
+              })}
             </div>
           </div>
         </div>
@@ -291,22 +300,22 @@ export function ModelCard({
         <div
           className={`
             relative h-full rounded-2xl 
-            bg-[#1a1e24] 
+            bg-gray-100 dark:bg-[#1a1e24] 
             transition-all duration-300 ease-out transform-style-3d
             ${
               isHovered
                 ? `transform ${hoverEffects.scale ? `scale-[${hoverEffects.scale}]` : ""} 
-                   border-2 border-[var(--TT-purple-accent1)] 
-                   ${hoverEffects.glow ? "shadow-[12px_12px_24px_rgba(0,0,0,0.8),0_0_20px_rgba(80,100,120,0.3)]" : ""}`
-                : "shadow-[8px_8px_16px_rgba(0,0,0,0.8),-4px_-4px_12px_rgba(35,40,45,0.2),inset_1px_1px_2px_rgba(60,70,80,0.1)]"
+                   border-2 border-[#7C68FA] 
+                   ${hoverEffects.glow ? "shadow-[12px_12px_24px_rgba(0,0,0,0.1),0_0_20px_rgba(124,104,250,0.2)] dark:shadow-[12px_12px_24px_rgba(0,0,0,0.8),0_0_20px_rgba(80,100,120,0.3)]" : ""}`
+                : "shadow-[8px_8px_16px_rgba(0,0,0,0.1),-4px_-4px_12px_rgba(255,255,255,0.5),inset_1px_1px_2px_rgba(255,255,255,0.1)] dark:shadow-[8px_8px_16px_rgba(0,0,0,0.8),-4px_-4px_12px_rgba(35,40,45,0.2),inset_1px_1px_2px_rgba(60,70,80,0.1)]"
             }
           `}
         >
           <div
             className={`absolute inset-0 rounded-2xl overflow-hidden 
-                          bg-gradient-to-br from-[rgba(255,255,255,0.07)] via-transparent to-transparent
+                          bg-gradient-to-br from-gray-200/70 via-transparent to-transparent dark:from-[rgba(255,255,255,0.07)]
                           transition-all duration-300
-                          ${isHovered ? "opacity-60 from-[var(--TT-purple-accent1)]/20" : "opacity-30"}`}
+                          ${isHovered ? "opacity-60 from-[#7C68FA]/20" : "opacity-30"}`}
           ></div>
 
           {/* Inner content with enhanced 3D effect */}
@@ -316,8 +325,8 @@ export function ModelCard({
             transition-all duration-300 ease-out transform-style-3d
             ${
               isHovered
-                ? "shadow-[inset_3px_3px_8px_rgba(0,0,0,0.6),inset_-2px_-2px_5px_rgba(40,45,50,0.3)]"
-                : "shadow-[inset_1px_1px_3px_rgba(0,0,0,0.4),inset_-1px_-1px_3px_rgba(40,45,50,0.2)]"
+                ? "shadow-[inset_3px_3px_8px_rgba(0,0,0,0.1),inset_-2px_-2px_5px_rgba(255,255,255,0.5)] dark:shadow-[inset_3px_3px_8px_rgba(0,0,0,0.6),inset_-2px_-2px_5px_rgba(40,45,50,0.3)]"
+                : "shadow-[inset_1px_1px_3px_rgba(0,0,0,0.05),inset_-1px_-1px_3px_rgba(255,255,255,0.5)] dark:shadow-[inset_1px_1px_3px_rgba(0,0,0,0.4),inset_-1px_-1px_3px_rgba(40,45,50,0.2)]"
             }
           `}
           >
@@ -345,7 +354,7 @@ export function ModelCard({
                     backgroundColor: filter,
                     mixBlendMode: "overlay",
                     boxShadow: isHovered
-                      ? "inset 0 0 30px rgba(0,0,0,0.3)"
+                      ? "inset 0 0 30px rgba(0,0,0,0.1)"
                       : "none",
                   }}
                 />
@@ -354,7 +363,7 @@ export function ModelCard({
               {/* Enhanced 3D gradient overlay */}
               <div
                 className={`
-                absolute inset-0 bg-gradient-to-t from-[#1a1e24]/95 via-[#1a1e24]/40 to-transparent
+                absolute inset-0 bg-gradient-to-t from-gray-900/95 via-gray-900/40 to-transparent dark:from-[#1a1e24]/95 dark:via-[#1a1e24]/40
                 transition-all duration-300
                 ${isHovered ? "opacity-90 translate-z-[3px]" : "opacity-100"}
               `}
@@ -370,12 +379,12 @@ export function ModelCard({
               >
                 <div
                   className={`
-                    text-[#a0aec0] text-sm sm:text-base md:text-lg xl:text-xl font-mono px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-5 rounded-xl 
-                    bg-[#1a1e24] 
+                    text-gray-700 dark:text-[#a0aec0] text-sm sm:text-base md:text-lg xl:text-xl font-mono px-4 sm:px-6 md:px-8 py-3 sm:py-4 md:py-5 rounded-xl 
+                    bg-gray-100/90 dark:bg-[#1a1e24] 
                     transition-all duration-500 ease-out transform-style-3d
                     ${
                       isHovered
-                        ? "translate-y-0 scale-100 translate-z-[30px] rotate-y-[-5deg] border border-[var(--TT-purple-accent1)]/40 shadow-[5px_5px_15px_rgba(0,0,0,0.8),-3px_-3px_10px_rgba(40,45,50,0.3)]"
+                        ? "translate-y-0 scale-100 translate-z-[30px] rotate-y-[-5deg] border border-[#7C68FA]/40 shadow-[5px_5px_15px_rgba(0,0,0,0.1),-3px_-3px_10px_rgba(255,255,255,0.5)] dark:shadow-[5px_5px_15px_rgba(0,0,0,0.8),-3px_-3px_10px_rgba(40,45,50,0.3)]"
                         : "translate-y-8 scale-95 translate-z-0"
                     }
                   `}
@@ -391,7 +400,7 @@ export function ModelCard({
                 className={`
                   text-base sm:text-lg md:text-xl font-semibold 
                   transition-all duration-500 ease-out
-                  ${isHovered ? "text-[var(--TT-purple-accent1)] translate-x-1 translate-z-[15px]" : "text-[#a0aec0]"}
+                  ${isHovered ? "text-[#7C68FA] translate-x-1 translate-z-[15px]" : "text-gray-800 dark:text-[#a0aec0]"}
                 `}
               >
                 {title}
@@ -406,12 +415,12 @@ export function ModelCard({
                 >
                   <div
                     className={`
-                      px-3 py-1 sm:px-4 sm:py-2 rounded-xl bg-[#1a1e24] text-[#a0aec0] font-medium text-xs sm:text-sm
+                      px-3 py-1 sm:px-4 sm:py-2 rounded-xl bg-gray-200 dark:bg-[#1a1e24] text-gray-700 dark:text-[#a0aec0] font-medium text-xs sm:text-sm
                       transition-all duration-300 ease-out flex items-center gap-2
                       ${
                         isHovered
-                          ? "shadow-[inset_3px_3px_6px_rgba(0,0,0,0.7),inset_-2px_-2px_5px_rgba(40,45,50,0.3)] rotate-y-[5deg] text-[var(--TT-purple-accent1)]"
-                          : "shadow-[3px_3px_8px_rgba(0,0,0,0.7),-2px_-2px_6px_rgba(40,45,50,0.2)]"
+                          ? "shadow-[inset_3px_3px_6px_rgba(0,0,0,0.1),inset_-2px_-2px_5px_rgba(255,255,255,0.5)] rotate-y-[5deg] text-[#7C68FA] dark:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.7),inset_-2px_-2px_5px_rgba(40,45,50,0.3)]"
+                          : "shadow-[3px_3px_8px_rgba(0,0,0,0.1),-2px_-2px_6px_rgba(255,255,255,0.5)] dark:shadow-[3px_3px_8px_rgba(0,0,0,0.7),-2px_-2px_6px_rgba(40,45,50,0.2)]"
                       }
                     `}
                   >
@@ -435,13 +444,13 @@ export function ModelCard({
           rounded-b-full blur-lg
           ${
             isHovered
-              ? "opacity-80 scale-x-[1.05] bg-gradient-to-b from-[var(--TT-purple-accent1)]/50 to-transparent"
+              ? "opacity-80 scale-x-[1.05] bg-gradient-to-b from-[#7C68FA]/50 to-transparent"
               : `opacity-40 bg-gradient-to-b from-[${filter || "#3182ce"}]/30 to-transparent`
           }
         `}
         ></div>
 
-        {/* Additional neumorphic effects for dark mode */}
+        {/* Additional neumorphic effects */}
         <div
           className={`
             absolute inset-0 rounded-2xl pointer-events-none
@@ -450,7 +459,7 @@ export function ModelCard({
           `}
           style={{
             boxShadow:
-              "inset 1px 1px 2px rgba(255,255,255,0.05), inset -1px -1px 2px rgba(0,0,0,0.5)",
+              "inset 1px 1px 2px rgba(255,255,255,0.5), inset -1px -1px 2px rgba(0,0,0,0.1) dark:inset 1px 1px 2px rgba(255,255,255,0.05), dark:inset -1px -1px 2px rgba(0,0,0,0.5)",
           }}
         ></div>
 
@@ -458,7 +467,7 @@ export function ModelCard({
         <div
           className={`
             absolute -inset-[1px] rounded-2xl pointer-events-none
-            bg-gradient-to-br from-[rgba(255,255,255,0.07)] to-transparent
+            bg-gradient-to-br from-gray-200/70 to-transparent dark:from-[rgba(255,255,255,0.07)]
             transition-all duration-300 ease-out
             ${isHovered ? "opacity-30" : "opacity-10"}
           `}
