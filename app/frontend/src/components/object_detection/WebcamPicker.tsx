@@ -4,6 +4,8 @@ import React, { useLayoutEffect, useEffect } from "react";
 import { Button } from "../ui/button";
 import { useWebcam } from "./hooks/useWebcam";
 import { WebcamPickerProps } from "./types/objectDetection";
+import { EnhancedButton } from "../ui/enhanced-button";
+import { Video, X } from "lucide-react";
 
 const WebcamPicker: React.FC<WebcamPickerProps> = ({
   setDetections,
@@ -40,17 +42,26 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       const controls = (
         <div className="flex justify-center">
           {isCapturing ? (
-            <Button
+            <EnhancedButton
               onClick={handleStopCapture}
               variant="outline"
               className="w-full sm:w-auto"
+              effect="expandIcon"
+              icon={X}
+              iconPlacement="right"
             >
               Stop Capture
-            </Button>
+            </EnhancedButton>
           ) : (
-            <Button onClick={handleStartCapture} className="w-full sm:w-auto">
+            <EnhancedButton
+              onClick={handleStartCapture}
+              className="w-full sm:w-auto"
+              effect="expandIcon"
+              icon={Video}
+              iconPlacement="right"
+            >
               Start Webcam
-            </Button>
+            </EnhancedButton>
           )}
         </div>
       );
@@ -68,24 +79,6 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
           playsInline
           muted
         />
-      )}
-      {/* Only show internal controls if videoOnly is false or setExternalControls is not provided */}
-      {(!videoOnly || !setExternalControls) && (
-        <div className="absolute bottom-4 left-0 right-0 px-6 z-10">
-          {isCapturing ? (
-            <Button
-              onClick={handleStopCapture}
-              variant="outline"
-              className="w-full bg-background/80 backdrop-blur"
-            >
-              Stop Capture
-            </Button>
-          ) : (
-            <Button onClick={handleStartCapture} className="w-full">
-              Start Webcam
-            </Button>
-          )}
-        </div>
       )}
     </div>
   );
