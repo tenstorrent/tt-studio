@@ -149,7 +149,7 @@ export default function Component({ stats }: InferenceStatsProps) {
               Inference Speed Insights
             </DialogTitle>
             <DialogDescription className={`text-sm ${isDarkMode ? "text-white/70" : "text-gray-500"}`}>
-              Performance metrics for Tenstorrent/Meta-Llama 3.3 70B model inference
+            Model Inference Performance Metrics
             </DialogDescription>
           </DialogHeader>
 
