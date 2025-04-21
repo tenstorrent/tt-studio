@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: Apache-2.0  
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import axios from "axios";
 import { Detection, DetectionMetadata } from "../types/objectDetection";
