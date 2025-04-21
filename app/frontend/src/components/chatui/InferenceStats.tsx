@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   BarChart2,
   Clock,
@@ -25,34 +25,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import { useTheme } from "../../providers/ThemeProvider"; // Import the existing theme provider
 import type { InferenceStatsProps } from "./types";
 
 export default function Component({ stats }: InferenceStatsProps) {
   const [open, setOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const { theme } = useTheme(); // Use your existing theme hook
   
-  // Check for dark mode on component mount and when it changes
-  useEffect(() => {
-    // Initial check for dark mode
-    const checkDarkMode = () => {
-      // This checks for dark mode class on the document/html element
-      // Adjust this selector based on how your app applies dark mode
-      const isDark = document.documentElement.classList.contains('dark') || 
-                    document.body.classList.contains('dark');
-      setIsDarkMode(isDark);
-    };
-    
-    checkDarkMode();
-    
-    // Set up an observer to detect theme changes
-    const observer = new MutationObserver(checkDarkMode);
-    observer.observe(document.documentElement, { 
-      attributes: true,
-      attributeFilter: ['class'] 
-    });
-    
-    return () => observer.disconnect();
-  }, []);
+  // Determine dark mode based on the theme value
+  const isDarkMode = theme === "dark";
 
   if (!stats) return null;
 
