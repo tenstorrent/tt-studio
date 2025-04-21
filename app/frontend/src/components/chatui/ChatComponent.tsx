@@ -375,14 +375,48 @@ export default function ChatComponent() {
     };
   }, [screenSize.isMobileView, isHistoryPanelOpen]);
 
-  // Auto-scroll chat container
-  useEffect(() => {
-    // Only auto-scroll when switching between threads
+  // Auto-scroll chat container for new messages and streaming responses
+useEffect(() => {
+  const scrollToBottom = () => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop =
-        chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-  }, [currentThreadIndex]); // Remove chatThreads from dependency array
+  };
+  
+  // Initial scroll when thread changes
+  scrollToBottom();
+  
+  // Set up a mutation observer to detect changes to the chat container
+  const currentContainer = chatContainerRef.current;
+  if (currentContainer) {
+    const observer = new MutationObserver((mutations) => {
+      // Only auto-scroll if user is already near the bottom
+      const isNearBottom = 
+        currentContainer.scrollHeight - currentContainer.scrollTop - currentContainer.clientHeight < 100;
+        
+      if (isNearBottom || isStreaming) {
+        scrollToBottom();
+      }
+    });
+    
+    observer.observe(currentContainer, { 
+      childList: true,
+      subtree: true,
+      characterData: true 
+    });
+    
+    return () => observer.disconnect();
+  }
+}, [currentThreadIndex, isStreaming, chatThreads]);
+
+// ADDITIONALLY, ADD THIS USEEFFECT TO HANDLE SCROLLING DURING STREAMING:
+
+// Ensure scrolling during streaming responses
+useEffect(() => {
+  if (isStreaming && chatContainerRef.current) {
+    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  }
+}, [isStreaming]);
 
   // Add scroll event listener to track scroll position
   useEffect(() => {
