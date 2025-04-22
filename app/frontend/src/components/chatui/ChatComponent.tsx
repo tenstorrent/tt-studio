@@ -360,21 +360,21 @@ export default function ChatComponent() {
   useEffect(() => {
     const container = chatContainerRef.current;
     if (!container) return;
-    
+
     // Scroll handler - detect when user scrolls away from bottom
     const handleScroll = () => {
       if (!container) return;
-      
+
       // Calculate distance from bottom
       const { scrollTop, scrollHeight, clientHeight } = container;
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      
+
       // Store last scroll position
       lastScrollPositionRef.current = scrollTop;
-      
+
       // Show scroll button when scrolled up significantly
       setShowScrollToBottom(distanceFromBottom > 100);
-      
+
       // Track if user has scrolled away from bottom - INCREASED SENSITIVITY
       // Even tiny scroll (10px) will stop auto-scroll
       if (distanceFromBottom > 10) {
@@ -384,26 +384,26 @@ export default function ChatComponent() {
         setUserScrolled(false);
       }
     };
-    
+
     // Initial scroll to bottom when changing threads
     const scrollToBottom = () => {
       if (container) {
         container.scrollTop = container.scrollHeight;
       }
     };
-    
+
     // Set up mutation observer to watch for content changes
     const observer = new MutationObserver((mutations) => {
       if (!container) return;
-      
+
       const { scrollHeight, clientHeight } = container;
-      
+
       // Don't auto-scroll if user has scrolled up, unless we're streaming
       if (!userScrolled || isStreaming) {
         // Get previous scroll position
         const previousScrollPosition = lastScrollPositionRef.current;
         const previousScrollHeight = container.scrollHeight;
-        
+
         // Preserve relative scroll position during streaming if user has scrolled
         if (isStreaming && userScrolled) {
           // Calculate how much content has been added
@@ -418,21 +418,21 @@ export default function ChatComponent() {
         }
       }
     });
-    
+
     // Add event listener and start observing
-    container.addEventListener('scroll', handleScroll);
-    observer.observe(container, { 
-      childList: true, 
-      subtree: true, 
-      characterData: true 
+    container.addEventListener("scroll", handleScroll);
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
     });
-    
+
     // Initial scroll to bottom
     scrollToBottom();
-    
+
     // Cleanup
     return () => {
-      container.removeEventListener('scroll', handleScroll);
+      container.removeEventListener("scroll", handleScroll);
       observer.disconnect();
     };
   }, [currentThreadIndex, isStreaming, userScrolled]);
@@ -441,11 +441,12 @@ export default function ChatComponent() {
   useEffect(() => {
     setUserScrolled(false);
     setShowScrollToBottom(false);
-    
+
     // Wait a tick for the DOM to update
     setTimeout(() => {
       if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        chatContainerRef.current.scrollTop =
+          chatContainerRef.current.scrollHeight;
       }
     }, 0);
   }, [currentThreadIndex]);
@@ -549,7 +550,7 @@ export default function ChatComponent() {
 
       // console.log("Running inference with request:", inferenceRequest);
       setIsStreaming(true);
-      
+
       // Reset user scroll when starting a new message
       setUserScrolled(false);
 
@@ -876,7 +877,8 @@ export default function ChatComponent() {
   // Scroll to bottom function
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
       setUserScrolled(false);
       setShowScrollToBottom(false);
     }
@@ -1150,11 +1152,11 @@ export default function ChatComponent() {
               isMobileView={screenSize.isMobileView}
             />
 
-            {/* Scroll to bottom button - NEW */}
+            {/* Scroll to bottom button - WHITE CIRCLE WITH BLACK ARROW FOR DARK MODE */}
             {showScrollToBottom && (
               <button
                 onClick={scrollToBottom}
-                className="fixed bottom-28 right-4 z-10 p-2 bg-primary text-white rounded-full shadow-lg flex items-center justify-center transition-all hover:bg-primary/90 animate-fade-in"
+                className="fixed bottom-28 right-4 z-10 p-2 bg-primary text-white dark:bg-white dark:text-black rounded-full shadow-lg flex items-center justify-center transition-all hover:bg-primary/90 dark:hover:bg-gray-100 animate-fade-in"
                 aria-label="Scroll to bottom"
               >
                 <svg
