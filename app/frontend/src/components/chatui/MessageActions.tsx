@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
 import type React from "react";
 import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
@@ -31,6 +30,9 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   const [completeMessage, setCompleteMessage] = useState<string>(
     messageContent || ""
   );
+  
+  // Add state for tracking feedback status
+  const [feedback, setFeedback] = useState<'thumbsUp' | 'thumbsDown' | null>(null);
 
   // Update the complete message when streaming finishes
   useEffect(() => {
@@ -52,13 +54,35 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   };
 
   const handleThumbsUp = () => {
-    // Implement thumbs up logic here
-    customToast.success("Thanks for the feedback!");
+    // Toggle thumbs up state
+    const newFeedback = feedback === 'thumbsUp' ? null : 'thumbsUp';
+    setFeedback(newFeedback);
+    
+    // Show appropriate toast message
+    if (newFeedback === 'thumbsUp') {
+      customToast.success("Thanks for the positive feedback!");
+    } else {
+      customToast.success("Feedback removed");
+    }
+
+    // Here you could implement API call to save feedback
+    // saveFeedback(messageId, newFeedback);
   };
 
   const handleThumbsDown = () => {
-    // Implement thumbs down logic here
-    customToast.error("Thanks for the feedback :(");
+    // Toggle thumbs down state
+    const newFeedback = feedback === 'thumbsDown' ? null : 'thumbsDown';
+    setFeedback(newFeedback);
+    
+    // Show appropriate toast message
+    if (newFeedback === 'thumbsDown') {
+      customToast.error("Thanks for the feedback. We'll try to improve.");
+    } else {
+      customToast.success("Feedback removed");
+    }
+
+    // Here you could implement API call to save feedback
+    // saveFeedback(messageId, newFeedback);
   };
 
   return (
@@ -76,24 +100,45 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             <Clipboard className="h-4 w-4" />
             <span className="sr-only">Copy message</span>
           </Button>
+          
+          {/* Enhanced ThumbsUp button with active state */}
           <Button
             variant="ghost"
             size="icon"
             onClick={handleThumbsUp}
-            className="h-8 w-8 p-0"
+            className={`h-8 w-8 p-0 transition-colors ${
+              feedback === 'thumbsUp' 
+                ? "bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800" 
+                : "hover:bg-gray-100 dark:hover:bg-gray-800"
+            }`}
+            style={{ outline: 'none' }}
           >
-            <ThumbsUp className="h-4 w-4" />
+            <ThumbsUp 
+              className="h-4 w-4" 
+              fill={feedback === 'thumbsUp' ? "currentColor" : "none"} 
+            />
             <span className="sr-only">Thumbs up</span>
           </Button>
+          
+          {/* Enhanced ThumbsDown button with active state */}
           <Button
             variant="ghost"
             size="icon"
             onClick={handleThumbsDown}
-            className="h-8 w-8 p-0"
+            className={`h-8 w-8 p-0 transition-colors ${
+              feedback === 'thumbsDown' 
+                ? "bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800" 
+                : "hover:bg-gray-100 dark:hover:bg-gray-800"
+            }`}
+            style={{ outline: 'none' }}
           >
-            <ThumbsDown className="h-4 w-4" />
+            <ThumbsDown 
+              className="h-4 w-4" 
+              fill={feedback === 'thumbsDown' ? "currentColor" : "none"} 
+            />
             <span className="sr-only">Thumbs down</span>
           </Button>
+          
           {inferenceStats && <InferenceStats stats={inferenceStats} />}
         </div>
       </div>
