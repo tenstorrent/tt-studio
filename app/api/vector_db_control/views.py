@@ -25,6 +25,7 @@ from vector_db_control.chroma import (
     delete_collection,
 )
 from vector_db_control.documents import chunk_pdf_document
+from vector_db_control.data import INTERNAL_KNOWLEDGE
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -117,6 +118,18 @@ class VectorCollectionsAPIView(ViewSet):
                 metadata=metadata,
                 embedding_func_name=self.EMBED_MODEL,
             )
+
+            # Load internal knowledge into the collection
+            logger.info(f"Loading internal knowledge into collection {name}")
+            ids = [f"internal_{i}" for i in range(len(INTERNAL_KNOWLEDGE))]
+            insert_to_chroma_collection(
+                collection_name=name,
+                documents=INTERNAL_KNOWLEDGE,
+                ids=ids,
+                metadatas=[{"source": "internal_knowledge", "type": "documentation"} for _ in INTERNAL_KNOWLEDGE],
+                embedding_func_name=self.EMBED_MODEL,
+            )
+            logger.info(f"Internal knowledge loaded successfully into {name}")
             
             logger.info(f"Collection created successfully: {collection.name}")
             serialized = serialize_collection(collection)
