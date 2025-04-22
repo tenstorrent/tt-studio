@@ -9,6 +9,7 @@ import {
   Hash,
   AlignJustify,
   FileText,
+  Activity,
   Gauge,
 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -86,7 +87,7 @@ export default function Component({ stats }: InferenceStatsProps) {
           label: "Time Per Output Token",
         } as StatItem,
         {
-          icon: <Gauge className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`} />,
+          icon: <Activity className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`} />,
           value: userTPS,
           label: "User Tokens Per Second",
           unit: "",
