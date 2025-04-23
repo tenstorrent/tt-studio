@@ -46,7 +46,7 @@ import {
   Search,
   FolderOpen,
 } from "lucide-react";
-import logo from "../../assets/tt_logo.svg";
+import logo from "../../assets/logo/tt_logo.svg";
 
 interface HeaderProps {
   modelName: string | null;

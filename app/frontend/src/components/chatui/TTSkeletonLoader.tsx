@@ -3,7 +3,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import logo from "../../assets/tt_logo.svg";
+import logo from "../../assets/logo/tt_logo.svg";
 
 interface TTSkeletonLoaderProps {
   size?: number;

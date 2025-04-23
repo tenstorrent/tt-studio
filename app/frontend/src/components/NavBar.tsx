@@ -19,7 +19,7 @@ import {
   Mic,
 } from "lucide-react";
 
-import logo from "../assets/tt_logo.svg";
+import logo from "../assets/logo/tt_logo.svg";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -32,7 +32,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-``  
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";

@@ -13,7 +13,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { Button } from "../components/ui/button";
-import ttLogo from "../assets/tt_logo_color.svg";
+import ttLogo from "../assets/logo/tt_logo.svg";
 
 const PageSpotlight = ({ children }: { children: React.ReactNode }) => {
   const mouseX = useMotionValue(0);
