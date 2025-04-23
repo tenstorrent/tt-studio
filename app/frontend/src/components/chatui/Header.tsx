@@ -285,18 +285,11 @@ export default function Header({
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-2 md:p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex flex-col md:flex-row justify-between items-start md:items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
       <div className="flex items-center w-full md:w-auto justify-between md:justify-start">
         <div className="flex items-center">
-          {/* Logo */}
+          {/* Logo - Mobile Only */}
           <ImageWithFallback
             src={logo}
             alt="TT Logo"
             className="h-6 w-auto mr-2 md:hidden"
-          />
-
-          {/* Mobile menu logo */}
-          <ImageWithFallback
-            src={logo}
-            alt="TT Logo"
-            className="h-6 w-auto mr-2"
           />
 
           {/* Only show panel toggle and breadcrumb on desktop */}
