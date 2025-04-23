@@ -60,31 +60,24 @@ Answer: To deploy the application, you'll need to set up the required environmen
     }
   }
 
+  const responseFormat = getResponseFormat(processedQuery.intent);
+
   // Add system message first
   messages.push({
     role: "system",
-    content: `You are a research assistant that provides accurate answers based on the given information.
+    content:
+      processedQuery.intent.type === "greeting" || !processedQuery.intent.action
+        ? "You are a friendly AI assistant. Keep responses warm and natural."
+        : `You are a friendly and helpful AI assistant. Start conversations warmly and maintain a conversational tone.
 
-QUERY INTENT:
----------------------
-Type: ${processedQuery.intent.type}
-Action: ${processedQuery.intent.action || "none"}
-Key Details: ${processedQuery.intent.details.join(", ")}
----------------------
-
-${examples ? `EXAMPLES:\n${examples}\n\n` : ""}
-
-INSTRUCTIONS:
-1. Use ONLY information from the provided context to answer the user's question
-2. If the context doesn't contain the information needed, say "I don't have enough information to answer this question" 
-3. Be concise and focus on directly answering the user's question
-4. Think step-by-step before providing your final answer
-5. Structure your response based on the query type and action (e.g., step-by-step for debug, overview for explain)
-6. DO NOT mention or reference any sources in your response
+GUIDELINES:
+• Be friendly and conversational
+• Provide helpful responses based on available information
+• Ask for clarification if needed
+• Keep responses natural and engaging
 
 RESPONSE FORMAT:
-Based on the query intent above, structure your response as follows:
-${getResponseFormat(processedQuery.intent)}`,
+${responseFormat}`,
   });
 
   // Add RAG context if available
@@ -125,24 +118,20 @@ ${formattedDocuments}
 
 function getResponseFormat(intent: { type: string; action?: string }): string {
   if (intent.action === "debug") {
-    return `1. Identify the specific issue
-2. List possible causes
-3. Provide step-by-step troubleshooting steps
-4. Include relevant error messages or logs if mentioned`;
+    return `• Let's look at what might be causing the issue
+• I'll suggest some solutions that could help
+• We can walk through the steps together`;
   } else if (intent.action === "deploy") {
-    return `1. List prerequisites
-2. Provide step-by-step deployment instructions
-3. Include configuration details
-4. Mention any post-deployment steps`;
+    return `• I'll help you get everything set up
+• We'll go through the steps one by one
+• I'll make sure to cover important settings`;
   } else if (intent.type === "question") {
-    return `1. Provide a direct answer
-2. Include relevant context
-3. Add supporting details
-4. Conclude with next steps if applicable`;
+    return `• I'll answer your question directly
+• I'll add helpful context when needed
+• Feel free to ask for more details`;
   } else {
-    return `1. Address the main point
-2. Provide supporting information
-3. Include relevant context
-4. Conclude appropriately`;
+    return `• I'll help you with that
+• We can explore the topic together
+• Let me know if you need more information`;
   }
 }
