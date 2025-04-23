@@ -32,6 +32,7 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
+  SelectSeparator,
 } from "../ui/select";
 import { Button } from "../ui/button";
 import {
@@ -43,6 +44,7 @@ import {
   Mic,
   Database,
   Search,
+  FolderOpen,
 } from "lucide-react";
 import logo from "../../assets/tt_logo.svg";
 
@@ -106,22 +108,96 @@ ModelSelector.displayName = "ModelSelector";
 
 const ForwardedSelect = React.forwardRef<
   HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof Select>
+  React.ComponentPropsWithoutRef<typeof Select> & {
+    ragDataSources?: any[];
+  }
 >((props, ref) => (
   <Select {...props}>
     <SelectTrigger
       ref={ref}
-      className="w-full md:w-[220px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm"
+      className="w-full md:w-[220px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm flex items-center gap-2"
     >
-      <SelectValue placeholder="Select RAG context">
+      {props.value === "special-all" ? (
+        <Search className="h-4 w-4 text-[#7C68FA]" />
+      ) : (
+        <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+      )}
+      <SelectValue placeholder="Select knowledge base">
         {props.value
           ? props.value === "special-all"
-            ? "All Collections"
+            ? "Search All Collections"
             : props.value
           : null}
       </SelectValue>
     </SelectTrigger>
-    {props.children}
+    <SelectContent
+      className="bg-[#1E1E1E] border-[#7C68FA]/20 max-h-[300px] w-[300px]"
+      align="start"
+      position="popper"
+      side="bottom"
+    >
+      {/* Special All Collections Card */}
+      <div className="px-2 py-2">
+        <SelectItem
+          value="special-all"
+          className="relative rounded-lg bg-[#2A2A2A] hover:bg-[#3A3A3A] transition-all duration-200"
+        >
+          <div className="p-3 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Search className="h-5 w-5 text-[#7C68FA]" />
+              <span className="font-medium text-white">
+                Search All Collections
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
+              <Database className="h-4 w-4" />
+              <span>{props.ragDataSources?.length || 0} Collections</span>
+            </div>
+          </div>
+        </SelectItem>
+      </div>
+
+      <SelectSeparator className="my-2 bg-gray-800" />
+
+      <div className="px-2 py-1">
+        <div className="flex items-center gap-2 px-2 py-1.5 text-gray-400">
+          <FolderOpen className="h-4 w-4" />
+          <span>Your Collections</span>
+        </div>
+
+        {props.ragDataSources?.map((c) => (
+          <SelectItem
+            key={c.id}
+            value={c.name}
+            className={`rounded-lg my-1 ${
+              props.value === c.name ? "bg-[#2A2A2A]" : "hover:bg-[#2A2A2A]"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4 text-gray-400" />
+              <span className="text-white">{c.name}</span>
+            </div>
+          </SelectItem>
+        ))}
+      </div>
+
+      {props.value && (
+        <>
+          <SelectSeparator className="my-2 bg-gray-800" />
+          <div className="px-2 pb-2">
+            <SelectItem
+              value="remove"
+              className="text-red-400 hover:bg-red-500/10 rounded-lg"
+            >
+              <div className="flex items-center gap-2">
+                <X className="h-4 w-4 text-red-400" />
+                <span>Remove Context</span>
+              </div>
+            </SelectItem>
+          </div>
+        </>
+      )}
+    </SelectContent>
   </Select>
 ));
 
@@ -524,60 +600,38 @@ export default function Header({
                     }
                   }
                 }}
+                ragDataSources={ragDataSources}
               >
                 <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
-                  <SelectGroup>
-                    <SelectLabel className="text-white/70 text-xs">
-                      Special Options
-                    </SelectLabel>
+                  {ragDataSources.map((c) => (
                     <SelectItem
-                      value="special-all"
-                      className="text-white hover:bg-[#7C68FA]/20 text-xs flex items-center"
+                      key={c.id}
+                      value={c.name}
+                      className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
+                        ragDatasource?.name === c.name &&
+                        ragDatasource.id !== "special-all"
+                          ? "bg-[#7C68FA]/10"
+                          : ""
+                      }`}
                     >
-                      <Search className="h-3 w-3 mr-1 inline-block" />
-                      <span>All Collections</span>
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                        <div className="flex flex-col">
+                          <span className="font-medium">{c.name}</span>
+                          {c.metadata?.last_uploaded_document && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              Last updated: {c.metadata.last_uploaded_document}
+                            </span>
+                          )}
+                          {c.metadata?.embedding_func_name && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              Model: {c.metadata.embedding_func_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </SelectItem>
-                  </SelectGroup>
-
-                  <SelectGroup>
-                    <SelectLabel className="text-white/70 text-xs mt-2">
-                      Your Collections
-                    </SelectLabel>
-                    {ragDataSources.map((c) => {
-                      return (
-                        <SelectItem
-                          key={c.id}
-                          value={c.name}
-                          className={`text-white hover:bg-[#7C68FA]/20 text-xs ${
-                            ragDatasource?.name === c.name
-                              ? "border border-white"
-                              : ""
-                          }`}
-                        >
-                          <span className="flex flex-col">
-                            <span>{c.name}</span>
-                            {c.metadata?.last_uploaded_document && (
-                              <span className="text-gray-400 text-xs">
-                                {c.metadata.last_uploaded_document}
-                              </span>
-                            )}
-                          </span>
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectGroup>
-
-                  {ragDatasource && (
-                    <SelectItem
-                      value="remove"
-                      className="text-red-500 hover:bg-red-900/20 text-xs mt-2"
-                    >
-                      <span className="flex items-center">
-                        <X className="mr-2 h-3 w-3" />
-                        Remove RAG context
-                      </span>
-                    </SelectItem>
-                  )}
+                  ))}
                 </SelectContent>
               </ForwardedSelect>
             </div>
@@ -646,6 +700,7 @@ export default function Header({
                       }
                     }
                   }}
+                  ragDataSources={ragDataSources}
                 >
                   <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     <SelectGroup>
@@ -672,18 +727,27 @@ export default function Header({
                           className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
                             ragDatasource?.name === c.name &&
                             ragDatasource.id !== "special-all"
-                              ? "border border-white dark:border-white"
+                              ? "bg-[#7C68FA]/10"
                               : ""
                           }`}
                         >
-                          <span className="flex flex-col">
-                            <span>{c.name}</span>
-                            {c.metadata?.last_uploaded_document && (
-                              <span className="text-gray-400 text-xs">
-                                {c.metadata.last_uploaded_document}
-                              </span>
-                            )}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                            <div className="flex flex-col">
+                              <span className="font-medium">{c.name}</span>
+                              {c.metadata?.last_uploaded_document && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  Last updated:{" "}
+                                  {c.metadata.last_uploaded_document}
+                                </span>
+                              )}
+                              {c.metadata?.embedding_func_name && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  Model: {c.metadata.embedding_func_name}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectGroup>

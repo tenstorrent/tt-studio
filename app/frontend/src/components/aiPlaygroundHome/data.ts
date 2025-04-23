@@ -66,6 +66,7 @@ export const models: Model[] = [
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
     modelType: "Audio",
+    tpBadge: { value: -1, customText: "Batch=1" },
   },
   {
     id: "yolov4",
@@ -76,6 +77,7 @@ export const models: Model[] = [
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
     modelType: "CNN",
+    tpBadge: { value: -1, customText: "Batch=1" },
   },
 ];
 

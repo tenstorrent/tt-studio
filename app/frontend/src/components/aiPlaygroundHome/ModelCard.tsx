@@ -191,40 +191,44 @@ export function ModelCard({
         }}
       >
         {/* TP configuration badge */}
-        <div
-          className={`
-            absolute ${tpBadge.position || "-top-2 -left-2"} z-20
-            transition-all duration-500 ease-out transform-style-3d
-            ${isHovered ? "translate-z-[40px] scale-110" : "translate-z-[20px]"}
-          `}
-        >
+        {tpBadge.show !== false && (
           <div
             className={`
-              px-2 py-1 rounded-lg bg-white dark:bg-[#1a1e24] text-gray-700 dark:text-[#a0aec0] text-xs font-medium
-              shadow-[0_4px_12px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.5)]
-              transition-all duration-300 flex items-center gap-1.5
-              border border-gray-200 dark:border-[#2a2e34]
-              ${isHovered ? "text-[#7C68FA] border-[#7C68FA]" : ""}
-              cursor-help
+              absolute ${tpBadge.position || "-top-2 -left-2"} z-20
+              transition-all duration-500 ease-out transform-style-3d
+              ${isHovered ? "translate-z-[40px] scale-110" : "translate-z-[20px]"}
             `}
-            title="Tensor Processor (TP) configuration - Number of tensor processors used for model parallelism"
           >
-            <div className="flex flex-col gap-[2px] mr-1.5">
-              <div
-                className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
-              ></div>
-              <div
-                className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
-              ></div>
-              <div
-                className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
-              ></div>
+            <div
+              className={`
+                px-2 py-1 rounded-lg bg-white dark:bg-[#1a1e24] text-gray-700 dark:text-[#a0aec0] text-xs font-medium
+                shadow-[0_4px_12px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.5)]
+                transition-all duration-300 flex items-center gap-1.5
+                border border-gray-200 dark:border-[#2a2e34]
+                ${isHovered ? "text-[#7C68FA] border-[#7C68FA]" : ""}
+                cursor-help
+              `}
+              title="Tensor Processor (TP) configuration - Number of tensor processors used for model parallelism"
+            >
+              <div className="flex flex-col gap-[2px] mr-1.5">
+                <div
+                  className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
+                ></div>
+                <div
+                  className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
+                ></div>
+                <div
+                  className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
+                ></div>
+              </div>
+              <span className="font-mono">
+                {modelType === "CNN" || modelType === "Audio"
+                  ? "Batch=1"
+                  : `TP=${getTPValue(TTDevice, tpBadge.value)}`}
+              </span>
             </div>
-            <span className="font-mono">
-              TP={getTPValue(TTDevice, tpBadge.value)}
-            </span>
           </div>
-        </div>
+        )}
 
         {/* Floating model type badge with status indicator */}
         <div
