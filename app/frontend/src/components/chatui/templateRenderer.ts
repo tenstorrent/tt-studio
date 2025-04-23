@@ -31,6 +31,14 @@ export function generatePrompt(
     intent: processedQuery.intent,
   });
 
+  // Log detailed intent information
+  console.log("🎯 Detailed Intent Information:", {
+    type: processedQuery.intent.type,
+    action: processedQuery.intent.action,
+    details: processedQuery.intent.details,
+    rawIntent: processedQuery.intent,
+  });
+
   // Choose appropriate examples based on question type and intent
   let examples = "";
   if (processedQuery.intent.type === "question") {
@@ -52,40 +60,16 @@ Answer: To deploy the application, you'll need to set up the required environmen
     }
   }
 
-  // Add RAG context if available
-  if (ragContext && ragContext.documents.length > 0) {
-    console.log("📚 RAG Context Available:", {
-      documentCount: ragContext.documents.length,
-      firstDocumentPreview: ragContext.documents[0].substring(0, 100) + "...",
-    });
+  // Add system message first
+  messages.push({
+    role: "system",
+    content: `You are a research assistant that provides accurate answers based on the given information.
 
-    // Extract source names from the documents format [From source-name]
-    const formattedDocuments = ragContext.documents
-      .map((docContent, index) => {
-        // Try to extract source name from the document content
-        const sourceMatch = docContent.match(/^\[From\s+([^\]]+)\]/);
-        const sourceName = sourceMatch ? sourceMatch[1] : `source-${index + 1}`;
-
-        return `[${sourceName}]\n${docContent}`;
-      })
-      .join("\n\n");
-
-    messages.push({
-      role: "system",
-      content: `You are a research assistant that provides accurate answers based on the given information.
-
-QUERY ANALYSIS:
+QUERY INTENT:
 ---------------------
 Type: ${processedQuery.intent.type}
 Action: ${processedQuery.intent.action || "none"}
-Details: ${processedQuery.intent.details.join(", ")}
-Processed Query: ${processedQuery.processed}
-Expanded Query: ${processedQuery.expanded}
----------------------
-
-CONTEXT INFORMATION:
----------------------
-${formattedDocuments}
+Key Details: ${processedQuery.intent.details.join(", ")}
 ---------------------
 
 ${examples ? `EXAMPLES:\n${examples}\n\n` : ""}
@@ -96,11 +80,35 @@ INSTRUCTIONS:
 3. Be concise and focus on directly answering the user's question
 4. Think step-by-step before providing your final answer
 5. Structure your response based on the query type and action (e.g., step-by-step for debug, overview for explain)
+6. DO NOT mention or reference any sources in your response
 
 RESPONSE FORMAT:
-Based on the query analysis above, structure your response as follows:
+Based on the query intent above, structure your response as follows:
 ${getResponseFormat(processedQuery.intent)}`,
+  });
+
+  // Add RAG context if available
+  if (ragContext && ragContext.documents.length > 0) {
+    console.log("📚 RAG Context Available:", {
+      documentCount: ragContext.documents.length,
+      firstDocumentPreview: ragContext.documents[0].substring(0, 100) + "...",
     });
+
+    // Extract source names from the documents format [From source-name]
+    const formattedDocuments = ragContext.documents
+      .map((docContent) => {
+        // Remove the [From source-name] prefix if it exists
+        return docContent.replace(/^\[From\s+[^\]]+\]\s*/, "");
+      })
+      .join("\n\n");
+
+    // Add context to system message
+    messages[0].content += `
+
+CONTEXT INFORMATION:
+---------------------
+${formattedDocuments}
+---------------------`;
   }
 
   // Add chat history
