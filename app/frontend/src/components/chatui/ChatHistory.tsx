@@ -13,7 +13,6 @@ import FileDisplay from "./FileDisplay";
 import type { ChatMessage } from "./types";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 // --- RagPill component (assuming it's defined elsewhere or identical) ---
 const RagPill: React.FC<{
@@ -95,8 +94,8 @@ const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
 
 interface ChatHistoryProps {
   chatHistory: ChatMessage[];
-  logo?: string;
-  setTextInput: (text: string) => void;
+  logo: string;
+  setTextInput: React.Dispatch<React.SetStateAction<string>>;
   isStreaming: boolean;
   onReRender: (messageId: string) => void;
   onContinue: (messageId: string) => void;
@@ -438,54 +437,45 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       </>
                     )}
                     {message.sender === "user" && (
-                      <div className="flex items-start space-x-2">
-                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-                          <ImageWithFallback
-                            src={logo}
-                            alt="User avatar"
-                            className="w-6 h-6"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          {message.text && (
-                            <p className="text-white whitespace-pre-wrap break-words">
-                              {message.text.split(/(\s+)/).map((segment, i) => {
-                                // Split by space, keeping spaces
-                                const isUrl = /^(https?:\/\/|www\.)\S+/i.test(
-                                  segment
+                      <div className="flex flex-col gap-1">
+                        {message.text && (
+                          <p className="text-white whitespace-pre-wrap break-words">
+                            {message.text.split(/(\s+)/).map((segment, i) => {
+                              // Split by space, keeping spaces
+                              const isUrl = /^(https?:\/\/|www\.)\S+/i.test(
+                                segment
+                              );
+                              if (isUrl) {
+                                const cleanUrl = segment.replace(
+                                  /[.,!?;:]$/,
+                                  ""
                                 );
-                                if (isUrl) {
-                                  const cleanUrl = segment.replace(
-                                    /[.,!?;:]$/,
-                                    ""
-                                  );
-                                  const punctuation = segment.slice(
-                                    cleanUrl.length
-                                  );
-                                  return (
-                                    <React.Fragment key={i}>
-                                      <a
-                                        href={
-                                          cleanUrl.startsWith("www.")
-                                            ? `https://${cleanUrl}`
-                                            : cleanUrl
-                                        }
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-300 hover:text-blue-200 underline break-all"
-                                      >
-                                        {cleanUrl}
-                                      </a>
-                                      {punctuation}
-                                    </React.Fragment>
-                                  );
-                                } else {
-                                  return <span key={i}>{segment}</span>; // Render spaces/words
-                                }
-                              })}
-                            </p>
-                          )}
-                        </div>
+                                const punctuation = segment.slice(
+                                  cleanUrl.length
+                                );
+                                return (
+                                  <React.Fragment key={i}>
+                                    <a
+                                      href={
+                                        cleanUrl.startsWith("www.")
+                                          ? `https://${cleanUrl}`
+                                          : cleanUrl
+                                      }
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-300 hover:text-blue-200 underline break-all"
+                                    >
+                                      {cleanUrl}
+                                    </a>
+                                    {punctuation}
+                                  </React.Fragment>
+                                );
+                              } else {
+                                return <span key={i}>{segment}</span>; // Render spaces/words
+                              }
+                            })}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
