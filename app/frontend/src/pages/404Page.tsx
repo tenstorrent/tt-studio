@@ -250,6 +250,11 @@ export default function NotFoundPage() {
               src={ttLogo || "/placeholder.svg"}
               alt="Tenstorrent"
               className="h-6 w-auto"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = "/placeholder.svg";
+                target.onerror = null; // Prevent infinite loop
+              }}
             />
             <p className="text-center text-sm text-muted-foreground">
               © {new Date().getFullYear()} Tenstorrent. All rights reserved.

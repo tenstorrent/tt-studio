@@ -47,6 +47,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import logo from "../../assets/logo/tt_logo.svg";
+import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 interface HeaderProps {
   modelName: string | null;
@@ -285,10 +286,17 @@ export default function Header({
       <div className="flex items-center w-full md:w-auto justify-between md:justify-start">
         <div className="flex items-center">
           {/* Logo */}
-          <img
-            src={logo || "/placeholder.svg"}
+          <ImageWithFallback
+            src={logo}
             alt="TT Logo"
             className="h-6 w-auto mr-2 md:hidden"
+          />
+
+          {/* Mobile menu logo */}
+          <ImageWithFallback
+            src={logo}
+            alt="TT Logo"
+            className="h-6 w-auto mr-2"
           />
 
           {/* Only show panel toggle and breadcrumb on desktop */}
@@ -424,8 +432,8 @@ export default function Header({
           {/* App Title */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <img
-                src={logo || "/placeholder.svg"}
+              <ImageWithFallback
+                src={logo}
                 alt="TT Logo"
                 className="h-6 w-auto mr-2"
               />

@@ -15,7 +15,8 @@ import {
   Bot,
   Network,
 } from "lucide-react";
-import { HardwareIcon } from "../ui/HardwareIcon";
+import { HardwareIcon } from "./HardwareIcon";
+import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 type ModelCardProps = Omit<Model, "id"> & {
   modelType?: "LLM" | "CNN" | "Audio" | "NLP";
@@ -336,8 +337,8 @@ export function ModelCard({
           >
             {/* Image container with 3D perspective */}
             <div className="relative aspect-[16/10] md:aspect-[4/3] lg:aspect-[16/10] xl:aspect-[4/3] w-full overflow-hidden rounded-t-2xl">
-              <img
-                src={image || "/placeholder.svg"}
+              <ImageWithFallback
+                src={image}
                 alt={title}
                 className={`
                   h-full w-full object-cover 

@@ -4,6 +4,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import logo from "../../assets/logo/tt_logo.svg";
+import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 interface TTSkeletonLoaderProps {
   size?: number;
@@ -27,25 +28,23 @@ const TTSkeletonLoader: React.FC<TTSkeletonLoaderProps> = ({
           height: size,
           position: "relative",
         }}
+        animate={{
+          filter: ["brightness(0.3)", "brightness(0.6)", "brightness(0.3)"],
+        }}
+        transition={{
+          duration: 2,
+          repeat: Infinity,
+          ease: "easeInOut",
+        }}
       >
-        <motion.img
+        <ImageWithFallback
           src={logo}
           alt="Tenstorrent Logo"
-          width={size}
-          height={size}
-          style={{
-            position: "relative",
-            zIndex: 1,
-            filter: "brightness(0.3)",
-          }}
-          animate={{
-            filter: ["brightness(0.3)", "brightness(0.6)", "brightness(0.3)"],
-          }}
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
+          className={`
+            w-full h-full object-contain
+            transition-all duration-500 ease-out
+            ${className}
+          `}
         />
       </motion.div>
     </motion.div>
