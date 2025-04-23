@@ -7,6 +7,8 @@ import { Card } from "../ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import SourcePicker from "./SourcePicker";
 import WebcamPicker from "./WebcamPicker";
+// Add this import if not already present
+import { ScrollArea } from "../ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -99,10 +101,12 @@ export const ObjectDetectionComponent: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-full sm:w-[90%] md:w-3/4 mx-auto max-w-7xl px-2 sm:px-4 py-4 sm:py-6">
-      {/* Removed overflow-scroll from parent container and set max height */}
-      <Card className="border-2 p-4 rounded-md space-y-4 h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] flex flex-col overflow-hidden">
-        <Tabs
+    // Main container that takes full height of viewport
+    <div className="flex flex-col w-full sm:w-[90%] md:w-3/4 mx-auto max-w-7xl px-2 sm:px-4 py-4 sm:py-6 h-screen">
+      {/* Main content area with scrolling enabled */}
+      <ScrollArea className="h-full">
+        <Card className="border-2 p-4 rounded-md space-y-4 flex flex-col mb-6">
+          <Tabs
           defaultValue="webcam"
           className="w-full"
           onValueChange={(value) => {
@@ -125,9 +129,9 @@ export const ObjectDetectionComponent: React.FC = () => {
           </TabsList>
           <TabsContent
             value="file"
-            className="flex-grow overflow-hidden flex flex-col"
+            className="flex flex-col"
           >
-            <div className="relative flex flex-col flex-grow">
+            <div className="relative flex flex-col overflow-visible">
               <SourcePicker
                 containerRef={containerRef}
                 setDetections={handleSetDetections}
@@ -139,9 +143,9 @@ export const ObjectDetectionComponent: React.FC = () => {
           </TabsContent>
           <TabsContent
             value="webcam"
-            className="flex-grow overflow-hidden flex flex-col"
+            className="flex flex-col"
           >
-            <div className="relative flex flex-col flex-grow">
+            <div className="relative flex flex-col overflow-visible">
               <WebcamPicker
                 setDetections={handleSetDetections}
                 setLiveMode={handleSetLiveMode}
@@ -185,7 +189,7 @@ export const ObjectDetectionComponent: React.FC = () => {
         </Tabs>
 
         {metadata && (
-          <div className="flex flex-col sm:flex-row gap-4 bg-muted p-3 rounded-md">
+          <div className="flex flex-col sm:flex-row gap-4 bg-muted p-3 rounded-md mt-4">
             <div className="flex items-center gap-2">
               <Maximize2 size={18} className="text-muted-foreground" />
               <span className="text-sm font-medium">
@@ -219,8 +223,8 @@ export const ObjectDetectionComponent: React.FC = () => {
         )}
 
         {scaledDetections.length > 0 && (
-          <div className="p-2 sm:p-4 flex-shrink overflow-auto max-h-[calc(40vh-2rem)]">
-            <div className="flex items-center gap-2 mb-3 sticky top-0 bg-background py-2 z-10">
+          <div className="p-2 sm:p-4 overflow-auto mt-4">
+            <div className="flex items-center gap-2 mb-3 bg-background py-2 z-10">
               <Activity size={18} />
               <span className="font-semibold">Detection Results</span>
             </div>
@@ -290,7 +294,8 @@ export const ObjectDetectionComponent: React.FC = () => {
             </div>
           </div>
         )}
-      </Card>
+        </Card>
+      </ScrollArea>
     </div>
   );
 };
