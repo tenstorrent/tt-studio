@@ -82,6 +82,9 @@ class ModelImpl:
             self.docker_config["environment"]["WH_ARCH_YAML"] = (
                 "wormhole_b0_80_arch_eth_dispatch.yaml"
             )
+            self.docker_config["environment"]["ARCH_NAME"] = (
+                "wormhole_b0"
+            )
 
         # model env file must be interpreted here
         if not self.env_file:
@@ -217,7 +220,7 @@ def base_docker_config():
 model_implmentations_list = [
     ModelImpl(
         model_name="Whisper-Distil-Large-v3",
-        model_id="id_whisper_distil_large_v3_v0.1.0",
+        # model_id="id_whisper_distil_large_v3_v0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-whisper-distil-large-v3-dev",
         image_tag="v0.0.1-tt-metal-1a1a9e2bb102",
         device_configurations={DeviceConfigurations.N150},
@@ -231,7 +234,7 @@ model_implmentations_list = [
     ),
     ModelImpl(
         model_name="Stable-Diffusion-3.5-medium",
-        model_id="id_stable_diffusion_3.5_mediumv0.1.0",
+        # model_id="id_stable_diffusion_3.5_mediumv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
         image_tag="v0.0.1-tt-metal-4af1126d6d0d",
         device_configurations={DeviceConfigurations.N150},
@@ -245,7 +248,7 @@ model_implmentations_list = [
     ),
     ModelImpl(
         model_name="Stable-Diffusion-1.4",
-        model_id="id_stable_diffusionv0.1.0",
+        # model_id="id_stable_diffusionv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-1.4-src-base",
         image_tag="v0.0.1-tt-metal-cc8b4e1dac99",
         device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
@@ -321,7 +324,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations={DeviceConfigurations.N300_WH_ARCH_YAML},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,

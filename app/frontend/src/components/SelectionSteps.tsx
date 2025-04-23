@@ -9,6 +9,7 @@ import { Button } from "./ui/button";
 import { Step, Stepper } from "./ui/stepper";
 import CustomToaster, { customToast } from "./CustomToaster";
 import StepperFooter from "./StepperFooter";
+import { DeviceSelectionStep } from "./DeviceSelectionStep";
 import { DeployModelStep } from "./DeployModelStep";
 import { StepperFormActions } from "./StepperFormActions";
 import { WeightForm } from "./WeightForm";
@@ -43,12 +44,14 @@ export default function StepperDemo() {
   const [steps, setSteps] = useState([
     { label: "Step 1", description: "Model Selection" },
     { label: "Step 2", description: "Model Weight Selection" },
+    { label: "Step 3", description: "Device Selection"},
     { label: "Final Step", description: "Deploy Model" },
   ]);
 
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedWeight, setSelectedWeight] = useState<string | null>(null);
   const [customWeight, setCustomWeight] = useState<Weight | null>(null);
+  const [selectedDevices, setSelectedDevices] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
 
@@ -114,6 +117,7 @@ export default function StepperDemo() {
     const payload = JSON.stringify({
       model_id,
       weights_id,
+      devices: selectedDevices,
     });
 
     console.log("Deploying model with:", payload);
@@ -197,6 +201,15 @@ export default function StepperDemo() {
                     />
                   </Step>
                 );
+              case "Step 3":
+                return (
+                  <Step key={stepProps.label} {...stepProps}>
+                    <DeviceSelectionStep
+                      setSelectedDevices={setSelectedDevices}
+                      setFormError={setFormError}
+                    />
+                  </Step>
+                )
               case "Final Step":
                 return (
                   <Step key={stepProps.label} {...stepProps}>

@@ -14,10 +14,13 @@ from .docker_utils import get_model_weights_path
 class DeploymentSerializer(serializers.Serializer):
     model_id = serializers.CharField(required=True)
     weights_id = serializers.CharField(required=False, allow_blank=True)
+    devices = serializers.CharField(required=True)
 
     def validate(self, data):
         model_id = data.get("model_id")
         weights_id = data.get("weights_id")
+        # TODO: DO DYNAMIC CHECKING OF EXISTING DEVICES
+        devices = data.get("devices")
         # check if model_id has impl
         if model_id not in model_implmentations.keys():
             raise serializers.ValidationError(

@@ -29,13 +29,13 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
     )
 
 
-def run_container(impl, weights_id):
+def run_container(impl, selected_devices, weights_id):
     """Run a docker container from an image"""
     try:
         logger.info(f"run_container called for {impl.model_name}")
         run_kwargs = copy.deepcopy(impl.docker_config)
         # handle runtime configuration changes to docker kwargs
-        device_mounts = get_devices_mounts(impl)
+        device_mounts = get_devices_mounts(impl, selected_devices)
         if device_mounts:
             run_kwargs.update({"devices": device_mounts})
         run_kwargs.update({"ports": get_port_mounts(impl)})
@@ -108,17 +108,19 @@ def get_runtime_device_configuration(device_configurations):
     return next(iter(device_configurations))
 
 
-def get_devices_mounts(impl):
+def get_devices_mounts(impl, selected_devices):
     device_config = get_runtime_device_configuration(impl.device_configurations)
     assert isinstance(device_config, DeviceConfigurations)
     # TODO: add logic to handle multiple devices and multiple containers
-    single_device_mounts = ["/dev/tenstorrent/0:/dev/tenstorrent/0"]
+    # also manage collisions
+    single_device_mounts = [f"/dev/tenstorrent/{selected_devices}:/dev/tenstorrent/{selected_devices}"]
     all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
     device_map = {
         DeviceConfigurations.E150: single_device_mounts,
         DeviceConfigurations.N150: single_device_mounts,
         DeviceConfigurations.N150_WH_ARCH_YAML: single_device_mounts,
         DeviceConfigurations.N300: single_device_mounts,
+        DeviceConfigurations.N300_WH_ARCH_YAML: single_device_mounts,
         DeviceConfigurations.N300x4_WH_ARCH_YAML: all_device_mounts,
         DeviceConfigurations.N300x4: all_device_mounts,
     }

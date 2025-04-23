@@ -114,8 +114,9 @@ class DeployView(APIView):
         if serializer.is_valid():
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
+            devices = request.data.get("devices")
             impl = model_implmentations[impl_id]
-            response = run_container(impl, weights_id)
+            response = run_container(impl, devices, weights_id)
             if os.getenv("TAVILY_API_KEY") == "your-tavily-api-key":
                 agent_api_key_set = False 
             else:
