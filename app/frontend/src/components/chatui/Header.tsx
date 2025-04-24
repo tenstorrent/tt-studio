@@ -45,9 +45,12 @@ import {
   Database,
   Search,
   FolderOpen,
+  Settings as SettingsIcon,
+  Sliders,
 } from "lucide-react";
 import logo from "../../assets/logo/tt_logo.svg";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
+import { cn } from "../../lib/utils";
 
 interface HeaderProps {
   modelName: string | null;
@@ -63,6 +66,9 @@ interface HeaderProps {
   setIsAgentSelected: (value: boolean) => void;
   isMobileView?: boolean;
   setIsRagExplicitlyDeselected?: (value: boolean) => void;
+  onOpenSettings?: () => void;
+  isSettingsOpen: boolean;
+  setIsSettingsOpen: (isOpen: boolean) => void;
 }
 interface RagDataSource {
   id: string;
@@ -234,6 +240,9 @@ export default function Header({
   setIsAgentSelected,
   isMobileView = false,
   setIsRagExplicitlyDeselected,
+  onOpenSettings,
+  isSettingsOpen,
+  setIsSettingsOpen,
 }: HeaderProps) {
   // Log ragDataSources to console to inspect its structure
   // console.log("RAG Data Sources:", ragDataSources);
@@ -670,12 +679,25 @@ export default function Header({
               </div>
             )}
           </div>
+
+          {/* Add Settings to mobile menu */}
+          <button
+            onClick={() => {
+              setIsSettingsOpen(true);
+              setShowMobileMenu(false);
+            }}
+            className="flex items-center p-2 rounded-md hover:bg-[#2A2A2A] w-full"
+          >
+            <Sliders className="h-4 w-4 mr-2 text-white" />
+            <span className="text-white text-sm">Model Parameters</span>
+          </button>
         </div>
       )}
 
       {/* Desktop control elements */}
       <div className="hidden md:flex items-center space-x-4">
-        <div className="flex items-center">
+        <div className="flex items-center space-x-4">
+          {/* RAG Selector */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -778,10 +800,9 @@ export default function Header({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-        </div>
 
-        {modelsDeployed.length > 0 && (
-          <div className="flex items-center">
+          {/* AI Agent Selector */}
+          {modelsDeployed.length > 0 && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -820,8 +841,31 @@ export default function Header({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-          </div>
-        )}
+          )}
+
+          {/* Settings Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                  className={cn(
+                    "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white",
+                    isSettingsOpen &&
+                      "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
+                  )}
+                >
+                  <Sliders className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                <p>Model Parameters</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
     </div>
   );

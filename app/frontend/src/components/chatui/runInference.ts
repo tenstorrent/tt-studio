@@ -165,29 +165,42 @@ export const runInference = async (
           ? { model: "meta-llama/Llama-3.3-70B-Instruct" }
           : {}),
         messages: messages,
-        max_tokens: 512,
+        temperature: request.temperature,
+        top_k: request.top_k,
+        top_p: request.top_p,
+        max_tokens: request.max_tokens,
         stream: true,
         stream_options: {
           include_usage: true,
+          continuous_usage_stats: true,
         },
       };
     } else {
       requestBody = {
         deploy_id: request.deploy_id,
         messages: messages,
-        max_tokens: 512,
+        temperature: request.temperature,
+        top_k: request.top_k,
+        top_p: request.top_p,
+        max_tokens: request.max_tokens,
         stream: true,
         stream_options: {
           include_usage: true,
+          continuous_usage_stats: true,
         },
         thread_id: threadIdStr,
       };
     }
 
-    console.log(
-      "Sending request to model:",
-      JSON.stringify(requestBody, null, 2)
-    );
+    // Log the complete request body with model parameters
+    console.log("=== Sending Request to Backend ===");
+    console.log("Request Body:", JSON.stringify(requestBody, null, 2));
+    console.log("Model Parameters:");
+    console.log("- Temperature:", requestBody.temperature);
+    console.log("- Top K:", requestBody.top_k);
+    console.log("- Top P:", requestBody.top_p);
+    console.log("- Max Tokens:", requestBody.max_tokens);
+    console.log("================================");
 
     const response = await fetch(API_URL, {
       method: "POST",

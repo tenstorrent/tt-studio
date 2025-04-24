@@ -25,6 +25,7 @@ import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
+import Settings from "./Settings";
 
 // Define a type for conversation with title
 interface ChatThread {
@@ -91,6 +92,15 @@ export default function ChatComponent() {
   const swipeAreaRef = useRef<HTMLDivElement>(null);
   const historyPanelRef = useRef<HTMLDivElement>(null);
   const [isHandleTouched, setIsHandleTouched] = useState(false);
+
+  // Add settings state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [modelSettings, setModelSettings] = useState({
+    temperature: 1,
+    maxLength: 512,
+    topP: 0.9,
+    topK: 20,
+  });
 
   // Show initial loading effect when component mounts
   useEffect(() => {
@@ -408,6 +418,23 @@ export default function ChatComponent() {
     return chatThreads[currentThreadIndex] || defaultThread;
   }, [chatThreads, currentThreadIndex, defaultThread]);
 
+  // Handle settings changes
+  const handleSettingsChange = (key: string, value: number) => {
+    console.log(`=== Settings Change ===`);
+    console.log(`Parameter: ${key}`);
+    console.log(`New Value: ${value}`);
+    console.log(`Previous Settings:`, modelSettings);
+
+    setModelSettings((prev) => {
+      const newSettings = {
+        ...prev,
+        [key]: value,
+      };
+      console.log(`Updated Settings:`, newSettings);
+      return newSettings;
+    });
+  };
+
   const handleInference = useCallback(
     async (continuationMessageId: string | null = null) => {
       if (textInput.trim() === "" && files.length === 0) return;
@@ -416,6 +443,14 @@ export default function ChatComponent() {
       if (modelsDeployed && !modelID) {
         return;
       }
+
+      // Log current model settings before creating request
+      console.log("=== Current Model Settings ===");
+      console.log("Temperature:", modelSettings.temperature);
+      console.log("Top K:", modelSettings.topK);
+      console.log("Top P:", modelSettings.topP);
+      console.log("Max Tokens:", modelSettings.maxLength);
+      console.log("=============================");
 
       // Get the current thread first to avoid any order issues
       const threadToUse = getCurrentThread();
@@ -443,11 +478,10 @@ export default function ChatComponent() {
           sender: "user",
           text: textInput,
           files: files,
-          ragDatasource: ragDatasource, // Store the RAG datasource with the message
+          ragDatasource: ragDatasource,
         };
         updatedMessages = [...(threadToUse.messages || []), userMessage];
 
-        // Auto-update title for new conversations - don't return early!
         if (updatedMessages.length === 1) {
           setChatThreads((prevThreads) => {
             if (!Array.isArray(prevThreads))
@@ -472,7 +506,6 @@ export default function ChatComponent() {
         }
       }
 
-      // If this was the first message, continue with inference
       if (!continuationMessageId) {
         setChatThreads((prevThreads) => {
           if (!Array.isArray(prevThreads))
@@ -486,13 +519,31 @@ export default function ChatComponent() {
         });
       }
 
+      // Create inference request with detailed logging
       const inferenceRequest: InferenceRequest = {
-        deploy_id: modelID || "", // Provide empty string as fallback when modelID is null
+        deploy_id: modelID || "",
         text: continuationMessageId ? `Continue: ${textInput}` : textInput,
         files: files,
+        temperature: modelSettings.temperature,
+        max_tokens: modelSettings.maxLength,
+        top_p: modelSettings.topP,
+        top_k: modelSettings.topK,
+        stream_options: {
+          include_usage: true,
+          continuous_usage_stats: true,
+        },
       };
 
-      // console.log("Running inference with request:", inferenceRequest);
+      // Log the complete inference request
+      console.log("=== Creating Inference Request ===");
+      console.log("Model ID:", inferenceRequest.deploy_id);
+      console.log("Temperature:", inferenceRequest.temperature);
+      console.log("Top K:", inferenceRequest.top_k);
+      console.log("Top P:", inferenceRequest.top_p);
+      console.log("Max Tokens:", inferenceRequest.max_tokens);
+      console.log("Text:", inferenceRequest.text);
+      console.log("===============================");
+
       setIsStreaming(true);
 
       if (screenSize.isMobileView) {
@@ -559,6 +610,7 @@ export default function ChatComponent() {
       getCurrentThread,
       defaultThread,
       setCurrentThreadIndex,
+      modelSettings,
     ]
   );
 
@@ -1055,6 +1107,8 @@ export default function ChatComponent() {
               setIsAgentSelected={setIsAgentSelected}
               isMobileView={screenSize.isMobileView}
               setIsRagExplicitlyDeselected={setIsRagExplicitlyDeselected}
+              isSettingsOpen={isSettingsOpen}
+              setIsSettingsOpen={setIsSettingsOpen}
             />
           </div>
           <div
@@ -1139,6 +1193,14 @@ export default function ChatComponent() {
           </div>
         </div>
       </Card>
+
+      {/* Settings Panel */}
+      <Settings
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={modelSettings}
+        onSettingsChange={handleSettingsChange}
+      />
     </div>
   );
 }

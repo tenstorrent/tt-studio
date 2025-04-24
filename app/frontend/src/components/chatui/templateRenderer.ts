@@ -87,21 +87,32 @@ ${responseFormat}`,
       firstDocumentPreview: ragContext.documents[0].substring(0, 100) + "...",
     });
 
-    // Extract source names from the documents format [From source-name]
+    // Process and format RAG documents with source attribution
     const formattedDocuments = ragContext.documents
       .map((docContent) => {
-        // Remove the [From source-name] prefix if it exists
-        return docContent.replace(/^\[From\s+[^\]]+\]\s*/, "");
+        // Extract source name and content
+        const sourceMatch = docContent.match(/^\[From\s+([^\]]+)\]\s*(.*)$/);
+        if (sourceMatch) {
+          const [, source, content] = sourceMatch;
+          return `[Source: ${source}]\n${content.trim()}`;
+        }
+        return docContent;
       })
-      .join("\n\n");
+      .join("\n\n---\n\n");
 
-    // Add context to system message
+    // Add context to system message with improved formatting
     messages[0].content += `
 
-CONTEXT INFORMATION:
----------------------
+RELEVANT CONTEXT:
+----------------
 ${formattedDocuments}
----------------------`;
+----------------
+
+INSTRUCTIONS:
+• Use the provided context to inform your response
+• Cite sources when using specific information
+• If context is insufficient, acknowledge this and provide general guidance
+• Maintain a conversational tone while being accurate`;
   }
 
   // Add chat history
