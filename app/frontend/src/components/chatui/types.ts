@@ -35,6 +35,7 @@ export interface ChatMessage {
   files?: FileData[];
   inferenceStats?: InferenceStats;
   ragDatasource?: RagDataSource;
+  isStopped?: boolean;
 }
 
 export type MessageContent =

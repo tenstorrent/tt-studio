@@ -21,7 +21,8 @@ export const runInference = async (
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
   isAgentSelected: boolean,
-  threadId: number
+  threadId: number,
+  abortController?: AbortController
 ) => {
   try {
     setIsStreaming(true);
@@ -150,6 +151,7 @@ export const runInference = async (
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
     };
     if (AUTH_TOKEN) {
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
@@ -202,10 +204,20 @@ export const runInference = async (
     console.log("- Max Tokens:", requestBody.max_tokens);
     console.log("================================");
 
+    // Create an AbortController if not provided
+    const controller = abortController || new AbortController();
+    const signal = controller.signal;
+
+    // Add abort signal to headers
+    signal.addEventListener("abort", () => {
+      headers["X-Abort-Requested"] = "true";
+    });
+
     const response = await fetch(API_URL, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestBody),
+      signal, // Add the signal to the fetch request
     });
 
     if (!response.ok) {
@@ -229,70 +241,93 @@ export const runInference = async (
     let inferenceStats: InferenceStats | undefined;
 
     if (reader) {
-      while (true) {
-        const { done, value } = await reader.read();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
 
-        if (done) {
-          console.log("Stream complete");
-          break;
-        }
+          if (done) {
+            console.log("Stream complete");
+            break;
+          }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith("data: ")) {
-            if (trimmedLine === "data: [DONE]") {
-              console.log("Received [DONE] signal");
-              continue;
-            }
-
-            if (trimmedLine.startsWith("data: <<END_OF_STREAM>>")) {
-              console.log("End of stream marker received");
-              continue;
-            }
-
-            try {
-              const jsonData = JSON.parse(trimmedLine.slice(5));
-
-              if (!isAgentSelected) {
-                // // Handle statistics separately after [DONE]
-                if (jsonData.ttft && jsonData.tpot) {
-                  inferenceStats = {
-                    user_ttft_s: jsonData.ttft,
-                    user_tpot: jsonData.tpot,
-                    tokens_decoded: jsonData.tokens_decoded,
-                    tokens_prefilled: jsonData.tokens_prefilled,
-                    context_length: jsonData.context_length,
-                  };
-                  console.log(
-                    "Final Inference Stats received:",
-                    inferenceStats
-                  );
-                  continue; // Skip processing this chunk as part of the generated text
-                }
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith("data: ")) {
+              if (trimmedLine === "data: [DONE]") {
+                console.log("Received [DONE] signal");
+                continue;
               }
-              // Handle the generated text
-              const content = jsonData.choices[0]?.delta?.content || "";
-              if (content) {
-                accumulatedText += content;
-                setChatHistory((prevHistory) => {
-                  const updatedHistory = [...prevHistory];
-                  const lastMessage = updatedHistory[updatedHistory.length - 1];
-                  if (lastMessage.id === newMessageId) {
-                    lastMessage.text = accumulatedText;
+
+              if (trimmedLine.startsWith("data: <<END_OF_STREAM>>")) {
+                console.log("End of stream marker received");
+                continue;
+              }
+
+              try {
+                const jsonData = JSON.parse(trimmedLine.slice(5));
+
+                if (!isAgentSelected) {
+                  // Handle statistics separately after [DONE]
+                  if (jsonData.ttft && jsonData.tpot) {
+                    inferenceStats = {
+                      user_ttft_s: jsonData.ttft,
+                      user_tpot: jsonData.tpot,
+                      tokens_decoded: jsonData.tokens_decoded,
+                      tokens_prefilled: jsonData.tokens_prefilled,
+                      context_length: jsonData.context_length,
+                    };
+                    console.log(
+                      "Final Inference Stats received:",
+                      inferenceStats
+                    );
+                    continue; // Skip processing this chunk as part of the generated text
                   }
-                  return updatedHistory;
-                });
+                }
+                // Handle the generated text
+                const content = jsonData.choices[0]?.delta?.content || "";
+                if (content) {
+                  accumulatedText += content;
+                  setChatHistory((prevHistory) => {
+                    const updatedHistory = [...prevHistory];
+                    const lastMessage =
+                      updatedHistory[updatedHistory.length - 1];
+                    if (lastMessage.id === newMessageId) {
+                      lastMessage.text = accumulatedText;
+                    }
+                    return updatedHistory;
+                  });
+                }
+              } catch (error) {
+                console.error("Failed to parse JSON:", error);
+                console.error("Problematic JSON string:", trimmedLine.slice(5));
               }
-            } catch (error) {
-              console.error("Failed to parse JSON:", error);
-              console.error("Problematic JSON string:", trimmedLine.slice(5));
             }
           }
         }
+      } catch (error: any) {
+        // Check if this is an abort error
+        if (error.name === "AbortError") {
+          console.log("Fetch aborted by user");
+          // Add a note to the message indicating it was stopped
+          setChatHistory((prevHistory) => {
+            const updatedHistory = [...prevHistory];
+            const lastMessage = updatedHistory[updatedHistory.length - 1];
+            if (lastMessage.id === newMessageId) {
+              lastMessage.text = accumulatedText;
+              lastMessage.isStopped = true;
+            }
+            return updatedHistory;
+          });
+        } else {
+          // Re-throw other errors
+          throw error;
+        }
+      } finally {
+        reader.releaseLock();
       }
     }
 
@@ -317,4 +352,16 @@ export const runInference = async (
     console.error("Error running inference:", error);
     setIsStreaming(false);
   }
+};
+
+// Function to create and expose a method to stop inference
+export const createInferenceController = () => {
+  const controller = new AbortController();
+  return {
+    controller,
+    stopInference: () => {
+      console.log("Stopping inference...");
+      controller.abort();
+    },
+  };
 };

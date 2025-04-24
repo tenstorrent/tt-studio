@@ -102,6 +102,11 @@ export default function ChatComponent() {
     topK: 20,
   });
 
+  // Add inference controller state
+  const [inferenceController, setInferenceController] = useState<{
+    abort: () => void;
+  } | null>(null);
+
   // Show initial loading effect when component mounts
   useEffect(() => {
     // Start with loading state
@@ -452,6 +457,10 @@ export default function ChatComponent() {
       console.log("Max Tokens:", modelSettings.maxLength);
       console.log("=============================");
 
+      // Create a new AbortController for this request
+      const controller = new AbortController();
+      setInferenceController(controller);
+
       // Get the current thread first to avoid any order issues
       const threadToUse = getCurrentThread();
       const hasThreads = Array.isArray(chatThreads) && chatThreads.length > 0;
@@ -550,52 +559,62 @@ export default function ChatComponent() {
         setIsHistoryPanelOpen(false);
       }
 
-      runInference(
-        inferenceRequest,
-        ragDatasource,
-        updatedMessages,
-        (newHistory) => {
-          setChatThreads((prevThreads) => {
-            if (!Array.isArray(prevThreads)) return [defaultThread];
+      try {
+        await runInference(
+          inferenceRequest,
+          ragDatasource,
+          updatedMessages,
+          (newHistory) => {
+            setChatThreads((prevThreads) => {
+              if (!Array.isArray(prevThreads)) return [defaultThread];
 
-            const currentThreadFromState = prevThreads[currentThreadIndex];
-            if (!currentThreadFromState) return prevThreads;
+              const currentThreadFromState = prevThreads[currentThreadIndex];
+              if (!currentThreadFromState) return prevThreads;
 
-            const currentMessages = currentThreadFromState.messages || [];
-            const processedHistory =
-              typeof newHistory === "function"
-                ? newHistory(currentMessages)
-                : newHistory;
+              const currentMessages = currentThreadFromState.messages || [];
+              const processedHistory =
+                typeof newHistory === "function"
+                  ? newHistory(currentMessages)
+                  : newHistory;
 
-            // Safety check for processedHistory
-            if (!Array.isArray(processedHistory)) return prevThreads;
+              // Safety check for processedHistory
+              if (!Array.isArray(processedHistory)) return prevThreads;
 
-            const lastMessage = processedHistory[processedHistory.length - 1];
-            const finalMessages =
-              lastMessage &&
-              lastMessage.sender === "assistant" &&
-              !lastMessage.id
-                ? [
-                    ...processedHistory.slice(0, -1),
-                    { ...lastMessage, id: uuidv4() },
-                  ]
-                : processedHistory;
+              const lastMessage = processedHistory[processedHistory.length - 1];
+              const finalMessages =
+                lastMessage &&
+                lastMessage.sender === "assistant" &&
+                !lastMessage.id
+                  ? [
+                      ...processedHistory.slice(0, -1),
+                      { ...lastMessage, id: uuidv4() },
+                    ]
+                  : processedHistory;
 
-            return prevThreads.map((thread, idx) =>
-              idx === currentThreadIndex
-                ? { ...thread, messages: finalMessages }
-                : thread
-            );
-          });
-        },
-        setIsStreaming,
-        isAgentSelected,
-        currentThreadIndex
-      );
-
-      setTextInput("");
-      setReRenderingMessageId(null);
-      setFiles([]);
+              return prevThreads.map((thread, idx) =>
+                idx === currentThreadIndex
+                  ? { ...thread, messages: finalMessages }
+                  : thread
+              );
+            });
+          },
+          setIsStreaming,
+          isAgentSelected,
+          currentThreadIndex,
+          controller
+        );
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") {
+          console.log("Request was aborted");
+        } else {
+          console.error("Error during inference:", error);
+        }
+      } finally {
+        setTextInput("");
+        setReRenderingMessageId(null);
+        setFiles([]);
+        setInferenceController(null);
+      }
     },
     [
       chatThreads,
@@ -613,6 +632,15 @@ export default function ChatComponent() {
       modelSettings,
     ]
   );
+
+  const handleStopInference = useCallback(() => {
+    if (inferenceController) {
+      inferenceController.abort();
+      setInferenceController(null);
+      setIsStreaming(false);
+      setTextInput("");
+    }
+  }, [inferenceController]);
 
   const handleReRender = useCallback(
     async (messageId: string) => {
@@ -1189,6 +1217,7 @@ export default function ChatComponent() {
               setFiles={setFiles}
               isMobileView={screenSize.isMobileView}
               onCreateNewConversation={createNewConversation}
+              onStopInference={handleStopInference}
             />
           </div>
         </div>
