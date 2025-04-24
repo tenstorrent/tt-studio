@@ -233,6 +233,7 @@ export default function InputArea({
       e.preventDefault();
       if (textInput.trim() !== "" || files.length > 0) {
         handleInference(textInput, files);
+        setTextInput("");
       }
     }
   };
@@ -726,6 +727,7 @@ export default function InputArea({
                       ) {
                         handleTouchStart("Sending message");
                         handleInference(textInput, files);
+                        setTextInput("");
                         handleTouchEnd();
                       }
                     }}
