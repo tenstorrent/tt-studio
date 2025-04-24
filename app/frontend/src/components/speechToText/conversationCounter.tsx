@@ -1,6 +1,7 @@
 import React from "react";
 import { cn } from "../../lib/utils";
 import { MessageSquare } from "lucide-react";
+import { useTheme } from "../../providers/ThemeProvider";
 
 interface ConversationCounterProps {
   count: number;
@@ -15,6 +16,8 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
   className = "",
   animate = false,
 }) => {
+  const { theme } = useTheme();
+  
   // Determine label based on count
   const label = count === 1 ? "message" : "messages";
 
@@ -23,8 +26,9 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
       <span
         className={cn(
           "inline-flex items-center justify-center",
-          "bg-TT-purple/10 dark:bg-TT-purple-shade/40",
-          "text-TT-purple-accent dark:text-TT-purple-tint1",
+          theme === "dark" 
+            ? "bg-TT-purple-shade/40 text-TT-purple-tint1" 
+            : "bg-TT-purple/10 text-TT-purple-accent",
           "text-xs font-medium rounded-full px-2 py-0.5",
           animate && count > 0 && "animate-pulse",
           className
@@ -40,11 +44,11 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
       <div
         className={cn(
           "inline-flex items-center gap-1.5",
-          "bg-TT-purple-shade/20 dark:bg-TT-purple/10",
-          "text-TT-purple dark:text-TT-purple-tint1",
+          theme === "dark"
+            ? "bg-TT-purple/10 text-TT-purple-tint1 border-TT-purple/30"
+            : "bg-TT-purple-shade/20 text-TT-purple border-TT-purple/20",
           "rounded-full px-3 py-1",
-          "border border-TT-purple/20 dark:border-TT-purple/30",
-          "shadow-sm",
+          "border shadow-sm",
           animate && count > 0 && "animate-pulse",
           className
         )}
@@ -62,11 +66,11 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
     <div
       className={cn(
         "inline-flex items-center gap-1",
-        "bg-TT-purple-shade/30 dark:bg-TT-purple/20",
-        "text-TT-purple-tint1 dark:text-TT-purple-tint2",
+        theme === "dark"
+            ? "bg-TT-purple/20 text-TT-purple-tint2 border-TT-purple/20"
+            : "bg-TT-purple-shade/30 text-TT-purple-tint1 border-TT-purple/10",
         "rounded-md px-2 py-0.5",
-        "border border-TT-purple/10 dark:border-TT-purple/20",
-        "shadow-sm",
+        "border shadow-sm",
         animate && count > 0 && "animate-pulse",
         className
       )}

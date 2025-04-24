@@ -5,6 +5,61 @@
 @tailwind utilities;
 
 @layer base {
+  /* Custom Scrollbar Styles */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(38, 38, 51, 0.8);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(79, 70, 229, 0.3);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  ::-webkit-scrollbar-thumb:active,
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.4);
+    width: 8px;
+  }
+
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(79, 70, 229, 0.3) rgba(38, 38, 51, 0.8);
+  }
+
+  *:hover {
+    scrollbar-color: rgba(99, 102, 241, 0.4) rgba(38, 38, 51, 0.8);
+  }
+
+  /* Light mode overrides if needed */
+  .light ::-webkit-scrollbar-track {
+    background: rgba(38, 38, 51, 0.8);
+  }
+
+  .light ::-webkit-scrollbar-thumb {
+    background: rgba(79, 70, 229, 0.3);
+  }
+
+  .light ::-webkit-scrollbar-thumb:active,
+  .light ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.4);
+  }
+
+  .light * {
+    scrollbar-color: rgba(79, 70, 229, 0.3) rgba(38, 38, 51, 0.8);
+  }
+
+  .light *:hover {
+    scrollbar-color: rgba(99, 102, 241, 0.4) rgba(38, 38, 51, 0.8);
+  }
+
   body {
     @apply font-sans antialiased;
     font-feature-settings: "ss01", "ss02", "cv01", "cv02";
@@ -219,13 +274,29 @@ a.button {
 
 @keyframes grid {
   0% {
-    transform: translateY(0);
+    transform: translateY(0%);
   }
   100% {
-    transform: translateY(calc(var(--cell-size) * -1));
+    transform: translateY(calc(var(--cell-size, 50px) * 2));
   }
 }
 
 .animate-grid {
-  animation: grid 3s linear infinite;
+  animation: grid 8s linear infinite;
+  will-change: transform;
+}
+
+@layer components {
+  .animate-line-shadow {
+    animation: line-shadow 15s linear infinite;
+  }
+}
+
+@keyframes line-shadow {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 100% -100%;
+  }
 }

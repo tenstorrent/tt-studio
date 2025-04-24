@@ -7,6 +7,12 @@ import { Input } from "../ui/input";
 import { Skeleton } from "../ui/skeleton";
 import { PlusCircle, MessageSquare, Trash2, Edit2, Search } from "lucide-react";
 import { customToast } from "../CustomToaster";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 interface HistoryPanelProps {
   conversations: { id: string; title: string }[];
@@ -104,9 +110,17 @@ export function HistoryPanel({
 
   // Convert back to array and filter by search query
   const uniqueConversations = Array.from(conversationMap.values());
-  const filteredConversations = uniqueConversations.filter((conversation) =>
-    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConversations = uniqueConversations
+    .sort((a, b) => {
+      // Current conversation should always be first
+      if (a.id === currentConversationId) return -1;
+      if (b.id === currentConversationId) return 1;
+      // Otherwise sort by ID in descending order (newer chats first)
+      return parseInt(b.id) - parseInt(a.id);
+    })
+    .filter((conversation) =>
+      conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
   // Show skeleton if loading, regardless of mobile state
   if (isLoading) {
@@ -221,12 +235,21 @@ export function HistoryPanel({
                     autoFocus
                   />
                 ) : (
-                  <span
-                    className="truncate flex-1"
-                    onClick={() => onSelectConversation(conversation.id)}
-                  >
-                    {highlightSearchText(conversation.title, searchQuery)}
-                  </span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          className="truncate flex-1 text-left"
+                          onClick={() => onSelectConversation(conversation.id)}
+                        >
+                          {highlightSearchText(conversation.title, searchQuery)}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>{conversation.title}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
               </div>
               <div

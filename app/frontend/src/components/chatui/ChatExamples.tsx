@@ -98,7 +98,7 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
   }, [exampleCount, isMobileView]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[28rem] p-2 sm:p-4 bg-white dark:bg-inherit transition-colors duration-200">
+    <div className="flex flex-col items-center justify-center min-h-[28rem] p-2 sm:p-4 transition-colors duration-200">
       <img
         src={logo}
         alt="Tenstorrent Logo"
@@ -117,18 +117,21 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
             key={index}
             variant="outline"
             className={`h-auto ${isMobileView ? "py-3 px-4" : "py-4 px-6"} flex flex-col items-center justify-center text-center space-y-2
-                     bg-gray-100 dark:bg-[#2A2A2A] hover:bg-gray-200 dark:hover:bg-[#333333] 
-                     border border-gray-300 dark:border-[#7C68FA]/20 hover:border-gray-400 dark:hover:border-[#7C68FA]/40
-                     text-gray-800 dark:text-white group transition-all duration-300`}
+                     bg-white dark:bg-[#2A2A2A] hover:bg-gray-50 dark:hover:bg-[#333333] 
+                     border border-gray-200 dark:border-[#7C68FA]/20 hover:border-gray-300 dark:hover:border-[#7C68FA]/40
+                     text-gray-800 dark:text-white group transition-all duration-300 shadow-sm hover:shadow-md
+                     rounded-xl hover:rounded-2xl transform hover:scale-[1.02] active:scale-[0.98]`}
             onClick={() => setTextInput(example.text)}
           >
-            <span className={`${example.color} transition-colors duration-200`}>
+            <span
+              className={`${example.color} transition-all duration-300 transform group-hover:scale-110 group-hover:rotate-[-8deg]`}
+            >
               {React.cloneElement(example.icon as React.ReactElement, {
                 className: isMobileView ? "h-5 w-5" : "h-6 w-6",
               })}
             </span>
             <span
-              className={`${isMobileView ? "text-xs" : "text-sm"} font-medium`}
+              className={`${isMobileView ? "text-xs" : "text-sm"} font-medium transition-all duration-300 group-hover:text-gray-900 dark:group-hover:text-white`}
             >
               {example.text}
             </span>

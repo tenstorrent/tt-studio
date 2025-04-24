@@ -16,9 +16,10 @@ import {
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
+  Mic,
 } from "lucide-react";
 
-import logo from "../assets/tt_logo.svg";
+import logo from "../assets/logo/tt_logo.svg";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -31,7 +32,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
@@ -259,7 +259,7 @@ export default function NavBar() {
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
   // Check if we're in Chat UI or Image Generation mode
-  const isChatUI = location.pathname === "/chat-ui";
+  const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
   const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
 
@@ -337,7 +337,7 @@ export default function NavBar() {
     return `${navLinkClass} ${
       isActive ||
       (isChatUIIcon &&
-        (location.pathname === "/chat-ui" ||
+        (location.pathname === "/chat" ||
           location.pathname === "/image-generation"))
         ? `border-2 ${activeBorderColor}`
         : "border-transparent"
@@ -417,15 +417,15 @@ export default function NavBar() {
       {
         type: "button",
         icon: BotMessageSquare,
-        label: "Chat UI",
-        onClick: () => handleNavigation("/chat-ui"),
+        label: "Chat",
+        onClick: () => handleNavigation("/chat"),
         isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
         tooltipText: isDeployedEnabled
-          ? "Chat UI with Llama 3.3 70B"
+          ? "Chat with Llama 3.3 70B"
           : models.length > 0
-            ? "Chat UI with Llama 3.3 70B"
-            : "Deploy a model to use Chat UI with Llama 3.3 70B",
-        route: "/chat-ui", // Add route for active state detection
+            ? "Chat with Llama 3.3 70B"
+            : "Deploy a model to chat with Llama 3.3 70B",
+        route: "/chat", // Add route for active state detection
       },
       {
         type: "button",
@@ -442,16 +442,16 @@ export default function NavBar() {
       },
       {
         type: "button",
-        icon: AudioLines,
-        label: "Whisper Detection",
-        onClick: () => handleNavigation("/audio-detection"),
-        isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
+        icon: Mic,
+        label: "Automatic Speech Recognition",
+        onClick: () => handleNavigation("/speech-to-text"),
+        isDisabled: !isDeployedEnabled && models.length === 0,
         tooltipText: isDeployedEnabled
-          ? "Audio Transcription with Whisper Model"
+          ? "Audio Transcription with Whisper Distil Large V3"
           : models.length > 0
-            ? "Audio Transcription with Whisper Model"
-            : "Deploy a model to use Whisper Model Audio Transcription",
-        route: "/audio-detection", // Add route for active state detection
+            ? "Audio Transcription with Whisper Distil Large V3"
+            : "Deploy a model to use Automatic Speech Recognition",
+        route: "/speech-to-text",
       },
     ];
 
@@ -513,9 +513,14 @@ export default function NavBar() {
                 className="mb-6"
               >
                 <motion.img
-                  src={logo}
+                  src={logo || "/placeholder.svg"}
                   alt="Tenstorrent Logo"
                   className="w-10 h-10"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = "/placeholder.svg";
+                    target.onerror = null;
+                  }}
                   whileHover={{ scale: 1.1, rotate: 360 }}
                   transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 />
@@ -590,9 +595,14 @@ export default function NavBar() {
               className="flex items-center"
             >
               <motion.img
-                src={logo}
+                src={logo || "/placeholder.svg"}
                 alt="Tenstorrent Logo"
                 className="w-8 h-8"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = "/placeholder.svg";
+                  target.onerror = null;
+                }}
                 whileHover={{ scale: 1.1, rotate: 360 }}
                 transition={{ type: "spring", stiffness: 300, damping: 10 }}
               />
@@ -740,9 +750,14 @@ export default function NavBar() {
             className="flex items-center"
           >
             <motion.img
-              src={logo}
+              src={logo || "/placeholder.svg"}
               alt="Tenstorrent Logo"
               className="w-10 h-10 sm:w-14 sm:h-14"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = "/placeholder.svg";
+                target.onerror = null;
+              }}
               whileHover={{ scale: 1.1, rotate: 360 }}
               transition={{ type: "spring", stiffness: 300, damping: 10 }}
             />

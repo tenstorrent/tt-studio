@@ -21,6 +21,7 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { sendAudioRecording } from "./lib/apiClient";
+import { useTheme } from "../../providers/ThemeProvider";
 
 interface Transcription {
   id: string;
@@ -63,6 +64,7 @@ export function MainContent({
   const [hasRecordedBefore, setHasRecordedBefore] = useState(false);
   const [forceShowTranscription, setForceShowTranscription] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const { theme } = useTheme();
 
   const contentContainerRef = useRef<HTMLDivElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -335,12 +337,16 @@ export function MainContent({
   }, []);
 
   return (
-    // This is the main container - it should take full height and handle scrolling
     <div className="flex flex-col h-full">
       {/* Scrollable content container */}
       <div
         ref={contentContainerRef}
-        className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1A1A1A] to-[#222222]"
+        className={cn(
+          "flex-1 overflow-y-auto",
+          theme === "dark"
+            ? "bg-gradient-to-b from-[#1A1A1A] to-[#222222]"
+            : "bg-gradient-to-b from-gray-50 to-white"
+        )}
       >
         <div className="p-2 sm:p-4 md:p-6">
           <div className="max-w-4xl mx-auto w-full">
@@ -350,13 +356,23 @@ export function MainContent({
                   <h1 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-4 text-TT-purple">
                     ML-Powered Speech Recognition
                   </h1>
-                  <p className="text-sm sm:text-base text-TT-purple-tint1 dark:text-TT-purple-tint1">
+                  <p className={cn(
+                    "text-sm sm:text-base",
+                    theme === "dark" 
+                      ? "text-TT-purple-tint1"
+                      : "text-TT-purple-shade"
+                  )}>
                     Record your voice and convert it to text instantly. Follow
                     the steps below to get started.
                   </p>
                 </div>
 
-                <Card className="mb-4 sm:mb-8 p-4 sm:p-8 bg-[#222222]/80 backdrop-blur-sm border-TT-purple-shade/50 dark:border-TT-purple/30 shadow-lg shadow-TT-purple/5">
+                <Card className={cn(
+                  "mb-4 sm:mb-8 p-4 sm:p-8 backdrop-blur-sm shadow-lg shadow-TT-purple/5",
+                  theme === "dark"
+                    ? "bg-[#222222]/80 border-TT-purple/30"
+                    : "bg-white/80 border-TT-purple-shade/30"
+                )}>
                   <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 text-TT-purple">
                     {isProcessing ? "Processing..." : ""}
                   </h2>
@@ -369,7 +385,12 @@ export function MainContent({
                   </div>
 
                   {isProcessing && (
-                    <div className="mt-4 sm:mt-6 p-3 sm:p-4 border border-TT-purple-shade/50 rounded-md bg-TT-purple-shade/20">
+                    <div className={cn(
+                      "mt-4 sm:mt-6 p-3 sm:p-4 rounded-md",
+                      theme === "dark"
+                        ? "border-TT-purple-shade/50 bg-TT-purple-shade/20"
+                        : "border-TT-purple-shade/30 bg-TT-purple-shade/10"
+                    )}>
                       <div className="flex items-center">
                         <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 animate-spin text-TT-purple" />
                         <p className="text-sm sm:text-base font-medium text-TT-purple">
@@ -389,12 +410,23 @@ export function MainContent({
                   ).map((group) => (
                     <div key={group.date} className="mb-6 sm:mb-8">
                       <div className="flex items-center gap-2 px-2 mb-3 sm:mb-4">
-                        <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
-                        <div className="text-xs font-medium text-white bg-TT-purple-shade/60 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20">
+                        <div className={cn(
+                          "h-px flex-grow",
+                          theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
+                        )}></div>
+                        <div className={cn(
+                          "text-xs font-medium px-2 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20",
+                          theme === "dark"
+                            ? "text-white bg-TT-purple-shade/60"
+                            : "text-TT-purple bg-TT-purple-shade/20"
+                        )}>
                           <Clock className="h-3 w-3 mr-1 text-TT-purple-tint1" />
                           {group.date}
                         </div>
-                        <div className="h-px bg-TT-purple-shade/40 flex-grow"></div>
+                        <div className={cn(
+                          "h-px flex-grow",
+                          theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
+                        )}></div>
                       </div>
 
                       <div className="space-y-3 sm:space-y-4">
@@ -402,10 +434,13 @@ export function MainContent({
                           <Card
                             key={transcription.id}
                             className={cn(
-                              "p-3 sm:p-5 bg-[#222222]/80 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
+                              "p-3 sm:p-5 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
+                              theme === "dark"
+                                ? "bg-[#222222]/80 border-y border-r border-TT-purple-shade/30"
+                                : "bg-white/80 border-y border-r border-TT-purple-shade/20",
                               index % 2 === 0
-                                ? "border-l-TT-purple-accent border-y border-r border-TT-purple-shade/30"
-                                : "border-l-TT-blue border-y border-r border-TT-blue-shade/30",
+                                ? "border-l-TT-purple-accent"
+                                : "border-l-TT-blue",
                               justSentRecording &&
                                 index === group.items.length - 1 &&
                                 group ===
@@ -523,7 +558,12 @@ export function MainContent({
 
                             {/* Audio preview */}
                             {transcription.audioBlob && (
-                              <div className="mb-2 sm:mb-3 rounded-md border border-TT-purple-shade/50 bg-[#1A1A1A]/90 backdrop-blur-sm">
+                              <div className={cn(
+                                "mb-2 sm:mb-3 rounded-md border backdrop-blur-sm",
+                                theme === "dark" 
+                                  ? "border-TT-purple-shade/50 bg-[#1A1A1A]/90"
+                                  : "border-TT-purple-shade/20 bg-white/90"
+                              )}>
                                 <div className="flex items-center gap-1 sm:gap-2 p-2 sm:p-3">
                                   <Button
                                     variant="ghost"
@@ -538,24 +578,29 @@ export function MainContent({
                                         audio.pause();
                                       }
                                     }}
-                                    className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex items-center justify-center text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
+                                    className={cn(
+                                      "h-7 w-7 sm:h-8 sm:w-8 p-0 flex items-center justify-center",
+                                      "text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
+                                    )}
                                   >
                                     <Play className="h-3 w-3 sm:h-4 sm:w-4" />
                                   </Button>
                                   <div className="flex-1">
                                     <audio
                                       id={`audio-${transcription.id}`}
-                                      className="w-full 
-                                        [&::-webkit-media-controls-panel]:bg-[#1A1A1A]/90
-                                        [&::-webkit-media-controls-play-button]:hidden 
-                                        [&::-webkit-media-controls-current-time-display]:text-TT-purple-tint1
-                                        [&::-webkit-media-controls-time-remaining-display]:text-TT-purple-tint1
-                                        [&::-webkit-media-controls-timeline]:accent-TT-purple"
+                                      className={cn(
+                                        "w-full",
+                                        theme === "dark"
+                                          ? "[&::-webkit-media-controls-panel]:bg-[#1A1A1A]/90"
+                                          : "[&::-webkit-media-controls-panel]:bg-white/90",
+                                        "[&::-webkit-media-controls-play-button]:hidden",
+                                        "[&::-webkit-media-controls-current-time-display]:text-TT-purple-tint1",
+                                        "[&::-webkit-media-controls-time-remaining-display]:text-TT-purple-tint1",
+                                        "[&::-webkit-media-controls-timeline]:accent-TT-purple"
+                                      )}
                                       src={
                                         transcription.audioBlob
-                                          ? URL.createObjectURL(
-                                              transcription.audioBlob
-                                            )
+                                          ? URL.createObjectURL(transcription.audioBlob)
                                           : undefined
                                       }
                                       controls
@@ -570,31 +615,46 @@ export function MainContent({
                             {isEditing === transcription.id ? (
                               <textarea
                                 ref={textareaRef}
-                                className="w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 border border-TT-purple-shade/50 rounded-md bg-[#1A1A1A] text-white focus:outline-none focus:ring-2 focus:ring-TT-purple text-sm sm:text-base"
+                                className={cn(
+                                  "w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 rounded-md text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-TT-purple",
+                                  theme === "dark"
+                                    ? "bg-[#1A1A1A] text-white border-TT-purple-shade/50"
+                                    : "bg-white text-gray-900 border-TT-purple-shade/20"
+                                )}
                                 defaultValue={transcription.text}
                               ></textarea>
                             ) : (
-                              <div className="p-3 sm:p-4 rounded-lg bg-[#1E1E1E] text-white min-h-[60px] border border-[#2A2A2A] shadow-[inset_1px_1px_0px_rgba(0,0,0,0.4),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)] relative group transition-all duration-200">
+                              <div className={cn(
+                                "p-3 sm:p-4 rounded-lg min-h-[60px] relative group transition-all duration-200",
+                                theme === "dark"
+                                  ? "bg-[#1E1E1E] text-white border-[#2A2A2A]"
+                                  : "bg-gray-50 text-gray-900 border-gray-200",
+                                "border shadow-[inset_1px_1px_0px_rgba(0,0,0,0.1),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)]"
+                              )}>
                                 <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-TT-purple/5 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none"></div>
 
                                 <div className="flex items-center gap-2 mb-1.5 sm:mb-2.5">
                                   <div className="h-1.5 w-1.5 rounded-full bg-TT-purple-accent opacity-80"></div>
-                                  <div className="text-xs text-TT-purple-tint1 opacity-80 font-medium tracking-wide">
+                                  <div className={cn(
+                                    "text-xs opacity-80 font-medium tracking-wide",
+                                    theme === "dark" ? "text-TT-purple-tint1" : "text-TT-purple"
+                                  )}>
                                     Transcription
                                   </div>
                                 </div>
 
-                                <div className="text-sm sm:text-base text-TT-purple-tint2 leading-relaxed">
+                                <div className={cn(
+                                  "text-sm sm:text-base leading-relaxed",
+                                  theme === "dark" ? "text-TT-purple-tint2" : "text-gray-700"
+                                )}>
                                   {transcription.text}
                                 </div>
 
-                                <div className="text-right text-xs text-TT-purple-shade/70 mt-2 sm:mt-3 opacity-60 font-mono">
-                                  {
-                                    transcription.text
-                                      .split(/\s+/)
-                                      .filter(Boolean).length
-                                  }{" "}
-                                  words
+                                <div className={cn(
+                                  "text-right text-xs mt-2 sm:mt-3 opacity-60 font-mono",
+                                  theme === "dark" ? "text-TT-purple-shade" : "text-gray-500"
+                                )}>
+                                  {transcription.text.split(/\s+/).filter(Boolean).length} words
                                 </div>
                               </div>
                             )}
@@ -607,7 +667,12 @@ export function MainContent({
 
                 {/* Add new recording button at bottom of conversation with improved styling */}
                 <div
-                  className="py-6 sm:py-10 border-2 border-dashed border-TT-purple/40 rounded-lg bg-gradient-to-r from-[#1A1A1A] to-[#222222] hover:bg-gradient-to-r hover:from-[#222222] hover:to-[#1A1A1A] transition-colors flex justify-center mb-24 sm:mb-52 mt-4 sm:mt-8 relative"
+                  className={cn(
+                    "py-6 sm:py-10 border-2 border-dashed rounded-lg transition-colors flex justify-center mb-24 sm:mb-52 mt-4 sm:mt-8 relative",
+                    theme === "dark"
+                      ? "border-TT-purple/40 bg-gradient-to-r from-[#1A1A1A] to-[#222222] hover:from-[#222222] hover:to-[#1A1A1A]"
+                      : "border-TT-purple-shade/40 bg-gradient-to-r from-gray-50 to-white hover:from-white hover:to-gray-50"
+                  )}
                   ref={conversationEndRef}
                 >
                   <Button
