@@ -19,7 +19,7 @@ import {
   Mic,
 } from "lucide-react";
 
-import logo from "../assets/tt_logo.svg";
+import logo from "../assets/logo/tt_logo.svg";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -32,7 +32,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-``  
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
@@ -514,9 +513,14 @@ export default function NavBar() {
                 className="mb-6"
               >
                 <motion.img
-                  src={logo}
+                  src={logo || "/placeholder.svg"}
                   alt="Tenstorrent Logo"
                   className="w-10 h-10"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = "/placeholder.svg";
+                    target.onerror = null;
+                  }}
                   whileHover={{ scale: 1.1, rotate: 360 }}
                   transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 />
@@ -591,9 +595,14 @@ export default function NavBar() {
               className="flex items-center"
             >
               <motion.img
-                src={logo}
+                src={logo || "/placeholder.svg"}
                 alt="Tenstorrent Logo"
                 className="w-8 h-8"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = "/placeholder.svg";
+                  target.onerror = null;
+                }}
                 whileHover={{ scale: 1.1, rotate: 360 }}
                 transition={{ type: "spring", stiffness: 300, damping: 10 }}
               />
@@ -741,9 +750,14 @@ export default function NavBar() {
             className="flex items-center"
           >
             <motion.img
-              src={logo}
+              src={logo || "/placeholder.svg"}
               alt="Tenstorrent Logo"
               className="w-10 h-10 sm:w-14 sm:h-14"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = "/placeholder.svg";
+                target.onerror = null;
+              }}
               whileHover={{ scale: 1.1, rotate: 360 }}
               transition={{ type: "spring", stiffness: 300, damping: 10 }}
             />

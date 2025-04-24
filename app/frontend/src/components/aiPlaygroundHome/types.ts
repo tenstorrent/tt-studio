@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 export interface TPBadgeConfig {
+  show?: boolean; // Whether to show the TP badge
   value?: number; // If not provided, will be determined by TTDevice
   stripeColor?: string; // Color of the decorative stripes, defaults to #ff6b6b
   showStripes?: boolean; // Whether to show the stripes, defaults to true
   position?: "top-left" | "top-right" | "bottom-left" | "bottom-right"; // Position of the badge
+  customText?: string; // Custom text to display instead of TP value
 }
 
 export interface StatusIndicatorConfig {

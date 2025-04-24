@@ -432,6 +432,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                               reRenderingMessageId === message.id || // If this specific message is being re-rendered
                               index < chatHistory.length - 1 // If it's not the absolute last message
                             }
+                            isStopped={message.isStopped}
                           />
                         </div>
                       </>

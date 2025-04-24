@@ -129,6 +129,7 @@ interface InputAreaProps {
   setFiles?: React.Dispatch<React.SetStateAction<FileData[]>>;
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
+  onStopInference?: () => void;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -150,6 +151,7 @@ export default function InputArea({
   setFiles = () => {},
   isMobileView = false,
   onCreateNewConversation,
+  onStopInference,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
@@ -680,55 +682,91 @@ export default function InputArea({
                 </div>
               )}
 
-              <div className="relative group">
-                <Button
-                  onClick={() => {
-                    if (
-                      (textInput.trim() !== "" || files.length > 0) &&
-                      !isStreaming
-                    ) {
-                      handleTouchStart("Sending message");
-                      handleInference(textInput, files);
-                      handleTouchEnd();
-                    }
-                  }}
-                  onTouchStart={() => {
-                    if (
-                      (textInput.trim() !== "" || files.length > 0) &&
-                      !isStreaming
-                    ) {
-                      handleTouchStart("Sending message");
-                    }
-                  }}
-                  onTouchEnd={handleTouchEnd}
-                  disabled={
-                    isStreaming || (!textInput.trim() && files.length === 0)
-                  }
-                  className={`
-                    bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
-                    ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
-                    rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
-                    ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
-                  `}
-                  aria-label={
-                    isMobileView ? "Send message" : "Generate response"
-                  }
-                >
-                  {isMobileView ? (
-                    <Send className="h-4 w-4" />
-                  ) : (
-                    <>
-                      Generate
-                      <Send className="h-4 w-4" />
-                    </>
+              {isStreaming ? (
+                <div className="relative group">
+                  <Button
+                    onClick={() => {
+                      if (onStopInference) {
+                        handleTouchStart("Stopping generation");
+                        onStopInference();
+                        handleTouchEnd();
+                      }
+                    }}
+                    onTouchStart={() => handleTouchStart("Stopping generation")}
+                    onTouchEnd={handleTouchEnd}
+                    className={`
+                      bg-red-500 hover:bg-red-600 active:bg-red-700 text-white 
+                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                      rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
+                    `}
+                    aria-label="Stop generation"
+                  >
+                    {isMobileView ? (
+                      <X className="h-4 w-4" />
+                    ) : (
+                      <>
+                        Stop
+                        <X className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                  {isMobileView && (
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                      Stop generation
+                    </div>
                   )}
-                </Button>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    {isStreaming ? "Generating..." : "Send message"}
-                  </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="relative group">
+                  <Button
+                    onClick={() => {
+                      if (
+                        (textInput.trim() !== "" || files.length > 0) &&
+                        !isStreaming
+                      ) {
+                        handleTouchStart("Sending message");
+                        handleInference(textInput, files);
+                        handleTouchEnd();
+                      }
+                    }}
+                    onTouchStart={() => {
+                      if (
+                        (textInput.trim() !== "" || files.length > 0) &&
+                        !isStreaming
+                      ) {
+                        handleTouchStart("Sending message");
+                      }
+                    }}
+                    onTouchEnd={handleTouchEnd}
+                    disabled={
+                      isStreaming || (!textInput.trim() && files.length === 0)
+                    }
+                    className={`
+                      bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
+                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                      rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
+                      ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
+                    `}
+                    aria-label={
+                      isMobileView ? "Send message" : "Generate response"
+                    }
+                  >
+                    {isMobileView ? (
+                      <Send className="h-4 w-4" />
+                    ) : (
+                      <>
+                        Generate
+                        <Send className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                  {isMobileView && (
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                      {isStreaming ? "Generating..." : "Send message"}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

@@ -50,7 +50,7 @@ export const models: Model[] = [
   {
     id: "llama",
     title: "Llama 3.3 70B",
-    image: "src/assets/llama-image.svg",
+    image: "src/assets/aiPlayground/model-logo/llama.svg",
     path: "/chat",
     filter: "#323968",
     TTDevice: "LoudBox",
@@ -60,22 +60,24 @@ export const models: Model[] = [
   {
     id: "whisper",
     title: "Whisper",
-    image: "src/assets/whisper.svg",
+    image: "src/assets/aiPlayground/model-logo/whisper.svg",
     path: "/speech-to-text",
     filter: "#74C5DF",
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
     modelType: "Audio",
+    tpBadge: { value: -1, customText: "Batch=1" },
   },
   {
     id: "yolov4",
     title: "YOLOv4",
-    image: "src/assets/yolo5.svg",
+    image: "src/assets/aiPlayground/model-logo/yolo.svg",
     path: "/object-detection",
     filter: "#6FABA0",
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
     modelType: "CNN",
+    tpBadge: { value: -1, customText: "Batch=1" },
   },
 ];
 

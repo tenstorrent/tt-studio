@@ -110,9 +110,17 @@ export function HistoryPanel({
 
   // Convert back to array and filter by search query
   const uniqueConversations = Array.from(conversationMap.values());
-  const filteredConversations = uniqueConversations.filter((conversation) =>
-    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConversations = uniqueConversations
+    .sort((a, b) => {
+      // Current conversation should always be first
+      if (a.id === currentConversationId) return -1;
+      if (b.id === currentConversationId) return 1;
+      // Otherwise sort by ID in descending order (newer chats first)
+      return parseInt(b.id) - parseInt(a.id);
+    })
+    .filter((conversation) =>
+      conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
   // Show skeleton if loading, regardless of mobile state
   if (isLoading) {

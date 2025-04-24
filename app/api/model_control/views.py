@@ -58,8 +58,18 @@ class InferenceView(APIView):
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
             data["model"] = deploy["model_impl"].hf_model_id
-            response_stream = stream_response_from_external_api(internal_url, data)
-            return StreamingHttpResponse(response_stream, content_type="text/plain")
+            
+            # Create a generator that can be cancelled
+            def generate_response():
+                try:
+                    for chunk in stream_response_from_external_api(internal_url, data):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"Error in stream: {str(e)}")
+                    yield f"error: {str(e)}"
+            
+            response = StreamingHttpResponse(generate_response(), content_type="text/plain")
+            return response
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
