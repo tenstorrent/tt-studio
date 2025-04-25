@@ -30,7 +30,7 @@ const ImageGenParentComponent: React.FC = () => {
   }, [location.state, modelID, modelName]);
 
   return (
-    <div className="w-full h-screen p-4 pb-8 pl-32">
+    <div className="w-full h-screen p-2 pb-8 pl-32">
       <Card className="flex flex-col w-full h-full overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 backdrop-blur-sm">
         <div className="flex-1 overflow-hidden flex flex-col relative">
           {showChat ? (

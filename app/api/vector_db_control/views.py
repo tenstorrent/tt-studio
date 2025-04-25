@@ -25,6 +25,7 @@ from vector_db_control.chroma import (
     delete_collection,
 )
 from vector_db_control.documents import chunk_pdf_document
+from vector_db_control.data import INTERNAL_KNOWLEDGE
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -117,6 +118,18 @@ class VectorCollectionsAPIView(ViewSet):
                 metadata=metadata,
                 embedding_func_name=self.EMBED_MODEL,
             )
+
+            # Load internal knowledge into the collection
+            logger.info(f"Loading internal knowledge into collection {name}")
+            ids = [f"internal_{i}" for i in range(len(INTERNAL_KNOWLEDGE))]
+            insert_to_chroma_collection(
+                collection_name=name,
+                documents=INTERNAL_KNOWLEDGE,
+                ids=ids,
+                metadatas=[{"source": "internal_knowledge", "type": "documentation"} for _ in INTERNAL_KNOWLEDGE],
+                embedding_func_name=self.EMBED_MODEL,
+            )
+            logger.info(f"Internal knowledge loaded successfully into {name}")
             
             logger.info(f"Collection created successfully: {collection.name}")
             serialized = serialize_collection(collection)
@@ -245,6 +258,74 @@ class VectorCollectionsAPIView(ViewSet):
         logger.info(f"Query completed with {num_results} results")
         
         return Response(data=query_result)
+
+    @action(methods=["GET"], detail=False, url_path="query-all")
+    def query_all_collections(self, request):
+        """Query across all collections and rank results by relevance score"""
+        logger.info(f"Query all collections request received")
+        logger.info(f"Query params: {request.query_params}")
+        
+        query = request.query_params.get("query")
+        if not query:
+            return Response(
+                {"error": "Missing query parameter"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get user identifier to filter collections by ownership
+        user_id = self.get_user_identifier(request)
+        logger.info(f"User identifier for query-all: {user_id}")
+        
+        # Get all collections
+        collections = list_collections()
+        
+        # Filter collections by user identifier
+        filtered_collections = [
+            col for col in collections 
+            if not col.metadata or not col.metadata.get('user_id') or col.metadata.get('user_id') == user_id
+        ]
+        
+        logger.info(f"Querying across {len(filtered_collections)} collections")
+        
+        all_results = []
+        
+        # Query each collection
+        for collection in filtered_collections:
+            try:
+                result = query_collection(
+                    collection_name=collection.name,
+                    embedding_func_name=self.EMBED_MODEL,
+                    query_texts=[query]
+                )
+                
+                # Add collection metadata to each result
+                if result.get("documents") and result["documents"][0]:
+                    for i, (doc, score) in enumerate(zip(result["documents"][0], result["distances"][0])):
+                        all_results.append({
+                            "collection": collection.name,
+                            "content": doc,
+                            "score": score,
+                            "id": result["ids"][0][i] if result.get("ids") and result["ids"][0] else None
+                        })
+            except Exception as e:
+                logger.error(f"Error querying collection {collection.name}: {str(e)}", exc_info=True)
+                # Continue with other collections
+        
+        # Sort by score (lower is better for distance-based similarity)
+        sorted_results = sorted(all_results, key=lambda x: x["score"])
+        
+        # Limit results based on request parameter
+        limit = int(request.query_params.get("limit", 5))
+        top_results = sorted_results[:limit]
+        
+        logger.info(f"Found {len(all_results)} total results, returning top {len(top_results)}")
+        logger.info(f"Top results: {query}")
+        return Response({
+            "query": query,
+            "results": top_results,
+            "total_results": len(all_results)
+        })
+
 
 # rag admin views
 @api_view(['POST'])

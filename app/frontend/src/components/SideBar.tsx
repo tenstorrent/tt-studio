@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, forwardRef, useImperativeHandle } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, CircleX } from "lucide-react";
+import { Menu, XCircle } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { AspectRatio } from "./ui/aspect-ratio";
 import imagePath from "../assets/tt_line_graphics_1.png";
@@ -52,7 +52,7 @@ const Sidebar = forwardRef((_, ref) => {
                     optimal performance.
                   </li>
                   <li>
-                    <strong>Deploy Model:</strong> Once you’ve configured the
+                    <strong>Deploy Model:</strong> Once you've configured the
                     model and selected the weights, click the "Deploy" button to
                     initiate the deployment process.
                   </li>
@@ -103,15 +103,14 @@ const Sidebar = forwardRef((_, ref) => {
           <Card className={baseStyles}>
             <CardHeader>
               <CardTitle className="text-2xl font-bold text-left">
-                ChatUI
+                Chat
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "ChatUI" page allows you to interact with your deployed
-                models in a conversational format. You can ask questions,
-                provide input, and receive responses from the models you have
-                deployed.
+                The Chat page allows you to interact with your deployed models
+                in a conversational format. You can ask questions, provide
+                input, and receive responses from the models you have deployed.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
                 <li>
@@ -181,7 +180,7 @@ const Sidebar = forwardRef((_, ref) => {
           <div className="absolute top-0 left-0 w-full h-full flex items-center justify-between p-4 bg-gradient-to-b from-black/50 to-transparent">
             <h1 className="text-lg font-bold">Help</h1>
             <Button onClick={toggleSidebar}>
-              <CircleX className="w-6 h-6" />
+              <XCircle className="w-6 h-6" />
             </Button>
           </div>
         </div>

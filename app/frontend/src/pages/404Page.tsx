@@ -13,7 +13,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { Button } from "../components/ui/button";
-import ttLogo from "../assets/tt_logo_color.svg";
+import ttLogo from "../assets/logo/tt_logo.svg";
 
 const PageSpotlight = ({ children }: { children: React.ReactNode }) => {
   const mouseX = useMotionValue(0);
@@ -42,14 +42,14 @@ function PagePattern({
   mouseX: MotionValue<number>;
   mouseY: MotionValue<number>;
 }) {
-  const maskImage = useMotionTemplate`radial-gradient(650px at ${mouseX}px ${mouseY}px, white, transparent)`;
+  const maskImage = useMotionTemplate`radial-gradient(1200px at ${mouseX}px ${mouseY}px, white, transparent)`;
   const style = { maskImage, WebkitMaskImage: maskImage };
 
   return (
     <div className="pointer-events-none absolute inset-0">
-      <div className="absolute inset-0 bg-background opacity-80" />
+      <div className="absolute inset-0 bg-background opacity-100" />
       <motion.div
-        className="absolute inset-0 bg-gradient-to-r from-[#6FABA0] via-[#74C5DF] to-[#323968] opacity-30"
+        className="absolute inset-0 bg-gradient-to-r from-[#6FABA0] via-[#74C5DF] to-[#323968] opacity-10 group-hover:opacity-60 transition-opacity duration-700"
         style={style}
       />
     </div>
@@ -68,7 +68,7 @@ const LoginCard = ({
   const [randomString, setRandomString] = useState("");
 
   useEffect(() => {
-    const str = generateRandomString(3000); // Increased from 1500 to 3000 for more text
+    const str = generateRandomString(8000); // Restored to original length
     setRandomString(str);
   }, []);
 
@@ -85,7 +85,7 @@ const LoginCard = ({
   return (
     <div
       className={cn(
-        "group relative rounded-lg bg-card/80 backdrop-blur-sm transition-all duration-300 p-12 w-full max-w-xl min-h-[500px]", // Added min-height
+        "group relative rounded-lg bg-card/80 backdrop-blur-sm transition-all duration-300 p-16 w-full max-w-4xl min-h-[800px]",
         className
       )}
       onMouseMove={onMouseMove}
@@ -159,6 +159,7 @@ const chipImages = [
 // Image carousel component
 function ImageCarousel() {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [hoverCount, setHoverCount] = useState(0);
 
   const nextImage = () => {
     setCurrentIndex((prevIndex) => (prevIndex + 1) % chipImages.length);
@@ -170,22 +171,36 @@ function ImageCarousel() {
     );
   };
 
+  const handleHover = () => {
+    setHoverCount((prev) => (prev + 1) % 3);
+  };
+
   return (
     <div className="flex flex-col items-center w-full">
-      <div className="relative w-full flex justify-center mb-4">
+      <div className="relative w-full flex justify-center mb-8">
         <a
           href="https://tenstorrent.com/#:~:text=to%20main%20content-,Products,-Support"
           target="_blank"
           rel="noopener noreferrer"
-          className="block transition-transform hover:scale-105"
+          className="block transition-all duration-500"
+          onMouseEnter={handleHover}
         >
           <img
             src={chipImages[currentIndex] || "/placeholder.svg"}
             alt={`Tenstorrent Chip ${currentIndex + 1}`}
-            className="object-cover h-64 w-64 rounded-full border-4 border-[#74C5DF] shadow-lg"
+            className={`object-cover h-[500px] w-[500px] rounded-3xl border-4 border-[#74C5DF] shadow-lg transition-all duration-500 ${
+              hoverCount === 0
+                ? "brightness-[0.05]"
+                : hoverCount === 1
+                  ? "brightness-[0.15]"
+                  : "brightness-100"
+            }`}
           />
         </a>
       </div>
+      <p className="text-lg text-muted-foreground text-center mb-4">
+        Take a look at our innovative AI hardware products
+      </p>
       <div className="flex justify-center gap-4">
         <Button
           onClick={prevImage}
@@ -211,33 +226,40 @@ export default function NotFoundPage() {
 
   return (
     <PageSpotlight>
-      <div className="flex min-h-screen flex-col items-center justify-center px-4 text-foreground sm:px-6 lg:px-6">
-        <div className="w-full max-w-md space-y-2">
+      <div className="flex min-h-screen flex-col items-center justify-center px-4 text-foreground sm:px-6 lg:px-6 py-8">
+        <div className="w-full max-w-4xl space-y-6">
           <div className="flex flex-col items-center">
+            <h1 className="text-5xl font-bold mb-2">404</h1>
+            <p className="text-2xl text-muted-foreground text-center max-w-2xl mb-6">
+              Page Not Found
+            </p>
+          </div>
+          <LoginCard className="p-8 w-full flex flex-col items-center justify-center">
+            <ImageCarousel />
+            <div className="w-full flex justify-center mt-6">
+              <Button
+                onClick={() => navigate("/")}
+                className="flex justify-center py-3 px-8 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-[#323968] hover:bg-[#74C5DF] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-TT-purple-accent transition-colors duration-300"
+              >
+                Return to Homepage
+              </Button>
+            </div>
+          </LoginCard>
+          <div className="flex items-center justify-center space-x-2">
             <img
               src={ttLogo || "/placeholder.svg"}
               alt="Tenstorrent"
-              className="h-20 w-auto mb-6"
+              className="h-6 w-auto"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = "/placeholder.svg";
+                target.onerror = null; // Prevent infinite loop
+              }}
             />
-            <h1 className="text-2xl font-bold">AI Playground</h1>
-            <h1 className="text-3xl font-bold">404 - Page Not Found</h1>
-            <p className="mt-2 text-center text-xl text-muted-foreground">
-              The page you're looking for doesn't exist, but have a look at our
-              products
+            <p className="text-center text-sm text-muted-foreground">
+              © {new Date().getFullYear()} Tenstorrent. All rights reserved.
             </p>
           </div>
-          <LoginCard className="p-8 w-full max-w-xl flex flex-col items-center justify-center">
-            <ImageCarousel />
-            <Button
-              onClick={() => navigate("/")}
-              className="mt-6 flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-[#323968] hover:bg-[#74C5DF] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-TT-purple-accent transition-colors duration-300"
-            >
-              Return Home
-            </Button>
-          </LoginCard>
-          <p className="mt-2 text-center text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Tenstorrent. All rights reserved.
-          </p>
         </div>
       </div>
     </PageSpotlight>

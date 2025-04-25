@@ -43,6 +43,7 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { useNavigate } from "react-router-dom";
+import { TypingAnimation } from "../ui/typing-animation";
 
 interface PdfDetectionDialogProps {
   open: boolean;
@@ -128,7 +129,16 @@ interface InputAreaProps {
   setFiles?: React.Dispatch<React.SetStateAction<FileData[]>>;
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
+  onStopInference?: () => void;
 }
+
+const EXAMPLE_PROMPTS = [
+  "How can I help you today?",
+  "What would you like to know?",
+  "Ask me anything!",
+  "I'm here to assist you.",
+  "What's on your mind?",
+];
 
 export default function InputArea({
   textInput,
@@ -141,6 +151,7 @@ export default function InputArea({
   setFiles = () => {},
   isMobileView = false,
   onCreateNewConversation,
+  onStopInference,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
@@ -150,6 +161,9 @@ export default function InputArea({
   const [showReplaceDialog, setShowReplaceDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isTouched, setIsTouched] = useState(false);
   const [showBanner, setShowBanner] = useState(true);
   const [touchFeedback, setTouchFeedback] = useState("");
   const [showPdfDialog, setShowPdfDialog] = useState(false);
@@ -205,6 +219,12 @@ export default function InputArea({
 
   const handleTextAreaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setTextInput(e.target.value);
+    setIsTyping(true);
+    // Reset typing indicator after a short delay
+    clearTimeout((window as any).typingTimeout);
+    (window as any).typingTimeout = setTimeout(() => {
+      setIsTyping(false);
+    }, 1000);
     adjustTextareaHeight();
   };
 
@@ -213,12 +233,18 @@ export default function InputArea({
       e.preventDefault();
       if (textInput.trim() !== "" || files.length > 0) {
         handleInference(textInput, files);
+        setTextInput("");
       }
     }
   };
 
   const handleVoiceInput = (transcript: string) => {
     setTextInput((prevText) => prevText + (prevText ? " " : "") + transcript);
+    setIsTyping(true);
+    clearTimeout((window as any).typingTimeout);
+    (window as any).typingTimeout = setTimeout(() => {
+      setIsTyping(false);
+    }, 1000);
     adjustTextareaHeight();
   };
 
@@ -456,14 +482,24 @@ export default function InputArea({
         <div
           className={cn(
             "relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-2 sm:p-4 shadow-lg dark:shadow-2xl border transition-all duration-200",
-            isFocused
-              ? "border-gray-400/50 dark:border-white/20"
-              : "border-gray-200 dark:border-[#7C68FA]/20",
+            isTyping && !textInput
+              ? "border-[#7C68FA] dark:border-[#7C68FA] shadow-[0_0_0_1px_#7C68FA]"
+              : isFocused || isTouched
+                ? "border-[#7C68FA]/70 dark:border-[#7C68FA]/60"
+                : isHovered
+                  ? "border-gray-400/70 dark:border-white/30"
+                  : "border-gray-200 dark:border-[#7C68FA]/20",
             "overflow-hidden"
           )}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onTouchStart={() => setIsTouched(true)}
+          onTouchEnd={() => {
+            setTimeout(() => setIsTouched(false), 300);
+          }}
         >
           {isDragging && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
@@ -516,26 +552,44 @@ export default function InputArea({
             </>
           )}
 
-          <textarea
-            ref={textareaRef}
-            value={textInput}
-            onChange={handleTextAreaInput}
-            onKeyDown={handleKeyPress}
-            placeholder={isMobileView ? "Type message..." : "Enter your prompt"}
-            className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-base leading-normal overflow-y-auto py-1 px-1"
-            disabled={isStreaming}
-            rows={1}
-            style={{
-              minHeight: isMobileView ? "36px" : "24px",
-              maxHeight: isMobileView ? "80px" : "200px",
-              fontSize: isMobileView ? "16px" : "inherit", // Force 16px on mobile to prevent auto-zoom
-              lineHeight: isMobileView ? "1.2" : "inherit",
-              WebkitAppearance: "none", // Removes default iOS styling
-            }}
-            aria-label="Chat input"
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-          />
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={textInput}
+              onChange={handleTextAreaInput}
+              onKeyDown={handleKeyPress}
+              placeholder=""
+              className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
+              disabled={isStreaming}
+              rows={1}
+              style={{
+                minHeight: isMobileView ? "36px" : "24px",
+                maxHeight: isMobileView ? "80px" : "200px",
+                fontSize: isMobileView ? "16px" : "inherit",
+                lineHeight: isMobileView ? "1.2" : "inherit",
+                WebkitAppearance: "none",
+              }}
+              aria-label="Chat input"
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              onTouchStart={() => setIsTouched(true)}
+              onTouchEnd={() => {
+                setTimeout(() => {
+                  if (!isFocused) setIsTouched(false);
+                }, 300);
+              }}
+            />
+            {!textInput && !isFocused && (
+              <div className="absolute inset-0 pointer-events-none">
+                <TypingAnimation
+                  texts={EXAMPLE_PROMPTS}
+                  duration={50}
+                  cycleDelay={2000}
+                  className="absolute inset-0 flex items-center px-1 text-gray-400 dark:text-gray-500"
+                />
+              </div>
+            )}
+          </div>
 
           <div className="flex justify-between items-center mt-2">
             <div className="flex gap-2 items-center">
@@ -629,55 +683,92 @@ export default function InputArea({
                 </div>
               )}
 
-              <div className="relative group">
-                <Button
-                  onClick={() => {
-                    if (
-                      (textInput.trim() !== "" || files.length > 0) &&
-                      !isStreaming
-                    ) {
-                      handleTouchStart("Sending message");
-                      handleInference(textInput, files);
-                      handleTouchEnd();
-                    }
-                  }}
-                  onTouchStart={() => {
-                    if (
-                      (textInput.trim() !== "" || files.length > 0) &&
-                      !isStreaming
-                    ) {
-                      handleTouchStart("Sending message");
-                    }
-                  }}
-                  onTouchEnd={handleTouchEnd}
-                  disabled={
-                    isStreaming || (!textInput.trim() && files.length === 0)
-                  }
-                  className={`
-                    bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
-                    ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
-                    rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
-                    ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
-                  `}
-                  aria-label={
-                    isMobileView ? "Send message" : "Generate response"
-                  }
-                >
-                  {isMobileView ? (
-                    <Send className="h-4 w-4" />
-                  ) : (
-                    <>
-                      Generate
-                      <Send className="h-4 w-4" />
-                    </>
+              {isStreaming ? (
+                <div className="relative group">
+                  <Button
+                    onClick={() => {
+                      if (onStopInference) {
+                        handleTouchStart("Stopping generation");
+                        onStopInference();
+                        handleTouchEnd();
+                      }
+                    }}
+                    onTouchStart={() => handleTouchStart("Stopping generation")}
+                    onTouchEnd={handleTouchEnd}
+                    className={`
+                      bg-red-500 hover:bg-red-600 active:bg-red-700 text-white 
+                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                      rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
+                    `}
+                    aria-label="Stop generation"
+                  >
+                    {isMobileView ? (
+                      <X className="h-4 w-4" />
+                    ) : (
+                      <>
+                        Stop
+                        <X className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                  {isMobileView && (
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                      Stop generation
+                    </div>
                   )}
-                </Button>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    {isStreaming ? "Generating..." : "Send message"}
-                  </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="relative group">
+                  <Button
+                    onClick={() => {
+                      if (
+                        (textInput.trim() !== "" || files.length > 0) &&
+                        !isStreaming
+                      ) {
+                        handleTouchStart("Sending message");
+                        handleInference(textInput, files);
+                        setTextInput("");
+                        handleTouchEnd();
+                      }
+                    }}
+                    onTouchStart={() => {
+                      if (
+                        (textInput.trim() !== "" || files.length > 0) &&
+                        !isStreaming
+                      ) {
+                        handleTouchStart("Sending message");
+                      }
+                    }}
+                    onTouchEnd={handleTouchEnd}
+                    disabled={
+                      isStreaming || (!textInput.trim() && files.length === 0)
+                    }
+                    className={`
+                      bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
+                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                      rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
+                      ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
+                    `}
+                    aria-label={
+                      isMobileView ? "Send message" : "Generate response"
+                    }
+                  >
+                    {isMobileView ? (
+                      <Send className="h-4 w-4" />
+                    ) : (
+                      <>
+                        Generate
+                        <Send className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                  {isMobileView && (
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                      {isStreaming ? "Generating..." : "Send message"}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

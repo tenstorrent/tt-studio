@@ -65,7 +65,7 @@ export default function NotFoundPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="text-8xl md:text-9xl font-bold font-degularDisplay"
+            className="text-8xl md:text-9xl font-bold font-sans"
           >
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-TT-purple-DEFAULT via-TT-blue-DEFAULT to-TT-teal-DEFAULT">
               404

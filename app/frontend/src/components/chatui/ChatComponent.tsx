@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
-import logo from "../../assets/tt_logo.svg";
+import logo from "../../assets/logo/tt_logo.svg";
 import { fetchModels } from "../../api/modelsDeployedApis";
 import { useQuery } from "react-query";
 import { fetchCollections } from "@/src/components/rag";
@@ -25,6 +25,7 @@ import { runInference } from "./runInference";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
+import Settings from "./Settings";
 
 // Define a type for conversation with title
 interface ChatThread {
@@ -42,6 +43,8 @@ export default function ChatComponent() {
   const [ragDatasource, setRagDatasource] = useState<
     RagDataSource | undefined
   >();
+  const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
+    useState(false);
   const { data: ragDataSources } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     initialData: [],
@@ -78,6 +81,8 @@ export default function ChatComponent() {
     isExtraLargeScreen: false,
   });
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const lastScrollPositionRef = useRef(0);
 
   // Add refs and state for swipe gesture
   const touchStartXRef = useRef<number | null>(null);
@@ -88,16 +93,30 @@ export default function ChatComponent() {
   const historyPanelRef = useRef<HTMLDivElement>(null);
   const [isHandleTouched, setIsHandleTouched] = useState(false);
 
+  // Add settings state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [modelSettings, setModelSettings] = useState({
+    temperature: 1,
+    maxLength: 512,
+    topP: 0.9,
+    topK: 20,
+  });
+
+  // Add inference controller state
+  const [inferenceController, setInferenceController] = useState<{
+    abort: () => void;
+  } | null>(null);
+
   // Show initial loading effect when component mounts
   useEffect(() => {
     // Start with loading state
     setIsLoading(true);
-    
+
     // Clear loading after a short delay to show the animation
     const timer = setTimeout(() => setIsLoading(false), 800);
     return () => clearTimeout(timer);
   }, []);
-  
+
   // We've removed the loading state initialization to prevent getting stuck
 
   // Validate and fix chat threads if needed
@@ -170,6 +189,9 @@ export default function ChatComponent() {
 
   // Update RAG datasource when thread changes
   useEffect(() => {
+    // Skip updating if RAG was explicitly deselected
+    if (isRagExplicitlyDeselected) return;
+
     const currentThread = getCurrentThread();
     if (
       currentThread &&
@@ -189,7 +211,7 @@ export default function ChatComponent() {
     } else {
       setRagDatasource(undefined);
     }
-  }, [currentThreadIndex, chatThreads]);
+  }, [currentThreadIndex, chatThreads, isRagExplicitlyDeselected]);
 
   // Handle responsive layout
   useEffect(() => {
@@ -197,14 +219,14 @@ export default function ChatComponent() {
       const width = window.innerWidth;
       const wasMobile = screenSize.isMobileView;
       const isMobileNow = width < 768;
-      
+
       // Show loading state when transitioning between mobile and desktop views
       if (wasMobile !== isMobileNow) {
         setIsLoading(true);
         // Clear loading after a short delay
         setTimeout(() => setIsLoading(false), 300);
       }
-      
+
       setScreenSize({
         isMobileView: isMobileNow,
         isLargeScreen: width >= 1280,
@@ -362,6 +384,32 @@ export default function ChatComponent() {
     }
   }, [currentThreadIndex]); // Remove chatThreads from dependency array
 
+  // Add scroll event listener to track scroll position
+  useEffect(() => {
+    const chatContainer = chatContainerRef.current;
+    if (!chatContainer) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = chatContainer;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50; // 50px threshold
+      setIsScrolledUp(!isAtBottom);
+      lastScrollPositionRef.current = scrollTop;
+    };
+
+    chatContainer.addEventListener("scroll", handleScroll);
+    return () => chatContainer.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Function to scroll to bottom
+  const scrollToBottom = useCallback(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, []);
+
   // Safe getter for current thread
   const getCurrentThread = useCallback(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
@@ -375,6 +423,23 @@ export default function ChatComponent() {
     return chatThreads[currentThreadIndex] || defaultThread;
   }, [chatThreads, currentThreadIndex, defaultThread]);
 
+  // Handle settings changes
+  const handleSettingsChange = (key: string, value: number) => {
+    console.log(`=== Settings Change ===`);
+    console.log(`Parameter: ${key}`);
+    console.log(`New Value: ${value}`);
+    console.log(`Previous Settings:`, modelSettings);
+
+    setModelSettings((prev) => {
+      const newSettings = {
+        ...prev,
+        [key]: value,
+      };
+      console.log(`Updated Settings:`, newSettings);
+      return newSettings;
+    });
+  };
+
   const handleInference = useCallback(
     async (continuationMessageId: string | null = null) => {
       if (textInput.trim() === "" && files.length === 0) return;
@@ -383,6 +448,18 @@ export default function ChatComponent() {
       if (modelsDeployed && !modelID) {
         return;
       }
+
+      // Log current model settings before creating request
+      console.log("=== Current Model Settings ===");
+      console.log("Temperature:", modelSettings.temperature);
+      console.log("Top K:", modelSettings.topK);
+      console.log("Top P:", modelSettings.topP);
+      console.log("Max Tokens:", modelSettings.maxLength);
+      console.log("=============================");
+
+      // Create a new AbortController for this request
+      const controller = new AbortController();
+      setInferenceController(controller);
 
       // Get the current thread first to avoid any order issues
       const threadToUse = getCurrentThread();
@@ -410,11 +487,10 @@ export default function ChatComponent() {
           sender: "user",
           text: textInput,
           files: files,
-          ragDatasource: ragDatasource, // Store the RAG datasource with the message
+          ragDatasource: ragDatasource,
         };
         updatedMessages = [...(threadToUse.messages || []), userMessage];
 
-        // Auto-update title for new conversations - don't return early!
         if (updatedMessages.length === 1) {
           setChatThreads((prevThreads) => {
             if (!Array.isArray(prevThreads))
@@ -439,7 +515,6 @@ export default function ChatComponent() {
         }
       }
 
-      // If this was the first message, continue with inference
       if (!continuationMessageId) {
         setChatThreads((prevThreads) => {
           if (!Array.isArray(prevThreads))
@@ -453,66 +528,93 @@ export default function ChatComponent() {
         });
       }
 
+      // Create inference request with detailed logging
       const inferenceRequest: InferenceRequest = {
-        deploy_id: modelID || "", // Provide empty string as fallback when modelID is null
+        deploy_id: modelID || "",
         text: continuationMessageId ? `Continue: ${textInput}` : textInput,
         files: files,
+        temperature: modelSettings.temperature,
+        max_tokens: modelSettings.maxLength,
+        top_p: modelSettings.topP,
+        top_k: modelSettings.topK,
+        stream_options: {
+          include_usage: true,
+          continuous_usage_stats: true,
+        },
       };
 
-      // console.log("Running inference with request:", inferenceRequest);
+      // Log the complete inference request
+      console.log("=== Creating Inference Request ===");
+      console.log("Model ID:", inferenceRequest.deploy_id);
+      console.log("Temperature:", inferenceRequest.temperature);
+      console.log("Top K:", inferenceRequest.top_k);
+      console.log("Top P:", inferenceRequest.top_p);
+      console.log("Max Tokens:", inferenceRequest.max_tokens);
+      console.log("Text:", inferenceRequest.text);
+      console.log("===============================");
+
       setIsStreaming(true);
 
       if (screenSize.isMobileView) {
         setIsHistoryPanelOpen(false);
       }
 
-      runInference(
-        inferenceRequest,
-        ragDatasource,
-        updatedMessages,
-        (newHistory) => {
-          setChatThreads((prevThreads) => {
-            if (!Array.isArray(prevThreads))
-              return [{ ...threadToUse, messages: [] }];
+      try {
+        await runInference(
+          inferenceRequest,
+          ragDatasource,
+          updatedMessages,
+          (newHistory) => {
+            setChatThreads((prevThreads) => {
+              if (!Array.isArray(prevThreads)) return [defaultThread];
 
-            const currentThreadFromState = prevThreads[currentThreadIndex];
-            if (!currentThreadFromState) return prevThreads;
+              const currentThreadFromState = prevThreads[currentThreadIndex];
+              if (!currentThreadFromState) return prevThreads;
 
-            const currentMessages = currentThreadFromState.messages || [];
-            const processedHistory =
-              typeof newHistory === "function"
-                ? newHistory(currentMessages)
-                : newHistory;
+              const currentMessages = currentThreadFromState.messages || [];
+              const processedHistory =
+                typeof newHistory === "function"
+                  ? newHistory(currentMessages)
+                  : newHistory;
 
-            // Safety check for processedHistory
-            if (!Array.isArray(processedHistory)) return prevThreads;
+              // Safety check for processedHistory
+              if (!Array.isArray(processedHistory)) return prevThreads;
 
-            const lastMessage = processedHistory[processedHistory.length - 1];
-            const finalMessages =
-              lastMessage &&
-              lastMessage.sender === "assistant" &&
-              !lastMessage.id
-                ? [
-                    ...processedHistory.slice(0, -1),
-                    { ...lastMessage, id: uuidv4() },
-                  ]
-                : processedHistory;
+              const lastMessage = processedHistory[processedHistory.length - 1];
+              const finalMessages =
+                lastMessage &&
+                lastMessage.sender === "assistant" &&
+                !lastMessage.id
+                  ? [
+                      ...processedHistory.slice(0, -1),
+                      { ...lastMessage, id: uuidv4() },
+                    ]
+                  : processedHistory;
 
-            return prevThreads.map((thread, idx) =>
-              idx === currentThreadIndex
-                ? { ...thread, messages: finalMessages }
-                : thread
-            );
-          });
-        },
-        setIsStreaming,
-        isAgentSelected,
-        currentThreadIndex
-      );
-
-      setTextInput("");
-      setReRenderingMessageId(null);
-      setFiles([]);
+              return prevThreads.map((thread, idx) =>
+                idx === currentThreadIndex
+                  ? { ...thread, messages: finalMessages }
+                  : thread
+              );
+            });
+          },
+          setIsStreaming,
+          isAgentSelected,
+          currentThreadIndex,
+          controller
+        );
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") {
+          console.log("Request was aborted");
+        } else {
+          console.error("Error during inference:", error);
+        }
+      } finally {
+        setTextInput("");
+        setReRenderingMessageId(null);
+        setFiles([]);
+        setInferenceController(null);
+      }
     },
     [
       chatThreads,
@@ -527,8 +629,18 @@ export default function ChatComponent() {
       getCurrentThread,
       defaultThread,
       setCurrentThreadIndex,
+      modelSettings,
     ]
   );
+
+  const handleStopInference = useCallback(() => {
+    if (inferenceController) {
+      inferenceController.abort();
+      setInferenceController(null);
+      setIsStreaming(false);
+      setTextInput("");
+    }
+  }, [inferenceController]);
 
   const handleReRender = useCallback(
     async (messageId: string) => {
@@ -772,7 +884,8 @@ export default function ChatComponent() {
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Header */}
         <div className="flex-grow space-y-4 overflow-hidden">
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
-          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" /> {/* Response */}
+          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" />{" "}
+          {/* Response */}
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
         </div>
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Input area */}
@@ -782,7 +895,7 @@ export default function ChatComponent() {
 
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
-      <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative">
+      <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative font-normal">
         {/* Improved mobile handle with translucent styling */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (
           <div
@@ -1001,25 +1114,38 @@ export default function ChatComponent() {
         </AnimatePresence>
 
         <div
-          className={`flex flex-col flex-grow min-w-0 p-2 sm:p-4 ${getContentMaxWidth()} overflow-hidden`}
+          className={`flex flex-col flex-grow min-w-0 ${
+            screenSize.isMobileView ? "h-[100dvh] fixed inset-0" : "p-2 sm:p-4"
+          } ${getContentMaxWidth()} overflow-hidden`}
         >
-          <Header
-            modelName={modelName}
-            modelsDeployed={headerModelsDeployed}
-            setModelID={setModelID}
-            setModelName={setModelName}
-            ragDataSources={ragDataSources}
-            ragDatasource={ragDatasource}
-            setRagDatasource={setRagDatasource}
-            isHistoryPanelOpen={isHistoryPanelOpen}
-            setIsHistoryPanelOpen={setIsHistoryPanelOpen}
-            isAgentSelected={isAgentSelected}
-            setIsAgentSelected={setIsAgentSelected}
-            isMobileView={screenSize.isMobileView}
-          />
+          <div
+            className={`${screenSize.isMobileView ? "sticky top-0 z-10 bg-background" : ""}`}
+          >
+            <Header
+              modelName={modelName}
+              modelsDeployed={headerModelsDeployed}
+              setModelID={setModelID}
+              setModelName={setModelName}
+              ragDataSources={ragDataSources}
+              ragDatasource={ragDatasource}
+              setRagDatasource={setRagDatasource}
+              isHistoryPanelOpen={isHistoryPanelOpen}
+              setIsHistoryPanelOpen={setIsHistoryPanelOpen}
+              isAgentSelected={isAgentSelected}
+              setIsAgentSelected={setIsAgentSelected}
+              isMobileView={screenSize.isMobileView}
+              setIsRagExplicitlyDeselected={setIsRagExplicitlyDeselected}
+              isSettingsOpen={isSettingsOpen}
+              setIsSettingsOpen={setIsSettingsOpen}
+            />
+          </div>
           <div
             ref={chatContainerRef}
-            className="flex-grow overflow-y-auto px-1 sm:px-2 md:px-4"
+            className={`flex-grow overflow-y-auto relative ${
+              screenSize.isMobileView
+                ? "px-1 pb-[140px] pt-2"
+                : "px-1 sm:px-2 md:px-4"
+            }`}
           >
             <ChatHistory
               chatHistory={(() => {
@@ -1037,21 +1163,73 @@ export default function ChatComponent() {
               ragDatasource={ragDatasource}
               isMobileView={screenSize.isMobileView}
             />
+            {/* Scroll to bottom button */}
+            <AnimatePresence>
+              {isScrolledUp && (
+                <motion.button
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={scrollToBottom}
+                  className="fixed bottom-24 right-4 sm:right-8 md:right-12 z-50 p-2 rounded-full bg-gray-800 text-white shadow-lg hover:bg-gray-700 transition-colors"
+                  style={{
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
+                  }}
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                    />
+                  </svg>
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
-          <InputArea
-            textInput={textInput}
-            setTextInput={setTextInput}
-            handleInference={() => handleInference(null)}
-            isStreaming={isStreaming}
-            isListening={isListening}
-            setIsListening={setIsListening}
-            files={files}
-            setFiles={setFiles}
-            isMobileView={screenSize.isMobileView}
-            onCreateNewConversation={createNewConversation}
-          />
+          <div
+            className={`${
+              screenSize.isMobileView
+                ? "fixed bottom-0 left-0 right-0 bg-background border-t border-gray-200 dark:border-gray-800 shadow-lg px-2 pb-safe"
+                : ""
+            }`}
+            style={{
+              paddingBottom: screenSize.isMobileView
+                ? "env(safe-area-inset-bottom, 16px)"
+                : undefined,
+            }}
+          >
+            <InputArea
+              textInput={textInput}
+              setTextInput={setTextInput}
+              handleInference={() => handleInference(null)}
+              isStreaming={isStreaming}
+              isListening={isListening}
+              setIsListening={setIsListening}
+              files={files}
+              setFiles={setFiles}
+              isMobileView={screenSize.isMobileView}
+              onCreateNewConversation={createNewConversation}
+              onStopInference={handleStopInference}
+            />
+          </div>
         </div>
       </Card>
+
+      {/* Settings Panel */}
+      <Settings
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={modelSettings}
+        onSettingsChange={handleSettingsChange}
+      />
     </div>
   );
 }

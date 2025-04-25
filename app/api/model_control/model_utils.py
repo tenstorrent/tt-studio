@@ -23,7 +23,7 @@ logger.info(f"importing {__name__}")
 
 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
-
+AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 
 def get_deploy_cache():
     # the cache is initialized when by docker_control is imported
@@ -95,99 +95,95 @@ def stream_response_from_agent_api(url, json_data):
         logger.error(f"RequestException: {str(e)}")
         yield f"error: {str(e)}"
 
-def stream_response_from_external_api(url, json_data):
-    logger.info(f"stream_response_from_external_api to: url={url}")
-    try:
-        headers = {"Authorization": f"Bearer {encoded_jwt}"}
-        logger.info(f"stream_response_from_external_api headers:={headers}")
-        logger.info(f"stream_response_from_external_api json_data:={json_data}")
-        # TODO: remove once vllm implementation can support different topk/temperature in same batch
-        json_data["temperature"] = 1
-        json_data["top_k"] = 20
-        json_data["top_p"] = 0.9
-        json_data["max_tokens"] = 512
-        json_data["stream_options"] = {"include_usage": True,
-                                       "continuous_usage_stats": True}
-        logger.info(f"added extra token and temp:={json_data}")
+def validate_model_params(json_data):
+    """Validate and set default values for model parameters."""
+    # Default values based on the working curl example
+    defaults = {
+        'temperature': 0.95,
+        'top_p': 0.9,
+        'top_k': 40,
+        'max_tokens': 16
+    }
+    
+    # Parameter ranges
+    ranges = {
+        'temperature': (0.0, 2.0),
+        'top_p': (0.0, 1.0),
+        'top_k': (1, 100),
+        'max_tokens': (1, 4096)
+    }
+    
+    validated_params = {}
+    
+    for param, default in defaults.items():
+        value = json_data.get(param)
+        
+        # If value is None, 0, or not provided, use default
+        if value is None or value == 0:
+            logger.info(f"Using default value for {param}: {default}")
+            validated_params[param] = default
+            continue
+            
+        # Validate range
+        min_val, max_val = ranges[param]
+        if not (min_val <= value <= max_val):
+            logger.warning(f"Invalid {param} value: {value}. Using default: {default}")
+            validated_params[param] = default
+        else:
+            validated_params[param] = value
+            
+    return validated_params
 
-        ttft = 0
-        tpot = 0
-        num_token_gen = 0
-        prompt_tokens = 0
-        ttft_start = time.time()
-
-        with requests.post(
-            url, json=json_data, headers=headers, stream=True, timeout=None
-        ) as response:
-            logger.info(f"stream_response_from_external_api response:={response}")
-            response.raise_for_status()
-            logger.info(f"response.headers:={response.headers}")
-            logger.info(f"response.encoding:={response.encoding}")
-            # only allow HTTP 1.1 chunked encoding
-            assert response.headers.get("transfer-encoding") == "chunked"
-
-            # Stream chunks
-            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
-                logger.info(f"stream_response_from_external_api chunk:={chunk}")
-                if chunk.startswith("data: "):
-                    new_chunk = chunk[len("data: "):]  # slice out the JSON object/dictionary
-                    new_chunk = new_chunk.strip()
-
-                    if new_chunk == "[DONE]":
-                        # Yield [DONE] to signal that streaming is complete
-                        yield chunk
-
-                        # Now calculate and yield stats after [DONE]
-                        stats = {
-                            "ttft": ttft,
-                            "tpot": tpot,
-                            "tokens_decoded": num_token_gen,
-                            "tokens_prefilled": prompt_tokens,
-                            "context_length": prompt_tokens + num_token_gen
-                        }
-                        logger.info(f"ttft and tpot stats: {stats}")
-                        yield "data: " + json.dumps(stats) + "\n\n"
-
-                        # Send the custom end of stream marker
-                        yield "<<END_OF_STREAM>>"  # Custom marker to signal end of stream
-                        break
-
-                    elif new_chunk != "":
-                        chunk_dict = json.loads(new_chunk)
-                        if chunk_dict.get("usage", {}).get("completion_tokens", 0) == 1:
-                            ttft = time.time() - ttft_start  # if first token is created
-                            num_token_gen = 1
-                            tpot_start = time.time()
-                            prompt_tokens = chunk_dict["usage"]["prompt_tokens"]
-                        elif chunk_dict.get("usage", {}).get("completion_tokens", 0) > num_token_gen:
-                            num_token_gen += 1
-                            tpot += (1 / num_token_gen) * (time.time() - tpot_start - tpot)  # update average
-                            tpot_start = time.time()
-
-                    # Yield the current chunk
-                    yield chunk
-
-            logger.info("stream_response_from_external done")
-
-    except requests.RequestException as e:
-        logger.error(f"RequestException: {str(e)}")
-        yield f"error: {str(e)}"
-
-
-AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 def stream_to_cloud_model(url, json_data):
-    logger.info(f"ATTEMPT 6 :stream_to_cloud_model to: url={url}")
+    """Stream response from cloud model."""
     try:
+        # Validate and update model parameters
+        validated_params = validate_model_params(json_data)
+        json_data.update(validated_params)
+        
+        # Log the final parameters being used
+        logger.info("=== Final Model Parameters ===")
+        for param, value in validated_params.items():
+            logger.info(f"{param}: {value} (type: {type(value)})")
+        logger.info("=============================")
+        
+        # Log initial request data
+        logger.info("=== Starting stream_to_cloud_model ===")
+        logger.info(f"Initial request data: {json.dumps(json_data, indent=2)}")
+        logger.info(f"Raw temperature value: {json_data.get('temperature')}")
+        logger.info(f"Raw top_k value: {json_data.get('top_k')}")
+        logger.info(f"Raw top_p value: {json_data.get('top_p')}")
+        logger.info(f"Raw max_tokens value: {json_data.get('max_tokens')}")
+
+        # Handle model parameters first
+        temperature = json_data.get("temperature")
+        top_k = json_data.get("top_k")
+        top_p = json_data.get("top_p")
+        max_tokens = json_data.get("max_tokens")
+
+        logger.info("=== Parameter Processing ===")
+        logger.info(f"Temperature before conversion: {temperature} (type: {type(temperature)})")
+        logger.info(f"Top K before conversion: {top_k} (type: {type(top_k)})")
+        logger.info(f"Top P before conversion: {top_p} (type: {type(top_p)})")
+        logger.info(f"Max Tokens before conversion: {max_tokens} (type: {type(max_tokens)})")
+
+        json_data["temperature"] = float(temperature) if temperature is not None else 1.0
+        json_data["top_k"] = int(top_k) if top_k is not None else 20
+        json_data["top_p"] = float(top_p) if top_p is not None else 0.9
+        json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
+        json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
+
+        # Log final parameters being used
+        logger.info("=== Final Model Parameters ===")
+        logger.info(f"Temperature: {json_data['temperature']} (type: {type(json_data['temperature'])})")
+        logger.info(f"Top K: {json_data['top_k']} (type: {type(json_data['top_k'])})")
+        logger.info(f"Top P: {json_data['top_p']} (type: {type(json_data['top_p'])})")
+        logger.info(f"Max Tokens: {json_data['max_tokens']} (type: {type(json_data['max_tokens'])})")
+        logger.info("=============================")
+
         headers = {"Authorization": f"Bearer {AUTH_TOKEN}"}
         logger.info(f"stream_to_cloud_model headers:={headers}")
-        logger.info(f"stream_to_cloud_model json_data:={json_data}")
-
-        json_data["temperature"] = 1
-        json_data["top_k"] = 20
-        json_data["top_p"] = 0.9
-        json_data["max_tokens"] = 512
-        json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
-        logger.info(f"added extra token and temp:={json_data}")
+        logger.info(f"Received request data:={json_data}")
 
         ttft = 0
         tpot = 0
@@ -319,3 +315,108 @@ def stream_to_cloud_model(url, json_data):
         logger.error(f"Unexpected exception: {str(e)}")
         logger.error(f"Exception traceback: {traceback.format_exc()}")
         yield f"error: Unexpected error - {str(e)}"
+
+def stream_response_from_external_api(url, json_data):
+    # Log initial request data
+    logger.info("=== Starting stream_response_from_external_api ===")
+    logger.info(f"Initial request data: {json.dumps(json_data, indent=2)}")
+    logger.info(f"Raw temperature value: {json_data.get('temperature')}")
+    logger.info(f"Raw top_k value: {json_data.get('top_k')}")
+    logger.info(f"Raw top_p value: {json_data.get('top_p')}")
+    logger.info(f"Raw max_tokens value: {json_data.get('max_tokens')}")
+
+    # Handle model parameters first
+    temperature = json_data.get("temperature")
+    top_k = json_data.get("top_k")
+    top_p = json_data.get("top_p")
+    max_tokens = json_data.get("max_tokens")
+
+    logger.info("=== Parameter Processing ===")
+    logger.info(f"Temperature before conversion: {temperature} (type: {type(temperature)})")
+    logger.info(f"Top K before conversion: {top_k} (type: {type(top_k)})")
+    logger.info(f"Top P before conversion: {top_p} (type: {type(top_p)})")
+    logger.info(f"Max Tokens before conversion: {max_tokens} (type: {type(max_tokens)})")
+
+    json_data["temperature"] = float(temperature) if temperature is not None else 1.0
+    json_data["top_k"] = int(top_k) if top_k is not None else 20
+    json_data["top_p"] = float(top_p) if top_p is not None else 0.9
+    json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
+    json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
+
+    # Log final parameters being used
+    logger.info("=== Final Model Parameters ===")
+    logger.info(f"Temperature: {json_data['temperature']} (type: {type(json_data['temperature'])})")
+    logger.info(f"Top K: {json_data['top_k']} (type: {type(json_data['top_k'])})")
+    logger.info(f"Top P: {json_data['top_p']} (type: {type(json_data['top_p'])})")
+    logger.info(f"Max Tokens: {json_data['max_tokens']} (type: {type(json_data['max_tokens'])})")
+    logger.info("=============================")
+
+    try:
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        logger.info(f"stream_response_from_external_api headers:={headers}")
+        logger.info(f"Received request data:={json_data}")
+
+        ttft = 0
+        tpot = 0
+        num_token_gen = 0
+        prompt_tokens = 0
+        ttft_start = time.time()
+
+        with requests.post(
+            url, json=json_data, headers=headers, stream=True, timeout=None
+        ) as response:
+            logger.info(f"stream_response_from_external_api response:={response}")
+            response.raise_for_status()
+            logger.info(f"response.headers:={response.headers}")
+            logger.info(f"response.encoding:={response.encoding}")
+            # only allow HTTP 1.1 chunked encoding
+            assert response.headers.get("transfer-encoding") == "chunked"
+
+            # Stream chunks
+            for chunk in response.iter_content(chunk_size=None, decode_unicode=True):
+                logger.info(f"stream_response_from_external_api chunk:={chunk}")
+                if chunk.startswith("data: "):
+                    new_chunk = chunk[len("data: "):]  # slice out the JSON object/dictionary
+                    new_chunk = new_chunk.strip()
+
+                    if new_chunk == "[DONE]":
+                        # Yield [DONE] to signal that streaming is complete
+                        yield chunk
+
+                        # Now calculate and yield stats after [DONE]
+                        stats = {
+                            "ttft": ttft,
+                            "tpot": tpot,
+                            "tokens_decoded": num_token_gen,
+                            "tokens_prefilled": prompt_tokens,
+                            "context_length": prompt_tokens + num_token_gen
+                        }
+                        logger.info(f"ttft and tpot stats: {stats}")
+                        yield "data: " + json.dumps(stats) + "\n\n"
+
+                        # Send the custom end of stream marker
+                        yield "<<END_OF_STREAM>>"  # Custom marker to signal end of stream
+                        break
+
+                    elif new_chunk != "":
+                        chunk_dict = json.loads(new_chunk)
+                        if chunk_dict.get("usage", {}).get("completion_tokens", 0) == 1:
+                            ttft = time.time() - ttft_start  # if first token is created
+                            num_token_gen = 1
+                            tpot_start = time.time()
+                            prompt_tokens = chunk_dict["usage"]["prompt_tokens"]
+                        elif chunk_dict.get("usage", {}).get("completion_tokens", 0) > num_token_gen:
+                            num_token_gen += 1
+                            tpot += (1 / num_token_gen) * (time.time() - tpot_start - tpot)  # update average
+                            tpot_start = time.time()
+
+                    # Yield the current chunk
+                    yield chunk
+
+            logger.info("stream_response_from_external done")
+
+    except requests.RequestException as e:
+        logger.error(f"RequestException: {str(e)}")
+        yield f"error: {str(e)}"
+
+

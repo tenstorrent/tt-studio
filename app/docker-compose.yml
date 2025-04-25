@@ -42,6 +42,8 @@ services:
       - TAVILY_API_KEY
       - CLOUD_CHAT_UI_URL
       - CLOUD_CHAT_UI_AUTH_TOKEN
+      - CLOUD_YOLOV4_API_URL
+      - CLOUD_YOLOV4_API_AUTH_TOKEN
       - RAG_ADMIN_PASSWORD
 
     volumes:
@@ -76,10 +78,11 @@ services:
       - VITE_ENABLE_DEPLOYED
       - VITE_APP_TITLE
       - VITE_ENABLE_RAG_ADMIN
-
-    # volumes:
-    #! for development mount api changes
-    #   - ./frontend:/frontend
+      - VITE_TEST_AUDIO_URL
+      - VITE_TEST_AUDIO_AUTH
+    volumes:
+      #! for development mount api changes
+      - ./frontend:/frontend
     # command: sh
     command: bash -c "npm i && npm run dev"
 

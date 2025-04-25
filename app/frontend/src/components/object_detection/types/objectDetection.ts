@@ -26,14 +26,15 @@ export interface WebcamPickerProps {
     metadata: DetectionMetadata;
   }) => void;
   setLiveMode: (mode: boolean) => void;
-  videoRef: React.RefObject<HTMLVideoElement>;
   setIsLoading: (isLoading: boolean) => void;
   setIsStreaming: (isStreaming: boolean) => void;
   setIsCameraOn: (isCameraOn: boolean) => void;
-  modelID: string;
+  modelID: string | null;
+  setExternalControls?: (controls: React.ReactNode) => void;
+  videoOnly?: boolean;
+  hoveredIndex?: number | null;
 }
-
 export interface InferenceRequest {
-  deploy_id: string;
+  deploy_id: string | null;
   imageSource: Blob | File;
 }

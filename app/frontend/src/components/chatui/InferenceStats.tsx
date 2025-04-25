@@ -204,7 +204,7 @@ export default function Component({ stats }: InferenceStatsProps) {
               <span className="whitespace-nowrap">
                 Model:{" "}
                 <span className="text-TT-purple-accent">Tenstorrent</span>
-                /Meta-Llama 3.1 70B
+                /Meta-Llama 3.3 70B
               </span>
             </div>
           </div>

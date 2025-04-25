@@ -36,6 +36,8 @@ logger.info(f"importing {__name__}")
 
 
 CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
+CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
+CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
 
 class InferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
@@ -56,8 +58,18 @@ class InferenceView(APIView):
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
             data["model"] = deploy["model_impl"].hf_model_id
-            response_stream = stream_response_from_external_api(internal_url, data)
-            return StreamingHttpResponse(response_stream, content_type="text/plain")
+            
+            # Create a generator that can be cancelled
+            def generate_response():
+                try:
+                    for chunk in stream_response_from_external_api(internal_url, data):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"Error in stream: {str(e)}")
+                    yield f"error: {str(e)}"
+            
+            response = StreamingHttpResponse(generate_response(), content_type="text/plain")
+            return response
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
@@ -178,6 +190,59 @@ class ObjectDetectionInferenceView(APIView):
             return Response(inference_data.json(), status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ObjectDetectionInferenceCloudView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special inference view that performs special handling"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        
+        # Get image directly instead of using serializer
+        image = data.get("image")
+        if not image:
+            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        image = image.file  # we should only receive 1 file
+        
+        # Get deploy_id and handle the case where it's the string "null"
+        deploy_id = data.get("deploy_id")
+        if deploy_id == "null":
+            # Use cloud URL when deploy_id is "null"
+            internal_url = CLOUD_YOLOV4_API_URL
+            logger.info(f"Using cloud URL: {internal_url}")
+            headers = {"Authorization": f"Bearer {CLOUD_YOLOV4_API_AUTH_TOKEN}"}
+            logger.info(f"Using cloud auth token: {CLOUD_YOLOV4_API_AUTH_TOKEN}")
+        else:
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            headers = {"Authorization": f"Bearer {CLOUD_YOLOV4_API_AUTH_TOKEN}"}
+            
+        # construct file to send
+        pil_image = Image.open(image)
+        pil_image = pil_image.resize((320, 320))  # Resize to target dimensions
+        buf = io.BytesIO()
+        pil_image.save(
+            buf,
+            format="JPEG",
+        )
+        byte_im = buf.getvalue()
+        file = {"file": byte_im}
+        
+        try:
+            # log request
+            logger.info(f"internal_url:={internal_url}")
+            logger.info(f"headers:={headers}")
+            # logger.info(f"file:={file}")
+            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+            inference_data.raise_for_status()
+        except requests.exceptions.HTTPError as http_err:
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            else:
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 
 class ImageGenerationInferenceView(APIView):
