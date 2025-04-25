@@ -1,6 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-
+// ImageGenParentComponent.tsx
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
@@ -10,12 +8,13 @@ import StableDiffusionChat from "./StableDiffusionChat";
 
 const ImageGenParentComponent: React.FC = () => {
   const [showChat, setShowChat] = useState(false);
-
+  const [selectedPrompt, setSelectedPrompt] = useState<string>(""); // New state for selected prompt
+  
   // model handling state
   const location = useLocation();
   const [modelID, setModelID] = useState<string>("");
   const [modelName, setModelName] = useState<string | null>(null);
-
+  
   useEffect(() => {
     if (location.state) {
       if (!location.state.containerID) {
@@ -28,19 +27,32 @@ const ImageGenParentComponent: React.FC = () => {
       setModelName(location.state.modelName);
     }
   }, [location.state, modelID, modelName]);
-
+  
+  // New handler for image selection
+  const handleImageSelect = (prompt: string) => {
+    setSelectedPrompt(prompt);
+    setShowChat(true);
+  };
+  
   return (
     <div className="w-full h-screen p-2 pb-8 pl-32">
       <Card className="flex flex-col w-full h-full overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 backdrop-blur-sm">
         <div className="flex-1 overflow-hidden flex flex-col relative">
           {showChat ? (
             <StableDiffusionChat
-              onBack={() => setShowChat(false)}
+              onBack={() => {
+                setShowChat(false);
+                setSelectedPrompt(""); // Clear selected prompt when going back
+              }}
               modelID={modelID}
+              initialPrompt={selectedPrompt} // Pass the selected prompt
             />
           ) : (
             <div className="flex-1 overflow-auto">
-              <ShowcaseGallery onStartGenerating={() => setShowChat(true)} />
+              <ShowcaseGallery 
+                onStartGenerating={() => setShowChat(true)} 
+                onImageSelect={handleImageSelect} // Pass the selection handler
+              />
             </div>
           )}
         </div>

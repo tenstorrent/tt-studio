@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Message } from "../types/chat";
 import { generateImage } from "../api/imageGeneration";
 
-export const useChat = (modelID: string) => {
+// Add initialPrompt parameter with default empty string
+export const useChat = (modelID: string, initialPrompt: string = "") => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -13,7 +13,9 @@ export const useChat = (modelID: string) => {
       text: "Hello! I can generate images based on your descriptions. What would you like me to create?",
     },
   ]);
-  const [textInput, setTextInput] = useState("");
+  
+  // Initialize textInput with initialPrompt instead of empty string
+  const [textInput, setTextInput] = useState(initialPrompt);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -29,18 +31,15 @@ export const useChat = (modelID: string) => {
         };
         setMessages((prev) => [...prev, userMessage]);
         setTextInput("");
-
         const botMessage: Message = {
           id: (Date.now() + 1).toString(),
           sender: "bot",
           text: "Generating your image...",
         };
         setMessages((prev) => [...prev, botMessage]);
-
         setIsGenerating(true);
         try {
           const generatedImageUrl = await generateImage(textInput, modelID);
-
           const imageMessage: Message = {
             id: (Date.now() + 2).toString(),
             sender: "bot",
@@ -60,7 +59,7 @@ export const useChat = (modelID: string) => {
         }
       }
     },
-    [isGenerating]
+    [isGenerating, modelID]
   );
 
   const scrollToBottom = useCallback(() => {

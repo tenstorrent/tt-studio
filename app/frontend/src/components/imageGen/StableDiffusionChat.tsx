@@ -15,7 +15,9 @@ import { useChat } from "./hooks/useChat";
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   onBack,
   modelID,
+  initialPrompt = "", // Add initialPrompt prop with default empty string
 }) => {
+  // Pass initialPrompt to the useChat hook
   const {
     messages,
     textInput,
@@ -28,7 +30,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
     sendMessage,
     scrollToBottom,
     handleScroll,
-  } = useChat(modelID);
+  } = useChat(modelID, initialPrompt); // Pass initialPrompt here
 
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
 
