@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { ModelCard } from "./ModelCard";
-// import { ActionCard } from "./ActionCard";
-import { models } from "./data";
+import { ActionCard } from "./ActionCard";
+import { models, tasks } from "./data";
 import type { Model } from "./types";
-// import { Separator } from "../ui/separator";
+import { Separator } from "../ui/separator";
 import ScrollProgressBar from "../ui/scroll-progress-bar";
 import { Button } from "../ui/button";
 import { TypewriterEffectSmooth } from "../ui/typewriter-effect";
@@ -15,6 +15,11 @@ export function DeployedHome() {
   const scrollToModels = () => {
     const modelsSection = document.getElementById("models-section");
     modelsSection?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const scrollToTasks = () => {
+    const tasksSection = document.getElementById("tasks-section");
+    tasksSection?.scrollIntoView({ behavior: "smooth" });
   };
 
   const modelTypes = [
@@ -29,6 +34,10 @@ export function DeployedHome() {
     {
       text: "Speech Recognition Models",
       className: "text-[#4ECDC4] font-semibold",
+    },
+    {
+      text: "Image Generation Models",
+      className: "text-[#B85CDA] font-semibold",
     },
   ];
 
@@ -54,6 +63,12 @@ export function DeployedHome() {
               className="w-full sm:w-auto min-w-[180px] bg-[#7C68FA] hover:bg-[#6C54E8] text-white dark:text-white dark:bg-[#7C68FA] dark:hover:bg-[#6C54E8] transition-all duration-200"
             >
               Explore Models
+            </Button>
+            <Button
+              onClick={scrollToTasks}
+              className="w-full sm:w-auto min-w-[180px] bg-[#FF6B6B] hover:bg-[#FF5252] text-white dark:text-white dark:bg-[#FF6B6B] dark:hover:bg-[#FF5252] transition-all duration-200"
+            >
+              View Tasks
             </Button>
             <Button
               variant="outline"
@@ -114,6 +129,28 @@ export function DeployedHome() {
                 TTDevice={model.TTDevice}
                 poweredByText={model.poweredByText}
                 modelType={model.modelType}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Tasks Section */}
+      <section
+        id="tasks-section"
+        className="min-h-screen w-full px-4 py-16 sm:py-20 md:py-24 bg-[#F8F9FA] dark:bg-[#111214]"
+      >
+        <div className="max-w-[90%] sm:max-w-2xl md:max-w-5xl lg:max-w-7xl mx-auto">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center mb-10 sm:mb-12 md:mb-16 text-gray-900 dark:text-white">
+            NLP Tasks
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:gap-6 md:gap-8 md:grid-cols-2 lg:grid-cols-3">
+            {tasks.map((task) => (
+              <ActionCard
+                key={task.id}
+                title={task.title}
+                path={task.path}
+                className={task.className}
               />
             ))}
           </div>
