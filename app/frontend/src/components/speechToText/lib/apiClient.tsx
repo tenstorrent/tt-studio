@@ -106,10 +106,18 @@ export async function sendAudioRecording(
       currentConfig.timeout
     );
 
-    console.log("Sending request to:", currentConfig.baseUrl);
+    // Determine which endpoint to use
+    const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
+    const useCloudEndpoint =
+      !metadata?.modelID || metadata.modelID === "null" || apiUrlDefined;
+    const endpoint = useCloudEndpoint
+      ? "/models-api/speech-recognition-cloud/"
+      : "/models-api/speech-recognition/";
+
+    console.log("Sending request to:", endpoint);
 
     // Make the request
-    const response = await fetch(currentConfig.baseUrl, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers,
       body: formData,

@@ -38,6 +38,8 @@ logger.info(f"importing {__name__}")
 CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
+CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
+CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 
 class InferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
@@ -323,3 +325,43 @@ class SpeechRecognitionInferenceView(APIView):
             return Response(inference_data.json(), status=status.HTTP_200_OK)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class SpeechRecognitionInferenceCloudView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special inference view that performs special handling for cloud speech recognition"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        
+        # Get audio file directly instead of using serializer
+        audio_file = data.get("file")
+        if not audio_file:
+            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Get deploy_id and handle the case where it's the string "null"
+        deploy_id = data.get("deploy_id")
+        if deploy_id == "null":
+            # Use cloud URL when deploy_id is "null"
+            internal_url = CLOUD_SPEECH_RECOGNITION_URL
+            logger.info(f"Using cloud URL: {internal_url}")
+            headers = {"Authorization": f"Bearer {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"}
+            logger.info(f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}")
+        else:
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            
+        file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
+        
+        try:
+            # log request
+            logger.info(f"internal_url:={internal_url}")
+            logger.info(f"headers:={headers}")
+            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+            inference_data.raise_for_status()
+        except requests.exceptions.HTTPError as http_err:
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            else:
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(inference_data.json(), status=status.HTTP_200_OK)

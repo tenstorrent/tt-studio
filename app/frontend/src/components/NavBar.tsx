@@ -381,7 +381,7 @@ export default function NavBar() {
     setIsHorizontalExpanded(!isHorizontalExpanded);
   };
 
-  const getNavIconFromModelType = (model_type: string) => {
+  const getNavIconFromModelType = (model_type: string): LucideIcon => {
     switch (model_type) {
       case ModelType.ChatModel:
         return BotMessageSquare;
@@ -389,6 +389,8 @@ export default function NavBar() {
         return Image;
       case ModelType.ObjectDetectionModel:
         return Eye;
+      case ModelType.SpeechRecognitionModel:
+        return AudioLines;
       default:
         return BotMessageSquare;
     }
@@ -402,6 +404,8 @@ export default function NavBar() {
         return "Image Generation";
       case ModelType.ObjectDetectionModel:
         return "Object Detection";
+      case ModelType.SpeechRecognitionModel:
+        return "Speech Recognition";
       default:
         return "ERROR";
     }
@@ -443,7 +447,7 @@ export default function NavBar() {
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
-    const items: NavItemData[] = models.map((model) => {
+    return models.map((model) => {
       const modelType = getModelTypeFromName(model.name);
       return {
         type: "button",
@@ -459,8 +463,6 @@ export default function NavBar() {
         route: getDestinationFromModelType(modelType),
       };
     });
-
-    return items;
   };
 
   // Select the appropriate navigation items based on the environment variable
