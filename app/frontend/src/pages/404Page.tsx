@@ -13,7 +13,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { Button } from "../components/ui/button";
-import ttLogo from "../assets/logo/tt_logo.svg";
+import Logo from "../components/ui/Logo";
 
 const PageSpotlight = ({ children }: { children: React.ReactNode }) => {
   const mouseX = useMotionValue(0);
@@ -246,16 +246,7 @@ export default function NotFoundPage() {
             </div>
           </LoginCard>
           <div className="flex items-center justify-center space-x-2">
-            <img
-              src={ttLogo || "/placeholder.svg"}
-              alt="Tenstorrent"
-              className="h-6 w-auto"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = "/placeholder.svg";
-                target.onerror = null; // Prevent infinite loop
-              }}
-            />
+            <Logo />
             <p className="text-center text-sm text-muted-foreground">
               © {new Date().getFullYear()} Tenstorrent. All rights reserved.
             </p>

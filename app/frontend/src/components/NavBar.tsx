@@ -19,7 +19,6 @@ import {
   Mic,
 } from "lucide-react";
 
-import logo from "../assets/logo/tt_logo.svg";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -512,16 +511,9 @@ export default function NavBar() {
                 rel="noopener noreferrer"
                 className="mb-6"
               >
-                <motion.img
-                  src={logo || "/placeholder.svg"}
-                  alt="Tenstorrent Logo"
+                <motion.div
                   className="w-10 h-10"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = "/placeholder.svg";
-                    target.onerror = null;
-                  }}
-                  whileHover={{ scale: 1.1, rotate: 360 }}
+                  whileHover={{ scale: 1.1 }}
                   transition={{ type: "spring", stiffness: 300, damping: 10 }}
                 />
               </a>
@@ -594,16 +586,9 @@ export default function NavBar() {
               rel="noopener noreferrer"
               className="flex items-center"
             >
-              <motion.img
-                src={logo || "/placeholder.svg"}
-                alt="Tenstorrent Logo"
+              <motion.div
                 className="w-8 h-8"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = "/placeholder.svg";
-                  target.onerror = null;
-                }}
-                whileHover={{ scale: 1.1, rotate: 360 }}
+                whileHover={{ scale: 1.1 }}
                 transition={{ type: "spring", stiffness: 300, damping: 10 }}
               />
             </a>
@@ -749,16 +734,9 @@ export default function NavBar() {
             rel="noopener noreferrer"
             className="flex items-center"
           >
-            <motion.img
-              src={logo || "/placeholder.svg"}
-              alt="Tenstorrent Logo"
+            <motion.div
               className="w-10 h-10 sm:w-14 sm:h-14"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = "/placeholder.svg";
-                target.onerror = null;
-              }}
-              whileHover={{ scale: 1.1, rotate: 360 }}
+              whileHover={{ scale: 1.1 }}
               transition={{ type: "spring", stiffness: 300, damping: 10 }}
             />
             <h4

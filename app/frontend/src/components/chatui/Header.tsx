@@ -48,9 +48,9 @@ import {
   Settings as SettingsIcon,
   Sliders,
 } from "lucide-react";
-import logo from "../../assets/logo/tt_logo.svg";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { cn } from "../../lib/utils";
+import Logo from "../../components/ui/Logo";
 
 interface HeaderProps {
   modelName: string | null;
@@ -295,11 +295,7 @@ export default function Header({
       <div className="flex items-center w-full md:w-auto justify-between md:justify-start">
         <div className="flex items-center">
           {/* Logo - Mobile Only */}
-          <ImageWithFallback
-            src={logo}
-            alt="TT Logo"
-            className="h-6 w-auto mr-2 md:hidden"
-          />
+          <Logo className="h-6 w-auto mr-2 md:hidden" />
 
           {/* Only show panel toggle and breadcrumb on desktop */}
           <div className="hidden md:flex items-center">
@@ -434,11 +430,7 @@ export default function Header({
           {/* App Title */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <ImageWithFallback
-                src={logo}
-                alt="TT Logo"
-                className="h-6 w-auto mr-2"
-              />
+              <Logo className="h-6 w-auto mr-2" />
               <span className="text-white text-base font-bold">
                 AI Playground
               </span>

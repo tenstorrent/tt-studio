@@ -13,6 +13,7 @@ import FileDisplay from "./FileDisplay";
 import type { ChatMessage } from "./types";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import Logo from "../../components/ui/Logo";
 
 // --- RagPill component (assuming it's defined elsewhere or identical) ---
 const RagPill: React.FC<{
@@ -94,7 +95,6 @@ const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
 
 interface ChatHistoryProps {
   chatHistory: ChatMessage[];
-  logo: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
   isStreaming: boolean;
   onReRender: (messageId: string) => void;
@@ -112,7 +112,6 @@ interface ChatHistoryProps {
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
   chatHistory = [],
-  logo,
   setTextInput,
   isStreaming,
   onReRender,
@@ -371,7 +370,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     >
       {chatHistory.length === 0 && !isStreaming ? (
         <ChatExamples
-          logo={logo}
           setTextInput={setTextInput}
           isMobileView={isMobileView}
         />

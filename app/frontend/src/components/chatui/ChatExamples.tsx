@@ -13,9 +13,9 @@ import {
   Globe,
   Rocket,
 } from "lucide-react";
+import Logo from "../../components/ui/Logo";
 
 interface ChatExamplesProps {
-  logo: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
   isMobileView?: boolean;
 }
@@ -64,7 +64,6 @@ const allExamples = [
 ];
 
 const ChatExamples: React.FC<ChatExamplesProps> = ({
-  logo,
   setTextInput,
   isMobileView = false,
 }) => {
@@ -99,9 +98,7 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[28rem] p-2 sm:p-4 transition-colors duration-200">
-      <img
-        src={logo}
-        alt="Tenstorrent Logo"
+      <Logo
         className={`${isMobileView ? "w-12 h-12 mb-4" : "w-16 h-16 mb-6"} transform transition duration-300 hover:scale-110`}
       />
       <h2
