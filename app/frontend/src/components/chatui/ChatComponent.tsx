@@ -102,6 +102,10 @@ export default function ChatComponent() {
     topK: 20,
   });
 
+  // Add the missing state variables
+  const [userScrolled, setUserScrolled] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
   // Add inference controller state
   const [inferenceController, setInferenceController] = useState<{
     abort: () => void;
