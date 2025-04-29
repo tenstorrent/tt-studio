@@ -380,125 +380,48 @@ export default function ChatComponent() {
     };
   }, [screenSize.isMobileView, isHistoryPanelOpen]);
 
-  // COMPLETELY REWRITTEN: Scroll behavior with user control
-  useEffect(() => {
-    const container = chatContainerRef.current;
-    if (!container) return;
-    
-    // Scroll handler - detect when user scrolls away from bottom
-    const handleScroll = () => {
-      if (!container) return;
-      
-      // Calculate distance from bottom
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      
-      // Store last scroll position
-      lastScrollPositionRef.current = scrollTop;
-      
-      // Show scroll button when scrolled up significantly
-      setShowScrollToBottom(distanceFromBottom > 100);
-      
-      // Track if user has scrolled away from bottom - INCREASED SENSITIVITY
-      // Even tiny scroll (10px) will stop auto-scroll
-      if (distanceFromBottom > 10) {
-        setUserScrolled(true);
-      } else if (distanceFromBottom < 5) {
-        // User is at bottom again - smaller threshold
-        setUserScrolled(false);
-      }
-    };
-    
-    // Initial scroll to bottom when changing threads
-    const scrollToBottom = () => {
-      if (container) {
-        container.scrollTop = container.scrollHeight;
-      }
-    };
-    
-    // Set up mutation observer to watch for content changes
+  // Auto-scroll chat container for new messages and streaming responses
+useEffect(() => {
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  };
+  
+  // Initial scroll when thread changes
+  scrollToBottom();
+  
+  // Set up a mutation observer to detect changes to the chat container
+  const currentContainer = chatContainerRef.current;
+  if (currentContainer) {
     const observer = new MutationObserver((mutations) => {
-      if (!container) return;
-      
-      const { scrollHeight, clientHeight } = container;
-      
-      // Don't auto-scroll if user has scrolled up, unless we're streaming
-      if (!userScrolled || isStreaming) {
-        // Get previous scroll position
-        const previousScrollPosition = lastScrollPositionRef.current;
-        const previousScrollHeight = container.scrollHeight;
+      // Only auto-scroll if user is already near the bottom
+      const isNearBottom = 
+        currentContainer.scrollHeight - currentContainer.scrollTop - currentContainer.clientHeight < 100;
         
-        // Preserve relative scroll position during streaming if user has scrolled
-        if (isStreaming && userScrolled) {
-          // Calculate how much content has been added
-          const heightDifference = scrollHeight - previousScrollHeight;
-          if (heightDifference > 0) {
-            // Keep same relative position
-            container.scrollTop = previousScrollPosition + heightDifference;
-          }
-        } else if (!userScrolled) {
-          // Not streaming or user hasn't scrolled - scroll to bottom
-          scrollToBottom();
-        }
+      if (isNearBottom || isStreaming) {
+        scrollToBottom();
       }
     });
     
-    // Add event listener and start observing
-    container.addEventListener('scroll', handleScroll);
-    observer.observe(container, { 
-      childList: true, 
-      subtree: true, 
+    observer.observe(currentContainer, { 
+      childList: true,
+      subtree: true,
       characterData: true 
     });
     
-    // Initial scroll to bottom
-    scrollToBottom();
-    
-    // Cleanup
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      observer.disconnect();
-    };
-  }, [currentThreadIndex, isStreaming, userScrolled]);
+    return () => observer.disconnect();
+  }
+}, [currentThreadIndex, isStreaming, chatThreads]);
 
-  // Reset user scroll when changing threads
-  useEffect(() => {
-    setUserScrolled(false);
-    setShowScrollToBottom(false);
-    
-    // Wait a tick for the DOM to update
-    setTimeout(() => {
-      if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      }
-    }, 0);
-  }, [currentThreadIndex]);
+// ADDITIONALLY, ADD THIS USEEFFECT TO HANDLE SCROLLING DURING STREAMING:
 
-  // Add scroll event listener to track scroll position
-  useEffect(() => {
-    const chatContainer = chatContainerRef.current;
-    if (!chatContainer) return;
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = chatContainer;
-      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50; // 50px threshold
-      setIsScrolledUp(!isAtBottom);
-      lastScrollPositionRef.current = scrollTop;
-    };
-
-    chatContainer.addEventListener("scroll", handleScroll);
-    return () => chatContainer.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  // Function to scroll to bottom
-  const scrollToBottom = useCallback(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({
-        top: chatContainerRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-  }, []);
+// Ensure scrolling during streaming responses
+useEffect(() => {
+  if (isStreaming && chatContainerRef.current) {
+    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+  }
+}, [isStreaming]);
 
   // Safe getter for current thread
   const getCurrentThread = useCallback(() => {
@@ -644,9 +567,6 @@ export default function ChatComponent() {
       console.log("===============================");
 
       setIsStreaming(true);
-      
-      // Reset user scroll when starting a new message
-      setUserScrolled(false);
 
       if (screenSize.isMobileView) {
         setIsHistoryPanelOpen(false);
@@ -763,7 +683,6 @@ export default function ChatComponent() {
 
       setReRenderingMessageId(messageId);
       setIsStreaming(true);
-      setUserScrolled(false);
 
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID,
@@ -873,7 +792,6 @@ export default function ChatComponent() {
       if (index !== -1) {
         setCurrentThreadIndex(index);
         setRagDatasource(undefined);
-        setUserScrolled(false);
 
         if (screenSize.isMobileView) {
           setIsHistoryPanelOpen(false);
@@ -922,7 +840,6 @@ export default function ChatComponent() {
     // Set the current thread to the new one
     setCurrentThreadIndex(chatThreads.length);
     setRagDatasource(undefined);
-    setUserScrolled(false);
 
     if (screenSize.isMobileView) {
       setIsHistoryPanelOpen(false);
@@ -988,15 +905,6 @@ export default function ChatComponent() {
       </div>
     );
   }
-
-  // Scroll to bottom function
-  const scrollToBottom = () => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      setUserScrolled(false);
-      setShowScrollToBottom(false);
-    }
-  };
 
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
@@ -1246,7 +1154,7 @@ export default function ChatComponent() {
           </div>
           <div
             ref={chatContainerRef}
-            className={`flex-grow overflow-y-auto relative ${
+            className={`flex-grow overflow-y-auto ${
               screenSize.isMobileView
                 ? "px-1 pb-[140px] pt-2"
                 : "px-1 sm:px-2 md:px-4"
