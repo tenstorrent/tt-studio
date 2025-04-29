@@ -107,11 +107,6 @@ export default function ChatComponent() {
     abort: () => void;
   } | null>(null);
 
-  // NEW: Add state variables for scroll control
-  const [userScrolled, setUserScrolled] = useState(false);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const lastScrollPositionRef = useRef(0);
-
   // Show initial loading effect when component mounts
   useEffect(() => {
     // Start with loading state
@@ -1206,30 +1201,6 @@ useEffect(() => {
                 </motion.button>
               )}
             </AnimatePresence>
-
-            {/* Scroll to bottom button - NEW */}
-            {showScrollToBottom && (
-              <button
-                onClick={scrollToBottom}
-                className="fixed bottom-28 right-4 z-10 p-2 bg-primary text-white rounded-full shadow-lg flex items-center justify-center transition-all hover:bg-primary/90 animate-fade-in"
-                aria-label="Scroll to bottom"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M12 19V5" />
-                  <path d="m5 12 7 7 7-7" />
-                </svg>
-              </button>
-            )}
           </div>
           <div
             className={`${
