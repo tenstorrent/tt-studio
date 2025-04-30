@@ -10,27 +10,15 @@ import { cn } from "../../lib/utils";
 
 // Animation variants matching the FileUpload component
 const mainVariant = {
-  initial: {
-    x: 0,
-    y: 0,
-  },
-  animate: {
-    x: 20,
-    y: -20,
-    opacity: 0.9,
-  },
+  initial: { x: 0, y: 0 },
+  animate: { x: 20, y: -20, opacity: 0.9 },
 };
 
 const secondaryVariant = {
-  initial: {
-    opacity: 0,
-  },
-  animate: {
-    opacity: 1,
-  },
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
 };
 
-// Grid pattern component matching the FileUpload component
 function GridPattern() {
   const columns = 41;
   const rows = 11;
@@ -65,26 +53,28 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
   setExternalControls,
   videoOnly = false,
 }) => {
-  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } =
-    useWebcam(
-      setDetections,
-      setLiveMode,
-      setIsLoading,
-      setIsStreaming,
-      setIsCameraOn,
-      modelID
-    );
+  const {
+    isCapturing,
+    handleStartCapture,
+    handleStopCapture,
+    videoRef,
+  } = useWebcam(
+    setDetections,
+    setLiveMode,
+    setIsLoading,
+    setIsStreaming,
+    setIsCameraOn,
+    modelID
+  );
 
-  // stop capture on component unmount
-  // must use useLayoutEffect here so that cleanup function is
-  // called *before* the component is removed from the DOM
+  // Stop webcam when component unmounts
   useLayoutEffect(() => {
     return () => {
       handleStopCapture();
     };
   }, [handleStopCapture]);
 
-  // Create and set external controls when the component mounts or isCapturing changes
+  // External control buttons (for use in a parent tab bar if needed)
   useEffect(() => {
     if (setExternalControls) {
       const controls = (
@@ -106,10 +96,15 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       );
       setExternalControls(controls);
     }
-  }, [isCapturing, handleStartCapture, handleStopCapture, setExternalControls]);
+  }, [
+    isCapturing,
+    handleStartCapture,
+    handleStopCapture,
+    setExternalControls,
+  ]);
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-4">
       {!isCapturing ? (
         <motion.div
           onClick={handleStartCapture}
@@ -130,11 +125,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
               <motion.div
                 layoutId="webcam-icon"
                 variants={mainVariant}
-                transition={{
-                  type: "spring",
-                  stiffness: 300,
-                  damping: 20,
-                }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
                 className={cn(
                   "relative group-hover/file:shadow-2xl z-40 bg-white dark:bg-neutral-900 flex items-center justify-center h-32 w-full max-w-[8rem] mx-auto rounded-md",
                   "shadow-[0px_10px_50px_rgba(0,0,0,0.1)]"
@@ -142,37 +133,36 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
               >
                 <Video className="h-6 w-6 text-neutral-600 dark:text-neutral-300" />
               </motion.div>
-              
+
               <motion.div
                 variants={secondaryVariant}
                 className="absolute opacity-0 border border-dashed border-TT-purple-accent inset-0 z-30 bg-transparent flex items-center justify-center h-32 w-full max-w-[8rem] mx-auto rounded-md"
-              ></motion.div>
+              />
             </div>
           </div>
         </motion.div>
       ) : (
-        <div className="relative">
-          <video
-            ref={videoRef}
-            className="inset-0 w-full object-contain bg-background/95 rounded-lg"
-            autoPlay
-            playsInline
-            muted
-          />
-          
-          {/* Only show internal stop button if videoOnly is false or setExternalControls is not provided */}
-          {(!videoOnly || !setExternalControls) && (
-            <div className="absolute bottom-4 left-0 right-0 px-6 z-10">
-              <Button
-                onClick={handleStopCapture}
-                variant="outline"
-                className="w-full bg-background/80 backdrop-blur"
-              >
-                Stop Capture
-              </Button>
-            </div>
-          )}
-        </div>
+        <>
+          {/* Stop button always visible above video */}
+          <div className="flex justify-end">
+            <Button onClick={handleStopCapture} variant="destructive">
+              Stop Capture
+            </Button>
+          </div>
+
+          {/* Video container for proper bounding box overlay */}
+          <div className="relative w-full">
+            <video
+              ref={videoRef}
+              className="w-full h-auto object-contain bg-background/95 rounded-lg"
+              autoPlay
+              playsInline
+              muted
+            />
+            {/* PLACEHOLDER: Overlay layer for bounding boxes should go here */}
+            {/* <BoundingBoxOverlay boxes={boxes} videoRef={videoRef} /> */}
+          </div>
+        </>
       )}
     </div>
   );

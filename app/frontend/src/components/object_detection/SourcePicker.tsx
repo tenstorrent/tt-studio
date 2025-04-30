@@ -9,7 +9,7 @@ import {
 } from "./types/objectDetection";
 import { runInference } from "./utlis/runInference";
 import { Button } from "../ui/button";
-import { X, Upload } from "lucide-react";
+import { X } from "lucide-react";
 import {
   getConfidenceColorClass,
   getLabelColorClass,
@@ -26,6 +26,8 @@ interface SourcePickerProps {
   modelID: string | null;
   hoveredIndex?: number | null;
   onHoverDetection?: (index: number | null) => void;
+  isWebcamActive: boolean;
+  stopWebcam: () => void;
 }
 
 const SourcePicker: React.FC<SourcePickerProps> = ({
@@ -36,6 +38,8 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
   modelID,
   hoveredIndex,
   onHoverDetection,
+  isWebcamActive,
+  stopWebcam,
 }) => {
   const [image, setImage] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -48,6 +52,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
   }, []);
 
   const handleFileUpload = async (files: File[]) => {
+    if (isWebcamActive) stopWebcam(); // Ensure webcam is stopped
     const file = files[0];
     if (file) {
       const imageUrl = URL.createObjectURL(file);
@@ -57,14 +62,11 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
   };
 
   const handleRemoveImage = () => {
-    // Add pulse animation to the button container
     const buttonContainer = document.querySelector("[data-remove-button]");
     if (buttonContainer) {
       buttonContainer.classList.add("animate-pulse");
       setTimeout(() => {
-        if (image) {
-          URL.revokeObjectURL(image);
-        }
+        if (image) URL.revokeObjectURL(image);
         setImage(null);
         setImageFile(null);
         setShowUpload(true);
@@ -88,33 +90,33 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
     }
   }, [image, setDetections, setLiveMode, imageFile, modelID]);
 
+  useEffect(() => {
+    if (isWebcamActive) {
+      setImage(null);
+      setImageFile(null);
+      setShowUpload(true);
+    }
+  }, [isWebcamActive]);
+
   return (
     <div className="h-full flex flex-col p-4 border rounded-xl bg-background/50 shadow-sm">
-      <div className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 hover:border-muted/50 bg-muted/5 hover:bg-background/80 transition-all duration-300 ease-in-out transform hover:scale-[1.01] hover:shadow-md group/header">
+      <div className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 bg-muted/5">
         {!showUpload && imageFile && (
-          <span className="text-sm text-muted-foreground/40 group-hover/header:text-foreground transition-all duration-300 ease-in-out truncate px-2 hover:translate-x-0.5">
+          <span className="text-sm text-muted-foreground truncate px-2">
             {imageFile.name}
           </span>
         )}
-        <div className="flex gap-2">
-          {!showUpload && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleRemoveImage}
-              data-remove-button
-              className="group flex items-center gap-2 hover:bg-destructive/10 transition-all duration-300 ease-in-out transform hover:-translate-x-0.5 hover:shadow-md"
-            >
-              <X
-                size={16}
-                className="text-destructive opacity-80 scale-75 group-hover:scale-100 group-hover:opacity-100 transition-all duration-300 ease-in-out"
-              />
-              <span className="text-muted-foreground/50 group-hover:text-destructive transition-all duration-300 ease-in-out group-hover:font-medium">
-                Remove Image
-              </span>
-            </Button>
-          )}
-        </div>
+        {!showUpload && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRemoveImage}
+            data-remove-button
+          >
+            <X size={16} className="text-destructive" />
+            <span className="text-muted-foreground">Remove Image</span>
+          </Button>
+        )}
       </div>
 
       {showUpload ? (
