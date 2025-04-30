@@ -9,14 +9,16 @@ export const updateBoxPositions = (
   detections: Detection[]
 ): Detection[] => {
   if (!containerRef.current || !metadata) return detections;
-    try {
+
+  try {
     const containerEl = containerRef.current;
+
     // Step 1: Find the actual media element (image or video)
     let mediaEl: HTMLImageElement | HTMLVideoElement | null = null;
     let mediaRect: DOMRect | null = null;
     let naturalWidth = 0;
     let naturalHeight = 0;
-    
+
     if (videoRef?.current) {
       mediaEl = videoRef.current;
       naturalWidth = mediaEl.videoWidth;
@@ -29,7 +31,7 @@ export const updateBoxPositions = (
         naturalHeight = imgEl.naturalHeight;
       }
     }
-    
+
     if (!mediaEl) {
       // Fallback to container if no media element found
       mediaRect = containerEl.getBoundingClientRect();
@@ -38,36 +40,46 @@ export const updateBoxPositions = (
     } else {
       mediaRect = mediaEl.getBoundingClientRect();
     }
-    
+
     // Step 2: Get the container's dimensions and position
     const containerRect = containerEl.getBoundingClientRect();
-    
+
     // Step 3: Calculate the media element's position relative to its container
     const mediaOffsetX = mediaRect.left - containerRect.left;
     const mediaOffsetY = mediaRect.top - containerRect.top;
-    
-    // Determine if this is a portrait image
+
+    // Determine if this is a portrait image (height > width)
     const isPortrait = naturalHeight > naturalWidth;
-    
+
     // Step 4: Calculate the scale factor between natural media size and displayed size
     const mediaScaleX = mediaRect.width / naturalWidth;
     const mediaScaleY = mediaRect.height / naturalHeight;
-    
+
     // Step 5: Map detection coordinates to pixels
     return detections.map((detection) => {
       // Convert from normalized coordinates (0-1) to actual pixel positions
       let boxLeft = detection.xmin * naturalWidth * mediaScaleX + mediaOffsetX;
-      const boxTop = detection.ymin * naturalHeight * mediaScaleY + mediaOffsetY;
+      let boxTop = detection.ymin * naturalHeight * mediaScaleY + mediaOffsetY;
       const boxWidth = (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
       const boxHeight = (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
-      
-      // Apply correction for portrait images - explicitly account for the centering offset
+
+      // **Adjust for Landscape Images**
+      if (!isPortrait) {
+        // Fix for landscape images: 
+        // 1. Adjust for the image's vertical offset 
+        // 2. Ensure the vertical scale and offset don't fall too low.
+        
+        const imageVerticalOffset = (mediaRect.height - naturalHeight * mediaScaleY) / 2;
+        
+        boxTop = boxTop - mediaOffsetY + imageVerticalOffset;  // Adjust top to align properly
+      }
+ // Apply correction for portrait images - explicitly account for the centering offset
       if (isPortrait) {
         // Apply a correction to boxLeft for vertical images
         // This is directly based on the observed offset we've seen in debugging
         boxLeft = boxLeft - mediaOffsetX;
       }
-      
+
       return {
         ...detection,
         scaledXmin: boxLeft,
@@ -81,3 +93,4 @@ export const updateBoxPositions = (
     return detections;
   }
 };
+
