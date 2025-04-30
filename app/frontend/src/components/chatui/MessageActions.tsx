@@ -58,6 +58,10 @@ const MessageActions: React.FC<MessageActionsProps> = ({
     const newFeedback = feedback === 'thumbsUp' ? null : 'thumbsUp';
     setFeedback(newFeedback);
     
+    // Add toast notification back
+    if (newFeedback === 'thumbsUp') {
+      customToast.success("Thanks for the feedback!");
+    }
   
     // Here you could implement API call to save feedback
     // saveFeedback(messageId, newFeedback);
@@ -67,6 +71,11 @@ const MessageActions: React.FC<MessageActionsProps> = ({
     // Toggle thumbs down state
     const newFeedback = feedback === 'thumbsDown' ? null : 'thumbsDown';
     setFeedback(newFeedback);
+
+    // Add toast notification back
+    if (newFeedback === 'thumbsDown') {
+      customToast.error("Thanks for the feedback :(");
+    }
 
     // Here you could implement API call to save feedback
     // saveFeedback(messageId, newFeedback);
