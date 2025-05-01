@@ -152,6 +152,10 @@ export const ObjectDetectionComponent: React.FC = () => {
     setIsStreaming(false);
     setIsCameraOn(false);
     setIsLoading(false);
+    // Clear webcam detections when stopping webcam
+    setWebcamScaledDetections([]);
+    setWebcamDetections([]);
+    setIsWebcamLiveMode(false);
   }, []);
 
   const handleSetWebcamControls = useCallback((controls: React.ReactNode) => {
@@ -160,14 +164,21 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   // File detection handlers
   const handleSetFileDetections = useCallback((data: { boxes: Detection[]; metadata: DetectionMetadata }) => {
+    // If there are no boxes, clear the scaled detections as well
+    if (!data.boxes || data.boxes.length === 0) {
+      setFileScaledDetections([]);
+    }
+    
     setFileDetections(Array.isArray(data.boxes) ? data.boxes : []);
     setFileMetadata(data.metadata);
   }, []);
 
   const handleSetFileLiveMode = useCallback((mode: boolean) => {
     setFileIsLiveMode(mode);
+    // Clear scaled detections when turning off live mode
     if (!mode) {
       setFileHoveredIndex(null);
+      setFileScaledDetections([]);
     }
   }, []);
 
@@ -177,14 +188,21 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   // Webcam detection handlers
   const handleSetWebcamDetections = useCallback((data: { boxes: Detection[]; metadata: DetectionMetadata }) => {
+    // If there are no boxes, clear the scaled detections as well
+    if (!data.boxes || data.boxes.length === 0) {
+      setWebcamScaledDetections([]);
+    }
+    
     setWebcamDetections(Array.isArray(data.boxes) ? data.boxes : []);
     setWebcamMetadata(data.metadata);
   }, []);
 
   const handleSetWebcamLiveMode = useCallback((mode: boolean) => {
     setIsWebcamLiveMode(mode);
+    // Clear scaled detections when turning off live mode
     if (!mode) {
       setWebcamHoveredIndex(null);
+      setWebcamScaledDetections([]);
     }
   }, []);
 
@@ -194,7 +212,13 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   // Update file bounding boxes
   useEffect(() => {
-    if (!fileMetadata || fileDetections.length === 0 || !fileContainerRef.current) return;
+    if (!fileMetadata || fileDetections.length === 0 || !fileContainerRef.current) {
+      // Clear scaled detections if there are no detections
+      if (fileScaledDetections.length > 0) {
+        setFileScaledDetections([]);
+      }
+      return;
+    }
     
     const updatedDetections = updateBoxPositions(
       fileContainerRef,
@@ -204,11 +228,17 @@ export const ObjectDetectionComponent: React.FC = () => {
     );
     
     setFileScaledDetections(updatedDetections);
-  }, [fileDetections, fileMetadata]);
+  }, [fileDetections, fileMetadata, fileScaledDetections.length]);
 
   // Update webcam bounding boxes
   useEffect(() => {
-    if (!webcamMetadata || webcamDetections.length === 0 || !isWebcamLiveMode || !webcamContainerRef.current) return;
+    if (!webcamMetadata || webcamDetections.length === 0 || !isWebcamLiveMode || !webcamContainerRef.current) {
+      // Clear scaled detections if there are no detections or not in live mode
+      if (webcamScaledDetections.length > 0) {
+        setWebcamScaledDetections([]);
+      }
+      return;
+    }
     
     // Skip if video dimensions not ready
     if (webcamVideoRef.current && (webcamVideoRef.current.videoWidth === 0 || webcamVideoRef.current.videoHeight === 0)) {
@@ -223,7 +253,7 @@ export const ObjectDetectionComponent: React.FC = () => {
     );
     
     setWebcamScaledDetections(updatedDetections);
-  }, [webcamDetections, webcamMetadata, isWebcamLiveMode, isStreaming]);
+  }, [webcamDetections, webcamMetadata, isWebcamLiveMode, isStreaming, webcamScaledDetections.length]);
 
   // Handle file container resize
   useEffect(() => {
@@ -287,6 +317,13 @@ export const ObjectDetectionComponent: React.FC = () => {
     
     return () => clearTimeout(timer);
   }, [isStreaming, webcamMetadata, webcamDetections]);
+  
+  // Clear webcam scaled detections when webcam is stopped
+  useEffect(() => {
+    if (!isCameraOn && webcamScaledDetections.length > 0) {
+      setWebcamScaledDetections([]);
+    }
+  }, [isCameraOn, webcamScaledDetections.length]);
 
   // Render detection results table
   const DetectionResultsTable = () => {
@@ -440,7 +477,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                         videoOnly={true}
                         videoRef={webcamVideoRef}
                       />
-                      {isWebcamLiveMode && (
+                      {isWebcamLiveMode && webcamScaledDetections.length > 0 && (
                         <div className="absolute inset-0 pointer-events-none">
                           {webcamScaledDetections.map((detection, index) => (
                             <div
