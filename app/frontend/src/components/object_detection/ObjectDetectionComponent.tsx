@@ -111,6 +111,7 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   const handleTabChange = useCallback((tab: string) => {
     setSelectedTab(tab);
+    handleReset()
     // Reset webcam controls when switching away from webcam tab
     if (tab !== "webcam") {
       setWebcamControls(null);
