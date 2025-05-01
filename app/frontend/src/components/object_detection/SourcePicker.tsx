@@ -120,9 +120,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
       </div>
 
       {showUpload ? (
-      
-          <FileUpload onChange={handleFileUpload} />
-       
+        <FileUpload onChange={handleFileUpload} />
       ) : (
         <div className="flex-1 min-h-0 relative bg-muted/5 rounded-lg p-4">
           <div

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React, { useLayoutEffect, useEffect } from "react";
+import React, { useLayoutEffect, useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { useWebcam } from "./hooks/useWebcam";
 import { WebcamPickerProps } from "./types/objectDetection";
@@ -51,6 +51,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
   setIsCameraOn,
   modelID,
   setExternalControls,
+  hoveredIndex,
   videoOnly = false,
 }) => {
   const {
@@ -66,6 +67,15 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
     setIsCameraOn,
     modelID
   );
+  
+  // Add a state to track if the component is mounted/visible
+  const [isMounted, setIsMounted] = useState(true);
+
+  // When component mounts, set isMounted to true
+  useEffect(() => {
+    setIsMounted(true);
+    return () => setIsMounted(false);
+  }, []);
 
   // Stop webcam when component unmounts
   useLayoutEffect(() => {
@@ -73,6 +83,16 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       handleStopCapture();
     };
   }, [handleStopCapture]);
+  
+  // Reset the webcam state when the component becomes visible again
+  useEffect(() => {
+    if (isMounted && !isCapturing) {
+      // Reset UI state to show the start button when switching back to webcam tab
+      setIsLoading(false);
+      setIsStreaming(false);
+      setIsCameraOn(false);
+    }
+  }, [isMounted, isCapturing, setIsLoading, setIsStreaming, setIsCameraOn]);
 
   // External control buttons (for use in a parent tab bar if needed)
   useEffect(() => {
@@ -102,6 +122,17 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
     handleStopCapture,
     setExternalControls,
   ]);
+  
+  // Reset detection state when needed
+  useEffect(() => {
+    if (isMounted && !isCapturing) {
+      setDetections({
+        boxes: [],
+        metadata: { width: 0, height: 0, inferenceTime: 0 }
+      });
+      setLiveMode(false);
+    }
+  }, [isMounted, isCapturing, setDetections, setLiveMode]);
 
   return (
     <div className="w-full space-y-4">
