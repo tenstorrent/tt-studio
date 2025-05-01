@@ -99,7 +99,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
   }, [isWebcamActive]);
 
   return (
-    <div className="h-full flex flex-col p-4 border rounded-xl bg-background/50 shadow-sm">
+    <div className="h-full flex flex-col p-4 rounded-xl bg-background/50 shadow-sm">
       <div className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 bg-muted/5">
         {!showUpload && imageFile && (
           <span className="text-sm text-muted-foreground truncate px-2">
@@ -120,9 +120,9 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
       </div>
 
       {showUpload ? (
-        <div className="flex-1 flex items-center justify-center bg-muted/10 rounded-lg p-8 border border-dashed">
+      
           <FileUpload onChange={handleFileUpload} />
-        </div>
+       
       ) : (
         <div className="flex-1 min-h-0 relative bg-muted/5 rounded-lg p-4">
           <div
