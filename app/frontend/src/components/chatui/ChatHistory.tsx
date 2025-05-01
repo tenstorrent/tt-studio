@@ -407,8 +407,8 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   <div
                     className={`chat-bubble ${
                       message.sender === "user"
-                        ? "bg-TT-green-accent text-white"
-                        : "bg-TT-slate text-white"
+                      ? "bg-TT-green-accent text-white"
+                      : "bg-TT-purple-accent text-white"
                     } p-4 rounded-2xl mb-1 ${
                       isMobileView ? "text-[15px]" : "text-[15px]"
                     } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm leading-relaxed`}

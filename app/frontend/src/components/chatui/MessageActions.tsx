@@ -103,9 +103,9 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             size="icon"
             onClick={handleThumbsUp}
             className={`h-8 w-8 p-0 transition-colors ${
-              feedback === 'thumbsUp' 
-                ? "bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800" 
-                : "hover:bg-gray-100 dark:hover:bg-gray-800"
+              feedback === 'thumbsUp'
+              ? "bg-TT-purple-tint2 text-TT-purple-accent dark:bg-TT-purple-shade dark:text-TT-purple hover:bg-TT-purple-tint1 dark:hover:bg-TT-purple"
+              : "hover:bg-gray-100 dark:hover:bg-gray-800"
             }`}
             style={{ outline: 'none' }}
           >
