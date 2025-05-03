@@ -45,6 +45,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [showUpload, setShowUpload] = useState(true);
   const imageRef = useRef<HTMLImageElement>(null);
+  const [isFilenameFocused, setIsFilenameFocused] = useState(false);
 
   const handleSetImage = useCallback((imageSrc: string | null) => {
     setImage(imageSrc);
@@ -100,9 +101,13 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
 
   return (
     <div className="h-full flex flex-col p-4 rounded-xl bg-background/50 shadow-sm">
-      <div className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 bg-muted/5">
+      <div className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 bg-muted/5" 
+        onMouseLeave={() => setIsFilenameFocused(false)}>
         {!showUpload && imageFile && (
-          <span className="text-sm text-muted-foreground truncate px-2">
+          <span 
+            className={`text-sm text-muted-foreground truncate px-2 transition-opacity duration-200 ${isFilenameFocused ? "opacity-100" : "opacity-20"}`}
+            onMouseEnter={() => setIsFilenameFocused(true)}
+          >
             {imageFile.name}
           </span>
         )}
@@ -112,9 +117,18 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
             size="sm"
             onClick={handleRemoveImage}
             data-remove-button
+            className="transition-opacity duration-200 group"
+            onMouseEnter={() => setIsFilenameFocused(true)}
           >
-            <X size={16} className="text-destructive" />
-            <span className="text-muted-foreground">Remove Image</span>
+            <X 
+              size={16} 
+              className={`transition-colors duration-0 ${isFilenameFocused ? "text-red-500" : "text-muted-foreground opacity-20"}`} 
+            />
+            <span 
+              className={`transition-colors duration-0 ${isFilenameFocused ? "text-red-500" : "text-muted-foreground opacity-20"}`}
+            >
+              Remove Image
+            </span>
           </Button>
         )}
       </div>
