@@ -13,16 +13,12 @@ import {
   FileText,
   FileIcon,
   Info as InfoIcon,
+  Mic,
+  MessageSquare,
 } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
 import { FileUpload } from "../ui/file-upload";
-import {
-  isImageFile,
-  validateFile,
-  encodeFile,
-  isTextFile,
-  isPdfFile,
-} from "./fileUtils";
+import { isImageFile, validateFile, encodeFile, isTextFile, isPdfFile } from "./fileUtils";
 import { cn } from "../../lib/utils";
 import type { FileData } from "./types";
 import { customToast } from "../CustomToaster";
@@ -36,14 +32,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { useNavigate } from "react-router-dom";
 import { TypingAnimation } from "../ui/typing-animation";
+import { AudioRecorderWithVisualizer } from "../speechToText/AudioRecorderWithVisualizer";
+import { sendAudioRecording } from "../speechToText/lib/apiClient";
+import { useTheme } from "../../providers/ThemeProvider";
+import { Switch } from "../ui/switch";
+import { Label } from "../ui/label";
 
 interface PdfDetectionDialogProps {
   open: boolean;
@@ -62,33 +58,25 @@ function PdfDetectionDialog({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div
-        className="fixed inset-0 bg-black opacity-75"
-        onClick={() => onOpenChange(false)}
-      />
+      <div className="fixed inset-0 bg-black opacity-75" onClick={() => onOpenChange(false)} />
       <div className="relative max-w-md w-full bg-[#0A0A13] rounded-lg border border-TT-purple-accent shadow-xl z-[101] mx-4">
         <div className="p-5">
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-[#1E3A8A] p-2 rounded-full flex-shrink-0">
               <FileText className="h-6 w-6 text-TT-red-accent" />
             </div>
-            <h2 className="text-xl font-bold text-blue-100 m-0">
-              PDF Upload Detected
-            </h2>
+            <h2 className="text-xl font-bold text-blue-100 m-0">PDF Upload Detected</h2>
           </div>
           <div className="space-y-4">
             <p className="text-gray-300 text-base">
-              PDFs need to be uploaded to the RAG management page for
-              processing.
+              PDFs need to be uploaded to the RAG management page for processing.
             </p>
             {pdfFileName && (
               <div className="bg-[#1F2937] rounded-lg p-3 border border-gray-700">
                 <p className="text-sm text-gray-400 mb-1">File detected:</p>
                 <div className="flex items-center gap-2 overflow-hidden">
                   <FileIcon className="h-5 w-5 flex-shrink-0 text-red-400" />
-                  <span className="text-blue-200 font-medium truncate">
-                    {pdfFileName}
-                  </span>
+                  <span className="text-blue-200 font-medium truncate">{pdfFileName}</span>
                 </div>
               </div>
             )}
@@ -140,6 +128,13 @@ const EXAMPLE_PROMPTS = [
   "What's on your mind?",
 ];
 
+interface AudioRecorderWithVisualizerProps {
+  className?: string;
+  timerClassName?: string;
+  onRecordingComplete?: (audioBlob: Blob) => void;
+  autoSend?: boolean;
+}
+
 export default function InputArea({
   textInput,
   setTextInput,
@@ -169,6 +164,10 @@ export default function InputArea({
   const [showPdfDialog, setShowPdfDialog] = useState(false);
   const [pdfFileName, setPdfFileName] = useState("");
   const navigate = useNavigate();
+  const [isRecording, setIsRecording] = useState(false);
+  const [showRecordingInterface, setShowRecordingInterface] = useState(false);
+  const [autoSendTranscription, setAutoSendTranscription] = useState(true);
+  const { theme } = useTheme();
 
   // Add a meta viewport setting effect
   useEffect(() => {
@@ -315,9 +314,7 @@ export default function InputArea({
       } catch (error) {
         console.error("File upload error:", error);
         customToast.error(
-          error instanceof Error
-            ? error.message
-            : "Failed to upload file(s). Please try again."
+          error instanceof Error ? error.message : "Failed to upload file(s). Please try again."
         );
         setShowErrorIndicator(true);
         setTimeout(() => setShowErrorIndicator(false), 3000);
@@ -341,9 +338,7 @@ export default function InputArea({
       );
     }
 
-    const validFiles = uploadedFiles.filter(
-      (file) => isImageFile(file) || isTextFile(file)
-    );
+    const validFiles = uploadedFiles.filter((file) => isImageFile(file) || isTextFile(file));
 
     const imageFiles = validFiles.filter(isImageFile);
     const textFiles = validFiles.filter(isTextFile);
@@ -355,13 +350,9 @@ export default function InputArea({
         setShowReplaceDialog(true);
 
         if (textFiles.length > 0) {
-          const encodedTextFiles = await Promise.all(
-            textFiles.map(processFile)
-          );
+          const encodedTextFiles = await Promise.all(textFiles.map(processFile));
           setFiles((prevFiles) => [...prevFiles, ...encodedTextFiles]);
-          customToast.success(
-            `Successfully uploaded ${textFiles.length} text file(s)!`
-          );
+          customToast.success(`Successfully uploaded ${textFiles.length} text file(s)!`);
         }
         return;
       }
@@ -369,11 +360,7 @@ export default function InputArea({
       const encodedImage = await processFile(imageFiles[0]);
       const encodedTextFiles = await Promise.all(textFiles.map(processFile));
 
-      setFiles((prevFiles) => [
-        ...prevFiles,
-        encodedImage,
-        ...encodedTextFiles,
-      ]);
+      setFiles((prevFiles) => [...prevFiles, encodedImage, ...encodedTextFiles]);
       customToast.success(
         `Successfully uploaded ${
           imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
@@ -382,9 +369,7 @@ export default function InputArea({
     } else if (textFiles.length > 0) {
       const encodedFiles = await Promise.all(textFiles.map(processFile));
       setFiles((prevFiles) => [...prevFiles, ...encodedFiles]);
-      customToast.success(
-        `Successfully uploaded ${textFiles.length} text file(s)!`
-      );
+      customToast.success(`Successfully uploaded ${textFiles.length} text file(s)!`);
     }
   };
 
@@ -392,10 +377,7 @@ export default function InputArea({
     if (pendingImageFile) {
       try {
         const encodedImage = await processFile(pendingImageFile);
-        setFiles((prevFiles) => [
-          ...prevFiles.filter((f) => f.type !== "image_url"),
-          encodedImage,
-        ]);
+        setFiles((prevFiles) => [...prevFiles.filter((f) => f.type !== "image_url"), encodedImage]);
         customToast.success("Image replaced successfully!");
       } catch (error) {
         console.error("Error replacing image:", error);
@@ -432,6 +414,23 @@ export default function InputArea({
     if (files) handleFileUpload(Array.from(files));
   };
 
+  const handleRecordingComplete = async (audioBlob: Blob) => {
+    try {
+      const response = await sendAudioRecording(audioBlob);
+      if (response.text) {
+        setTextInput(response.text);
+        if (autoSendTranscription) {
+          // Automatically send the transcribed text to the LLM
+          handleInference(response.text, files);
+          setShowRecordingInterface(false);
+        }
+      }
+    } catch (error) {
+      console.error("Error processing audio recording:", error);
+      customToast.error("Failed to process audio recording. Please try again.");
+    }
+  };
+
   useEffect(() => {
     adjustTextareaHeight();
     window.addEventListener("resize", adjustTextareaHeight);
@@ -452,22 +451,16 @@ export default function InputArea({
           <AlertDialogHeader>
             <AlertDialogTitle>Replace Existing Image?</AlertDialogTitle>
             <AlertDialogDescription>
-              You can only have one image at a time. Do you want to replace the
-              existing image with the new one?
+              You can only have one image at a time. Do you want to replace the existing image with
+              the new one?
               {pendingImageFile && (
-                <div className="mt-2 text-sm">
-                  New image: {pendingImageFile.name}
-                </div>
+                <div className="mt-2 text-sm">New image: {pendingImageFile.name}</div>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleReplaceCancel}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleReplaceConfirm}>
-              Replace
-            </AlertDialogAction>
+            <AlertDialogCancel onClick={handleReplaceCancel}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReplaceConfirm}>Replace</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -505,9 +498,7 @@ export default function InputArea({
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
               <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
                 <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
-                <span className="text-2xl animate-pulse">
-                  Drop files to upload
-                </span>
+                <span className="text-2xl animate-pulse">Drop files to upload</span>
                 <span className="text-sm mt-2">
                   Limited to one image, multiple text files allowed
                 </span>
@@ -534,9 +525,7 @@ export default function InputArea({
                         <File className="w-6 h-6 text-gray-500 dark:text-gray-400" />
                       )}
                     </div>
-                    <span className="text-sm truncate max-w-[150px]">
-                      {file.name}
-                    </span>
+                    <span className="text-sm truncate max-w-[150px]">{file.name}</span>
                     <button
                       type="button"
                       className="text-red-500 hover:text-red-700"
@@ -552,225 +541,258 @@ export default function InputArea({
             </>
           )}
 
-          <div className="relative">
-            <textarea
-              ref={textareaRef}
-              value={textInput}
-              onChange={handleTextAreaInput}
-              onKeyDown={handleKeyPress}
-              placeholder=""
-              className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
-              disabled={isStreaming}
-              rows={1}
-              style={{
-                minHeight: isMobileView ? "36px" : "24px",
-                maxHeight: isMobileView ? "80px" : "200px",
-                fontSize: isMobileView ? "16px" : "inherit",
-                lineHeight: isMobileView ? "1.2" : "inherit",
-                WebkitAppearance: "none",
-              }}
-              aria-label="Chat input"
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-              onTouchStart={() => setIsTouched(true)}
-              onTouchEnd={() => {
-                setTimeout(() => {
-                  if (!isFocused) setIsTouched(false);
-                }, 300);
-              }}
-            />
-            {!textInput && !isFocused && (
-              <div className="absolute inset-0 pointer-events-none">
-                <TypingAnimation
-                  texts={EXAMPLE_PROMPTS}
-                  duration={50}
-                  cycleDelay={2000}
-                  className="absolute inset-0 flex items-center px-1 text-gray-400 dark:text-gray-500"
+          {!showRecordingInterface ? (
+            <>
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  value={textInput}
+                  onChange={handleTextAreaInput}
+                  onKeyDown={handleKeyPress}
+                  placeholder=""
+                  className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
+                  disabled={isStreaming}
+                  rows={1}
+                  style={{
+                    minHeight: isMobileView ? "36px" : "24px",
+                    maxHeight: isMobileView ? "80px" : "200px",
+                    fontSize: isMobileView ? "16px" : "inherit",
+                    lineHeight: isMobileView ? "1.2" : "inherit",
+                    WebkitAppearance: "none",
+                  }}
+                  aria-label="Chat input"
+                  onFocus={() => setIsFocused(true)}
+                  onBlur={() => setIsFocused(false)}
+                  onTouchStart={() => setIsTouched(true)}
+                  onTouchEnd={() => {
+                    setTimeout(() => {
+                      if (!isFocused) setIsTouched(false);
+                    }, 300);
+                  }}
                 />
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-between items-center mt-2">
-            <div className="flex gap-2 items-center">
-              <div className="relative group">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size={isMobileView ? "sm" : "default"}
-                        className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-                        onClick={() => setIsFileUploadOpen((prev) => !prev)}
-                        aria-label="Attach files"
-                        onTouchStart={() => handleTouchStart("Attach files")}
-                        onTouchEnd={handleTouchEnd}
-                      >
-                        <Paperclip
-                          className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`}
-                        />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Attach files (1 image max)</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    Attach files
+                {!textInput && !isFocused && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    <TypingAnimation
+                      texts={EXAMPLE_PROMPTS}
+                      duration={50}
+                      cycleDelay={2000}
+                      className="absolute inset-0 flex items-center px-1 text-gray-400 dark:text-gray-500"
+                    />
                   </div>
                 )}
               </div>
 
-              <div className="relative group">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div>
-                        <VoiceInput
-                          onTranscript={handleVoiceInput}
-                          isListening={isListening}
-                          setIsListening={setIsListening}
-                        />
+              <div className="flex justify-between items-center mt-2">
+                <div className="flex gap-2 items-center">
+                  <div className="relative group">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size={isMobileView ? "sm" : "default"}
+                            className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
+                            onClick={() => setIsFileUploadOpen((prev) => !prev)}
+                            aria-label="Attach files"
+                            onTouchStart={() => handleTouchStart("Attach files")}
+                            onTouchEnd={handleTouchEnd}
+                          >
+                            <Paperclip className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Attach files (1 image max)</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    {isMobileView && (
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                        Attach files
                       </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Voice input</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    {isListening ? "Stop recording" : "Voice input"}
+                    )}
                   </div>
-                )}
+
+                  <div className="relative group">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size={isMobileView ? "sm" : "default"}
+                            className={cn(
+                              "text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300",
+                              isRecording && "text-red-500 dark:text-red-400"
+                            )}
+                            onClick={() => setShowRecordingInterface(true)}
+                            aria-label="Voice input"
+                            onTouchStart={() => handleTouchStart("Voice input")}
+                            onTouchEnd={handleTouchEnd}
+                          >
+                            <Mic className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Voice input</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    {isMobileView && (
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                        {isRecording ? "Stop recording" : "Voice input"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {onCreateNewConversation && (
+                    <div className="relative group">
+                      <Button
+                        onClick={() => {
+                          handleTouchStart("Creating new chat");
+                          onCreateNewConversation();
+                          handleTouchEnd();
+                        }}
+                        onTouchStart={() => handleTouchStart("Creating new chat")}
+                        onTouchEnd={handleTouchEnd}
+                        size="sm"
+                        className={`
+                          bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] 
+                          rounded-full flex items-center transition-all duration-200 touch-manipulation
+                          ${
+                            isMobileView
+                              ? "justify-center h-8 w-8 p-0"
+                              : "justify-center gap-1.5 px-3 py-1"
+                          }
+                        `}
+                        aria-label="Start a new chat"
+                      >
+                        <Plus className={isMobileView ? "h-4 w-4" : "h-4 w-4"} />
+                        {!isMobileView && <span className="text-xs">New chat</span>}
+                      </Button>
+                      {isMobileView && (
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                          New chat
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {isStreaming ? (
+                    <div className="relative group">
+                      <Button
+                        onClick={() => {
+                          if (onStopInference) {
+                            handleTouchStart("Stopping generation");
+                            onStopInference();
+                            handleTouchEnd();
+                          }
+                        }}
+                        onTouchStart={() => handleTouchStart("Stopping generation")}
+                        onTouchEnd={handleTouchEnd}
+                        className={`
+                          bg-red-500 hover:bg-red-600 active:bg-red-700 text-white 
+                          ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                          rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
+                        `}
+                        aria-label="Stop generation"
+                      >
+                        {isMobileView ? (
+                          <X className="h-4 w-4" />
+                        ) : (
+                          <>
+                            Stop
+                            <X className="h-4 w-4" />
+                          </>
+                        )}
+                      </Button>
+                      {isMobileView && (
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                          Stop generation
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="relative group">
+                      <Button
+                        onClick={() => {
+                          if ((textInput.trim() !== "" || files.length > 0) && !isStreaming) {
+                            handleTouchStart("Sending message");
+                            handleInference(textInput, files);
+                            setTextInput("");
+                            handleTouchEnd();
+                          }
+                        }}
+                        onTouchStart={() => {
+                          if ((textInput.trim() !== "" || files.length > 0) && !isStreaming) {
+                            handleTouchStart("Sending message");
+                          }
+                        }}
+                        onTouchEnd={handleTouchEnd}
+                        disabled={isStreaming || (!textInput.trim() && files.length === 0)}
+                        className={`
+                          bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
+                          ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
+                          rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
+                          ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
+                        `}
+                        aria-label={isMobileView ? "Send message" : "Generate response"}
+                      >
+                        {isMobileView ? (
+                          <Send className="h-4 w-4" />
+                        ) : (
+                          <>
+                            Generate
+                            <Send className="h-4 w-4" />
+                          </>
+                        )}
+                      </Button>
+                      {isMobileView && (
+                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                          {isStreaming ? "Generating..." : "Send message"}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {onCreateNewConversation && (
-                <div className="relative group">
+            </>
+          ) : (
+            <div className="flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-TT-purple">Voice Recording</h3>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="auto-send"
+                      checked={autoSendTranscription}
+                      onCheckedChange={setAutoSendTranscription}
+                      className="data-[state=checked]:bg-[#7C68FA]"
+                    />
+                    <Label htmlFor="auto-send" className="text-sm text-gray-600 dark:text-gray-300">
+                      Auto-send
+                    </Label>
+                  </div>
                   <Button
-                    onClick={() => {
-                      handleTouchStart("Creating new chat");
-                      onCreateNewConversation();
-                      handleTouchEnd();
-                    }}
-                    onTouchStart={() => handleTouchStart("Creating new chat")}
-                    onTouchEnd={handleTouchEnd}
+                    variant="ghost"
                     size="sm"
-                    className={`
-                      bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] 
-                      rounded-full flex items-center transition-all duration-200 touch-manipulation
-                      ${
-                        isMobileView
-                          ? "justify-center h-8 w-8 p-0"
-                          : "justify-center gap-1.5 px-3 py-1"
-                      }
-                    `}
-                    aria-label="Start a new chat"
+                    onClick={() => setShowRecordingInterface(false)}
+                    className="text-gray-500 hover:text-gray-700"
                   >
-                    <Plus className={isMobileView ? "h-4 w-4" : "h-4 w-4"} />
-                    {!isMobileView && <span className="text-xs">New chat</span>}
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Back to Text
                   </Button>
-                  {isMobileView && (
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                      New chat
-                    </div>
-                  )}
                 </div>
-              )}
-
-              {isStreaming ? (
-                <div className="relative group">
-                  <Button
-                    onClick={() => {
-                      if (onStopInference) {
-                        handleTouchStart("Stopping generation");
-                        onStopInference();
-                        handleTouchEnd();
-                      }
-                    }}
-                    onTouchStart={() => handleTouchStart("Stopping generation")}
-                    onTouchEnd={handleTouchEnd}
-                    className={`
-                      bg-red-500 hover:bg-red-600 active:bg-red-700 text-white 
-                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
-                      rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
-                    `}
-                    aria-label="Stop generation"
-                  >
-                    {isMobileView ? (
-                      <X className="h-4 w-4" />
-                    ) : (
-                      <>
-                        Stop
-                        <X className="h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
-                  {isMobileView && (
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                      Stop generation
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="relative group">
-                  <Button
-                    onClick={() => {
-                      if (
-                        (textInput.trim() !== "" || files.length > 0) &&
-                        !isStreaming
-                      ) {
-                        handleTouchStart("Sending message");
-                        handleInference(textInput, files);
-                        setTextInput("");
-                        handleTouchEnd();
-                      }
-                    }}
-                    onTouchStart={() => {
-                      if (
-                        (textInput.trim() !== "" || files.length > 0) &&
-                        !isStreaming
-                      ) {
-                        handleTouchStart("Sending message");
-                      }
-                    }}
-                    onTouchEnd={handleTouchEnd}
-                    disabled={
-                      isStreaming || (!textInput.trim() && files.length === 0)
-                    }
-                    className={`
-                      bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
-                      ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
-                      rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
-                      ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
-                    `}
-                    aria-label={
-                      isMobileView ? "Send message" : "Generate response"
-                    }
-                  >
-                    {isMobileView ? (
-                      <Send className="h-4 w-4" />
-                    ) : (
-                      <>
-                        Generate
-                        <Send className="h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
-                  {isMobileView && (
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                      {isStreaming ? "Generating..." : "Send message"}
-                    </div>
-                  )}
-                </div>
-              )}
+              </div>
+              <AudioRecorderWithVisualizer
+                onRecordingComplete={handleRecordingComplete}
+                className="w-full"
+                autoSend={autoSendTranscription}
+              />
             </div>
-          </div>
+          )}
 
           {isStreaming && (
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -812,10 +834,7 @@ export default function InputArea({
       </div>
 
       {isFileUploadOpen && (
-        <FileUpload
-          onChange={handleFileUpload}
-          onClose={() => setIsFileUploadOpen(false)}
-        />
+        <FileUpload onChange={handleFileUpload} onClose={() => setIsFileUploadOpen(false)} />
       )}
     </>
   );

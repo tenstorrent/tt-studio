@@ -1,27 +1,15 @@
 import { useTheme } from "../../providers/ThemeProvider";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/button";
-import {
-  Send,
-  Mic,
-  Trash2 as Trash,
-  Square,
-  Play,
-  Pause,
-  Clock,
-} from "lucide-react";
+import { Send, Mic, Trash2 as Trash, Square, Play, Pause, Clock } from "lucide-react";
 import { cn } from "../../lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 
 type Props = {
   className?: string;
   timerClassName?: string;
   onRecordingComplete?: (audioBlob: Blob) => void;
+  autoSend?: boolean;
 };
 
 let recorder: MediaRecorder;
@@ -36,6 +24,7 @@ const padWithLeadingZeros = (num: number, length: number): string => {
 export const AudioRecorderWithVisualizer = ({
   className,
   onRecordingComplete,
+  autoSend = false,
 }: Props) => {
   const { theme } = useTheme();
 
@@ -78,9 +67,7 @@ export const AudioRecorderWithVisualizer = ({
 
   function startRecording() {
     if (mediaRecorderRef.current.stream) {
-      mediaRecorderRef.current.stream
-        .getTracks()
-        .forEach((track) => track.stop());
+      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
       mediaRecorderRef.current.stream = null;
     }
 
@@ -106,8 +93,7 @@ export const AudioRecorderWithVisualizer = ({
           setAudioUrl(null);
 
           // ============ Analyzing ============
-          const AudioContext =
-            window.AudioContext || (window as any).webkitAudioContext;
+          const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
           const audioCtx = new AudioContext({ sampleRate });
           const analyser = audioCtx.createAnalyser();
           analyser.fftSize = 256;
@@ -161,12 +147,7 @@ export const AudioRecorderWithVisualizer = ({
         type: recordedMimeType,
       });
 
-      console.log(
-        "Created blob with MIME type:",
-        recordBlob.type,
-        "Size:",
-        recordBlob.size
-      );
+      console.log("Created blob with MIME type:", recordBlob.type, "Size:", recordBlob.size);
 
       setAudioBlob(recordBlob);
 
@@ -222,41 +203,31 @@ export const AudioRecorderWithVisualizer = ({
   }
 
   function sendToAPI() {
-    if (!audioBlob) return;
+    if (audioBlob) {
+      if (autoSend && onRecordingComplete) {
+        onRecordingComplete(audioBlob);
+      }
+      // Reset recording states and clear audio UI but preserve the actual blob
+      // for the conversation view
+      setIsRecordingStopped(false);
+      setAudioUrl(null); // Clear the audio URL to hide the player
+      setTimer(0);
 
-    console.log(
-      "Sending to API, blob type:",
-      audioBlob.type,
-      "size:",
-      audioBlob.size
-    );
-
-    // Call the callback with the audio blob if provided
-    if (onRecordingComplete) {
-      onRecordingComplete(audioBlob);
-    }
-
-    // Reset recording states and clear audio UI but preserve the actual blob
-    // for the conversation view
-    setIsRecordingStopped(false);
-    setAudioUrl(null); // Clear the audio URL to hide the player
-    setTimer(0);
-
-    // Clear the canvas
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const canvasCtx = canvas.getContext("2d");
-      if (canvasCtx) {
-        const WIDTH = canvas.width;
-        const HEIGHT = canvas.height;
-        canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
+      // Clear the canvas
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const canvasCtx = canvas.getContext("2d");
+        if (canvasCtx) {
+          const WIDTH = canvas.width;
+          const HEIGHT = canvas.height;
+          canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
+        }
       }
     }
   }
 
   function resetRecording() {
-    const { mediaRecorder, stream, analyser, audioContext } =
-      mediaRecorderRef.current;
+    const { mediaRecorder, stream, analyser, audioContext } = mediaRecorderRef.current;
 
     if (mediaRecorder) {
       mediaRecorder.onstop = () => {
@@ -389,9 +360,7 @@ export const AudioRecorderWithVisualizer = ({
     const WIDTH = canvas.width;
     const HEIGHT = canvas.height;
 
-    const drawWaveform = (
-      dataArray: string | any[] | Uint8Array<ArrayBuffer>
-    ) => {
+    const drawWaveform = (dataArray: string | any[] | Uint8Array<ArrayBuffer>) => {
       if (!canvasCtx) return;
       canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
 
@@ -399,10 +368,7 @@ export const AudioRecorderWithVisualizer = ({
       const gradient = canvasCtx.createLinearGradient(0, 0, 0, HEIGHT);
 
       // Use theme-appropriate colors from the TT palette
-      if (
-        theme === "dark" ||
-        document.documentElement.classList.contains("dark")
-      ) {
+      if (theme === "dark" || document.documentElement.classList.contains("dark")) {
         gradient.addColorStop(0, "#D0C6FF"); // TT.purple.tint1
         gradient.addColorStop(0.5, "#BCB3F7"); // TT.purple.DEFAULT
         gradient.addColorStop(1, "#7C68FA"); // TT.purple.accent
@@ -482,10 +448,7 @@ export const AudioRecorderWithVisualizer = ({
         for (let i = 0; i < dataArray.length; i++) {
           // Add a subtle wave effect based on frameCount
           const pulseFactor = 1 + 0.05 * Math.sin(frameCount * 0.05 + i * 0.1);
-          enhancedData[i] = Math.min(
-            255,
-            Math.floor(dataArray[i] * pulseFactor)
-          );
+          enhancedData[i] = Math.min(255, Math.floor(dataArray[i] * pulseFactor));
         }
 
         drawWaveform(enhancedData);
@@ -560,12 +523,7 @@ export const AudioRecorderWithVisualizer = ({
 
         {/* Waveform container */}
         <div className="w-full h-12 sm:h-16 rounded-md border overflow-hidden dark:border-TT-purple/20 bg-white dark:bg-[#222222]">
-          <canvas
-            ref={canvasRef}
-            className="w-full h-full"
-            width={500}
-            height={64}
-          />
+          <canvas ref={canvasRef} className="w-full h-full" width={500} height={64} />
         </div>
 
         {/* Audio player - shown after stopping recording */}
@@ -654,8 +612,7 @@ export const AudioRecorderWithVisualizer = ({
                     style={{
                       boxShadow: "0 0 0 2px rgba(124, 104, 250, 0.3)", // TT-purple-accent with opacity
                       transform: "translateY(0)",
-                      transition:
-                        "transform 0.2s, box-shadow 0.2s, border-color 0.2s",
+                      transition: "transform 0.2s, box-shadow 0.2s, border-color 0.2s",
                     }}
                   >
                     <Mic className="h-6 w-6 sm:h-7 sm:w-7 text-TT-purple-accent dark:text-TT-purple-tint1 transition-colors duration-200" />
@@ -668,9 +625,7 @@ export const AudioRecorderWithVisualizer = ({
                 <TooltipContent side="top">
                   <div className="flex items-center gap-2">
                     <Mic className="h-4 w-4 text-TT-purple-accent" />
-                    {hasRecordedBefore
-                      ? "Click to record again"
-                      : "Click to start recording"}
+                    {hasRecordedBefore ? "Click to record again" : "Click to start recording"}
                   </div>
                 </TooltipContent>
               </Tooltip>
@@ -690,9 +645,7 @@ export const AudioRecorderWithVisualizer = ({
                     <span>Send</span>
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="top">
-                  Send recording for transcription
-                </TooltipContent>
+                <TooltipContent side="top">Send recording for transcription</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
