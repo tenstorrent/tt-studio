@@ -194,6 +194,11 @@ export const AudioRecorderWithVisualizer = ({
       }
 
       setHasRecordedBefore(true);
+
+      // If autoSend is enabled, automatically send the recording
+      if (autoSend && onRecordingComplete) {
+        onRecordingComplete(recordBlob);
+      }
     };
 
     recorder.stop();
@@ -204,9 +209,11 @@ export const AudioRecorderWithVisualizer = ({
 
   function sendToAPI() {
     if (audioBlob) {
-      if (autoSend && onRecordingComplete) {
+      // Always call onRecordingComplete if provided, regardless of autoSend mode
+      if (onRecordingComplete) {
         onRecordingComplete(audioBlob);
       }
+
       // Reset recording states and clear audio UI but preserve the actual blob
       // for the conversation view
       setIsRecordingStopped(false);
