@@ -102,6 +102,10 @@ export default function ChatComponent() {
     topK: 20,
   });
 
+  // Add the missing state variables
+  const [userScrolled, setUserScrolled] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
   // Add inference controller state
   const [inferenceController, setInferenceController] = useState<{
     abort: () => void;
@@ -375,40 +379,100 @@ export default function ChatComponent() {
     };
   }, [screenSize.isMobileView, isHistoryPanelOpen]);
 
-  // Auto-scroll chat container
+  // COMPLETELY REWRITTEN: Scroll behavior with user control
   useEffect(() => {
-    // Only auto-scroll when switching between threads
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop =
-        chatContainerRef.current.scrollHeight;
-    }
-  }, [currentThreadIndex]); // Remove chatThreads from dependency array
+    const container = chatContainerRef.current;
+    if (!container) return;
 
-  // Add scroll event listener to track scroll position
-  useEffect(() => {
-    const chatContainer = chatContainerRef.current;
-    if (!chatContainer) return;
-
+    // Scroll handler - detect when user scrolls away from bottom
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = chatContainer;
-      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50; // 50px threshold
-      setIsScrolledUp(!isAtBottom);
+      if (!container) return;
+
+      // Calculate distance from bottom
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+      // Store last scroll position
       lastScrollPositionRef.current = scrollTop;
+
+      // Show scroll button when scrolled up significantly
+      setShowScrollToBottom(distanceFromBottom > 100);
+
+      // Track if user has scrolled away from bottom - INCREASED SENSITIVITY
+      // Even tiny scroll (10px) will stop auto-scroll
+      if (distanceFromBottom > 10) {
+        setUserScrolled(true);
+      } else if (distanceFromBottom < 5) {
+        // User is at bottom again - smaller threshold
+        setUserScrolled(false);
+      }
     };
 
-    chatContainer.addEventListener("scroll", handleScroll);
-    return () => chatContainer.removeEventListener("scroll", handleScroll);
-  }, []);
+    // Initial scroll to bottom when changing threads
+    const scrollToBottom = () => {
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    };
 
-  // Function to scroll to bottom
-  const scrollToBottom = useCallback(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTo({
-        top: chatContainerRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-  }, []);
+    // Set up mutation observer to watch for content changes
+    const observer = new MutationObserver((mutations) => {
+      if (!container) return;
+
+      const { scrollHeight, clientHeight } = container;
+
+      // Don't auto-scroll if user has scrolled up, unless we're streaming
+      if (!userScrolled || isStreaming) {
+        // Get previous scroll position
+        const previousScrollPosition = lastScrollPositionRef.current;
+        const previousScrollHeight = container.scrollHeight;
+
+        // Preserve relative scroll position during streaming if user has scrolled
+        if (isStreaming && userScrolled) {
+          // Calculate how much content has been added
+          const heightDifference = scrollHeight - previousScrollHeight;
+          if (heightDifference > 0) {
+            // Keep same relative position
+            container.scrollTop = previousScrollPosition + heightDifference;
+          }
+        } else if (!userScrolled) {
+          // Not streaming or user hasn't scrolled - scroll to bottom
+          scrollToBottom();
+        }
+      }
+    });
+
+    // Add event listener and start observing
+    container.addEventListener("scroll", handleScroll);
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    // Initial scroll to bottom
+    scrollToBottom();
+
+    // Cleanup
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      observer.disconnect();
+    };
+  }, [currentThreadIndex, isStreaming, userScrolled]);
+
+  // Reset user scroll when changing threads
+  useEffect(() => {
+    setUserScrolled(false);
+    setShowScrollToBottom(false);
+
+    // Wait a tick for the DOM to update
+    setTimeout(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop =
+          chatContainerRef.current.scrollHeight;
+      }
+    }, 0);
+  }, [currentThreadIndex]);
 
   // Safe getter for current thread
   const getCurrentThread = useCallback(() => {
@@ -555,6 +619,9 @@ export default function ChatComponent() {
 
       setIsStreaming(true);
 
+      // Reset user scroll when starting a new message
+      setUserScrolled(false);
+
       if (screenSize.isMobileView) {
         setIsHistoryPanelOpen(false);
       }
@@ -670,6 +737,7 @@ export default function ChatComponent() {
 
       setReRenderingMessageId(messageId);
       setIsStreaming(true);
+      setUserScrolled(false);
 
       const inferenceRequest: InferenceRequest = {
         deploy_id: modelID,
@@ -779,6 +847,7 @@ export default function ChatComponent() {
       if (index !== -1) {
         setCurrentThreadIndex(index);
         setRagDatasource(undefined);
+        setUserScrolled(false);
 
         if (screenSize.isMobileView) {
           setIsHistoryPanelOpen(false);
@@ -827,6 +896,7 @@ export default function ChatComponent() {
     // Set the current thread to the new one
     setCurrentThreadIndex(chatThreads.length);
     setRagDatasource(undefined);
+    setUserScrolled(false);
 
     if (screenSize.isMobileView) {
       setIsHistoryPanelOpen(false);
@@ -892,6 +962,16 @@ export default function ChatComponent() {
       </div>
     );
   }
+
+  // Scroll to bottom function
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
+      setUserScrolled(false);
+      setShowScrollToBottom(false);
+    }
+  };
 
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
@@ -1193,6 +1273,30 @@ export default function ChatComponent() {
                 </motion.button>
               )}
             </AnimatePresence>
+
+            {/* Scroll to bottom button - WHITE CIRCLE WITH BLACK ARROW FOR DARK MODE */}
+            {showScrollToBottom && (
+              <button
+                onClick={scrollToBottom}
+                className="fixed bottom-28 right-4 z-10 p-2 bg-primary text-white dark:bg-white dark:text-black rounded-full shadow-lg flex items-center justify-center transition-all hover:bg-primary/90 dark:hover:bg-gray-100 animate-fade-in"
+                aria-label="Scroll to bottom"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 19V5" />
+                  <path d="m5 12 7 7 7-7" />
+                </svg>
+              </button>
+            )}
           </div>
           <div
             className={`${
