@@ -18,9 +18,7 @@ export interface ApiConfig {
 // Default configuration - use the proxy URL to avoid CORS issues
 const DEFAULT_CONFIG: ApiConfig = {
   // Use the proxy endpoint defined in vite.config.ts to avoid CORS issues
-  baseUrl: "/api/transcribe",
-  // Try to get auth token from environment
-  authToken: import.meta.env.VITE_TEST_AUDIO_AUTH,
+  baseUrl: "/models-api/speech-recognition/",
   timeout: 30000, // 30 seconds
 };
 
@@ -62,7 +60,7 @@ export async function sendAudioRecording(
     let processedBlob: Blob;
     try {
       // Always convert to ensure proper format and sample rate
-      processedBlob = await convertToWav(audioBlob, 16000);
+      processedBlob = await convertToWav(audioBlob);
       console.log("Conversion successful:", {
         type: processedBlob.type,
         size: processedBlob.size,
@@ -80,7 +78,7 @@ export async function sendAudioRecording(
 
     // Add metadata if provided
     if (metadata) {
-      formData.append("metadata", JSON.stringify(metadata));
+      formData.append("deploy_id", metadata.modelID);
     }
 
     // Prepare headers
