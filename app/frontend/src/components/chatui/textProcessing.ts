@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import nlp from "compromise";
 
-type Doc = ReturnType<typeof nlp>;
-type Term = string; // Simplified to string since we're only using the text content
-
 interface QueryIntent {
   type: string;
   action?: string;
