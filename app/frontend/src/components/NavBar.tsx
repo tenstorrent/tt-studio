@@ -39,7 +39,12 @@ import CustomToaster from "./CustomToaster";
 import { useTheme } from "../providers/ThemeProvider";
 import { useRefresh } from "../providers/RefreshContext";
 import { useModels } from "../providers/ModelsContext";
-import { handleModelNavigationClick } from "../api/modelsDeployedApis";
+import {
+  handleModelNavigationClick,
+  getDestinationFromModelType,
+  ModelType,
+  getModelTypeFromName,
+} from "../api/modelsDeployedApis";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -376,6 +381,32 @@ export default function NavBar() {
     setIsHorizontalExpanded(!isHorizontalExpanded);
   };
 
+  const getNavIconFromModelType = (model_type: string) => {
+    switch (model_type) {
+      case ModelType.ChatModel:
+        return BotMessageSquare;
+      case ModelType.ImageGeneration:
+        return Image;
+      case ModelType.ObjectDetectionModel:
+        return Eye;
+      default:
+        return BotMessageSquare;
+    }
+  };
+
+  const getModelPageNameFromModelType = (model_type: string) => {
+    switch (model_type) {
+      case ModelType.ChatModel:
+        return "Chat UI";
+      case ModelType.ImageGeneration:
+        return "Image Generation";
+      case ModelType.ObjectDetectionModel:
+        return "Object Detection";
+      default:
+        return "ERROR";
+    }
+  };
+
   // Define base navigation items always shown regardless of flags
   const baseNavItems: NavItemData[] = [
     {
@@ -412,63 +443,22 @@ export default function NavBar() {
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
-    // Base items that are always included
-    const items: NavItemData[] = [
-      {
+    const items: NavItemData[] = models.map((model) => {
+      const modelType = getModelTypeFromName(model.name);
+      return {
         type: "button",
-        icon: BotMessageSquare,
-        label: "Chat",
-        onClick: () => handleNavigation("/chat"),
-        isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
-        tooltipText: isDeployedEnabled
-          ? "Chat with Llama 3.3 70B"
-          : models.length > 0
-            ? "Chat with Llama 3.3 70B"
-            : "Deploy a model to chat with Llama 3.3 70B",
-        route: "/chat", // Add route for active state detection
-      },
-      {
-        type: "button",
-        icon: Eye,
-        label: "Object Detection",
-        onClick: () => handleNavigation("/object-detection"),
-        isDisabled: !isDeployedEnabled && models.length === 0, // Only disabled when not enabled and no models
-        tooltipText: isDeployedEnabled
-          ? "Object Detection with YOLOv4"
-          : models.length > 0
-            ? "Object Detection with YOLOv4"
-            : "Deploy a model to use Object Detection with YOLOv4",
-        route: "/object-detection", // Add route for active state detection
-      },
-      {
-        type: "button",
-        icon: Mic,
-        label: "Automatic Speech Recognition",
-        onClick: () => handleNavigation("/speech-to-text"),
+        icon: getNavIconFromModelType(modelType),
+        label: getModelPageNameFromModelType(modelType),
+        onClick: () => handleNavigation(getDestinationFromModelType(modelType)),
         isDisabled: !isDeployedEnabled && models.length === 0,
         tooltipText: isDeployedEnabled
-          ? "Audio Transcription with Whisper Distil Large V3"
+          ? `Open ${getModelPageNameFromModelType(modelType)}`
           : models.length > 0
-            ? "Audio Transcription with Whisper Distil Large V3"
-            : "Deploy a model to use Automatic Speech Recognition",
-        route: "/speech-to-text",
-      },
-    ];
-
-    if (!isDeployedEnabled) {
-      items.splice(1, 0, {
-        type: "button",
-        icon: Image,
-        label: "Image Generation",
-        onClick: handleImageGenerationClick,
-        isDisabled: !isDeployedEnabled && models.length === 0,
-        tooltipText:
-          models.length > 0
-            ? "Open Image Generation"
-            : "Deploy a model to use Image Generation",
-        route: "/image-generation",
-      });
-    }
+            ? `Open ${getModelPageNameFromModelType(modelType)}`
+            : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
+        route: getDestinationFromModelType(modelType),
+      };
+    });
 
     return items;
   };
