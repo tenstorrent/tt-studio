@@ -20,24 +20,50 @@ export const TypewriterEffectSmooth = ({
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId: NodeJS.Timeout;
+
     const sequence = async () => {
-      while (true) {
-        for (let i = 0; i < words.length; i++) {
-          setCurrentWordIndex(i);
-          await controls.start({
-            width: "100%",
-            transition: { duration: 1.5, ease: "linear" },
-          });
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          await controls.start({
-            width: "0%",
-            transition: { duration: 0.5, ease: "linear" },
-          });
-        }
+      if (!isMounted) return;
+
+      for (let i = 0; i < words.length; i++) {
+        if (!isMounted) return;
+
+        setCurrentWordIndex(i);
+        await controls.start({
+          width: "100%",
+          transition: { duration: 1.5, ease: "linear" },
+        });
+
+        if (!isMounted) return;
+        await new Promise((resolve) => {
+          timeoutId = setTimeout(resolve, 2000);
+        });
+
+        if (!isMounted) return;
+        await controls.start({
+          width: "0%",
+          transition: { duration: 0.5, ease: "linear" },
+        });
+      }
+
+      // Only restart the sequence if still mounted
+      if (isMounted) {
+        sequence();
       }
     };
 
-    sequence();
+    // Start the sequence after a short delay to ensure component is mounted
+    timeoutId = setTimeout(() => {
+      sequence();
+    }, 100);
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [controls, words.length]);
 
   return (
