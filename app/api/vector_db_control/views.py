@@ -73,7 +73,7 @@ class VectorCollectionsAPIView(ViewSet):
         for col in filtered_collections:
             logger.info(f"Collection: {col.name}, Metadata: {col.metadata}")
         
-        return Response(data=map(serialize_collection, filtered_collections))
+        return Response(data=list(map(serialize_collection, filtered_collections)))
 
     def post(self, request):
         logger.info(f"Post request received. Headers: {request.headers}")

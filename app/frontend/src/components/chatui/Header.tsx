@@ -18,12 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -88,10 +83,7 @@ const ModelSelector = React.forwardRef<
   }
 >(({ modelsDeployed, setModelID, setModelName }, ref) => (
   <DropdownMenu>
-    <DropdownMenuTrigger
-      ref={ref}
-      className="flex items-center gap-1 focus:outline-none"
-    >
+    <DropdownMenuTrigger ref={ref} className="flex items-center gap-1 focus:outline-none">
       <BreadcrumbEllipsis className="h-4 w-4 text-gray-600" />
       <span className="sr-only">Toggle menu</span>
     </DropdownMenuTrigger>
@@ -152,9 +144,7 @@ const ForwardedSelect = React.forwardRef<
           <div className="p-3 flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <Search className="h-5 w-5 text-[#7C68FA]" />
-              <span className="font-medium text-white">
-                Search All Collections
-              </span>
+              <span className="font-medium text-white">Search All Collections</span>
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
               <Database className="h-4 w-4" />
@@ -172,30 +162,28 @@ const ForwardedSelect = React.forwardRef<
           <span>Your Collections</span>
         </div>
 
-        {props.ragDataSources?.map((c) => (
-          <SelectItem
-            key={c.id}
-            value={c.name}
-            className={`rounded-lg my-1 ${
-              props.value === c.name ? "bg-[#2A2A2A]" : "hover:bg-[#2A2A2A]"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Database className="h-4 w-4 text-gray-400" />
-              <span className="text-white">{c.name}</span>
-            </div>
-          </SelectItem>
-        ))}
+        {Array.isArray(props.ragDataSources) &&
+          props.ragDataSources.map((c) => (
+            <SelectItem
+              key={c.id}
+              value={c.name}
+              className={`rounded-lg my-1 ${
+                props.value === c.name ? "bg-[#2A2A2A]" : "hover:bg-[#2A2A2A]"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Database className="h-4 w-4 text-gray-400" />
+                <span className="text-white">{c.name}</span>
+              </div>
+            </SelectItem>
+          ))}
       </div>
 
       {props.value && (
         <>
           <SelectSeparator className="my-2 bg-gray-800" />
           <div className="px-2 pb-2">
-            <SelectItem
-              value="remove"
-              className="text-red-400 hover:bg-red-500/10 rounded-lg"
-            >
+            <SelectItem value="remove" className="text-red-400 hover:bg-red-500/10 rounded-lg">
               <div className="flex items-center gap-2">
                 <X className="h-4 w-4 text-red-400" />
                 <span>Remove Context</span>
@@ -295,11 +283,7 @@ export default function Header({
       <div className="flex items-center w-full md:w-auto justify-between md:justify-start">
         <div className="flex items-center">
           {/* Logo - Mobile Only */}
-          <ImageWithFallback
-            src={logo}
-            alt="TT Logo"
-            className="h-6 w-auto mr-2 md:hidden"
-          />
+          <ImageWithFallback src={logo} alt="TT Logo" className="h-6 w-auto mr-2 md:hidden" />
 
           {/* Only show panel toggle and breadcrumb on desktop */}
           <div className="hidden md:flex items-center">
@@ -417,12 +401,7 @@ export default function Header({
 
         {/* Mobile hamburger menu button */}
         {isMobileView && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleMobileMenu}
-            className="md:hidden"
-          >
+          <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="md:hidden">
             <Menu className="h-4 w-4" />
           </Button>
         )}
@@ -434,21 +413,10 @@ export default function Header({
           {/* App Title */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <ImageWithFallback
-                src={logo}
-                alt="TT Logo"
-                className="h-6 w-auto mr-2"
-              />
-              <span className="text-white text-base font-bold">
-                AI Playground
-              </span>
+              <ImageWithFallback src={logo} alt="TT Logo" className="h-6 w-auto mr-2" />
+              <span className="text-white text-base font-bold">AI Playground</span>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleMobileMenu}
-              className="text-white"
-            >
+            <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="text-white">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -525,9 +493,7 @@ export default function Header({
           {/* Panel Status */}
           <div className="mt-4 border-t border-[#7C68FA]/20 pt-3">
             <div className="flex items-center justify-between">
-              <span className="text-white text-xs font-medium">
-                History Panel
-              </span>
+              <span className="text-white text-xs font-medium">History Panel</span>
               <div className="flex items-center">
                 <span className="text-white text-xs mr-2">
                   {isHistoryPanelOpen ? "Open" : "Closed"}
@@ -553,9 +519,7 @@ export default function Header({
           <div className="mt-3 space-y-2">
             {modelsDeployed.length > 0 && (
               <div>
-                <span className="text-white text-xs font-medium block mb-1">
-                  Current Model
-                </span>
+                <span className="text-white text-xs font-medium block mb-1">Current Model</span>
                 <Select
                   value={modelName || ""}
                   onValueChange={(v) => {
@@ -585,9 +549,7 @@ export default function Header({
             )}
 
             <div>
-              <span className="text-white text-xs font-medium block mb-1">
-                RAG Context
-              </span>
+              <span className="text-white text-xs font-medium block mb-1">RAG Context</span>
               <ForwardedSelect
                 value={
                   ragDatasource
@@ -602,9 +564,7 @@ export default function Header({
                   } else if (v === "special-all") {
                     setRagDatasource(allCollectionsOption);
                   } else {
-                    const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v
-                    );
+                    const dataSource = ragDataSources.find((rds) => rds.name === v);
                     if (dataSource) {
                       setRagDatasource(dataSource);
                     }
@@ -613,44 +573,72 @@ export default function Header({
                 ragDataSources={ragDataSources}
               >
                 <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
-                  {ragDataSources.map((c) => (
+                  <SelectGroup>
+                    <SelectLabel className="text-gray-500 dark:text-white/70">
+                      Special Options
+                    </SelectLabel>
                     <SelectItem
-                      key={c.id}
-                      value={c.name}
-                      className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
-                        ragDatasource?.name === c.name &&
-                        ragDatasource.id !== "special-all"
-                          ? "bg-[#7C68FA]/10"
-                          : ""
-                      }`}
+                      value="special-all"
+                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 flex items-center"
                     >
-                      <div className="flex items-center gap-2">
-                        <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                        <div className="flex flex-col">
-                          <span className="font-medium">{c.name}</span>
-                          {c.metadata?.last_uploaded_document && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              Last updated: {c.metadata.last_uploaded_document}
-                            </span>
-                          )}
-                          {c.metadata?.embedding_func_name && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              Model: {c.metadata.embedding_func_name}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      <Search className="h-4 w-4 mr-2 inline-block" />
+                      <span>All Collections</span>
                     </SelectItem>
-                  ))}
+                  </SelectGroup>
+
+                  <SelectGroup>
+                    <SelectLabel className="text-gray-500 dark:text-white/70 mt-2">
+                      Your Collections
+                    </SelectLabel>
+                    {Array.isArray(ragDataSources) &&
+                      ragDataSources.map((c) => (
+                        <SelectItem
+                          key={c.id}
+                          value={c.name}
+                          className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
+                            ragDatasource?.name === c.name && ragDatasource.id !== "special-all"
+                              ? "bg-[#7C68FA]/10"
+                              : ""
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                            <div className="flex flex-col">
+                              <span className="font-medium">{c.name}</span>
+                              {c.metadata?.last_uploaded_document && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  Last updated: {c.metadata.last_uploaded_document}
+                                </span>
+                              )}
+                              {c.metadata?.embedding_func_name && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  Model: {c.metadata.embedding_func_name}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+
+                  {ragDatasource && (
+                    <SelectItem
+                      value="remove"
+                      className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20 mt-2"
+                    >
+                      <span className="flex items-center">
+                        <X className="mr-2 h-4 w-4" />
+                        Remove RAG context
+                      </span>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </ForwardedSelect>
             </div>
 
             {modelsDeployed.length > 0 && (
               <div>
-                <span className="text-white text-xs font-medium block mb-1">
-                  AI Agent
-                </span>
+                <span className="text-white text-xs font-medium block mb-1">AI Agent</span>
                 <ForwardedAISelect
                   value={selectedAIAgent || ""}
                   onValueChange={handleAgentSelection}
@@ -715,9 +703,7 @@ export default function Header({
                     } else if (v === "special-all") {
                       setRagDatasource(allCollectionsOption);
                     } else {
-                      const dataSource = ragDataSources.find(
-                        (rds) => rds.name === v
-                      );
+                      const dataSource = ragDataSources.find((rds) => rds.name === v);
                       if (dataSource) {
                         setRagDatasource(dataSource);
                       }
@@ -743,36 +729,35 @@ export default function Header({
                       <SelectLabel className="text-gray-500 dark:text-white/70 mt-2">
                         Your Collections
                       </SelectLabel>
-                      {ragDataSources.map((c) => (
-                        <SelectItem
-                          key={c.id}
-                          value={c.name}
-                          className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
-                            ragDatasource?.name === c.name &&
-                            ragDatasource.id !== "special-all"
-                              ? "bg-[#7C68FA]/10"
-                              : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                            <div className="flex flex-col">
-                              <span className="font-medium">{c.name}</span>
-                              {c.metadata?.last_uploaded_document && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  Last updated:{" "}
-                                  {c.metadata.last_uploaded_document}
-                                </span>
-                              )}
-                              {c.metadata?.embedding_func_name && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  Model: {c.metadata.embedding_func_name}
-                                </span>
-                              )}
+                      {Array.isArray(ragDataSources) &&
+                        ragDataSources.map((c) => (
+                          <SelectItem
+                            key={c.id}
+                            value={c.name}
+                            className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
+                              ragDatasource?.name === c.name && ragDatasource.id !== "special-all"
+                                ? "bg-[#7C68FA]/10"
+                                : ""
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                              <div className="flex flex-col">
+                                <span className="font-medium">{c.name}</span>
+                                {c.metadata?.last_uploaded_document && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    Last updated: {c.metadata.last_uploaded_document}
+                                  </span>
+                                )}
+                                {c.metadata?.embedding_func_name && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    Model: {c.metadata.embedding_func_name}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </SelectItem>
-                      ))}
+                          </SelectItem>
+                        ))}
                     </SelectGroup>
 
                     {ragDatasource && (
@@ -833,11 +818,7 @@ export default function Header({
                   </ForwardedAISelect>
                 </TooltipTrigger>
                 <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <p>
-                    {selectedAIAgent
-                      ? "Change or remove AI agent"
-                      : "Select AI Agent"}
-                  </p>
+                  <p>{selectedAIAgent ? "Change or remove AI agent" : "Select AI Agent"}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -853,8 +834,7 @@ export default function Header({
                   onClick={() => setIsSettingsOpen(!isSettingsOpen)}
                   className={cn(
                     "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white",
-                    isSettingsOpen &&
-                      "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
+                    isSettingsOpen && "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
                   )}
                 >
                   <Sliders className="h-4 w-4" />
