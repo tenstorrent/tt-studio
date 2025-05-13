@@ -342,6 +342,11 @@ class SpeechRecognitionInferenceCloudView(APIView):
         if deploy_id == "null":
             # Use cloud URL when deploy_id is "null"
             internal_url = CLOUD_SPEECH_RECOGNITION_URL
+            if not internal_url:
+                return Response(
+                    {"error": "Cloud speech recognition URL not configured"}, 
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
             logger.info(f"Using cloud URL: {internal_url}")
             headers = {"Authorization": f"Bearer {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"}
             logger.info(f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}")

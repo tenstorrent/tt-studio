@@ -45,6 +45,8 @@ services:
       - CLOUD_YOLOV4_API_URL
       - CLOUD_YOLOV4_API_AUTH_TOKEN
       - RAG_ADMIN_PASSWORD
+      - CLOUD_SPEECH_RECOGNITION_URL
+      - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
 
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
