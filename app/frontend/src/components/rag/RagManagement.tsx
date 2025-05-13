@@ -82,10 +82,7 @@ const getBrowserId = (): string => {
 
 // Add browser ID to headers for all fetch requests
 const originalFetch = window.fetch;
-window.fetch = function (
-  input: RequestInfo | URL,
-  init?: RequestInit
-): Promise<Response> {
+window.fetch = function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   // Create new options object to avoid mutating the original
   const newInit: RequestInit = { ...(init || {}) };
 
@@ -113,8 +110,7 @@ const TableWrapper = ({ children }: { children: React.ReactNode }) => {
       <div
         className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
         style={{
-          maskImage:
-            "radial-gradient(ellipse at center, transparent 20%, black 100%)",
+          maskImage: "radial-gradient(ellipse at center, transparent 20%, black 100%)",
         }}
       ></div>
       <div className="flex flex-col h-screen w-full px-4 md:px-20 pt-8 md:pt-8 pb-16 md:pb-28 overflow-hidden mt-8">
@@ -133,13 +129,9 @@ export default function RagManagement() {
   const [ragDataSources, setRagDataSources] = useState<RagDataSource[]>([]);
   const [error, setError] = useState<Error | null>(null);
 
-  const [targetCollection, setTargetCollection] = useState<
-    RagDataSource | undefined
-  >(undefined);
+  const [targetCollection, setTargetCollection] = useState<RagDataSource | undefined>(undefined);
 
-  const [collectionsUploading, setCollectionsUploading] = useState<string[]>(
-    []
-  );
+  const [collectionsUploading, setCollectionsUploading] = useState<string[]>([]);
 
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -169,6 +161,7 @@ export default function RagManagement() {
         await new Promise((resolve) => setTimeout(resolve, 300));
 
         const data = await fetchCollections();
+        console.log("[RagManagement] Fetched collections:", data);
         setRagDataSources(data);
       } catch (err) {
         setError(err as Error);
@@ -185,17 +178,13 @@ export default function RagManagement() {
   const deleteCollectionMutation = useMutation({
     mutationFn: deleteCollection,
     onError(error: Error, variables: { collectionName: string }) {
-      customToast.error(
-        `Error deleting ${variables.collectionName}: ${error.message}`
-      );
+      customToast.error(`Error deleting ${variables.collectionName}: ${error.message}`);
     },
     onSuccess: (_data, variables: { collectionName: string }) => {
       queryClient.invalidateQueries(["collectionsList"]);
 
       // Update local state
-      setRagDataSources((prev) =>
-        prev.filter((rds) => rds.name !== variables.collectionName)
-      );
+      setRagDataSources((prev) => prev.filter((rds) => rds.name !== variables.collectionName));
 
       customToast.success("Collection deleted successfully");
       customToast.success(`Deleted collection ${variables.collectionName}`);
@@ -206,9 +195,7 @@ export default function RagManagement() {
   const createCollectionMutation = useMutation({
     mutationFn: createCollection,
     onSuccess: async (_data, variables) => {
-      customToast.success(
-        `RAG Datasource created successfully: ${variables.collectionName}`
-      );
+      customToast.success(`RAG Datasource created successfully: ${variables.collectionName}`);
 
       // Refresh the data
       setLoading(true);
@@ -237,9 +224,7 @@ export default function RagManagement() {
       customToast.error(`Error uploading ${file.name} to ${collectionName}`);
     },
     onSuccess: async (_data, { file, collectionName }) => {
-      setCollectionsUploading(
-        collectionsUploading.filter((e) => e !== collectionName)
-      );
+      setCollectionsUploading(collectionsUploading.filter((e) => e !== collectionName));
       customToast.success(`Uploaded ${file.name} to ${collectionName}`);
 
       // Refresh the data
@@ -321,11 +306,7 @@ export default function RagManagement() {
             ? `This will replace the existing PDF "${item.metadata.last_uploaded_document}" with the new uploaded PDF. Are you sure you want to continue?`
             : "Select a PDF document to upload to this collection."
         }
-        dialogTitle={
-          item.metadata?.last_uploaded_document
-            ? "Replace existing PDF?"
-            : "Upload PDF"
-        }
+        dialogTitle={item.metadata?.last_uploaded_document ? "Replace existing PDF?" : "Upload PDF"}
         onConfirm={() => onUploadClick(item)}
         alertTrigger={
           <Button
@@ -370,11 +351,7 @@ export default function RagManagement() {
               className="h-6 w-6"
               onClick={() => toggleExpandRow(item.id)}
             >
-              {isExpanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
+              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
           </TableCell>
           {/* Name column - always visible */}
@@ -390,9 +367,7 @@ export default function RagManagement() {
             {item.metadata?.last_uploaded_document && (
               <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 dark:text-gray-400 sm:hidden">
                 <FileType className="w-3 h-3 flex-shrink-0 text-red-500" />
-                <span className="truncate">
-                  {item.metadata.last_uploaded_document}
-                </span>
+                <span className="truncate">{item.metadata.last_uploaded_document}</span>
               </div>
             )}
           </TableCell>
@@ -404,9 +379,7 @@ export default function RagManagement() {
             {item.metadata?.last_uploaded_document ? (
               <div className="flex items-center gap-2">
                 <FileType color="red" className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">
-                  {item.metadata.last_uploaded_document}
-                </span>
+                <span className="truncate">{item.metadata.last_uploaded_document}</span>
               </div>
             ) : (
               "No file uploaded"
@@ -444,9 +417,7 @@ export default function RagManagement() {
                   </span>
                   <div className="mt-1">
                     {item.metadata?.last_uploaded_document ? (
-                      <CopyableText
-                        text={item.metadata.last_uploaded_document}
-                      />
+                      <CopyableText text={item.metadata.last_uploaded_document} />
                     ) : (
                       "No file uploaded"
                     )}
@@ -458,9 +429,7 @@ export default function RagManagement() {
                   .filter(([key]) => key !== "last_uploaded_document")
                   .map(([key, value]) => (
                     <div key={key} className="flex flex-col">
-                      <span className="font-medium text-gray-500 dark:text-gray-400">
-                        {key}
-                      </span>
+                      <span className="font-medium text-gray-500 dark:text-gray-400">{key}</span>
                       <span>{value}</span>
                     </div>
                   ))}
@@ -471,6 +440,9 @@ export default function RagManagement() {
       </>
     );
   };
+
+  // Add a log before rendering
+  console.log("[RagManagement] ragDataSources before render:", ragDataSources);
 
   return (
     <>
@@ -502,9 +474,7 @@ export default function RagManagement() {
                   Manage Rag Datasources
                 </TableCaption>
                 <TableHeader>
-                  <TableRow
-                    className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
-                  >
+                  <TableRow className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}>
                     {/* Expand column */}
                     <TableHead className="w-8 p-2"></TableHead>
                     {/* Name column */}
@@ -531,22 +501,23 @@ export default function RagManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ragDataSources.map((rds: RagDataSource) => (
-                    <React.Fragment key={rds.id}>
-                      {renderRow({
-                        item: rds,
-                        isUploading: collectionsUploading.includes(rds.name),
-                        onUploadClick: (rds: RagDataSource) => {
-                          setTargetCollection(rds);
-                          inputFile.current?.click();
-                        },
-                        onDelete: (rds: RagDataSource) =>
-                          deleteCollectionMutation.mutate({
-                            collectionName: rds.name,
-                          }),
-                      })}
-                    </React.Fragment>
-                  ))}
+                  {Array.isArray(ragDataSources) &&
+                    ragDataSources.map((rds: RagDataSource) => (
+                      <React.Fragment key={rds.id}>
+                        {renderRow({
+                          item: rds,
+                          isUploading: collectionsUploading.includes(rds.name),
+                          onUploadClick: (rds: RagDataSource) => {
+                            setTargetCollection(rds);
+                            inputFile.current?.click();
+                          },
+                          onDelete: (rds: RagDataSource) =>
+                            deleteCollectionMutation.mutate({
+                              collectionName: rds.name,
+                            }),
+                        })}
+                      </React.Fragment>
+                    ))}
                 </TableBody>
               </Table>
             </div>
