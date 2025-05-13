@@ -126,7 +126,7 @@ const Parameter = ({
     </div>
     <Slider
       value={[value]}
-      onValueChange={(val) => onChange(val[0].toString())}
+      onValueChange={(val: number[]) => onChange(val[0].toString())}
       min={min}
       max={max}
       step={step}
