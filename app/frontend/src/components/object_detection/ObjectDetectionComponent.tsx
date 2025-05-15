@@ -239,7 +239,7 @@ export const ObjectDetectionComponent: React.FC = () => {
     setFileScaledDetections(updatedDetections);
   }, [fileDetections, fileMetadata, fileScaledDetections.length]);
 
-  // Update webcam bounding boxes
+  // Update webcam bounding boxes - UPDATED
   useEffect(() => {
     if (!webcamMetadata || webcamDetections.length === 0 || !isWebcamLiveMode || !webcamContainerRef.current) {
       // Clear scaled detections if there are no detections or not in live mode
@@ -254,15 +254,48 @@ export const ObjectDetectionComponent: React.FC = () => {
       return;
     }
     
-    const updatedDetections = updateBoxPositions(
-      webcamContainerRef,
-      webcamVideoRef,
-      webcamMetadata,
-      webcamDetections
-    );
-    
-    setWebcamScaledDetections(updatedDetections);
+    // Use requestAnimationFrame for smoother updates
+    requestAnimationFrame(() => {
+      const updatedDetections = updateBoxPositions(
+        webcamContainerRef,
+        webcamVideoRef,
+        webcamMetadata,
+        webcamDetections
+      );
+      
+      setWebcamScaledDetections(updatedDetections);
+    });
   }, [webcamDetections, webcamMetadata, isWebcamLiveMode, isStreaming, webcamScaledDetections.length]);
+
+  // NEW effect for video metadata loading
+  useEffect(() => {
+    // Handle video metadata loading
+    const handleVideoMetadataLoaded = () => {
+      if (webcamDetections.length > 0 && webcamMetadata && webcamContainerRef.current) {
+        const updatedDetections = updateBoxPositions(
+          webcamContainerRef,
+          webcamVideoRef,
+          webcamMetadata,
+          webcamDetections
+        );
+        setWebcamScaledDetections(updatedDetections);
+      }
+    };
+    
+    // Add event listener for video metadata loading
+    const videoElement = webcamVideoRef.current;
+    if (videoElement && isWebcamLiveMode) {
+      videoElement.addEventListener('loadedmetadata', handleVideoMetadataLoaded);
+      videoElement.addEventListener('resize', handleVideoMetadataLoaded);
+    }
+    
+    return () => {
+      if (videoElement) {
+        videoElement.removeEventListener('loadedmetadata', handleVideoMetadataLoaded);
+        videoElement.removeEventListener('resize', handleVideoMetadataLoaded);
+      }
+    };
+  }, [webcamVideoRef.current, isWebcamLiveMode, webcamDetections, webcamMetadata]);
 
   // Handle file container resize
   useEffect(() => {
@@ -286,22 +319,36 @@ export const ObjectDetectionComponent: React.FC = () => {
     };
   }, [fileDetections, fileMetadata]);
 
-  // Handle webcam container resize
+  // Handle webcam container resize - UPDATED
   useEffect(() => {
     const containerElement = webcamContainerRef.current;
     if (!containerElement || !webcamMetadata || webcamDetections.length === 0 || !isWebcamLiveMode) return;
     
+    // Create a more robust handler that checks video dimensions
+    const updateWebcamBoxes = () => {
+      // Only update if video dimensions are available
+      if (webcamVideoRef.current?.videoWidth > 0 && webcamVideoRef.current?.videoHeight > 0) {
+        const updatedDetections = updateBoxPositions(
+          webcamContainerRef,
+          webcamVideoRef,
+          webcamMetadata,
+          webcamDetections
+        );
+        setWebcamScaledDetections(updatedDetections);
+      }
+    };
+    
     const resizeObserver = new ResizeObserver(() => {
-      const updatedDetections = updateBoxPositions(
-        webcamContainerRef,
-        webcamVideoRef,
-        webcamMetadata,
-        webcamDetections
-      );
-      setWebcamScaledDetections(updatedDetections);
+      // Use requestAnimationFrame to ensure DOM measurements are accurate
+      requestAnimationFrame(updateWebcamBoxes);
     });
     
     resizeObserver.observe(containerElement);
+    
+    // Also observe the video element itself for size changes
+    if (webcamVideoRef.current) {
+      resizeObserver.observe(webcamVideoRef.current);
+    }
     
     return () => {
       resizeObserver.disconnect();
@@ -719,5 +766,4 @@ export const ObjectDetectionComponent: React.FC = () => {
         </ResizablePanelGroup>
       </Card>
     </div>
-  );
-};  
+  );}
