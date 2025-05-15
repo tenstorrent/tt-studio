@@ -214,7 +214,27 @@ def base_docker_config():
 
 # model_ids are unique strings to define a model, they could be uuids but
 # using friendly strings prefixed with id_ is more helpful for debugging
+
+# 
+
 model_implmentations_list = [
+    # Speech Recognition
+    ModelImpl(
+        model_name="Whisper-Distil-Large-v3",
+        model_id="id_whisper_distil_large_v3_v0.1.0",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-whisper-distil-large-v3-dev",
+        image_tag="v0.0.1-tt-metal-1a1a9e2bb102",
+        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
+        docker_config=base_docker_config(),
+        shm_size="32G",
+        service_port=7000,
+        service_route="/inference",
+        health_route="/",
+        setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.SPEECH_RECOGNITION,
+    ),
+
+    # Image Generation
     ModelImpl(
         model_name="Stable-Diffusion-3.5-medium",
         model_id="id_stable_diffusion_3.5_mediumv0.1.0",
@@ -229,6 +249,8 @@ model_implmentations_list = [
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.IMAGE_GENERATION,
     ),
+
+    # Image Generation
     ModelImpl(
         model_name="Stable-Diffusion-1.4",
         model_id="id_stable_diffusionv0.1.0",
@@ -243,6 +265,8 @@ model_implmentations_list = [
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.IMAGE_GENERATION,
     ),
+
+    # Object Detection
     ModelImpl(
         model_name="YOLOv4",
         model_id="id_yolov4v0.0.1",
@@ -256,6 +280,9 @@ model_implmentations_list = [
         setup_type=SetupTypes.NO_SETUP,
         model_type=ModelTypes.OBJECT_DETECTION
     ),
+
+    # Mock Chat 
+    # TODO: currently not working.
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
         model_name="Mock-Llama-3.1-70B-Instruct",
@@ -270,6 +297,8 @@ model_implmentations_list = [
         setup_type=SetupTypes.MAKE_VOLUMES,
         model_type=ModelTypes.MOCK
     ),
+
+    # --- Chat Models ---
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",

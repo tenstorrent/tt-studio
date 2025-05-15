@@ -76,6 +76,54 @@ export const AudioRecorderWithVisualizer = ({
 
   const sampleRate = 16_000; // 16kHz sample rate
 
+  function cleanupAllResources() {
+    // Stop recording if in progress
+    if (
+      mediaRecorderRef.current.mediaRecorder &&
+      mediaRecorderRef.current.mediaRecorder.state !== "inactive"
+    ) {
+      try {
+        mediaRecorderRef.current.mediaRecorder.stop();
+      } catch (e) {
+        // ignore
+      }
+      mediaRecorderRef.current.mediaRecorder = null;
+    }
+    // Stop all tracks
+    if (mediaRecorderRef.current.stream) {
+      mediaRecorderRef.current.stream
+        .getTracks()
+        .forEach((track) => track.stop());
+      mediaRecorderRef.current.stream = null;
+    }
+    // Disconnect analyser
+    if (mediaRecorderRef.current.analyser) {
+      try {
+        mediaRecorderRef.current.analyser.disconnect();
+      } catch (e) {}
+      mediaRecorderRef.current.analyser = null;
+    }
+    // Close audio context
+    if (
+      mediaRecorderRef.current.audioContext &&
+      mediaRecorderRef.current.audioContext.state !== "closed"
+    ) {
+      mediaRecorderRef.current.audioContext.close().catch((err) => {
+        console.error("Error closing AudioContext on cleanup:", err);
+      });
+      mediaRecorderRef.current.audioContext = null;
+    }
+    // Cancel animation
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    // Revoke audio URL
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+  }
+
   function startRecording() {
     if (mediaRecorderRef.current.stream) {
       mediaRecorderRef.current.stream
@@ -213,6 +261,7 @@ export const AudioRecorderWithVisualizer = ({
       }
 
       setHasRecordedBefore(true);
+      cleanupAllResources();
     };
 
     recorder.stop();
@@ -255,6 +304,7 @@ export const AudioRecorderWithVisualizer = ({
   }
 
   function resetRecording() {
+    cleanupAllResources();
     const { mediaRecorder, stream, analyser, audioContext } =
       mediaRecorderRef.current;
 
@@ -343,31 +393,9 @@ export const AudioRecorderWithVisualizer = ({
   // Cleanup effect
   useEffect(() => {
     return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-
-      // Make sure to fully clean up all audio resources when component unmounts
-      const { stream, audioContext, analyser } = mediaRecorderRef.current;
-
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-
-      if (analyser) {
-        analyser.disconnect();
-      }
-
-      if (audioContext && audioContext.state !== "closed") {
-        audioContext.close().catch((err) => {
-          console.error("Error closing AudioContext on unmount:", err);
-        });
-      }
+      cleanupAllResources();
     };
-  }, [audioUrl]);
+  }, []);
 
   // Audio element event listeners
   useEffect(() => {

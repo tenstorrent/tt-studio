@@ -53,6 +53,7 @@ export const ModelType = {
   ChatModel: "ChatModel",
   ImageGeneration: "ImageGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
+  SpeechRecognitionModel: "SpeechRecognitionModel",
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -186,19 +187,21 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/image-generation";
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
+    case ModelType.SpeechRecognitionModel:
+      return "/speech-to-text";
     default:
       return "/chat-ui"; // /chat-ui is the default
   }
 };
 
 export const getModelTypeFromName = (modelName: string): string => {
-  // TODO: remove this hack once we enumerate the types of models #<ISSUE_NUMBER>
-  // this should eventually become a switch-case statement
   var modelType: string;
-  if (modelName.includes("yolo")) {
+  if (modelName.toLowerCase().includes("yolo")) {
     modelType = ModelType.ObjectDetectionModel;
-  } else if (modelName.includes("diffusion")) {
+  } else if (modelName.toLowerCase().includes("diffusion")) {
     modelType = ModelType.ImageGeneration;
+  } else if (modelName.toLowerCase().includes("whisper")) {
+    modelType = ModelType.SpeechRecognitionModel;
   } else {
     modelType = ModelType.ChatModel;
   }
