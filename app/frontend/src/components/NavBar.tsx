@@ -317,8 +317,7 @@ export default function NavBar() {
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const hoverTextColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
-  const activeBorderColor =
-    theme === "dark" ? "border-TT-purple-accent" : "border-TT-purple-accent-2";
+  const activeBorderColor = "border-TT-purple-accent";
   const hoverBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
 
   const navLinkClass = `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`;
