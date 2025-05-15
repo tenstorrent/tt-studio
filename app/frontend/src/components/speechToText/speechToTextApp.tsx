@@ -10,6 +10,8 @@ import { Mic, MessageSquare } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../providers/ThemeProvider";
+import { useLocation } from "react-router-dom";
+import { customToast } from "../CustomToaster";
 
 interface Transcription {
   id: string;
@@ -35,6 +37,22 @@ export default function SpeechToTextApp() {
   const [conversationCounter, setConversationCounter] = useState(1);
   const [showRecordingInterface, setShowRecordingInterface] = useState(false);
   const { theme } = useTheme();
+
+  const location = useLocation();
+  const [modelID, setModelID] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (location.state) {
+      if (!location.state.containerID) {
+        customToast.error(
+          "modelID is unavailable. Try navigating here from the Models Deployed tab",
+        );
+        return;
+      }
+      setModelID(location.state.containerID);
+      console.log(location.state.containerID);
+    }
+  }, [location.state, modelID]);
 
   // Function to create a new conversation
   const handleNewConversation = () => {
@@ -221,7 +239,8 @@ export default function SpeechToTextApp() {
                   setIsRecording={setIsRecording}
                   showRecordingInterface={showRecordingInterface}
                   setShowRecordingInterface={setShowRecordingInterface}
-                />
+                  modelID={modelID}
+              />
               </div>
             </div>
           </div>

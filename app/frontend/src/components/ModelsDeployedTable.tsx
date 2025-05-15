@@ -45,6 +45,7 @@ import {
   MessageSquare,
   AlertCircle,
   Eye,
+  AudioLines,
 } from "lucide-react";
 import {
   Tooltip,
@@ -120,7 +121,7 @@ export default function ModelsDeployedTable() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setModels((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id)),
+        prevModels.filter((model) => !fadingModels.includes(model.id))
       );
       setFadingModels([]);
     }, 3000);
@@ -143,13 +144,15 @@ export default function ModelsDeployedTable() {
     const modelType = getModelTypeFromName(modelName);
     switch (modelType) {
       case ModelType.ChatModel:
-        return <MessageSquare className="w-4 h-4 mr-2" />
+        return <MessageSquare className="w-4 h-4 mr-2" />;
       case ModelType.ImageGeneration:
-        return <Image className="w-4 h-4 mr-2" />
+        return <Image className="w-4 h-4 mr-2" />;
       case ModelType.ObjectDetectionModel:
-        return <Eye className="w-4 h-4 mr-2" />
+        return <Eye className="w-4 h-4 mr-2" />;
+      case ModelType.SpeechRecognitionModel:
+        return <AudioLines className="w-4 h-4 mr-2" />;
       default:
-        return <MessageSquare className="w-4 h-4 mr-2" />
+        return <MessageSquare className="w-4 h-4 mr-2" />;
     }
   };
 
@@ -161,7 +164,9 @@ export default function ModelsDeployedTable() {
       case ModelType.ImageGeneration:
         return "Image Generation";
       case ModelType.ObjectDetectionModel:
-        return "ObjectDetection";
+        return "Object Detection";
+      case ModelType.SpeechRecognitionModel:
+        return "Speech Recognition";
       default:
         return "Chat";
     }
@@ -243,7 +248,7 @@ export default function ModelsDeployedTable() {
                   {model.status ? <StatusBadge status={model.status} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
-                  {model.health ?<HealthBadge deployId={model.id} /> : "N/A"}
+                  {model.health ? <HealthBadge deployId={model.id} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
                   {model.ports ? <CopyableText text={model.ports} /> : "N/A"}
@@ -298,7 +303,7 @@ export default function ModelsDeployedTable() {
                                   handleModelNavigationClick(
                                     model.id,
                                     model.name,
-                                    navigate,
+                                    navigate
                                   )
                                 }
                                 className={`${
@@ -323,7 +328,9 @@ export default function ModelsDeployedTable() {
                                 </p>
                               ) : (
                                 <p>
-                                  {getTooltipText(getModelTypeLabel(model.name))}
+                                  {getTooltipText(
+                                    getModelTypeLabel(model.name)
+                                  )}
                                 </p>
                               )}
                             </TooltipContent>
