@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import type React from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
 import { User, Camera, ChevronDown, Download } from "lucide-react";
@@ -15,6 +15,7 @@ import { useChat } from "./hooks/useChat";
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   onBack,
   modelID,
+  initialPrompt = "",
 }) => {
   const {
     messages,
@@ -31,6 +32,12 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   } = useChat(modelID);
 
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+
+  useEffect(() => {
+    if (initialPrompt) {
+      setTextInput(initialPrompt);
+    }
+  }, [initialPrompt, setTextInput]);
 
   return (
     <div className="flex flex-col w-full h-full bg-[#0a0b0f]">
