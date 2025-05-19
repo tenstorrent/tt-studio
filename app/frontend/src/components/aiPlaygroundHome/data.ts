@@ -87,7 +87,7 @@ export const models: Model[] = [
     image: "src/assets/aiPlayground/model-logo/stable_diffusion.svg",
     path: "/image-generation",
     filter: "#4A5568",
-    TTDevice: "n150",
+    TTDevice: "n300",
     poweredByText: "Powered by Wormhole n300",
     modelType: "ImageGen",
     tpBadge: { customText: "Batch=1" },
