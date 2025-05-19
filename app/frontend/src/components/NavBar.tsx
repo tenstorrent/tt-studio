@@ -17,6 +17,8 @@ import {
   ChevronLeft,
   type LucideIcon,
   Mic,
+  Cog,
+  Menu,
 } from "lucide-react";
 
 import logo from "../assets/logo/tt_logo.svg";
@@ -36,6 +38,7 @@ import {
   ModelType,
   getModelTypeFromName,
 } from "../api/modelsDeployedApis";
+import { useHeroSection } from "../providers/HeroSectionContext";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -236,7 +239,55 @@ interface ActionButtonType {
   onClick: (() => void) | null;
 }
 
+function SplashToggleMenuItem() {
+  const [enabled, setEnabled] = useState(() => {
+    const val = localStorage.getItem("splashEnabled");
+    return val === null ? false : val === "true"; // Default to false if not set
+  });
+
+  const handleToggle = () => {
+    const newVal = !enabled;
+    setEnabled(newVal);
+    localStorage.setItem("splashEnabled", newVal ? "true" : "false");
+    window.dispatchEvent(new Event("splash-toggle"));
+  };
+
+  return (
+    <button
+      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+      onClick={handleToggle}
+    >
+      <Cog className="w-4 h-4 mr-2" />
+      {enabled ? "Hide Welcome Splash" : "Show Welcome Splash"}
+    </button>
+  );
+}
+
+function HeroSectionToggleMenuItem({
+  showHero,
+  setShowHero,
+}: {
+  showHero: boolean;
+  setShowHero: (val: boolean) => void;
+}) {
+  const handleToggle = () => {
+    const newVal = !showHero;
+    setShowHero(newVal);
+    localStorage.setItem("showHeroSection", newVal ? "true" : "false");
+  };
+  return (
+    <button
+      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+      onClick={handleToggle}
+    >
+      <Cog className="w-4 h-4 mr-2" />
+      {showHero ? "Hide Hero Section" : "Show Hero Section"}
+    </button>
+  );
+}
+
 export default function NavBar() {
+  const { showHero, setShowHero } = useHeroSection();
   const location = useLocation();
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -810,19 +861,25 @@ export default function NavBar() {
           </NavigationMenu>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-2 sm:space-x-4">
-            {actionButtons.map((button, index) => (
-              <div key={button.tooltipText} className="flex items-center">
-                <ActionButton
-                  icon={button.icon}
-                  onClick={button.onClick}
-                  tooltipText={button.tooltipText}
-                />
-                {index < actionButtons.length - 1 && (
-                  <Separator className="h-6 w-px bg-zinc-400 ml-2" orientation="vertical" />
-                )}
-              </div>
+          <div className="flex items-center space-x-4">
+            {actionButtons.map((button) => (
+              <ActionButton
+                key={button.tooltipText}
+                icon={button.icon}
+                onClick={button.onClick}
+                tooltipText={button.tooltipText}
+              />
             ))}
+            {/* Dropdown for settings */}
+            <div className="relative group">
+              <button className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                <Menu className="w-6 h-6" />
+              </button>
+              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-50">
+                <SplashToggleMenuItem />
+                <HeroSectionToggleMenuItem showHero={showHero} setShowHero={setShowHero} />
+              </div>
+            </div>
           </div>
         </div>
       </div>

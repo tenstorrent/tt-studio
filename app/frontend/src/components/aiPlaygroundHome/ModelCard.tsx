@@ -10,7 +10,7 @@ import { HardwareIcon } from "./HardwareIcon";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 type ModelCardProps = Omit<Model, "id"> & {
-  modelType?: "LLM" | "CNN" | "Audio" | "NLP";
+  modelType?: "LLM" | "CNN" | "Audio" | "NLP" | "ImageGen";
   statusIndicator?: { show: boolean; color: string; animate: boolean };
   hoverEffects?: {
     rotate: boolean;
