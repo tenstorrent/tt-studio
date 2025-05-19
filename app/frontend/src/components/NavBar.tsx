@@ -876,7 +876,7 @@ export default function NavBar() {
                 <Menu className="w-6 h-6" />
               </button>
               <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-50">
-                <SplashToggleMenuItem />
+                {/* <SplashToggleMenuItem /> */}
                 <HeroSectionToggleMenuItem showHero={showHero} setShowHero={setShowHero} />
               </div>
             </div>

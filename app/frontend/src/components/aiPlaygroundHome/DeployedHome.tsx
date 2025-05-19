@@ -46,19 +46,20 @@ export function DeployedHome({ onlyCards = false }: { onlyCards?: boolean } = {}
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center mb-10 sm:mb-12 md:mb-16 text-gray-900 dark:text-white">
             Available Models
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:gap-6 md:gap-8 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 max-w-full">
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full">
             {models.map((model: Model) => (
-              <ModelCard
-                key={model.id}
-                title={model.title}
-                image={model.image}
-                path={model.path}
-                filter={model.filter}
-                TTDevice={model.TTDevice}
-                poweredByText={model.poweredByText}
-                modelType={model.modelType}
-                tpBadge={model.tpBadge}
-              />
+              <div key={model.id} className="w-full max-w-[400px] mx-auto">
+                <ModelCard
+                  title={model.title}
+                  image={model.image}
+                  path={model.path}
+                  filter={model.filter}
+                  TTDevice={model.TTDevice}
+                  poweredByText={model.poweredByText}
+                  modelType={model.modelType}
+                  tpBadge={model.tpBadge}
+                />
+              </div>
             ))}
           </div>
         </div>
@@ -101,28 +102,29 @@ export function DeployedHome({ onlyCards = false }: { onlyCards?: boolean } = {}
               </Button>
             </div>
           </div>
+          {/* Scroll indicator - always visible, centered, with margin */}
+          <button
+            onClick={scrollToModels}
+            className="z-20 mt-16 flex flex-col items-center gap-2 text-[#7C68FA] hover:text-[#6C54E8] transition-colors duration-200 cursor-pointer group"
+            aria-label="Scroll to models"
+          >
+            <span className="text-lg font-medium opacity-80 group-hover:opacity-100">
+              View Models
+            </span>
+            <svg
+              className="w-8 h-8 animate-bounce"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+            </svg>
+          </button>
         </section>
       )}
-
-      {/* Scroll indicator */}
-      <button
-        onClick={scrollToModels}
-        className="absolute bottom-[5vh] sm:bottom-[8vh] md:bottom-[10vh] left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[#7C68FA] hover:text-[#6C54E8] transition-colors duration-200 cursor-pointer group"
-        aria-label="Scroll to models"
-      >
-        <span className="text-sm font-medium opacity-80 group-hover:opacity-100">View Models</span>
-        <svg
-          className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 animate-bounce"
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
-        </svg>
-      </button>
 
       {/* Models Section */}
       <section
@@ -133,19 +135,20 @@ export function DeployedHome({ onlyCards = false }: { onlyCards?: boolean } = {}
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center mb-10 sm:mb-12 md:mb-16 text-gray-900 dark:text-white">
             Available Models
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:gap-6 md:gap-8 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 max-w-full">
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full">
             {models.map((model: Model) => (
-              <ModelCard
-                key={model.id}
-                title={model.title}
-                image={model.image}
-                path={model.path}
-                filter={model.filter}
-                TTDevice={model.TTDevice}
-                poweredByText={model.poweredByText}
-                modelType={model.modelType}
-                tpBadge={model.tpBadge}
-              />
+              <div key={model.id} className="w-full max-w-[400px] mx-auto">
+                <ModelCard
+                  title={model.title}
+                  image={model.image}
+                  path={model.path}
+                  filter={model.filter}
+                  TTDevice={model.TTDevice}
+                  poweredByText={model.poweredByText}
+                  modelType={model.modelType}
+                  tpBadge={model.tpBadge}
+                />
+              </div>
             ))}
           </div>
         </div>
