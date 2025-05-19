@@ -60,11 +60,7 @@ export function DeployedHome() {
               className="w-full sm:w-auto min-w-[180px] border-[#7C68FA] text-[#7C68FA] hover:bg-[#7C68FA]/10 dark:border-[#7C68FA] dark:text-[#7C68FA] dark:hover:bg-[#7C68FA]/10 transition-all duration-200"
               asChild
             >
-              <a
-                href="https://tenstorrent.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <a href="https://tenstorrent.com" target="_blank" rel="noopener noreferrer">
                 Learn More
               </a>
             </Button>
@@ -114,6 +110,7 @@ export function DeployedHome() {
                 TTDevice={model.TTDevice}
                 poweredByText={model.poweredByText}
                 modelType={model.modelType}
+                tpBadge={model.tpBadge}
               />
             ))}
           </div>

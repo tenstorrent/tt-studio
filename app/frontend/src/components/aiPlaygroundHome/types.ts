@@ -46,7 +46,7 @@ export interface Model {
   filterSvg?: string;
   TTDevice?: string;
   poweredByText: string;
-  modelType?: "LLM" | "CNN" | "Audio" | "NLP";
+  modelType?: "LLM" | "CNN" | "Audio" | "NLP" | "ImageGen";
   tpBadge?: TPBadgeConfig; // Optional TP badge configuration
   statusIndicator?: StatusIndicatorConfig;
   hoverEffects?: HoverEffectConfig;
