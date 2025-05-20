@@ -3,10 +3,11 @@
 import React, { useLayoutEffect, useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { useWebcam } from "./hooks/useWebcam";
-import { WebcamPickerProps } from "./types/objectDetection";
+import { WebcamPickerProps as WebcamPickerType } from "./types/objectDetection";
 import { Video } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "../../lib/utils";
+import { getConfidenceColorClass, getLabelColorClass } from "./utlis/colorUtils";
 
 // Animation variants matching the FileUpload component
 const mainVariant = {
@@ -43,7 +44,7 @@ function GridPattern() {
   );
 }
 
-const WebcamPicker: React.FC<WebcamPickerProps> = ({
+const WebcamPicker: React.FC<WebcamPickerType> = ({
   setDetections,
   setLiveMode,
   setIsLoading,
@@ -53,13 +54,10 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
   setExternalControls,
   hoveredIndex,
   videoOnly = false,
+  scaledDetections = [],
+  onHoverDetection,
 }) => {
-  const {
-    isCapturing,
-    handleStartCapture,
-    handleStopCapture,
-    videoRef,
-  } = useWebcam(
+  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } = useWebcam(
     setDetections,
     setLiveMode,
     setIsLoading,
@@ -67,7 +65,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
     setIsCameraOn,
     modelID
   );
-  
+
   // Add a state to track if the component is mounted/visible
   const [isMounted, setIsMounted] = useState(true);
 
@@ -83,7 +81,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       handleStopCapture();
     };
   }, [handleStopCapture]);
-  
+
   // Reset the webcam state when the component becomes visible again
   useEffect(() => {
     if (isMounted && !isCapturing) {
@@ -100,11 +98,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       const controls = (
         <div className="flex justify-center">
           {isCapturing ? (
-            <Button
-              onClick={handleStopCapture}
-              variant="outline"
-              className="w-full sm:w-auto"
-            >
+            <Button onClick={handleStopCapture} variant="outline" className="w-full sm:w-auto">
               Stop Capture
             </Button>
           ) : (
@@ -116,19 +110,14 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       );
       setExternalControls(controls);
     }
-  }, [
-    isCapturing,
-    handleStartCapture,
-    handleStopCapture,
-    setExternalControls,
-  ]);
-  
+  }, [isCapturing, handleStartCapture, handleStopCapture, setExternalControls]);
+
   // Reset detection state when needed
   useEffect(() => {
     if (isMounted && !isCapturing) {
       setDetections({
         boxes: [],
-        metadata: { width: 0, height: 0, inferenceTime: 0 }
+        metadata: { width: 0, height: 0, inferenceTime: 0 },
       });
       setLiveMode(false);
     }
@@ -190,8 +179,34 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
               playsInline
               muted
             />
-            {/* PLACEHOLDER: Overlay layer for bounding boxes should go here */}
-            {/* <BoundingBoxOverlay boxes={boxes} videoRef={videoRef} /> */}
+            <div className="absolute inset-0 pointer-events-none">
+              {scaledDetections.map((detection, index) => (
+                <div
+                  key={index}
+                  className={`absolute border-2 ${
+                    index === hoveredIndex
+                      ? "border-blue-500 bg-blue-500/30 shadow-lg"
+                      : getConfidenceColorClass(detection.confidence)
+                  } z-20 rounded-sm pointer-events-auto`}
+                  style={{
+                    left: `${detection.scaledXmin ?? detection.xmin}px`,
+                    top: `${detection.scaledYmin ?? detection.ymin}px`,
+                    width: `${detection.scaledWidth ?? detection.xmax - detection.xmin}px`,
+                    height: `${detection.scaledHeight ?? detection.ymax - detection.ymin}px`,
+                  }}
+                  onMouseEnter={() => onHoverDetection?.(index)}
+                  onMouseLeave={() => onHoverDetection?.(null)}
+                >
+                  <span
+                    className={`absolute top-0 left-0 ${getLabelColorClass(
+                      detection.confidence
+                    )} text-white text-xs px-1 py-0.5 rounded-br-sm truncate max-w-full`}
+                  >
+                    {detection.name} ({detection.confidence.toFixed(2)})
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}
