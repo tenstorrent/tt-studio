@@ -17,21 +17,14 @@ import {
   ChevronLeft,
   type LucideIcon,
   Mic,
+  Cog,
+  Menu,
 } from "lucide-react";
 
 import logo from "../assets/logo/tt_logo.svg";
-import {
-  NavigationMenu,
-  NavigationMenuItem,
-  NavigationMenuList,
-} from "./ui/navigation-menu";
+import { NavigationMenu, NavigationMenuItem, NavigationMenuList } from "./ui/navigation-menu";
 import { Separator } from "./ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
@@ -45,6 +38,7 @@ import {
   ModelType,
   getModelTypeFromName,
 } from "../api/modelsDeployedApis";
+import { useHeroSection } from "../providers/HeroSectionContext";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -196,11 +190,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       return <ModeToggle />;
     } else if (IconComponent === ResetIcon) {
       // Only pass onReset if onClick is not null
-      return onClick ? (
-        <ResetIcon onReset={onClick} />
-      ) : (
-        <ResetIcon onReset={() => {}} />
-      );
+      return onClick ? <ResetIcon onReset={onClick} /> : <ResetIcon onReset={() => {}} />;
       // HelpIcon handling removed
     } else {
       // Fallback for any other icon component
@@ -249,7 +239,55 @@ interface ActionButtonType {
   onClick: (() => void) | null;
 }
 
+function SplashToggleMenuItem() {
+  const [enabled, setEnabled] = useState(() => {
+    const val = localStorage.getItem("splashEnabled");
+    return val === null ? false : val === "true"; // Default to false if not set
+  });
+
+  const handleToggle = () => {
+    const newVal = !enabled;
+    setEnabled(newVal);
+    localStorage.setItem("splashEnabled", newVal ? "true" : "false");
+    window.dispatchEvent(new Event("splash-toggle"));
+  };
+
+  return (
+    <button
+      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+      onClick={handleToggle}
+    >
+      <Cog className="w-4 h-4 mr-2" />
+      {enabled ? "Hide Welcome Splash" : "Show Welcome Splash"}
+    </button>
+  );
+}
+
+function HeroSectionToggleMenuItem({
+  showHero,
+  setShowHero,
+}: {
+  showHero: boolean;
+  setShowHero: (val: boolean) => void;
+}) {
+  const handleToggle = () => {
+    const newVal = !showHero;
+    setShowHero(newVal);
+    localStorage.setItem("showHeroSection", newVal ? "true" : "false");
+  };
+  return (
+    <button
+      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+      onClick={handleToggle}
+    >
+      <Cog className="w-4 h-4 mr-2" />
+      {showHero ? "Hide Hero Section" : "Show Hero Section"}
+    </button>
+  );
+}
+
 export default function NavBar() {
+  const { showHero, setShowHero } = useHeroSection();
   const location = useLocation();
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -329,23 +367,15 @@ export default function NavBar() {
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverTextColor =
-    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
-  const activeBorderColor =
-    theme === "dark" ? "border-TT-purple-accent" : "border-TT-purple-accent-2";
-  const hoverBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
+  const hoverTextColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const activeBorderColor = "border-TT-purple-accent";
+  const hoverBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
 
   const navLinkClass = `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`;
 
   const getNavLinkClass = (isActive: boolean, isChatUIIcon = false): string => {
     return `${navLinkClass} ${
-      isActive ||
-      (isChatUIIcon &&
-        (location.pathname === "/chat" ||
-          location.pathname === "/image-generation"))
-        ? `border-2 ${activeBorderColor}`
-        : "border-transparent"
+      isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
   };
 
@@ -447,22 +477,64 @@ export default function NavBar() {
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
-    return models.map((model) => {
-      const modelType = getModelTypeFromName(model.name);
-      return {
-        type: "button",
-        icon: getNavIconFromModelType(modelType),
-        label: getModelPageNameFromModelType(modelType),
-        onClick: () => handleNavigation(getDestinationFromModelType(modelType)),
-        isDisabled: !isDeployedEnabled && models.length === 0,
-        tooltipText: isDeployedEnabled
-          ? `Open ${getModelPageNameFromModelType(modelType)}`
-          : models.length > 0
-            ? `Open ${getModelPageNameFromModelType(modelType)}`
-            : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
-        route: getDestinationFromModelType(modelType),
-      };
-    });
+    if (isDeployedEnabled) {
+      // In AI Playground mode, show all model types regardless of deployment status
+      return [
+        {
+          type: "button",
+          icon: BotMessageSquare,
+          label: "Chat UI",
+          onClick: () => handleNavigation("/chat"),
+          isDisabled: false,
+          tooltipText: "Open Chat UI",
+          route: "/chat",
+        },
+        {
+          type: "button",
+          icon: Image,
+          label: "Image Generation",
+          onClick: () => handleNavigation("/image-generation"),
+          isDisabled: false,
+          tooltipText: "Open Image Generation",
+          route: "/image-generation",
+        },
+        {
+          type: "button",
+          icon: Eye,
+          label: "Object Detection",
+          onClick: () => handleNavigation("/object-detection"),
+          isDisabled: false,
+          tooltipText: "Open Object Detection",
+          route: "/object-detection",
+        },
+        {
+          type: "button",
+          icon: AudioLines,
+          label: "Speech Recognition",
+          onClick: () => handleNavigation("/speech-to-text"),
+          isDisabled: false,
+          tooltipText: "Open Speech Recognition",
+          route: "/speech-to-text",
+        },
+      ];
+    } else {
+      // In TT-Studio mode, show only deployed models
+      return models.map((model) => {
+        const modelType = getModelTypeFromName(model.name);
+        return {
+          type: "button",
+          icon: getNavIconFromModelType(modelType),
+          label: getModelPageNameFromModelType(modelType),
+          onClick: () => handleNavigation(getDestinationFromModelType(modelType)),
+          isDisabled: models.length === 0,
+          tooltipText:
+            models.length > 0
+              ? `Open ${getModelPageNameFromModelType(modelType)}`
+              : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
+          route: getDestinationFromModelType(modelType),
+        };
+      });
+    }
   };
 
   // Select the appropriate navigation items based on the environment variable
@@ -542,9 +614,7 @@ export default function NavBar() {
                           iconColor={iconColor}
                           getNavLinkClass={getNavLinkClass}
                           isActive={
-                            item.type === "button" && item.route
-                              ? isRouteActive(item.route)
-                              : false
+                            item.type === "button" && item.route ? isRouteActive(item.route) : false
                           }
                           isDisabled={item.isDisabled}
                           tooltipText={item.tooltipText}
@@ -624,9 +694,7 @@ export default function NavBar() {
                         iconColor={iconColor}
                         getNavLinkClass={getNavLinkClass}
                         isActive={
-                          item.type === "button" && item.route
-                            ? isRouteActive(item.route)
-                            : false
+                          item.type === "button" && item.route ? isRouteActive(item.route) : false
                         }
                         isDisabled={item.isDisabled}
                         tooltipText={item.tooltipText}
@@ -643,10 +711,7 @@ export default function NavBar() {
                   className="focus:outline-none ml-2"
                   aria-label="Collapse menu"
                 >
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
+                  <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                     <ChevronLeft className={`w-6 h-6 ${iconColor}`} />
                   </motion.div>
                 </button>
@@ -656,10 +721,7 @@ export default function NavBar() {
                   className="focus:outline-none ml-2"
                   aria-label="Expand menu"
                 >
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
+                  <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                     <ChevronRight className={`w-6 h-6 ${iconColor}`} />
                   </motion.div>
                 </button>
@@ -699,9 +761,7 @@ export default function NavBar() {
                           iconColor={iconColor}
                           getNavLinkClass={getNavLinkClass}
                           isActive={
-                            item.type === "button" && item.route
-                              ? isRouteActive(item.route)
-                              : false
+                            item.type === "button" && item.route ? isRouteActive(item.route) : false
                           }
                           isDisabled={item.isDisabled}
                           tooltipText={item.tooltipText}
@@ -785,9 +845,7 @@ export default function NavBar() {
                       iconColor={iconColor}
                       getNavLinkClass={getNavLinkClass}
                       isActive={
-                        item.type === "button" && item.route
-                          ? isRouteActive(item.route)
-                          : false
+                        item.type === "button" && item.route ? isRouteActive(item.route) : false
                       }
                       isDisabled={item.isDisabled}
                       tooltipText={item.tooltipText}
@@ -795,10 +853,7 @@ export default function NavBar() {
                     />
                   )}
                   {index < navItems.length - 1 && (
-                    <Separator
-                      className="h-6 w-px bg-zinc-400 mx-1"
-                      orientation="vertical"
-                    />
+                    <Separator className="h-6 w-px bg-zinc-400 mx-1" orientation="vertical" />
                   )}
                 </div>
               ))}
@@ -806,22 +861,25 @@ export default function NavBar() {
           </NavigationMenu>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-2 sm:space-x-4">
-            {actionButtons.map((button, index) => (
-              <div key={button.tooltipText} className="flex items-center">
-                <ActionButton
-                  icon={button.icon}
-                  onClick={button.onClick}
-                  tooltipText={button.tooltipText}
-                />
-                {index < actionButtons.length - 1 && (
-                  <Separator
-                    className="h-6 w-px bg-zinc-400 ml-2"
-                    orientation="vertical"
-                  />
-                )}
-              </div>
+          <div className="flex items-center space-x-4">
+            {actionButtons.map((button) => (
+              <ActionButton
+                key={button.tooltipText}
+                icon={button.icon}
+                onClick={button.onClick}
+                tooltipText={button.tooltipText}
+              />
             ))}
+            {/* Dropdown for settings */}
+            <div className="relative group">
+              <button className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                <Menu className="w-6 h-6" />
+              </button>
+              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-50">
+                {/* <SplashToggleMenuItem /> */}
+                <HeroSectionToggleMenuItem showHero={showHero} setShowHero={setShowHero} />
+              </div>
+            </div>
           </div>
         </div>
       </div>
