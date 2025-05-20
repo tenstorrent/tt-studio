@@ -94,7 +94,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
   }, [isWebcamActive]);
 
   return (
-    <div className="h-full flex flex-col p-4 rounded-xl bg-background/50 shadow-sm">
+    <div className="h-full flex flex-col p-1 rounded-xl bg-background/50 shadow-sm">
       <div
         className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 bg-muted/5"
         onMouseLeave={() => setIsFilenameFocused(false)}
@@ -147,7 +147,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
                   ref={imageRef}
                   src={image}
                   alt="uploaded"
-                  className="max-h-[calc(100vh-3rem)] max-w-[90vw] w-auto object-contain bg-background/95 rounded-lg shadow-sm"
+                  className="max-h-[calc(100vh-0.5rem)] max-w-[99vw] w-auto object-contain bg-background/95 rounded-lg shadow-sm"
                   style={{ display: "block", width: "100%", height: "100%" }}
                   onLoad={(e) => {
                     setDisplayedSize({
