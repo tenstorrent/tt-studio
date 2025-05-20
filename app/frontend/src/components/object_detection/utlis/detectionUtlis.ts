@@ -102,28 +102,40 @@ export const updateBoxPositions = (
     const mediaScaleX = mediaRect.width / naturalWidth;
     const mediaScaleY = mediaRect.height / naturalHeight;
     
+    // Detect small images - only these need the special fix
+    const isSmallImage = (naturalWidth <= 320 && naturalHeight <= 320);
+    
     // Step 5: Map detection coordinates to pixels
     return detections.map((detection) => {
-      // Convert from normalized coordinates (0-1) to actual pixel positions
-      let boxLeft = detection.xmin * naturalWidth * mediaScaleX + mediaOffsetX;
-      let boxTop = detection.ymin * naturalHeight * mediaScaleY + mediaOffsetY;
-      const boxWidth = (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
-      const boxHeight = (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
+      // Default starting calculations
+      let boxLeft, boxTop, boxWidth, boxHeight;
       
-      // **Adjust for Landscape Images**
-      if (!isPortrait) {
-        // Fix for landscape images:
-        // 1. Adjust for the image's vertical offset
-        // 2. Ensure the vertical scale and offset don't fall too low.
-        const imageVerticalOffset = (mediaRect.height - naturalHeight * mediaScaleY) / 2;
-        boxTop = boxTop - mediaOffsetY + imageVerticalOffset; // Adjust top to align properly
+      // Special handling for small images
+      if (isSmallImage) {
+        // For small images, use direct mapping to the container dimensions
+        // but with adjusted scaling for both horizontal and vertical
+        boxLeft = detection.xmin * mediaRect.width;
+        boxTop = detection.ymin * mediaRect.height;
+        boxWidth = (detection.xmax - detection.xmin) * mediaRect.width;
+        boxHeight = (detection.ymax - detection.ymin) * mediaRect.height;
       }
-      
-      // Apply correction for portrait images - explicitly account for the centering offset
-      if (isPortrait) {
-        // Apply a correction to boxLeft for vertical images
-        // This is directly based on the observed offset we've seen in debugging
-        boxLeft = boxLeft - mediaOffsetX;
+      // For regular portrait images
+      else if (isPortrait) {
+        // Use original calculation but without mediaOffsetX for horizontal
+        boxLeft = detection.xmin * naturalWidth * mediaScaleX;
+        boxTop = detection.ymin * naturalHeight * mediaScaleY + mediaOffsetY;
+        boxWidth = (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
+        boxHeight = (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
+      }
+      // For landscape images
+      else {
+        // Original calculation for landscape
+        boxLeft = detection.xmin * naturalWidth * mediaScaleX + mediaOffsetX;
+        // Apply vertical centering adjustment for landscape
+        const imageVerticalOffset = (mediaRect.height - naturalHeight * mediaScaleY) / 2;
+        boxTop = detection.ymin * naturalHeight * mediaScaleY + imageVerticalOffset;
+        boxWidth = (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
+        boxHeight = (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
       }
       
       return {
