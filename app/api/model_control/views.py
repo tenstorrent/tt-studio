@@ -40,6 +40,10 @@ CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
 CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
 CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
+CLOUD_STABLE_DIFFUSION_URL = os.environ.get("CLOUD_STABLE_DIFFUSION_URL")
+CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN")
+CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
+CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 
 class InferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
@@ -298,6 +302,160 @@ class ImageGenerationInferenceView(APIView):
 
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SpeechRecognitionInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special automatic speec recognition inference view"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            audio_file = data.get("file")  # we should only receive 1 file
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
+            try:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+                inference_data.raise_for_status()
+            except requests.exceptions.HTTPError as http_err:
+                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                    return Response(status=status.HTTP_401_UNAUTHORIZED)
+                else:
+                    return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response(inference_data.json(), status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class SpeechRecognitionInferenceCloudView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special inference view that performs special handling for cloud speech recognition"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        
+        # Get audio file directly instead of using serializer
+        audio_file = data.get("file")
+        if not audio_file:
+            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Get deploy_id and handle the case where it's the string "null"
+        deploy_id = data.get("deploy_id")
+        if deploy_id == "null":
+            # Use cloud URL when deploy_id is "null"
+            internal_url = CLOUD_SPEECH_RECOGNITION_URL
+            if not internal_url:
+                return Response(
+                    {"error": "Cloud speech recognition URL not configured"}, 
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+            logger.info(f"Using cloud URL: {internal_url}")
+            headers = {"Authorization": f"Bearer {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}"}
+            logger.info(f"Using cloud auth token: {CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN}")
+        else:
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            
+        file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
+        
+        try:
+            # log request
+            logger.info(f"internal_url:={internal_url}")
+            logger.info(f"headers:={headers}")
+            inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
+            inference_data.raise_for_status()
+        except requests.exceptions.HTTPError as http_err:
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            else:
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+class ImageGenerationInferenceCloudView(APIView):
+    def post(self, request, *args, **kwargs):
+        """special image generation inference view that performs special file handling"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} received request data: {data}")
+        
+        # Get prompt directly since we don't need deploy_id validation for cloud
+        prompt = data.get("prompt")
+        if not prompt:
+            logger.error("No prompt provided in request")
+            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        logger.info(f"Processing prompt: {prompt}")
+        base_url = CLOUD_STABLE_DIFFUSION_URL
+        if not base_url:
+            logger.error("Cloud stable diffusion URL not configured")
+            return Response(
+                {"error": "Cloud stable diffusion URL not configured"}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        try:
+            headers = {"Authorization": f"Bearer {CLOUD_STABLE_DIFFUSION_AUTH_TOKEN}"}
+            data = {"prompt": prompt}
+            
+            # Use /enqueue endpoint for initial request
+            enqueue_url = f"{base_url}/enqueue"
+            logger.info(f"Making request to cloud endpoint: {enqueue_url}")
+            logger.info(f"Request headers: {headers}")
+            logger.info(f"Request data: {data}")
+            
+            inference_data = requests.post(enqueue_url, json=data, headers=headers, timeout=5)
+            inference_data.raise_for_status()
+            logger.info(f"Initial request successful, response: {inference_data.json()}")
+
+            # begin fetch status loop
+            ready_latest = False
+            task_id = inference_data.json().get("task_id")
+            logger.info(f"Got task_id: {task_id}")
+            status_url = f"{base_url}/status/{task_id}"
+            logger.info(f"Status check URL: {status_url}")
+            
+            while (not ready_latest):
+                logger.info(f"Checking status for task {task_id}")
+                latest_prompt = requests.get(status_url, headers=headers)
+                if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
+                    latest_prompt.raise_for_status()
+                    status_data = latest_prompt.json()
+                    logger.info(f"Status response: {status_data}")
+                    if status_data["status"] == "Completed":
+                        ready_latest = True
+                        logger.info("Task completed successfully")
+                time.sleep(1)
+
+            # call get_image to get image
+            image_url = f"{base_url}/fetch_image/{task_id}"
+            logger.info(f"Fetching image from: {image_url}")
+            latest_image = requests.get(image_url, headers=headers, stream=True)
+            latest_image.raise_for_status()
+            logger.info("Successfully retrieved image")
+            
+            content_type = latest_image.headers.get('Content-Type', 'application/octet-stream')
+            content_disposition = f'attachment; filename=image.png'
+            
+            # Create a Django HttpResponse with the content of the file from Flask
+            django_response = HttpResponse(latest_image.content, content_type=content_type)
+            django_response['Content-Disposition'] = content_disposition
+            logger.info("Returning image response")
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"HTTP Error occurred: {str(http_err)}")
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                logger.error("Unauthorized access to cloud endpoint")
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                logger.error("Cloud service unavailable")
+                return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            else:
+                logger.error(f"Unexpected error: {str(http_err)}")
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class SpeechRecognitionInferenceView(APIView):

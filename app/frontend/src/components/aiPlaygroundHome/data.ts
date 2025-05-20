@@ -56,7 +56,9 @@ export const models: Model[] = [
     TTDevice: "LoudBox",
     poweredByText: "Powered by TT-LoudBox",
     modelType: "LLM",
+    tpBadge: { customText: "TP=8, Batch=32" },
   },
+
   {
     id: "whisper",
     title: "Whisper",
@@ -66,7 +68,7 @@ export const models: Model[] = [
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
     modelType: "Audio",
-    tpBadge: { value: -1, customText: "Batch=1" },
+    tpBadge: { customText: "Batch=1" },
   },
   {
     id: "yolov4",
@@ -77,7 +79,18 @@ export const models: Model[] = [
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",
     modelType: "CNN",
-    tpBadge: { value: -1, customText: "Batch=1" },
+    tpBadge: { customText: "Batch=1" },
+  },
+  {
+    id: "stable-diffusion",
+    title: "Stable Diffusion",
+    image: "src/assets/aiPlayground/model-logo/stable_diffusion.svg",
+    path: "/image-generation",
+    filter: "#4A5568",
+    TTDevice: "n300",
+    poweredByText: "Powered by Wormhole n300",
+    modelType: "ImageGen",
+    tpBadge: { customText: "Batch=1" },
   },
 ];
 

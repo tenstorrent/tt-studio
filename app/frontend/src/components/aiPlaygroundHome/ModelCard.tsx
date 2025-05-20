@@ -5,21 +5,12 @@ import { Link } from "react-router-dom";
 import type { Model } from "./types";
 import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
-import {
-  MessageSquare,
-  Image as ImageIcon,
-  Eye,
-  Mic,
-  Cpu,
-  Brain,
-  Bot,
-  Network,
-} from "lucide-react";
+import { Eye, Mic, Brain, Bot, Network } from "lucide-react";
 import { HardwareIcon } from "./HardwareIcon";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 type ModelCardProps = Omit<Model, "id"> & {
-  modelType?: "LLM" | "CNN" | "Audio" | "NLP";
+  modelType?: "LLM" | "CNN" | "Audio" | "NLP" | "ImageGen";
   statusIndicator?: { show: boolean; color: string; animate: boolean };
   hoverEffects?: {
     rotate: boolean;
@@ -38,18 +29,6 @@ type ModelCardProps = Omit<Model, "id"> & {
     rotate: boolean;
     size: string;
   };
-};
-
-const getTPValue = (
-  TTDevice: string | undefined,
-  configValue?: number
-): number => {
-  if (configValue !== undefined) return configValue;
-  if (!TTDevice) return 8;
-  const device = TTDevice.toLowerCase();
-  if (device.includes("n150")) return 2;
-  if (device.includes("galaxy")) return 32;
-  return 8;
 };
 
 export function ModelCard({
@@ -83,19 +62,17 @@ export function ModelCard({
   const animationFrameRef = useRef<number>();
   const lastUpdateRef = useRef<number>();
 
+  console.log("ModelCard props:", { title, tpBadge });
+
   // Generate floating particles effect
   useEffect(() => {
     if (isHovered && hoverEffects?.particleEffect?.enabled) {
-      const newParticles = Array.from(
-        { length: hoverEffects.particleEffect?.count || 10 },
-        () => ({
-          x: Math.random() * 100,
-          y: Math.random() * 100,
-          opacity: Math.random(),
-          speed:
-            (hoverEffects.particleEffect?.speed || 0.5) + Math.random() * 1.5,
-        })
-      );
+      const newParticles = Array.from({ length: hoverEffects.particleEffect?.count || 10 }, () => ({
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        opacity: Math.random(),
+        speed: (hoverEffects.particleEffect?.speed || 0.5) + Math.random() * 1.5,
+      }));
       setParticles(newParticles);
     } else {
       setParticles([]);
@@ -175,6 +152,8 @@ export function ModelCard({
     }
   };
 
+  console.log("tpBadge.customText:", tpBadge.customText);
+
   return (
     <Link to={path} className="block w-full h-full perspective-[2000px]">
       <div
@@ -222,11 +201,7 @@ export function ModelCard({
                   className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
                 ></div>
               </div>
-              <span className="font-mono">
-                {modelType === "CNN" || modelType === "Audio"
-                  ? "Batch=1"
-                  : `TP=${getTPValue(TTDevice, tpBadge.value)}`}
-              </span>
+              <span className="font-mono">{tpBadge.customText && tpBadge.customText}</span>
             </div>
           </div>
         )}
@@ -252,9 +227,7 @@ export function ModelCard({
             {statusIndicator.show && (
               <div className="absolute -top-1 -right-1 z-30">
                 <div className="relative">
-                  <div
-                    className={`w-2.5 h-2.5 bg-${statusIndicator.color} rounded-full`}
-                  ></div>
+                  <div className={`w-2.5 h-2.5 bg-${statusIndicator.color} rounded-full`}></div>
                   {statusIndicator.animate && (
                     <>
                       <div
@@ -358,9 +331,7 @@ export function ModelCard({
                   style={{
                     backgroundColor: filter,
                     mixBlendMode: "overlay",
-                    boxShadow: isHovered
-                      ? "inset 0 0 30px rgba(0,0,0,0.1)"
-                      : "none",
+                    boxShadow: isHovered ? "inset 0 0 30px rgba(0,0,0,0.1)" : "none",
                   }}
                 />
               )}
