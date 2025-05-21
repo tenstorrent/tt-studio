@@ -46,6 +46,7 @@ import {
   AlertCircle,
   Eye,
   AudioLines,
+  X,
 } from "lucide-react";
 import {
   Tooltip,
@@ -53,6 +54,21 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+
+// Add fetchHealth utility
+type HealthStatus = "healthy" | "unavailable" | "unhealthy" | "unknown";
+const fetchHealth = async (deployId: string): Promise<HealthStatus> => {
+  try {
+    const response = await fetch(`/models-api/health/?deploy_id=${deployId}`, {
+      method: "GET",
+    });
+    if (response.status === 200) return "healthy";
+    if (response.status === 503) return "unavailable";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+};
 
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
@@ -63,6 +79,10 @@ export default function ModelsDeployedTable() {
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const { theme } = useTheme();
+  const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(
+    () => ({})
+  );
+  const [showBanner, setShowBanner] = useState(true);
 
   const loadModels = useCallback(async () => {
     try {
@@ -82,6 +102,28 @@ export default function ModelsDeployedTable() {
   useEffect(() => {
     loadModels();
   }, [loadModels, refreshTrigger]);
+
+  // Fetch health for all models
+  useEffect(() => {
+    let isMounted = true;
+    const fetchAllHealth = async () => {
+      const healthStatuses: Record<string, HealthStatus> = {};
+      await Promise.all(
+        models.map(async (model) => {
+          healthStatuses[model.id] = await fetchHealth(model.id);
+        })
+      );
+      if (isMounted) setModelHealth(healthStatuses);
+    };
+    if (models.length > 0) {
+      fetchAllHealth();
+      const interval = setInterval(fetchAllHealth, 5000);
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+      };
+    }
+  }, [models]);
 
   const handleDelete = async (modelId: string) => {
     console.log(`Delete button clicked for model ID: ${modelId}`);
@@ -187,6 +229,37 @@ export default function ModelsDeployedTable() {
 
   return (
     <Card className="border-0 shadow-none">
+      {showBanner && (
+        <div className="relative flex items-center justify-between mb-4 p-4 rounded-lg shadow-md bg-gradient-to-r from-[#7C68FA] to-[#6C54E8] text-white dark:from-[#7C68FA] dark:to-[#6C54E8] dark:text-white">
+          <div className="flex items-center gap-2">
+            <svg
+              className="w-5 h-5 mr-2 text-purple-200 dark:text-purple-200"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M13 16h-1v-4h-1m1-4h.01M12 20a8 8 0 100-16 8 8 0 000 16z"
+              />
+            </svg>
+            <span>
+              Note: Some models may take up to <b>5–7 minutes</b> to start up,
+              especially on first use. Please be patient if the health status is
+              not yet 'healthy'.
+            </span>
+          </div>
+          <button
+            className="ml-4 p-1 rounded hover:bg-[#6C54E8]/80 transition-colors"
+            aria-label="Dismiss notification"
+            onClick={() => setShowBanner(false)}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
       <ScrollArea className="whitespace-nowrap rounded-md">
         <CustomToaster />
         <Table>
@@ -225,7 +298,7 @@ export default function ModelsDeployedTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {models.map((model) => (
+            {models.map((model: { id: string; [key: string]: any }) => (
               <TableRow
                 key={model.id}
                 className={`transition-all duration-1000 ${
@@ -248,7 +321,7 @@ export default function ModelsDeployedTable() {
                   {model.status ? <StatusBadge status={model.status} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
-                  {model.health ? <HealthBadge deployId={model.id} /> : "N/A"}
+                  <HealthBadge deployId={model.id} />
                 </TableCell>
                 <TableCell className="text-left">
                   {model.ports ? <CopyableText text={model.ports} /> : "N/A"}
@@ -311,7 +384,11 @@ export default function ModelsDeployedTable() {
                                     ? "bg-blue-500 dark:bg-blue-700 hover:bg-blue-400 dark:hover:bg-blue-600 text-white"
                                     : "bg-blue-500 hover:bg-blue-400 text-white"
                                 } rounded-lg`}
-                                disabled={!model.name}
+                                disabled={
+                                  !model.name ||
+                                  (modelHealth[model.id] ?? "unknown") !==
+                                    "healthy"
+                                }
                               >
                                 {getModelIcon(model.name)}
                                 {getModelTypeLabel(model.name)}
@@ -321,7 +398,13 @@ export default function ModelsDeployedTable() {
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent className="bg-gray-700 text-white">
-                              {isLLaMAModel(model.name || "") ? (
+                              {(modelHealth[model.id] ?? "unknown") !==
+                              "healthy" ? (
+                                <p>
+                                  Action unavailable: Model health is not
+                                  healthy.
+                                </p>
+                              ) : isLLaMAModel(model.name || "") ? (
                                 <p>
                                   Warning: First-time inference may take up to
                                   an hour. Subsequent runs may take 5-7 minutes.
