@@ -51,6 +51,7 @@ import {
   ChevronRight,
   ChevronLeft,
   MoreHorizontal,
+  X,
 } from "lucide-react";
 import {
   Tooltip,
@@ -229,6 +230,10 @@ export default function ModelsDeployedTable() {
   // New state variables for column visibility
   const [showImage, setShowImage] = useState(false);
   const [showPorts, setShowPorts] = useState(true);
+  const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(
+    () => ({})
+  );
+  const [showBanner, setShowBanner] = useState(true);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
