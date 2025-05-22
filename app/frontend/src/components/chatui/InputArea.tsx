@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-import type React from "react";
+import React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import {
@@ -697,6 +697,7 @@ export default function InputArea({
                     onTouchEnd={handleTouchEnd}
                     className={`
                       bg-red-500 hover:bg-red-600 active:bg-red-700 text-white 
+                      dark:bg-red-500 dark:hover:bg-red-600 dark:active:bg-red-700
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
                     `}
@@ -719,7 +720,7 @@ export default function InputArea({
                 </div>
               ) : (
                 <div className="relative group">
-                  <Button
+                  <button
                     onClick={() => {
                       if (
                         (textInput.trim() !== "" || files.length > 0) &&
@@ -744,10 +745,12 @@ export default function InputArea({
                       isStreaming || (!textInput.trim() && files.length === 0)
                     }
                     className={`
-                      bg-[#7C68FA] hover:bg-[#7C68FA]/80 active:bg-[#7C68FA]/90 text-white 
+                      bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 text-white 
+                      dark:text-white
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
-                      ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70" : ""}
+                      ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}
+                      border-0 outline-none focus:outline-none focus:ring-0
                     `}
                     aria-label={
                       isMobileView ? "Send message" : "Generate response"
@@ -761,7 +764,7 @@ export default function InputArea({
                         <Send className="h-4 w-4" />
                       </>
                     )}
-                  </Button>
+                  </button>
                   {isMobileView && (
                     <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
                       {isStreaming ? "Generating..." : "Send message"}

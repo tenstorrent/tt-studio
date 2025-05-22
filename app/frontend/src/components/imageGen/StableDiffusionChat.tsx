@@ -40,7 +40,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   }, [initialPrompt, setTextInput]);
 
   return (
-    <div className="flex flex-col w-full h-full bg-[#0a0b0f]">
+    <div className="flex flex-col w-full h-full bg-white dark:bg-[#0a0b0f]">
       <Header
         onBack={onBack}
         isHistoryPanelOpen={isHistoryPanelOpen}
@@ -80,10 +80,12 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                     className={`chat-bubble relative ${
                       message.sender === "user"
                         ? "bg-TT-green-accent text-white text-left"
-                        : "bg-TT-slate text-white text-left"
+                        : "bg-TT-slate dark:bg-TT-slate bg-gray-100 text-gray-900 dark:text-white text-left"
                     } p-3 rounded-lg mb-1`}
                   >
-                    <p className="text-white">{message.text}</p>
+                    <p className={message.sender === "user" ? "text-white" : "text-gray-900 dark:text-white"}>
+                      {message.text}
+                    </p>
                     {message.image && (
                       <div className="relative mt-2 group">
                         <img
@@ -107,7 +109,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                       className={`absolute w-2 h-2 ${
                         message.sender === "user"
                           ? "bg-TT-green-accent right-0 -translate-x-1/2"
-                          : "bg-TT-slate left-0 translate-x-1/2"
+                          : "bg-TT-slate dark:bg-TT-slate bg-gray-100 left-0 translate-x-1/2"
                       } rotate-45 top-3`}
                     ></div>
                   </div>
@@ -120,7 +122,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                   <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center">
                     <Camera className="h-5 w-5 text-white" />
                   </div>
-                  <Skeleton className="h-32 w-32 rounded-lg bg-[#1a1c2a]" />
+                  <Skeleton className="h-32 w-32 rounded-lg bg-gray-200 dark:bg-[#1a1c2a]" />
                 </div>
               </div>
             )}
@@ -128,9 +130,9 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar
           orientation="vertical"
-          className="w-2 bg-transparent transition-colors duration-150 ease-out hover:bg-gray-700"
+          className="w-2 bg-transparent transition-colors duration-150 ease-out hover:bg-gray-300 dark:hover:bg-gray-700"
         >
-          <ScrollArea.Thumb className="bg-gray-600 rounded-full w-full transition-colors duration-150 ease-out hover:bg-gray-500" />
+          <ScrollArea.Thumb className="bg-gray-400 dark:bg-gray-600 rounded-full w-full transition-colors duration-150 ease-out hover:bg-gray-500 dark:hover:bg-gray-500" />
         </ScrollArea.Scrollbar>
       </ScrollArea.Root>
 
