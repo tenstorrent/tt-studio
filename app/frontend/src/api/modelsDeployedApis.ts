@@ -58,34 +58,79 @@ export const ModelType = {
 
 export const fetchModels = async (): Promise<Model[]> => {
   try {
+    console.log(`Fetching models from ${statusURl}`);
     const response = await axios.get<{ [key: string]: ContainerData }>(
-      statusURl
+      statusURl,
+      {
+        timeout: 10000, // 10 second timeout
+        headers: { "Cache-Control": "no-cache" },
+      }
     );
+
+    if (!response.data) {
+      console.error("Received empty response data");
+      throw new Error("Empty response from server");
+    }
+
     const data = response.data;
+    console.log("Raw response data:", data);
+
+    if (Object.keys(data).length === 0) {
+      console.log("No containers found in response");
+      return [];
+    }
 
     const models: Model[] = Object.keys(data).map((key) => {
       const container = data[key];
-      const portMapping = Object.keys(container.port_bindings)
-        .map(
-          (port) =>
-            `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`
-        )
-        .join(", ");
+
+      // Handle possible null port_bindings
+      let portMapping = "No ports";
+      if (
+        container.port_bindings &&
+        Object.keys(container.port_bindings).length > 0
+      ) {
+        portMapping = Object.keys(container.port_bindings)
+          .filter((port) => container.port_bindings[port] !== null)
+          .map((port) => {
+            if (!container.port_bindings[port]) {
+              return `${port} (unbound)`;
+            }
+            return `${container.port_bindings[port][0].HostIp}:${container.port_bindings[port][0].HostPort}->${port}`;
+          })
+          .join(", ");
+      }
 
       return {
         id: key,
-        image: container.image_name,
-        status: container.status,
-        health: container.health,
+        image: container.image_name || "Unknown image",
+        status: container.status || "unknown",
+        health: container.health || "unknown",
         ports: portMapping,
-        name: container.name,
+        name: container.name || "Unnamed container",
       };
     });
 
+    console.log("Processed models:", models);
     return models;
   } catch (error) {
     console.error("Error fetching models:", error);
-    customToast.error("Failed to fetch models.");
+    if (axios.isAxiosError(error)) {
+      if (error.code === "ECONNABORTED") {
+        customToast.error("Request timeout: Server took too long to respond");
+      } else if (error.response) {
+        customToast.error(
+          `Server error: ${error.response.status} ${error.response.statusText}`
+        );
+      } else if (error.request) {
+        customToast.error("Network error: No response received from server");
+      } else {
+        customToast.error(`Request error: ${error.message}`);
+      }
+    } else {
+      customToast.error(
+        `Failed to fetch models: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
     throw error;
   }
 };
