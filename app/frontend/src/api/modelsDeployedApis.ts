@@ -227,7 +227,7 @@ export const handleModelNavigationClick = (
 export const getDestinationFromModelType = (modelType: string): string => {
   switch (modelType) {
     case ModelType.ChatModel:
-      return "/chat-ui";
+      return "/chat";
     case ModelType.ImageGeneration:
       return "/image-generation";
     case ModelType.ObjectDetectionModel:
@@ -235,7 +235,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.SpeechRecognitionModel:
       return "/speech-to-text";
     default:
-      return "/chat-ui"; // /chat-ui is the default
+      return "/chat"; // /chat is the default
   }
 };
 

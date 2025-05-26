@@ -398,8 +398,6 @@ export default function ModelsDeployedTable() {
     switch (type) {
       case "chat":
         return "Open Chat for this model";
-      case "chat-ui":
-        return "Open Chat for this model";
       case "image-generation":
         return "Open Image Generation for this model";
       default:
