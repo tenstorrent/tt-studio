@@ -14,6 +14,7 @@ from shared_config.device_config import DeviceConfigurations
 from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
+from shared_config.model_type_config import ModelTypes
 
 
 CONFIG_PATH = "/root/.config/tenstorrent/reset_config.json"
@@ -29,10 +30,61 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
     )
 
 
-def run_container(impl, weights_id):
-    """Run a docker container from an image"""
+def run_container(impl, weights_id, is_external=False, external_port=7000, external_container_id=None):
+    """Run a docker container from an image or connect to an external container"""
     try:
         logger.info(f"run_container called for {impl.model_name}")
+        
+        if is_external:
+            # For external containers, we'll create a virtual container entry
+            container_name = f"{impl.container_base_name}_p{external_port}"
+            
+            # If external_container_id is provided, verify it exists and get its image
+            if external_container_id:
+                try:
+                    container = client.containers.get(external_container_id)
+                    # Get the image name from the container
+                    image_name = container.image.tags[0] if container.image.tags else container.image.id
+                    logger.info(f"External container image: {image_name}")
+                    
+                    # Find matching model implementation
+                    matching_impl = None
+                    for model_id, model_impl in model_implmentations.items():
+                        if model_impl.image_version == image_name:
+                            matching_impl = model_impl
+                            break
+                    
+                    if not matching_impl:
+                        return {"status": "error", "message": f"No matching model implementation found for image {image_name}"}
+                    
+                    # Use the matching implementation instead of the provided one
+                    impl = matching_impl
+                    container_name = f"{impl.container_base_name}_p{external_port}"
+                    
+                except docker.errors.NotFound:
+                    return {"status": "error", "message": f"External container {external_container_id} not found"}
+            
+            # Create container data for cache
+            container_data = {
+                "container_id": external_container_id or f"external_{container_name}",
+                "container_name": container_name,
+                "service_route": impl.service_route,
+                "port_bindings": {f"{impl.service_port}/tcp": external_port},
+                "is_external": True,
+                "model_id": impl.model_id,
+                "image_name": impl.image_version
+            }
+            
+            # Store in cache
+            caches[backend_config.django_deploy_cache_name].set(
+                container_data["container_id"],
+                container_data,
+                timeout=None
+            )
+            
+            return container_data
+            
+        # Original container running logic
         run_kwargs = copy.deepcopy(impl.docker_config)
         # handle runtime configuration changes to docker kwargs
         device_mounts = get_devices_mounts(impl)
@@ -62,6 +114,8 @@ def run_container(impl, weights_id):
             "container_name": container.name,
             "service_route": impl.service_route,
             "port_bindings": run_kwargs["ports"],
+            "is_external": False,
+            "model_id": impl.model_id
         }
     except docker.errors.ContainerError as e:
         return {"status": "error", "message": str(e)}
@@ -215,29 +269,125 @@ def parse_env_var_str(env_var_list):
 
 
 def get_container_status():
-    containers = get_managed_containers()
+    """Get status of all containers, including external ones"""
+    # Get all running containers
+    all_containers = client.containers.list()
     data = {}
-    for con in containers:
-        data[con.id] = {
-            "name": con.name,
-            "status": con.status,
-            "health": con.health,
-            "create": con.attrs.get("Created"),
-            "image_id": con.attrs.get("Image"),
-            "image_name": con.attrs.get("Config").get("Image"),
-            "port_bindings": con.attrs.get("NetworkSettings").get("Ports"),
-            "networks": {
-                k: {"DNSNames": v.get("DNSNames")}
-                for k, v in con.attrs.get("NetworkSettings").get("Networks").items()
-            },
-            "env_vars": parse_env_var_str(con.attrs.get("Config").get("Env")),
-        }
+    
+    # Process all running containers
+    for con in all_containers:
+        # Get port bindings
+        ports = con.attrs.get("NetworkSettings", {}).get("Ports", {})
+        port_7000 = ports.get("7000/tcp")
+        
+        # Check if this is a container running on port 7000
+        if port_7000 and any(binding.get("HostPort") == "7000" for binding in port_7000):
+            # Get the image name
+            image_name = con.image.tags[0] if con.image.tags else con.image.id
+            logger.info(f"Found container on port 7000: {con.name} with image {image_name}")
+            
+            # Find matching model implementation
+            matching_impl = None
+            for model_id, model_impl in model_implmentations.items():
+                if model_impl.image_version == image_name:
+                    matching_impl = model_impl
+                    break
+            
+            if matching_impl:
+                # Get environment variables
+                env_vars = parse_env_var_str(con.attrs.get("Config", {}).get("Env", []))
+                
+                # Create base container data
+                container_data = {
+                    "container_id": con.id,
+                    "container_name": con.name,
+                    "image_name": image_name,
+                    "model_id": matching_impl.model_id,
+                    "model_name": matching_impl.model_name,
+                    "model_type": matching_impl.model_type.value if hasattr(matching_impl.model_type, 'value') else str(matching_impl.model_type),
+                    "service_port": matching_impl.service_port,
+                    "service_route": matching_impl.service_route,
+                    "status": con.status,
+                    "health": con.health if isinstance(con.health, str) else None,
+                    "created": con.attrs.get("Created"),
+                    "port_bindings": ports,
+                    "env_vars": env_vars,
+                    "is_external": True if con.id.startswith("external_") else False
+                }
+                
+                # Add network information
+                networks = con.attrs.get("NetworkSettings", {}).get("Networks", {})
+                container_data["networks"] = {
+                    k: {"DNSNames": v.get("DNSNames", [])}
+                    for k, v in networks.items()
+                }
+                
+                # Get the host port from port bindings
+                host_port = None
+                for port_binding in port_7000:
+                    if port_binding.get("HostPort") == "7000":
+                        host_port = port_binding.get("HostPort")
+                        break
+                
+                if host_port:
+                    # For containers in the bridge network, use localhost and port
+                    container_data["internal_url"] = f"localhost:{host_port}{matching_impl.service_route}"
+                    container_data["health_url"] = f"localhost:{host_port}{matching_impl.health_route}"
+                    # For consistency, set the URLs list to just contain the primary URL
+                    container_data["internal_urls"] = [container_data["internal_url"]]
+                    container_data["health_urls"] = [container_data["health_url"]]
+                else:
+                    # Fallback to container hostname if no port binding found
+                    hostname = con.name
+                    container_data["internal_url"] = f"{hostname}:{matching_impl.service_port}{matching_impl.service_route}"
+                    container_data["health_url"] = f"{hostname}:{matching_impl.service_port}{matching_impl.health_route}"
+                    container_data["internal_urls"] = [container_data["internal_url"]]
+                    container_data["health_urls"] = [container_data["health_url"]]
+                
+                data[con.id] = container_data
+                
+                # Update cache for this container
+                caches[backend_config.django_deploy_cache_name].set(con.id, container_data, timeout=None)
+    
+    # Check for external containers in cache
+    cache = caches[backend_config.django_deploy_cache_name]
+    for container_id in data.keys():
+        if container_id.startswith("external_"):
+            cached_data = cache.get(container_id)
+            if cached_data:
+                data[container_id] = cached_data
+    
     return data
 
 
 def update_deploy_cache():
     data = get_container_status()
     for con_id, con in data.items():
+        # Handle external containers
+        if con_id.startswith("external_"):
+            con_model_id = con['env_vars'].get("MODEL_ID")
+            model_impl = model_implmentations.get(con_model_id)
+            if not model_impl:
+                # fallback to finding first impl that uses that container 
+                model_impl = [
+                    v
+                    for k, v in model_implmentations.items()
+                    if v.image_version == con["image_name"]
+                ]
+                assert (
+                    len(model_impl) == 1
+                ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
+                model_impl = model_impl[0]
+            con["model_id"] = model_impl.model_id
+            con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
+            con["model_impl"] = model_impl
+            # For external containers, use localhost since they're not in the docker network
+            con["internal_url"] = f"localhost:{model_impl.service_port}{model_impl.service_route}"
+            con["health_url"] = f"localhost:{model_impl.service_port}{model_impl.health_route}"
+            caches[backend_config.django_deploy_cache_name].set(con_id, con, timeout=None)
+            continue
+
+        # Handle regular containers
         con_model_id = con['env_vars'].get("MODEL_ID")
         model_impl = model_implmentations.get(con_model_id)
         if not model_impl:

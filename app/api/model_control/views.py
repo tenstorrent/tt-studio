@@ -131,16 +131,37 @@ class ModelHealthView(APIView):
         if serializer.is_valid():
             deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
-            health_url = "http://" + deploy["health_url"]
-            logger.info(f"health_url:= {health_url}")
-            check_passed, health_content = health_check(health_url, json_data=None)
-            if check_passed:
-                ret_status = status.HTTP_200_OK
-                content = {"message": "Healthy", "details": health_content}
-            else:
-                ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
-                content = {"message": "Unavaliable", "details": health_content}
-            return Response(content, status=ret_status)
+            
+            # Try all available health URLs
+            health_urls = deploy.get("health_urls", [deploy["health_url"]])
+            last_error = None
+            
+            for health_url in health_urls:
+                # Rewrite localhost/127.0.0.1 to container name if available
+                if deploy.get("container_name") and ("localhost" in health_url or "127.0.0.1" in health_url):
+                    # Extract port and path from original URL
+                    parts = health_url.split(":", 1)
+                    if len(parts) == 2:
+                        port_and_path = parts[1]
+                        # Use container name instead of localhost
+                        full_url = f"http://{deploy['container_name']}:{port_and_path}"
+                    else:
+                        full_url = f"http://{deploy['container_name']}{health_url}"
+                else:
+                    full_url = "http://" + health_url
+                
+                logger.info(f"Trying health_url:= {full_url}")
+                # Pass the encoded JWT token
+                check_passed, health_content = health_check(full_url, json_data=encoded_jwt)
+                if check_passed:
+                    return Response({"message": "Healthy", "details": health_content}, status=status.HTTP_200_OK)
+                last_error = health_content
+            
+            # If we get here, all URLs failed
+            return Response(
+                {"message": "Unavailable", "details": last_error}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
