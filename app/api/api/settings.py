@@ -44,6 +44,23 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_ALL_ORIGINS = False
 
+# Add explicit CORS header settings for SSE
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'accept',
+]
+# Allow credentials for EventSource with withCredentials: true
+CORS_ALLOW_CREDENTIALS = True
+# Allow streaming responses
+CORS_ALLOW_METHODS = [
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+]
+
 # Application definition
 
 INSTALLED_APPS = [

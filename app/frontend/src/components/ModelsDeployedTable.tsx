@@ -47,6 +47,10 @@ import {
   Eye,
   AudioLines,
   X,
+  FileText,
+  ChevronRight,
+  ChevronLeft,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   Tooltip,
@@ -54,6 +58,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
 // Add fetchHealth utility
 type HealthStatus = "healthy" | "unavailable" | "unhealthy" | "unknown";
@@ -70,6 +75,140 @@ const fetchHealth = async (deployId: string): Promise<HealthStatus> => {
   }
 };
 
+// Add LogsDialog component
+function LogsDialog({
+  isOpen,
+  onClose,
+  containerId,
+  setSelectedContainerId,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  containerId: string;
+  setSelectedContainerId: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  const [logs, setLogs] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isOpen || !containerId) return;
+
+    setLogs([]);
+    setError(null);
+    setIsLoading(true);
+
+    const endpoint = `/models-api/logs/${containerId}/`;
+    console.log("Connecting to logs stream:", endpoint);
+
+    let eventSource: EventSource | null = null;
+    let connectionTimeoutId: NodeJS.Timeout;
+
+    // Set a connection timeout to handle cases where onopen doesn't fire
+    connectionTimeoutId = setTimeout(() => {
+      if (isLoading) {
+        console.warn("Log stream connection timeout after 8 seconds");
+        setError("Failed to connect to log stream. Please try again.");
+        eventSource?.close();
+      }
+    }, 8000);
+
+    try {
+      eventSource = new EventSource(endpoint, {
+        withCredentials: true,
+      });
+
+      // Some browsers don't properly implement onopen for EventSource
+      // This is a fallback that will set loading to false when first message arrives
+      const connectionEstablished = () => {
+        setIsLoading(false);
+        clearTimeout(connectionTimeoutId);
+      };
+
+      eventSource.onopen = () => {
+        console.log("Log stream connected");
+        connectionEstablished();
+      };
+
+      eventSource.onmessage = (event) => {
+        console.log("Received log:", event.data);
+        // First message also means connection is established
+        connectionEstablished();
+        setLogs((prevLogs) => [...prevLogs, event.data]);
+      };
+
+      eventSource.onerror = (event) => {
+        console.error("Log stream error:", event);
+        clearTimeout(connectionTimeoutId);
+
+        // Only show error if we haven't received any logs yet
+        if (isLoading) {
+          setError(
+            "Failed to connect to log stream. The container may have stopped."
+          );
+        } else {
+          setError(
+            "Connection to log stream lost. The container may have stopped."
+          );
+        }
+
+        eventSource?.close();
+      };
+    } catch (err) {
+      console.error("Error creating EventSource:", err);
+      setError("Failed to create log stream connection. Please try again.");
+      setIsLoading(false);
+    }
+
+    return () => {
+      console.log("Cleaning up log stream connection");
+      clearTimeout(connectionTimeoutId);
+      eventSource?.close();
+    };
+  }, [isOpen, containerId]);
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[80vh]">
+        <DialogHeader>
+          <DialogTitle>Container Logs - {containerId}</DialogTitle>
+        </DialogHeader>
+        <div className="bg-black text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[60vh]">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <Spinner className="w-8 h-8" />
+            </div>
+          ) : error ? (
+            <div className="flex flex-col gap-4">
+              <div className="text-red-500">{error}</div>
+              <Button
+                onClick={() => {
+                  setError(null);
+                  setIsLoading(true);
+                  setSelectedContainerId(null);
+                  // Small delay before reopening to ensure clean connection
+                  setTimeout(() => setSelectedContainerId(containerId), 100);
+                }}
+                className="bg-blue-500 hover:bg-blue-600 text-white w-32"
+              >
+                Retry
+              </Button>
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="text-gray-500">No logs available</div>
+          ) : (
+            logs.map((log, index) => (
+              <div key={index} className="whitespace-pre-wrap">
+                {log}
+              </div>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
   const { refreshTrigger, triggerRefresh } = useRefresh();
@@ -78,26 +217,47 @@ export default function ModelsDeployedTable() {
   const [pulsatingModels, setPulsatingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { theme } = useTheme();
   const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(
     () => ({})
   );
   const [showBanner, setShowBanner] = useState(true);
+  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
+    null
+  );
+  // New state variables for column visibility
+  const [showImage, setShowImage] = useState(false);
+  const [showPorts, setShowPorts] = useState(true);
 
   const loadModels = useCallback(async () => {
+    setLoadError(null);
     try {
+      console.log("Fetching models...");
       const fetchedModels = await fetchModels();
+      console.log("Models fetched successfully:", fetchedModels);
       setModels(fetchedModels);
       if (fetchedModels.length === 0) {
         triggerRefresh();
       }
     } catch (error) {
       console.error("Error fetching models:", error);
-      customToast.error("Failed to fetch models.");
+      let errorMessage = "Failed to fetch models. Check network connection.";
+      if (error instanceof Error) {
+        errorMessage = `Failed to fetch models: ${error.message}`;
+      }
+      setLoadError(errorMessage);
+      customToast.error(errorMessage);
     } finally {
       setLoading(false);
     }
   }, [setModels, triggerRefresh]);
+
+  // Retry button handler
+  const handleRetry = () => {
+    setLoading(true);
+    loadModels();
+  };
 
   useEffect(() => {
     loadModels();
@@ -174,6 +334,26 @@ export default function ModelsDeployedTable() {
     return <ModelsDeployedSkeleton />;
   }
 
+  if (loadError) {
+    return (
+      <Card className="border-0 shadow-none p-8">
+        <div className="flex flex-col items-center justify-center gap-4">
+          <AlertCircle className="w-16 h-16 text-red-500" />
+          <h2 className="text-2xl font-semibold">Connection Error</h2>
+          <p className="text-center text-gray-600 dark:text-gray-300 max-w-md">
+            {loadError}
+          </p>
+          <Button
+            onClick={handleRetry}
+            className="mt-4 bg-blue-500 hover:bg-blue-600 text-white"
+          >
+            Retry Connection
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
   if (models.length === 0) {
     return <NoModelsDialog messageKey="reset" />;
   }
@@ -227,6 +407,17 @@ export default function ModelsDeployedTable() {
     }
   };
 
+  // Add function for styling collapsed columns
+  const getColumnHeaderStyle = (isVisible: boolean) => {
+    return isVisible
+      ? "text-left"
+      : "text-left w-10 bg-gradient-to-r from-transparent to-zinc-800 dark:to-zinc-900 opacity-70";
+  };
+
+  const getColumnCellStyle = (isVisible: boolean) => {
+    return isVisible ? "text-left" : "text-left w-10 px-1";
+  };
+
   return (
     <Card className="border-0 shadow-none">
       {showBanner && (
@@ -275,10 +466,43 @@ export default function ModelsDeployedTable() {
               }`}
             >
               <TableHead className="text-left">
-                <Box className="inline-block mr-2" size={16} /> Container ID
+                <Box className="inline-block mr-2" size={16} /> Container ID{" "}
+                <span className="text-xs font-normal text-gray-500">
+                  (click for logs)
+                </span>
               </TableHead>
-              <TableHead className="text-left">
-                <Image className="inline-block mr-2" size={16} /> Image
+              <TableHead className={getColumnHeaderStyle(showImage)}>
+                {showImage ? (
+                  <div className="flex items-center">
+                    <Image className="inline-block mr-2" size={16} /> Image
+                    <button
+                      onClick={() => setShowImage(false)}
+                      className="ml-2 p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                      title="Hide column"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setShowImage(true)}
+                            className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors rotate-180"
+                            title="Show Image column"
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p>Show Image column</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                )}
               </TableHead>
               <TableHead className="text-left">
                 <Activity className="inline-block mr-2" size={16} /> Status
@@ -286,8 +510,38 @@ export default function ModelsDeployedTable() {
               <TableHead className="text-left">
                 <Heart className="inline-block mr-2" size={16} /> Health
               </TableHead>
-              <TableHead className="text-left">
-                <Network className="inline-block mr-2" size={16} /> Ports
+              <TableHead className={getColumnHeaderStyle(showPorts)}>
+                {showPorts ? (
+                  <div className="flex items-center">
+                    <Network className="inline-block mr-2" size={16} /> Ports
+                    <button
+                      onClick={() => setShowPorts(false)}
+                      className="ml-2 p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                      title="Hide column"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setShowPorts(true)}
+                            className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors rotate-180"
+                            title="Show Ports column"
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <p>Show Ports column</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                )}
               </TableHead>
               <TableHead className="text-left">
                 <Tag className="inline-block mr-2" size={16} /> Names
@@ -312,10 +566,45 @@ export default function ModelsDeployedTable() {
                 } rounded-lg`}
               >
                 <TableCell className="text-left">
-                  <CopyableText text={model.id} />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setSelectedContainerId(model.id)}
+                          className="text-blue-500 hover:text-blue-700 underline flex items-center"
+                        >
+                          <CopyableText text={model.id} />
+                          <FileText className="w-4 h-4 ml-2 text-gray-500" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-gray-700 text-white">
+                        <p>Click to view container logs</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </TableCell>
-                <TableCell className="text-left">
-                  {model.image || "N/A"}
+                <TableCell className={getColumnCellStyle(showImage)}>
+                  {showImage ? (
+                    model.image || "N/A"
+                  ) : (
+                    <div className="flex justify-center">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <MoreHorizontal
+                              size={16}
+                              className="text-gray-500"
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            <p className="text-xs whitespace-normal">
+                              {model.image || "N/A"}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="text-left">
                   {model.status ? <StatusBadge status={model.status} /> : "N/A"}
@@ -323,8 +612,30 @@ export default function ModelsDeployedTable() {
                 <TableCell className="text-left">
                   <HealthBadge deployId={model.id} />
                 </TableCell>
-                <TableCell className="text-left">
-                  {model.ports ? <CopyableText text={model.ports} /> : "N/A"}
+                <TableCell className={getColumnCellStyle(showPorts)}>
+                  {showPorts ? (
+                    model.ports ? (
+                      <CopyableText text={model.ports} />
+                    ) : (
+                      "N/A"
+                    )
+                  ) : (
+                    <div className="flex justify-center">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <MoreHorizontal
+                              size={16}
+                              className="text-gray-500"
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <p className="text-xs">{model.ports || "N/A"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="text-left">
                   {model.name ? <CopyableText text={model.name} /> : "N/A"}
@@ -432,6 +743,12 @@ export default function ModelsDeployedTable() {
           orientation="horizontal"
         />
       </ScrollArea>
+      <LogsDialog
+        isOpen={!!selectedContainerId}
+        onClose={() => setSelectedContainerId(null)}
+        containerId={selectedContainerId || ""}
+        setSelectedContainerId={setSelectedContainerId}
+      />
     </Card>
   );
 }
