@@ -11,6 +11,7 @@ import io
 import time
 import docker
 from docker.errors import NotFound
+import json
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -572,7 +573,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
 
 class ContainerLogsView(View):
     def get(self, request, container_id, *args, **kwargs):
-        """Stream logs from a Docker container using Server-Sent Events"""
+        """Stream logs, events, and metrics from a Docker container using Server-Sent Events"""
         logger.info(f"ContainerLogsView received request for container_id: {container_id}")
         
         try:
@@ -583,7 +584,7 @@ class ContainerLogsView(View):
             container = client.containers.get(container_id)
             logger.info(f"Found container: {container.name} (ID: {container.id})")
             
-            def generate_logs():
+            def generate_container_data():
                 try:
                     # Set SSE headers in initial response
                     yield "retry: 1000\n\n"  # Reconnection time in ms
@@ -592,13 +593,49 @@ class ContainerLogsView(View):
                     for log in container.logs(stream=True, follow=True, tail=100):
                         log_line = log.decode('utf-8').strip()
                         if log_line:  # Only send non-empty lines
-                            yield f"data: {log_line}\n\n"
+                            # Format as a log message
+                            log_data = {
+                                "type": "log",
+                                "message": log_line
+                            }
+                            yield f"data: {json.dumps(log_data)}\n\n"
+                    
+                    # Get container stats for metrics
+                    stats = container.stats(stream=True, decode=True)
+                    for stat in stats:
+                        # Format metrics data
+                        metrics_data = {
+                            "type": "metric",
+                            "name": "cpu_usage",
+                            "value": stat.get("cpu_stats", {}).get("cpu_usage", {}).get("total_usage", 0)
+                        }
+                        yield f"data: {json.dumps(metrics_data)}\n\n"
+                        
+                        metrics_data = {
+                            "type": "metric",
+                            "name": "memory_usage",
+                            "value": stat.get("memory_stats", {}).get("usage", 0)
+                        }
+                        yield f"data: {json.dumps(metrics_data)}\n\n"
+                        
+                        # Format as an event when significant changes occur
+                        if stat.get("precpu_stats"):
+                            event_data = {
+                                "type": "event",
+                                "message": f"Container stats updated at {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                            }
+                            yield f"data: {json.dumps(event_data)}\n\n"
+                            
                 except Exception as e:
-                    logger.error(f"Error in log stream: {str(e)}")
-                    yield f"data: Error streaming logs: {str(e)}\n\n"
+                    logger.error(f"Error in data stream: {str(e)}")
+                    error_data = {
+                        "type": "log",
+                        "message": f"Error streaming data: {str(e)}"
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
             
             response = StreamingHttpResponse(
-                generate_logs(),
+                generate_container_data(),
                 content_type='text/event-stream'
             )
             
@@ -616,7 +653,7 @@ class ContainerLogsView(View):
                 content=f"Container {container_id} not found"
             )
         except Exception as e:
-            logger.error(f"Error streaming container logs: {str(e)}")
+            logger.error(f"Error streaming container data: {str(e)}")
             return HttpResponse(
                 status=500,
                 content=str(e)
