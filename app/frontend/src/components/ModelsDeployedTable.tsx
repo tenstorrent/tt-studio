@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "./ui/card";
 import {
@@ -27,6 +27,7 @@ import {
   handleRedeploy,
   ModelType,
   handleModelNavigationClick,
+  extractShortModelName,
 } from "../api/modelsDeployedApis";
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { NoModelsDialog } from "./NoModelsDeployed";
@@ -48,9 +49,9 @@ import {
   AudioLines,
   X,
   FileText,
-  ChevronRight,
   ChevronLeft,
   MoreHorizontal,
+  ChevronDown,
 } from "lucide-react";
 import {
   Tooltip,
@@ -59,6 +60,7 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 // Add fetchHealth utility
 type HealthStatus = "healthy" | "unavailable" | "unhealthy" | "unknown";
@@ -88,13 +90,69 @@ function LogsDialog({
   setSelectedContainerId: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
   const [logs, setLogs] = useState<string[]>([]);
+  const [events, setEvents] = useState<string[]>([]);
+  const [metrics, setMetrics] = useState<{ [key: string]: number }>({});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("logs");
+
+  // Scroll to bottom logic
+  const logsRef = useRef<HTMLDivElement>(null);
+  const eventsRef = useRef<HTMLDivElement>(null);
+  const metricsRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // Helper to get the current ref based on tab
+  const getCurrentRef = () => {
+    if (activeTab === "logs") return logsRef;
+    if (activeTab === "events") return eventsRef;
+    if (activeTab === "metrics") return metricsRef;
+    return logsRef;
+  };
+
+  // Scroll to bottom function
+  const scrollToBottom = () => {
+    const ref = getCurrentRef();
+    if (ref.current) {
+      ref.current.scrollTop = ref.current.scrollHeight;
+    }
+  };
+
+  // Auto-scroll to bottom when new data arrives (unless user scrolled up)
+  useEffect(() => {
+    const ref = getCurrentRef();
+    if (ref.current) {
+      const isAtBottom =
+        ref.current.scrollHeight -
+          ref.current.scrollTop -
+          ref.current.clientHeight <
+        10;
+      if (isAtBottom) {
+        scrollToBottom();
+      }
+    }
+    // eslint-disable-next-line
+  }, [logs, events, metrics, activeTab]);
+
+  // Show/hide scroll button based on scroll position
+  const handleScroll = () => {
+    const ref = getCurrentRef();
+    if (ref.current) {
+      const isAtBottom =
+        ref.current.scrollHeight -
+          ref.current.scrollTop -
+          ref.current.clientHeight <
+        10;
+      setShowScrollButton(!isAtBottom);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !containerId) return;
 
     setLogs([]);
+    setEvents([]);
+    setMetrics({});
     setError(null);
     setIsLoading(true);
 
@@ -118,8 +176,6 @@ function LogsDialog({
         withCredentials: true,
       });
 
-      // Some browsers don't properly implement onopen for EventSource
-      // This is a fallback that will set loading to false when first message arrives
       const connectionEstablished = () => {
         setIsLoading(false);
         clearTimeout(connectionTimeoutId);
@@ -132,16 +188,30 @@ function LogsDialog({
 
       eventSource.onmessage = (event) => {
         console.log("Received log:", event.data);
-        // First message also means connection is established
         connectionEstablished();
-        setLogs((prevLogs) => [...prevLogs, event.data]);
+
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "log") {
+            setLogs((prevLogs) => [...prevLogs, data.message]);
+          } else if (data.type === "event") {
+            setEvents((prevEvents) => [...prevEvents, data.message]);
+          } else if (data.type === "metric") {
+            setMetrics((prevMetrics) => ({
+              ...prevMetrics,
+              [data.name]: data.value,
+            }));
+          }
+        } catch (e) {
+          // If parsing fails, treat as a regular log
+          setLogs((prevLogs) => [...prevLogs, event.data]);
+        }
       };
 
       eventSource.onerror = (event) => {
         console.error("Log stream error:", event);
         clearTimeout(connectionTimeoutId);
 
-        // Only show error if we haven't received any logs yet
         if (isLoading) {
           setError(
             "Failed to connect to log stream. The container may have stopped."
@@ -167,43 +237,123 @@ function LogsDialog({
     };
   }, [isOpen, containerId]);
 
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-32">
+          <Spinner className="w-8 h-8" />
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="text-red-500">{error}</div>
+          <Button
+            onClick={() => {
+              setError(null);
+              setIsLoading(true);
+              setSelectedContainerId(null);
+              setTimeout(() => setSelectedContainerId(containerId), 100);
+            }}
+            className="bg-blue-500 hover:bg-blue-600 text-white w-32"
+          >
+            Retry
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="relative w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="logs">Logs</TabsTrigger>
+            <TabsTrigger value="events">Events</TabsTrigger>
+            <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          </TabsList>
+          <TabsContent value="logs" className="mt-4">
+            <div
+              ref={logsRef}
+              onScroll={handleScroll}
+              className="bg-black text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative"
+              style={{ minHeight: 200 }}
+            >
+              {logs.length === 0 ? (
+                <div className="text-gray-500">No logs available</div>
+              ) : (
+                logs.map((log, index) => (
+                  <div key={index} className="whitespace-pre-wrap">
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+          </TabsContent>
+          <TabsContent value="events" className="mt-4">
+            <div
+              ref={eventsRef}
+              onScroll={handleScroll}
+              className="bg-black text-blue-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative"
+              style={{ minHeight: 200 }}
+            >
+              {events.length === 0 ? (
+                <div className="text-gray-500">No events available</div>
+              ) : (
+                events.map((event, index) => (
+                  <div key={index} className="whitespace-pre-wrap">
+                    {event}
+                  </div>
+                ))
+              )}
+            </div>
+          </TabsContent>
+          <TabsContent value="metrics" className="mt-4">
+            <div
+              ref={metricsRef}
+              onScroll={handleScroll}
+              className="bg-black text-yellow-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative"
+              style={{ minHeight: 200 }}
+            >
+              {Object.keys(metrics).length === 0 ? (
+                <div className="text-gray-500">No metrics available</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  {Object.entries(metrics).map(([name, value]) => (
+                    <div
+                      key={name}
+                      className="flex justify-between items-center"
+                    >
+                      <span>{name}:</span>
+                      <span className="font-bold">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+        {/* Always visible scroll to bottom button, outside scrollable area */}
+        <button
+          onClick={scrollToBottom}
+          className="fixed md:absolute right-8 bottom-8 z-50 bg-zinc-800 text-white p-3 rounded-full shadow-lg hover:bg-zinc-700 transition-colors"
+          title="Scroll to bottom"
+          style={{ pointerEvents: "auto" }}
+        >
+          <ChevronDown size={24} />
+        </button>
+      </div>
+    );
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[80vh]">
+      <DialogContent className="max-w-5xl max-h-[90vh] min-w-[400px] min-h-[300px] resize both overflow-auto">
         <DialogHeader>
-          <DialogTitle>Container Logs - {containerId}</DialogTitle>
+          <DialogTitle>Container Monitoring - {containerId}</DialogTitle>
         </DialogHeader>
-        <div className="bg-black text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[60vh]">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-32">
-              <Spinner className="w-8 h-8" />
-            </div>
-          ) : error ? (
-            <div className="flex flex-col gap-4">
-              <div className="text-red-500">{error}</div>
-              <Button
-                onClick={() => {
-                  setError(null);
-                  setIsLoading(true);
-                  setSelectedContainerId(null);
-                  // Small delay before reopening to ensure clean connection
-                  setTimeout(() => setSelectedContainerId(containerId), 100);
-                }}
-                className="bg-blue-500 hover:bg-blue-600 text-white w-32"
-              >
-                Retry
-              </Button>
-            </div>
-          ) : logs.length === 0 ? (
-            <div className="text-gray-500">No logs available</div>
-          ) : (
-            logs.map((log, index) => (
-              <div key={index} className="whitespace-pre-wrap">
-                {log}
-              </div>
-            ))
-          )}
-        </div>
+        {renderContent()}
       </DialogContent>
     </Dialog>
   );
@@ -229,6 +379,7 @@ export default function ModelsDeployedTable() {
   // New state variables for column visibility
   const [showImage, setShowImage] = useState(false);
   const [showPorts, setShowPorts] = useState(true);
+  const [showContainerId, setShowContainerId] = useState(true);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
@@ -463,14 +614,28 @@ export default function ModelsDeployedTable() {
                   : "bg-zinc-200 rounded-lg"
               }`}
             >
+              {showContainerId && (
+                <TableHead className={getColumnHeaderStyle(showContainerId)}>
+                  <div className="flex items-center">
+                    <Box className="inline-block mr-2" size={16} /> Container ID{" "}
+                    <span className="text-xs font-normal text-gray-500">
+                      (click for logs)
+                    </span>
+                    <button
+                      onClick={() => setShowContainerId(false)}
+                      className="ml-2 p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                      title="Hide column"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                  </div>
+                </TableHead>
+              )}
               <TableHead className="text-left">
-                <Box className="inline-block mr-2" size={16} /> Container ID{" "}
-                <span className="text-xs font-normal text-gray-500">
-                  (click for logs)
-                </span>
+                <Tag className="inline-block mr-2" size={16} /> Model Name
               </TableHead>
-              <TableHead className={getColumnHeaderStyle(showImage)}>
-                {showImage ? (
+              {showImage && (
+                <TableHead className={getColumnHeaderStyle(showImage)}>
                   <div className="flex items-center">
                     <Image className="inline-block mr-2" size={16} /> Image
                     <button
@@ -481,35 +646,16 @@ export default function ModelsDeployedTable() {
                       <ChevronLeft size={16} />
                     </button>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-center">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => setShowImage(true)}
-                            className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors rotate-180"
-                            title="Show Image column"
-                          >
-                            <ChevronLeft size={16} />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          <p>Show Image column</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                )}
-              </TableHead>
+                </TableHead>
+              )}
               <TableHead className="text-left">
                 <Activity className="inline-block mr-2" size={16} /> Status
               </TableHead>
               <TableHead className="text-left">
                 <Heart className="inline-block mr-2" size={16} /> Health
               </TableHead>
-              <TableHead className={getColumnHeaderStyle(showPorts)}>
-                {showPorts ? (
+              {showPorts && (
+                <TableHead className={getColumnHeaderStyle(showPorts)}>
                   <div className="flex items-center">
                     <Network className="inline-block mr-2" size={16} /> Ports
                     <button
@@ -520,33 +666,72 @@ export default function ModelsDeployedTable() {
                       <ChevronLeft size={16} />
                     </button>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-center">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => setShowPorts(true)}
-                            className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors rotate-180"
-                            title="Show Ports column"
-                          >
-                            <ChevronLeft size={16} />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          <p>Show Ports column</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                )}
-              </TableHead>
-              <TableHead className="text-left">
-                <Tag className="inline-block mr-2" size={16} /> Names
-              </TableHead>
-              <TableHead className="text-left">
+                </TableHead>
+              )}
+              <TableHead className="text-center">
                 <Settings className="inline-block mr-2" size={16} /> Manage
               </TableHead>
+              {/* Always-visible show column buttons for hidden columns */}
+              {(!showContainerId || !showImage || !showPorts) && (
+                <TableHead className="text-right bg-transparent border-0">
+                  <div className="flex gap-2 justify-end items-center">
+                    {!showContainerId && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => setShowContainerId(true)}
+                              className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                              title="Show Container ID column"
+                            >
+                              <Box size={16} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>Show Container ID column</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                    {!showImage && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => setShowImage(true)}
+                              className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                              title="Show Image column"
+                            >
+                              <Image size={16} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>Show Image column</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                    {!showPorts && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => setShowPorts(true)}
+                              className="p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                              title="Show Ports column"
+                            >
+                              <Network size={16} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>Show Ports column</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </div>
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -563,89 +748,57 @@ export default function ModelsDeployedTable() {
                   pulsatingModels.includes(model.id) ? "animate-pulse" : ""
                 } rounded-lg`}
               >
+                {showContainerId ? (
+                  <TableCell className="text-left">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => setSelectedContainerId(model.id)}
+                            className="text-blue-500 hover:text-blue-700 underline flex items-center"
+                          >
+                            <CopyableText text={model.id} />
+                            <FileText className="w-4 h-4 ml-2 text-gray-500" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="bg-gray-700 text-white">
+                          <p>Click to view container logs</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </TableCell>
+                ) : null}
                 <TableCell className="text-left">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => setSelectedContainerId(model.id)}
-                          className="text-blue-500 hover:text-blue-700 underline flex items-center"
-                        >
-                          <CopyableText text={model.id} />
-                          <FileText className="w-4 h-4 ml-2 text-gray-500" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent className="bg-gray-700 text-white">
-                        <p>Click to view container logs</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </TableCell>
-                <TableCell className={getColumnCellStyle(showImage)}>
-                  {showImage ? (
-                    model.image || "N/A"
+                  {model.name ? (
+                    <CopyableText text={extractShortModelName(model.name)} />
                   ) : (
-                    <div className="flex justify-center">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <MoreHorizontal
-                              size={16}
-                              className="text-gray-500"
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="max-w-xs">
-                            <p className="text-xs whitespace-normal">
-                              {model.image || "N/A"}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
+                    "N/A"
                   )}
                 </TableCell>
+                {showImage ? (
+                  <TableCell className="text-left">
+                    {model.image ? <CopyableText text={model.image} /> : "N/A"}
+                  </TableCell>
+                ) : null}
                 <TableCell className="text-left">
                   {model.status ? <StatusBadge status={model.status} /> : "N/A"}
                 </TableCell>
                 <TableCell className="text-left">
                   <HealthBadge deployId={model.id} />
                 </TableCell>
-                <TableCell className={getColumnCellStyle(showPorts)}>
-                  {showPorts ? (
-                    model.ports ? (
-                      <CopyableText text={model.ports} />
-                    ) : (
-                      "N/A"
-                    )
-                  ) : (
-                    <div className="flex justify-center">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <MoreHorizontal
-                              size={16}
-                              className="text-gray-500"
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent side="right">
-                            <p className="text-xs">{model.ports || "N/A"}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                  )}
-                </TableCell>
-                <TableCell className="text-left">
-                  {model.name ? <CopyableText text={model.name} /> : "N/A"}
-                </TableCell>
-                <TableCell className="text-left">
-                  <div className="flex gap-2">
+                {showPorts ? (
+                  <TableCell className={getColumnCellStyle(showPorts)}>
+                    {model.ports ? <CopyableText text={model.ports} /> : "N/A"}
+                  </TableCell>
+                ) : null}
+                <TableCell className="text-center">
+                  <div className="flex gap-2 justify-center">
                     {fadingModels.includes(model.id) ? (
                       <Button
                         onClick={() =>
                           model.image && handleRedeploy(model.image)
                         }
-                        className={`${
+                        className={`$${
                           theme === "light"
                             ? "bg-zinc-700 hover:bg-zinc-600 text-white"
                             : "bg-zinc-600 hover:bg-zinc-500 text-white"
@@ -659,7 +812,7 @@ export default function ModelsDeployedTable() {
                         {loadingModels.includes(model.id) ? (
                           <Button
                             disabled
-                            className={`${
+                            className={`$${
                               theme === "dark"
                                 ? "bg-red-700 hover:bg-red-600 text-white"
                                 : "bg-red-500 hover:bg-red-400 text-white"
@@ -688,7 +841,7 @@ export default function ModelsDeployedTable() {
                                     navigate
                                   )
                                 }
-                                className={`${
+                                className={`$${
                                   theme === "dark"
                                     ? "bg-blue-500 dark:bg-blue-700 hover:bg-blue-400 dark:hover:bg-blue-600 text-white"
                                     : "bg-blue-500 hover:bg-blue-400 text-white"
@@ -750,3 +903,15 @@ export default function ModelsDeployedTable() {
     </Card>
   );
 }
+
+/* Add this to the bottom of the file or in a global CSS file if not already present */
+/*
+.resizable-dialog {
+  resize: both;
+  overflow: auto;
+  min-width: 400px;
+  min-height: 300px;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+*/
