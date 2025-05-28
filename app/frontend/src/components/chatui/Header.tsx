@@ -48,7 +48,7 @@ import {
   Settings as SettingsIcon,
   Sliders,
 } from "lucide-react";
-import logo from "../../assets/logo/tt_logo.svg";
+import { Skeleton } from "../ui/skeleton";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { cn } from "../../lib/utils";
 
@@ -290,6 +290,13 @@ export default function Header({
   const toggleMobileMenu = () => {
     setShowMobileMenu(!showMobileMenu);
   };
+
+  let logo: string | undefined;
+  try {
+    logo = require("../../assets/logo/tt_logo.svg");
+  } catch (e) {
+    logo = undefined;
+  }
 
   return (
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-2 md:p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex flex-col md:flex-row justify-between items-start md:items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
