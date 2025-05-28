@@ -264,3 +264,20 @@ export const checkDeployedModels = async (): Promise<boolean> => {
     return false;
   }
 };
+
+// Utility to extract short model name from container name
+export function extractShortModelName(containerName: string): string {
+  // Example: 'tt-metal-yolov4-src-base_p8001' => 'yolov4'
+  // This regex looks for 'yolov4' or similar model names between dashes
+  const match = containerName.match(/(?:^|-)yolov\d{0,2}(?:-|$)/i);
+  if (match) {
+    return match[0].replace(/^-|-?$/g, "");
+  }
+  // Fallback: try to extract the part after 'tt-metal-' and before '-src' or '_p'
+  const fallback = containerName.match(/tt-metal-([^-_]+)/i);
+  if (fallback && fallback[1]) {
+    return fallback[1];
+  }
+  // If all else fails, return the original name
+  return containerName;
+}
