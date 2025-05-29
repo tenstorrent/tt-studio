@@ -18,6 +18,9 @@ from .test_docker_utils import (
     valid_vllm_api_call,
 )
 
+from django.test import APITestCase
+from django.urls import reverse
+from rest_framework import status
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -118,3 +121,221 @@ def test_model_life_cycle():
         # 5. Stop model
         if "service" in locals():
             stop_model(backend_host, service["container_id"])
+
+
+class ModelCatalogViewTests(APITestCase):
+    def setUp(self):
+        # Get a valid model_id from model_implmentations
+        self.model_id = list(model_implmentations.keys())[0]
+        self.model = model_implmentations[self.model_id]
+        self.url = reverse('model_catalog')
+        
+    def test_get_catalog_status(self):
+        """Test getting catalog status"""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('status', response.data)
+        self.assertIn('models', response.data)
+        self.assertIn(self.model_id, response.data['models'])
+        
+        model_data = response.data['models'][self.model_id]
+        self.assertIn('model_name', model_data)
+        self.assertIn('model_type', model_data)
+        self.assertIn('image_version', model_data)
+        self.assertIn('exists', model_data)
+        self.assertIn('disk_usage', model_data)
+        
+    def test_pull_model(self):
+        """Test pulling a model"""
+        response = self.client.post(
+            self.url,
+            {'model_id': self.model_id},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('status', response.data)
+        
+    def test_pull_model_with_sse(self):
+        """Test pulling a model with SSE updates"""
+        response = self.client.post(
+            self.url,
+            {'model_id': self.model_id},
+            format='json',
+            HTTP_ACCEPT='text/event-stream'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'text/event-stream')
+        
+    def test_pull_invalid_model(self):
+        """Test pulling an invalid model"""
+        response = self.client.post(
+            self.url,
+            {'model_id': 'invalid_model'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+    def test_eject_model(self):
+        """Test ejecting a model"""
+        response = self.client.delete(
+            self.url,
+            {'model_id': self.model_id},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('status', response.data)
+        self.assertEqual(response.data['status'], 'success')
+        
+    def test_eject_invalid_model(self):
+        """Test ejecting an invalid model"""
+        response = self.client.delete(
+            self.url,
+            {'model_id': 'invalid_model'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        
+    def test_cancel_pull(self):
+        """Test cancelling a model pull"""
+        response = self.client.patch(
+            self.url,
+            {'model_id': self.model_id},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('status', response.data)
+        self.assertEqual(response.data['status'], 'success')
+        
+    def test_cancel_invalid_pull(self):
+        """Test cancelling an invalid model pull"""
+        response = self.client.patch(
+            self.url,
+            {'model_id': 'invalid_model'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class DockerPullTest(APITestCase):
+    """Test suite for Docker image pull functionality with SSE streaming"""
+    
+    def setUp(self):
+        # Get a valid model_id from model_implmentations
+        self.model_id = list(model_implmentations.keys())[0]
+        self.model = model_implmentations[self.model_id]
+        self.pull_url = reverse('docker-pull-image')
+        self.status_url = reverse('docker-image-status', kwargs={'model_id': self.model_id})
+        
+    def test_pull_image_with_sse(self):
+        """Test pulling a Docker image with SSE streaming updates"""
+        # First check initial image status
+        status_response = self.client.get(self.status_url)
+        self.assertEqual(status_response.status_code, status.HTTP_200_OK)
+        initial_status = status_response.json()
+        logger.info(f"Initial image status: {initial_status}")
+        
+        # Start the pull with SSE
+        headers = {
+            'Accept': 'text/event-stream',
+            'Content-Type': 'application/json'
+        }
+        data = {'model_id': self.model_id}
+        
+        # Make the request and get the streaming response
+        response = self.client.post(
+            self.pull_url,
+            data=data,
+            format='json',
+            HTTP_ACCEPT='text/event-stream'
+        )
+        
+        # Verify response is streaming
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'text/event-stream')
+        
+        # Process the SSE stream
+        events = []
+        for line in response.content.decode('utf-8').split('\n'):
+            if line.startswith('data: '):
+                try:
+                    event_data = json.loads(line[6:])
+                    events.append(event_data)
+                    logger.info(f"Received SSE event: {event_data}")
+                    
+                    # Verify event structure
+                    self.assertIn('status', event_data)
+                    self.assertIn('progress', event_data)
+                    if 'message' in event_data:
+                        self.assertIsInstance(event_data['message'], str)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse SSE data: {line}")
+        
+        # Verify we got some events
+        self.assertTrue(len(events) > 0, "No SSE events received")
+        
+        # Verify first event is "starting"
+        self.assertEqual(events[0]['status'], 'starting')
+        self.assertEqual(events[0]['progress'], 0)
+        
+        # Verify last event is "success" or "error"
+        last_event = events[-1]
+        self.assertIn(last_event['status'], ['success', 'error'])
+        if last_event['status'] == 'success':
+            self.assertEqual(last_event['progress'], 100)
+        
+        # Check final image status
+        final_status_response = self.client.get(self.status_url)
+        self.assertEqual(final_status_response.status_code, status.HTTP_200_OK)
+        final_status = final_status_response.json()
+        logger.info(f"Final image status: {final_status}")
+        
+        # If pull was successful, verify image exists
+        if last_event['status'] == 'success':
+            self.assertTrue(final_status['exists'])
+            self.assertNotEqual(final_status['size'], '0MB')
+    
+    def test_pull_image_regular(self):
+        """Test pulling a Docker image with regular (non-SSE) response"""
+        data = {'model_id': self.model_id}
+        response = self.client.post(self.pull_url, data=data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('status', response.data)
+        self.assertIn('message', response.data)
+    
+    def test_pull_invalid_model(self):
+        """Test pulling an invalid model ID"""
+        data = {'model_id': 'invalid_model_id'}
+        response = self.client.post(
+            self.pull_url,
+            data=data,
+            format='json',
+            HTTP_ACCEPT='text/event-stream'
+        )
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('message', response.data)
+        self.assertIn('not found', response.data['message'].lower())
+    
+    def test_pull_cancellation(self):
+        """Test cancelling an ongoing pull"""
+        # Start a pull
+        data = {'model_id': self.model_id}
+        pull_response = self.client.post(
+            self.pull_url,
+            data=data,
+            format='json',
+            HTTP_ACCEPT='text/event-stream'
+        )
+        
+        # Cancel the pull
+        cancel_url = reverse('docker-cancel-pull')
+        cancel_response = self.client.patch(
+            cancel_url,
+            data=data,
+            format='json'
+        )
+        
+        self.assertEqual(cancel_response.status_code, status.HTTP_200_OK)
+        self.assertIn('status', cancel_response.data)
+        self.assertEqual(cancel_response.data['status'], 'success')

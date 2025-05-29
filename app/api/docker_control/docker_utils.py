@@ -33,6 +33,8 @@ def run_container(impl, weights_id):
     """Run a docker container from an image"""
     try:
         logger.info(f"run_container called for {impl.model_name}")
+
+        
         run_kwargs = copy.deepcopy(impl.docker_config)
         # handle runtime configuration changes to docker kwargs
         device_mounts = get_devices_mounts(impl)
@@ -53,6 +55,7 @@ def run_container(impl, weights_id):
         )
         logger.info(f"run_kwargs:= {run_kwargs}")
         container = client.containers.run(impl.image_version, **run_kwargs)
+        # 
         verify_container(impl, run_kwargs, container)
         # on changes to containers, update deploy cache
         update_deploy_cache()
@@ -380,3 +383,69 @@ def perform_reset():
             "output": "An exception occurred during the reset operation.",
             "http_status": 500,
         }
+
+def check_image_exists(image_name, image_tag):
+    """Check if a Docker image exists locally"""
+    try:
+        logger.info(f"Checking for image: {image_name}:{image_tag}")
+        image = f"{image_name}:{image_tag}"
+        client.images.get(image)
+        image_info = client.images.get(image)
+        size_bytes = image_info.attrs['Size']
+        size_mb = round(size_bytes / (1024 * 1024), 2)
+        return {
+            "exists": True,
+            "size": f"{size_mb}MB",
+            "status": "available"
+        }
+    except docker.errors.ImageNotFound:
+        return {
+            "exists": False,
+            "size": "0MB",
+            "status": "not_pulled"
+        }
+    except Exception as e:
+        logger.error(f"Error checking image status: {str(e)}")
+        return {
+            "exists": False,
+            "size": "0MB",
+            "status": "error"
+        }
+
+def pull_image_with_progress(image_name, image_tag, progress_callback=None):
+    """Pull a Docker image with progress tracking"""
+    try:
+        image = f"{image_name}:{image_tag}"
+        logger.info(f"Pulling image: {image}")
+        
+        # Authenticate with ghcr.io if credentials are available
+        if image_name.startswith("ghcr.io") and backend_config.github_username and backend_config.github_pat:
+            logger.info("Authenticating with GitHub Container Registry")
+            try:
+                client.login(
+                    username=backend_config.github_username,
+                    password=backend_config.github_pat,
+                    registry="ghcr.io"
+                )
+                logger.info("Successfully authenticated with ghcr.io")
+            except Exception as auth_error:
+                logger.error(f"Failed to authenticate with ghcr.io: {str(auth_error)}")
+                return {"status": "error", "message": f"Authentication failed: {str(auth_error)}"}
+        
+        # Pull the image with progress tracking
+        for line in client.api.pull(image, stream=True, decode=True):
+            if progress_callback and isinstance(line, dict):
+                if 'status' in line:
+                    progress = {
+                        'status': line['status'],
+                        'progress': line.get('progress', ''),
+                        'id': line.get('id', '')
+                    }
+                    progress_callback(progress)
+        
+        # Verify the image was pulled successfully
+        client.images.get(image)
+        return {"status": "success", "message": f"Successfully pulled {image}"}
+    except Exception as e:
+        logger.error(f"Error pulling image: {str(e)}")
+        return {"status": "error", "message": str(e)}
