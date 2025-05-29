@@ -150,17 +150,25 @@ export function DockerStepForm({
       const reader = response.body?.getReader();
       if (!reader) return;
 
+      let buffer = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = new TextDecoder().decode(value);
-        const events = text.split("\n\n");
-
-        for (const event of events) {
-          if (event.startsWith("data: ")) {
+        // Decode the chunk and add it to our buffer
+        buffer += new TextDecoder().decode(value);
+        
+        // Process complete SSE messages
+        const messages = buffer.split('\n\n');
+        buffer = messages.pop() || ''; // Keep the last incomplete message in the buffer
+        
+        for (const message of messages) {
+          if (message.startsWith('data: ')) {
             try {
-              const data = JSON.parse(event.slice(6));
+              const jsonStr = message.slice(6).trim();
+              if (!jsonStr) continue; // Skip empty messages
+              
+              const data = JSON.parse(jsonStr);
               setPullProgress(data);
 
               // If the pull is complete, refresh the catalog status and image status
@@ -190,7 +198,7 @@ export function DockerStepForm({
                 throw new Error(data.message || "Failed to pull image");
               }
             } catch (parseError) {
-              console.error("Error parsing SSE data:", parseError);
+              console.error("Error parsing SSE data:", parseError, "Raw message:", message);
             }
           }
         }
@@ -249,16 +257,48 @@ export function DockerStepForm({
     if (!selectedModel) return;
 
     try {
-      await fetch(catalogURL, {
-        method: "PATCH",
+      const response = await fetch(`${dockerAPIURL}docker/cancel_pull/`, {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ model_id: selectedModel }),
       });
-      setPullProgress(null);
+
+      if (!response.ok) {
+        throw new Error(`Failed to cancel pull: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (data.status === "success") {
+        // Update UI to show cancellation
+        setPullProgress({
+          status: "cancelled",
+          progress: 0,
+          current: 0,
+          total: 0,
+          message: "Pull cancelled"
+        });
+
+        // Clear the progress after a short delay
+        setTimeout(() => {
+          setPullProgress(null);
+        }, 2000);
+
+        // Refresh the model status
+        await refreshImageStatus(selectedModel);
+      } else {
+        throw new Error(data.message || "Failed to cancel pull");
+      }
     } catch (error) {
       console.error("Error cancelling pull:", error);
+      setPullProgress({
+        status: "error",
+        progress: 0,
+        current: 0,
+        total: 0,
+        message: error instanceof Error ? error.message : "Failed to cancel pull"
+      });
     }
   };
 
@@ -317,11 +357,25 @@ export function DockerStepForm({
                 {pullProgress && (
                   <div className="space-y-2">
                     <h4 className="font-medium">Pull Progress</h4>
-                    <Progress
-                      value={pullProgress.progress}
-                      className="w-full"
-                    />
-                    <p>{pullProgress.status}</p>
+                    <div className="space-y-1">
+                      <Progress
+                        value={pullProgress.progress}
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>{pullProgress.message}</span>
+                        <span>
+                          {pullProgress.current > 0 && pullProgress.total > 0
+                            ? `${Math.round((pullProgress.current / pullProgress.total) * 100)}%`
+                            : `${pullProgress.progress}%`}
+                        </span>
+                      </div>
+                      {pullProgress.current > 0 && pullProgress.total > 0 && (
+                        <div className="text-sm text-gray-500">
+                          {formatBytes(pullProgress.current)} / {formatBytes(pullProgress.total)}
+                        </div>
+                      )}
+                    </div>
                     <Button
                       onClick={handleCancelPull}
                       variant="destructive"
@@ -370,4 +424,12 @@ export function DockerStepForm({
       )}
     </div>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }

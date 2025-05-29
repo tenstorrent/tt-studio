@@ -279,10 +279,16 @@ class PullImageView(APIView):
                 
                 def event_stream():
                     # Simple test first
-                    yield f"data: {json.dumps({'status': 'starting', 'progress': 0, 'message': 'Starting pull...'})}\n\n"
+                    yield f"data: {json.dumps({'status': 'starting', 'progress': 0, 'current': 0, 'total': 0, 'message': 'Starting pull...'})}\n\n"
                     
                     # Now do the actual pull with progress
-                    progress_data = {"current_layer": 0, "total_layers": 0, "overall_progress": 0}
+                    progress_data = {
+                        "current_layer": 0,
+                        "total_layers": 0,
+                        "overall_progress": 0,
+                        "current_bytes": 0,
+                        "total_bytes": 0
+                    }
                     
                     def progress_callback(progress):
                         # Process Docker API progress and convert to numeric values
@@ -299,6 +305,8 @@ class PullImageView(APIView):
                                     numeric_progress = int((current / total) * 100)
                                     progress_data["current_layer"] = current
                                     progress_data["total_layers"] = total
+                                    progress_data["current_bytes"] = current
+                                    progress_data["total_bytes"] = total
                         
                         # Parse progress string (e.g., "50%" -> 50)
                         elif 'progress' in progress and progress['progress']:
@@ -313,11 +321,18 @@ class PullImageView(APIView):
                         if numeric_progress > progress_data["overall_progress"]:
                             progress_data["overall_progress"] = numeric_progress
                         
+                        # Calculate progress percentage based on bytes if available
+                        progress_percentage = 0
+                        if progress_data["total_bytes"] > 0:
+                            progress_percentage = int((progress_data["current_bytes"] / progress_data["total_bytes"]) * 100)
+                        else:
+                            progress_percentage = progress_data["overall_progress"]
+                        
                         formatted_progress = {
                             "status": progress.get('status', 'pulling'),
-                            "progress": progress_data["overall_progress"],
-                            "current": progress_data["current_layer"],
-                            "total": progress_data["total_layers"],
+                            "progress": progress_percentage,
+                            "current": progress_data["current_bytes"],
+                            "total": progress_data["total_bytes"],
                             "message": progress.get('status', 'Pulling image...'),
                             "layer_id": progress.get('id', '')
                         }
@@ -620,6 +635,60 @@ class ModelCatalogView(APIView):
             return Response({
                 "status": "success",
                 "message": f"Successfully cancelled pull for model {model_id}"
+            }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            logger.error(f"Error cancelling model pull: {str(e)}")
+            return Response(
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+@method_decorator(csrf_exempt, name='dispatch')
+class CancelPullView(APIView):
+    def post(self, request, *args, **kwargs):
+        try:
+            model_id = request.data.get("model_id")
+            logger.info(f"Received request to cancel pull for model: {model_id}")
+            
+            if not model_id or model_id not in model_implmentations:
+                logger.warning(f"Invalid model_id provided: {model_id}")
+                return Response(
+                    {"status": "error", "message": f"Invalid model_id: {model_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            impl = model_implmentations[model_id]
+            image_name, image_tag = impl.image_version.split(':')
+            logger.info(f"Looking for containers pulling image: {image_name}:{image_tag}")
+            
+            # Find and stop any ongoing pulls for this image
+            containers_stopped = 0
+            for container in client.containers.list():
+                if container.image.tags and f"{image_name}:{image_tag}" in container.image.tags:
+                    logger.info(f"Found container {container.id} pulling the image, stopping it")
+                    try:
+                        container.stop()
+                        container.remove()
+                        containers_stopped += 1
+                    except Exception as e:
+                        logger.error(f"Error stopping container {container.id}: {str(e)}")
+            
+            # Also try to remove the image if it exists
+            try:
+                image = client.images.get(f"{image_name}:{image_tag}")
+                client.images.remove(image.id, force=True)
+                logger.info(f"Removed partial image: {image_name}:{image_tag}")
+            except docker.errors.ImageNotFound:
+                pass  # Image doesn't exist, which is fine
+            except Exception as e:
+                logger.error(f"Error removing image: {str(e)}")
+            
+            logger.info(f"Successfully cancelled pull for model {model_id}, stopped {containers_stopped} containers")
+            return Response({
+                "status": "success",
+                "message": f"Successfully cancelled pull for model {model_id}",
+                "containers_stopped": containers_stopped
             }, status=status.HTTP_200_OK)
                 
         except Exception as e:
