@@ -82,33 +82,26 @@ Developers can control and run the app directly via `docker compose`, keeping th
 
 1. **Start the Application**:
 
-   Navigate to the project directory and start the application:
+   Run the `startup.sh` script:
 
    ```bash
-   cd tt-studio/app
-   docker compose up --build
+   ./startup.sh
    ```
 
-   Alternatively, run the backend and frontend servers interactively:
+   When prompted to whether run the app in development mode, say yes.
 
    ```bash
-   docker compose up
-   ```
-
-   To force a rebuild of Docker images:
-
-   ```bash
-   docker compose up --build
+   Do you want to run in development mode? (y/n): y
    ```
 
 2. **Hot Reload & Debugging**:
 
    #### Frontend
    - The frontend supports hot reloading when running inside the `docker compose` environment.
-   - Ensure that the required lines (**71-73**) in `docker-compose.yml` are uncommented.
+   - Ensure that the required lines (**81-83**) in `docker-compose.yml` are uncommented.
 
    #### Backend
-   - Local files in `./api` are mounted to `/api` within the container for development.
+   - Local files in `./backend` are mounted to `/backend` within the container for development.
    - Code changes trigger an automatic rebuild and redeployment of the Django server.
    - To manually start the Django development server:
 
@@ -121,7 +114,7 @@ Developers can control and run the app directly via `docker compose`, keeping th
    To shut down the application and remove running containers:
 
    ```bash
-   docker compose down
+   ./startup.sh --cleanup
    ```
 
 4. **Using the Mock vLLM Model**:
@@ -194,13 +187,13 @@ If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt
 - **Frontend Documentation**: [app/frontend/README.md](app/frontend/README.md)  
   Detailed documentation about the frontend of TT Studio, including setup, development, and customization guides.
 
-- **Backend API Documentation**: [app/api/README.md](app/api/README.md)  
+- **Backend API Documentation**: [app/backend/README.md](app/backend/README.md)  
   Information on the backend API, powered by Django Rest Framework, including available endpoints and integration details.
 
 - **Running vLLM Model(s) and Mock vLLM Model in TT-Studio**: [HowToRun_vLLM_Models.md](HowToRun_vLLM_Models.md)  
   Step-by-step instructions on how to configure and run the vLLM model(s) using TT-Studio.
 
-- **Running AI Agent with Chat LLM Models in TT-Studio**: [app/api/agent_control/README.md](app/api/agent_control/README.md)
+- **Running AI Agent with Chat LLM Models in TT-Studio**: [app/backend/agent_control/README.md](app/backend/agent_control/README.md)
    Instructions on how to run AI Agent by providing an API Key. 
 
 - **Contribution Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)  

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
+# Development mode overrides
+services:
+  tt_studio_backend:
+    volumes:
+      # Mount the local api directory for live code changes
+      - ./backend:/backend
+    command: python ./manage.py runserver 0.0.0.0:8000
+    environment:
+      - DEBUG=True

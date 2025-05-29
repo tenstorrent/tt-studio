@@ -37,19 +37,25 @@ docker container prune
 
 ## Development
 
-Run the backend and frontend server interactively:
+Run the backend and frontend server interactively: \
+**Note:** It is recommended that you use the `startup.sh` script to run `tt-studio` and opt 'yes' when prompted whether to run in development mode.
 
 ```bash
-docker compose up
+docker compose -f <TT_STUDIO_ROOT>/app/docker-compose.yml -f <TT_STUDIO_ROOT>/app/docker-compose.dev-mode.yml up
+```
+
+If running on TT hardware
+```bash
+docker compose -f <TT_STUDIO_ROOT>/app/docker-compose.yml -f <TT_STUDIO_ROOT>/app/docker-compose.dev-mode.yml -f <TT_STUDIO_ROOT>/app/docker-compose.tt-hardware.yml up
 ```
 
 To force rebuilding the Docker images:
 
 ```bash
-docker compose up --build
+docker compose -f <TT_STUDIO_ROOT>/app/docker-compose.yml -f <TT_STUDIO_ROOT>/app/docker-compose.dev-mode.yml -f <TT_STUDIO_ROOT>/app/docker-compose.tt-hardware.yml up --build
 ```
 
-The local files in `./api` are mounted to `/api` within the container for development. You can add breakpoints in the code, it will rebuild and deploy the Django server automatically.
+The local files in `./backend` are mounted to `/backend` within the container for development. You can add breakpoints in the code, it will rebuild and deploy the Django server automatically.
 
 ```bash
 ./manage.py runserver 0.0.0.0:8000
