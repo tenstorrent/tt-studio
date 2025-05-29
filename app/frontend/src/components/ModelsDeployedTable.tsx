@@ -759,7 +759,10 @@ export default function ModelsDeployedTable() {
                             onClick={() => setSelectedContainerId(model.id)}
                             className="text-blue-500 hover:text-blue-700 underline flex items-center"
                           >
-                            <CopyableText text={model.id} />
+                            <CopyableText
+                              text={model.id}
+                              isInsideButton={true}
+                            />
                             <FileText className="w-4 h-4 ml-2 text-gray-500" />
                           </button>
                         </TooltipTrigger>
