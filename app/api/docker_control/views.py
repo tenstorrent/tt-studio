@@ -38,6 +38,9 @@ logger.info(f"importing {__name__}")
 # Create docker client for use across views
 client = docker.from_env()
 
+# Add this near the top after imports, before classes
+pull_progress = {}  # {model_id: {status, progress, current, total, message}}
+
 # Add custom renderer for SSE
 class EventStreamRenderer(JSONRenderer):
     media_type = 'text/event-stream'
@@ -203,6 +206,14 @@ class ImageStatusView(APIView):
             logger.info(f"Checking status for image: {image_name}:{image_tag}")
             image_status = check_image_exists(image_name, image_tag)
             logger.info(f"Image status result: {image_status}")
+            
+            # Add pull progress if available
+            if model_id in pull_progress:
+                image_status['pull_in_progress'] = True
+                image_status['progress'] = pull_progress[model_id]
+            else:
+                image_status['pull_in_progress'] = False
+            
             return Response(image_status, status=status.HTTP_200_OK)
         except KeyError:
             logger.warning(f"Model {model_id} not found in model_implementations")
@@ -266,8 +277,16 @@ class PullImageView(APIView):
                 logger.info("Client requested SSE updates for pull progress")
                 
                 def event_stream():
+                    # Check if pull already in progress
+                    if model_id in pull_progress:
+                        logger.info(f"Pull already in progress for {model_id}, streaming current progress")
+                        yield f"data: {json.dumps(pull_progress[model_id])}\n\n"
+                        return
+                    
                     # Simple test first
-                    yield f"data: {json.dumps({'status': 'starting', 'progress': 0, 'current': 0, 'total': 0, 'message': 'Starting pull...'})}\n\n"
+                    initial_progress = {'status': 'starting', 'progress': 0, 'current': 0, 'total': 0, 'message': 'Starting pull...'}
+                    pull_progress[model_id] = initial_progress
+                    yield f"data: {json.dumps(initial_progress)}\n\n"
                     
                     # Now do the actual pull with progress
                     progress_data = {
@@ -325,6 +344,9 @@ class PullImageView(APIView):
                             "layer_id": progress.get('id', '')
                         }
                         
+                        # Update global progress tracking
+                        pull_progress[model_id] = formatted_progress
+                        
                         logger.info(f"Sending progress update: {formatted_progress}")
                         return f"data: {json.dumps(formatted_progress)}\n\n"
                     
@@ -346,7 +368,10 @@ class PullImageView(APIView):
                             except Exception as auth_error:
                                 logger.error(f"Failed to authenticate with ghcr.io: {str(auth_error)}")
                                 error_result = {"status": "error", "progress": 0, "current": 0, "total": 0, "message": f"Authentication failed: {str(auth_error)}"}
+                                pull_progress[model_id] = error_result
                                 yield f"data: {json.dumps(error_result)}\n\n"
+                                # Clear progress on error
+                                pull_progress.pop(model_id, None)
                                 return
                         
                         # Pull the image with real-time progress streaming
@@ -376,6 +401,9 @@ class PullImageView(APIView):
                         
                         yield f"data: {json.dumps(final_result)}\n\n"
                         
+                        # Clear progress when done
+                        pull_progress.pop(model_id, None)
+                        
                     except Exception as e:
                         logger.error(f"Error during streaming pull: {str(e)}")
                         error_result = {
@@ -386,6 +414,9 @@ class PullImageView(APIView):
                             "message": str(e)
                         }
                         yield f"data: {json.dumps(error_result)}\n\n"
+                        
+                        # Clear progress on error
+                        pull_progress.pop(model_id, None)
                 
                 response = StreamingHttpResponse(
                     event_stream(),
@@ -620,9 +651,14 @@ class ModelCatalogView(APIView):
                     containers_stopped += 1
             
             logger.info(f"Successfully cancelled pull for model {model_id}, stopped {containers_stopped} containers")
+            
+            # Clear pull progress
+            pull_progress.pop(model_id, None)
+            
             return Response({
                 "status": "success",
-                "message": f"Successfully cancelled pull for model {model_id}"
+                "message": f"Successfully cancelled pull for model {model_id}",
+                "containers_stopped": containers_stopped
             }, status=status.HTTP_200_OK)
                 
         except Exception as e:
@@ -673,6 +709,10 @@ class CancelPullView(APIView):
                 logger.error(f"Error removing image: {str(e)}")
             
             logger.info(f"Successfully cancelled pull for model {model_id}, stopped {containers_stopped} containers")
+            
+            # Clear pull progress
+            pull_progress.pop(model_id, None)
+            
             return Response({
                 "status": "success",
                 "message": f"Successfully cancelled pull for model {model_id}",
