@@ -484,25 +484,56 @@ def perform_reset():
         }
 
 def check_image_exists(image_name, image_tag):
-    """Check if a Docker image exists locally"""
+    """Check if a Docker image exists locally with robust matching"""
     try:
-        logger.info(f"Checking for image: {image_name}:{image_tag}")
-        image = f"{image_name}:{image_tag}"
-        client.images.get(image)
-        image_info = client.images.get(image)
-        size_bytes = image_info.attrs['Size']
-        size_mb = round(size_bytes / (1024 * 1024), 2)
-        return {
-            "exists": True,
-            "size": f"{size_mb}MB",
-            "status": "available"
-        }
-    except docker.errors.ImageNotFound:
+        target_image = f"{image_name}:{image_tag}"
+        logger.info(f"Checking for image: {target_image}")
+        
+        # First try exact match (current behavior)
+        try:
+            image_info = client.images.get(target_image)
+            size_bytes = image_info.attrs['Size']
+            size_mb = round(size_bytes / (1024 * 1024), 2)
+            logger.info(f"Found exact match for image: {target_image}")
+            return {
+                "exists": True,
+                "size": f"{size_mb}MB",
+                "status": "available"
+            }
+        except docker.errors.ImageNotFound:
+            logger.info(f"Exact match not found for: {target_image}")
+            pass
+        
+        # If exact match fails, search through all images
+        logger.info("Searching through all available images for partial matches...")
+        all_images = client.images.list()
+        available_images = []
+        
+        for image in all_images:
+            for tag in image.tags:
+                available_images.append(tag)
+                # Check for partial matches
+                if image_name in tag and image_tag in tag:
+                    size_bytes = image.attrs['Size']
+                    size_mb = round(size_bytes / (1024 * 1024), 2)
+                    logger.info(f"Found partial match: {tag} (looking for {target_image})")
+                    return {
+                        "exists": True,
+                        "size": f"{size_mb}MB",
+                        "status": "available",
+                        "actual_tag": tag
+                    }
+        
+        # Log available images for debugging
+        logger.warning(f"Image not found: {target_image}")
+        logger.info(f"Available images: {available_images[:10]}...")  # Show first 10 to avoid spam
+        
         return {
             "exists": False,
             "size": "0MB",
             "status": "not_pulled"
         }
+        
     except Exception as e:
         logger.error(f"Error checking image status: {str(e)}")
         return {
