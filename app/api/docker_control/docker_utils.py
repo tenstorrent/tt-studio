@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket, os, subprocess
+import socket, os, subprocess, json
 import copy
 from pathlib import Path
 
@@ -480,3 +480,82 @@ def pull_image_with_progress(image_name, image_tag, progress_callback=None):
     except Exception as e:
         logger.error(f"Error pulling image: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+def detect_board_type():
+    """Detect board type using tt-smi command"""
+    try:
+        logger.info("Running tt-smi -s to detect board type")
+        
+        process = subprocess.Popen(
+            ["tt-smi", "-s"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True,
+        )
+        
+        output = []
+        for line in iter(process.stdout.readline, ""):
+            output.append(line)
+        
+        process.stdout.close()
+        return_code = process.wait()
+        
+        if return_code != 0:
+            logger.error(f"tt-smi -s failed with return code {return_code}")
+            return "unknown"
+        
+        # Parse JSON output
+        output_str = "".join(output)
+        logger.info(f"tt-smi -s raw output length: {len(output_str)}")
+        logger.info(f"tt-smi -s first 500 chars: {output_str[:500]}")
+        
+        try:
+            data = json.loads(output_str)
+            logger.info(f"Parsed JSON successfully. Keys: {list(data.keys())}")
+            
+            if "device_info" in data:
+                logger.info(f"Found {len(data['device_info'])} devices")
+                if len(data["device_info"]) > 0:
+                    # Get board type from first device
+                    first_device = data["device_info"][0]
+                    logger.info(f"First device keys: {list(first_device.keys())}")
+                    
+                    if "board_info" in first_device:
+                        board_info = first_device["board_info"]
+                        logger.info(f"Board info keys: {list(board_info.keys())}")
+                        board_type = board_info.get("board_type", "unknown")
+                        logger.info(f"Raw board_type: '{board_type}'")
+                        
+                        # Normalize board type (e.g., "n300 L" -> "N300")
+                        if "n150" in board_type.lower():
+                            logger.info("Detected N150 board")
+                            return "N150"
+                        elif "n300" in board_type.lower():
+                            logger.info("Detected N300 board")
+                            return "N300"
+                        elif "t3000" in board_type.lower():
+                            logger.info("Detected T3000 board")
+                            return "T3000"
+                        else:
+                            logger.warning(f"Unknown board type: {board_type}")
+                            return "unknown"
+                    else:
+                        logger.warning("No board_info found in first device")
+                        return "unknown"
+                else:
+                    logger.warning("Device_info array is empty")
+                    return "unknown"
+            else:
+                logger.warning("No 'device_info' key found in JSON")
+                logger.info(f"Available keys: {list(data.keys())}")
+                return "unknown"
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse tt-smi JSON output: {e}")
+            logger.error(f"Raw output: {output_str}")
+            return "unknown"
+            
+    except Exception as e:
+        logger.error(f"Error detecting board type: {str(e)}")
+        return "unknown"

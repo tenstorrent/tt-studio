@@ -517,7 +517,8 @@ export function DockerStepForm({
                       <TooltipContent>Cancel Pull</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  {(pullProgress.status === 'pulling' || pullProgress.status === 'starting') && (
+                  {(pullProgress.status === "pulling" ||
+                    pullProgress.status === "starting") && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -530,7 +531,9 @@ export function DockerStepForm({
                             <Loader2 className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Reconnect to Live Updates</TooltipContent>
+                        <TooltipContent>
+                          Reconnect to Live Updates
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   )}
@@ -574,13 +577,15 @@ export function DockerStepForm({
                         disabled={ejecting}
                         variant="destructive"
                         size="icon"
-                        className={`w-10 h-10 transition-opacity ${ejecting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        className={`w-10 h-10 transition-opacity ${ejecting ? "opacity-50 cursor-not-allowed" : ""}`}
                         aria-label="Eject Model"
                       >
                         <Trash2 className="w-5 h-5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{ejecting ? 'Ejecting...' : 'Eject Model'}</TooltipContent>
+                    <TooltipContent>
+                      {ejecting ? "Ejecting..." : "Eject Model"}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               )}
