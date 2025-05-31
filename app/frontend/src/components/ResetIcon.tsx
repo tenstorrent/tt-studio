@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Cpu, CheckCircle, AlertTriangle } from "lucide-react";
 import { Spinner } from "./ui/spinner";
@@ -30,6 +30,12 @@ interface ResetIconProps {
   onReset?: () => void;
 }
 
+// Board info interface
+interface BoardInfo {
+  type: string;
+  name: string;
+}
+
 const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const { theme } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
@@ -38,6 +44,31 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resetHistory, setResetHistory] = useState<Date[]>([]);
   const [fullOutput, setFullOutput] = useState<string | null>(null);
+  const [boardInfo, setBoardInfo] = useState<BoardInfo | null>(null);
+  const [boardLoading, setBoardLoading] = useState(false);
+
+  // Fetch board information when dialog opens
+  useEffect(() => {
+    if (isDialogOpen && !boardInfo) {
+      fetchBoardInfo();
+    }
+  }, [isDialogOpen]);
+
+  const fetchBoardInfo = async () => {
+    setBoardLoading(true);
+    try {
+      const response = await axios.get<{ type: string; name: string }>(
+        "/docker-api/board-info/"
+      );
+      setBoardInfo(response.data);
+    } catch (error) {
+      console.error("Error fetching board info:", error);
+      // Set default values if detection fails
+      setBoardInfo({ type: "unknown", name: "Unknown Board" });
+    } finally {
+      setBoardLoading(false);
+    }
+  };
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const hoverIconColor =
@@ -56,7 +87,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           loading: `Deleting Model ID: ${model.id.substring(0, 4)}...`,
           success: `Model ID: ${model.id.substring(
             0,
-            4,
+            4
           )} deleted successfully.`,
           error: `Failed to delete Model ID: ${model.id.substring(0, 4)}.`,
         });
@@ -127,7 +158,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     if (!success) {
       if (statusCode === 501) {
         throw new Error(
-          "No Tenstorrent devices detected or functionality not implemented.",
+          "No Tenstorrent devices detected or functionality not implemented."
         );
       } else {
         throw new Error("Command failed or no devices detected");
@@ -210,11 +241,29 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         }`}
       >
         <DialogHeader>
-          <div className="flex items-center mb-4">
-            <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
-            <DialogTitle className="text-lg font-semibold">
-              Reset Card
-            </DialogTitle>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center">
+              <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
+              <DialogTitle className="text-lg font-semibold">
+                Reset Card
+              </DialogTitle>
+            </div>
+            {boardInfo && boardInfo.type !== "unknown" && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-full">
+                <Cpu className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                  {boardInfo.type} Board
+                </span>
+              </div>
+            )}
+            {boardLoading && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full">
+                <Spinner />
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Detecting...
+                </span>
+              </div>
+            )}
           </div>
           <DialogDescription className="text-left">
             Are you sure you want to reset the card?

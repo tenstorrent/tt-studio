@@ -33,6 +33,10 @@ export interface SecondStepFormProps {
 export interface Model {
   id: string;
   name: string;
+  is_compatible: boolean | null; // null means unknown compatibility
+  compatible_boards: string[]; // List of boards this model can run on
+  model_type: string; // Type of model (e.g., CHAT, IMAGE_GENERATION, etc.)
+  current_board: string; // The detected board type
 }
 
 export interface Weight {

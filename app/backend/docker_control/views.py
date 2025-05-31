@@ -25,12 +25,14 @@ from .docker_utils import (
     perform_reset,
     check_image_exists,
     pull_image_with_progress,
+    detect_board_type,
 )
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
+from shared_config.device_config import DeviceConfigurations
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -119,10 +121,49 @@ class StopView(APIView):
 
 class ContainersView(APIView):
     def get(self, request, *args, **kwargs):
-        data = [
-            {"id": impl_id, "name": impl.model_name}
-            for impl_id, impl in model_implmentations.items()
-        ]
+        # Detect current board type using tt-smi command
+        current_board = detect_board_type()
+        logger.info(f"Detected board type: {current_board}")
+        
+        # Map board types to their corresponding device configurations
+        board_to_device_map = {
+            'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+            'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            'unknown': []  # Empty list for unknown board type
+        }
+        
+        # Get the device configurations for current board
+        current_board_devices = set(board_to_device_map.get(current_board, []))
+        
+        data = []
+        for impl_id, impl in model_implmentations.items():
+            # Calculate compatibility
+            is_compatible = False
+            if current_board == 'unknown':
+                # If board type is unknown, show all models but mark them as potentially incompatible
+                is_compatible = None
+            else:
+                # Check if any of the current board's device configurations are in the model's configurations
+                is_compatible = bool(current_board_devices.intersection(impl.device_configurations))
+            
+            # Get all boards this model can run on
+            compatible_boards = []
+            for board, devices in board_to_device_map.items():
+                if board != 'unknown' and bool(set(devices).intersection(impl.device_configurations)):
+                    compatible_boards.append(board)
+            
+            logger.info(f"Model {impl.model_name}: compatible={is_compatible}, boards={compatible_boards}")
+            
+            data.append({
+                "id": impl_id,
+                "name": impl.model_name,
+                "is_compatible": is_compatible,
+                "compatible_boards": compatible_boards,
+                "model_type": impl.model_type.value,
+                "current_board": current_board
+            })
+        
         return Response(data, status=status.HTTP_200_OK)
 
 
@@ -733,6 +774,39 @@ class CancelPullView(APIView):
                 
         except Exception as e:
             logger.error(f"Error cancelling model pull: {str(e)}")
+            return Response(
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+@method_decorator(csrf_exempt, name='dispatch')
+class BoardInfoView(APIView):
+    """
+    API endpoint to provide board information to the frontend.
+    This helps the frontend filter models based on board compatibility.
+    """
+    def get(self, request, *args, **kwargs):
+        try:
+            # Detect board type using tt-smi command
+            board_type = detect_board_type()
+            logger.info(f"BoardInfoView detected board type: {board_type}")
+            
+            # Map board types to friendly names
+            board_name_map = {
+                'N150': 'Tenstorrent N150',
+                'N300': 'Tenstorrent N300', 
+                'T3000': 'Tenstorrent T3000',
+                'unknown': 'Unknown Board'
+            }
+            board_name = board_name_map.get(board_type, 'Unknown Board')
+            
+            return Response({
+                'type': board_type,
+                'name': board_name
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error getting board info: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
