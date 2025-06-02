@@ -17,12 +17,7 @@ import {
   DialogTrigger,
   DialogDescription,
 } from "./ui/dialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "./ui/accordion";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { ScrollArea } from "./ui/scroll-area";
 import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
 
@@ -57,9 +52,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const fetchBoardInfo = async () => {
     setBoardLoading(true);
     try {
-      const response = await axios.get<{ type: string; name: string }>(
-        "/docker-api/board-info/"
-      );
+      const response = await axios.get<{ type: string; name: string }>("/docker-api/board-info/");
       setBoardInfo(response.data);
     } catch (error) {
       console.error("Error fetching board info:", error);
@@ -71,11 +64,9 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   };
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverIconColor =
-    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const hoverIconColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
   const buttonBackgroundColor = theme === "dark" ? "bg-zinc-900" : "bg-white";
-  const hoverButtonBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
+  const hoverButtonBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
   // Function to delete all deployed models
   const deleteAllModels = async (): Promise<void> => {
@@ -85,10 +76,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
       for (const model of models) {
         await customToast.promise(deleteModel(model.id), {
           loading: `Deleting Model ID: ${model.id.substring(0, 4)}...`,
-          success: `Model ID: ${model.id.substring(
-            0,
-            4
-          )} deleted successfully.`,
+          success: `Model ID: ${model.id.substring(0, 4)} deleted successfully.`,
           error: `Failed to delete Model ID: ${model.id.substring(0, 4)}.`,
         });
       }
@@ -158,10 +146,26 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     if (!success) {
       if (statusCode === 501) {
         throw new Error(
-          "No Tenstorrent devices detected or functionality not implemented."
+          "No Tenstorrent devices detected. Please check your hardware connection and try again."
         );
       } else {
-        throw new Error("Command failed or no devices detected");
+        // Parse the error message from the output
+        const errorLines = output
+          .split("\n")
+          .filter(
+            (line) =>
+              line.includes("tt-smi reset failed") ||
+              line.includes("Please check if:") ||
+              line.includes("1.") ||
+              line.includes("2.") ||
+              line.includes("3.") ||
+              line.includes("4.")
+          );
+        if (errorLines.length > 0) {
+          throw new Error(errorLines.join("\n"));
+        } else {
+          throw new Error("Board reset failed. Please check the command output for details.");
+        }
       }
     }
 
@@ -182,7 +186,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
       await customToast.promise(resetBoardAsync(), {
         loading: "Resetting board...",
         success: "Board reset successfully!",
-        error: "Failed to reset board.",
+        error: (err) => err.message || "Failed to reset board.",
       });
 
       if (onReset) {
@@ -196,10 +200,10 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         const errorOutput = `
           <span style="color: red;">Error Resetting Board</span>
           -----------------------
-          <pre style="color: red;">${error.message}</pre>
+          <pre style="color: red; white-space: pre-wrap;">${error.message}</pre>
         `;
         setFullOutput(errorOutput);
-        setErrorMessage("Command failed or no devices detected");
+        setErrorMessage(error.message);
       } else {
         setErrorMessage("An unknown error occurred");
       }
@@ -244,9 +248,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center">
               <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
-              <DialogTitle className="text-lg font-semibold">
-                Reset Card
-              </DialogTitle>
+              <DialogTitle className="text-lg font-semibold">Reset Card</DialogTitle>
             </div>
             {boardInfo && boardInfo.type !== "unknown" && (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-full">
@@ -259,9 +261,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
             {boardLoading && (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full">
                 <Spinner />
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  Detecting...
-                </span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Detecting...</span>
               </div>
             )}
           </div>
@@ -269,37 +269,46 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
             Are you sure you want to reset the card?
           </DialogDescription>
         </DialogHeader>
-        <div
-          className={`mb-4 ${
-            theme === "dark" ? "text-gray-400" : "text-gray-500"
-          }`}
-        >
+        {boardInfo && boardInfo.type === "unknown" && (
+          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-md flex items-start">
+            <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 flex-shrink-0" />
+            <div>
+              <div className="font-bold mb-1">No Tenstorrent device detected</div>
+              <div className="text-sm">
+                Device <code>/dev/tenstorrent</code> not found. Please check your hardware
+                connection and ensure the device is properly installed.
+              </div>
+            </div>
+          </div>
+        )}
+        <div className={`mb-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
           <div className="border-l-4 border-red-600 pl-2">
             <div className="font-bold">
-              Warning! This action will stop all deployed models and might
-              interrupt ongoing processes.
+              Warning! This action will stop all deployed models and might interrupt ongoing
+              processes.
             </div>
             {resetHistory.length > 0 && (
               <div className="mt-2">
-                Note: This card was reset in the last 5 minutes. Frequent resets
-                may cause issues. Please wait before resetting again.
+                Note: This card was reset in the last 5 minutes. Frequent resets may cause issues.
+                Please wait before resetting again.
               </div>
             )}
           </div>
         </div>
         {errorMessage && (
-          <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
-            <div className="flex items-center">
-              <AlertTriangle className="h-5 w-5 text-red-700 mr-2" />
-              <span className="font-medium">Error:</span> {errorMessage}
+          <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-md">
+            <div className="flex items-start">
+              <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 flex-shrink-0" />
+              <div className="flex-1">
+                <div className="font-medium mb-2">Error:</div>
+                <pre className="whitespace-pre-wrap text-sm">{errorMessage}</pre>
+              </div>
             </div>
           </div>
         )}
         <Accordion type="single" collapsible className="mt-4">
           <AccordionItem value="history">
-            <AccordionTrigger className="text-md font-semibold">
-              Reset History
-            </AccordionTrigger>
+            <AccordionTrigger className="text-md font-semibold">Reset History</AccordionTrigger>
             <AccordionContent>
               <ul className="list-disc pl-5 mt-2 text-sm">
                 {resetHistory.length > 0 ? (
@@ -314,9 +323,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           </AccordionItem>
           {fullOutput && (
             <AccordionItem value="output">
-              <AccordionTrigger className="text-md font-semibold">
-                Command Output
-              </AccordionTrigger>
+              <AccordionTrigger className="text-md font-semibold">Command Output</AccordionTrigger>
               <AccordionContent>
                 <ScrollArea className="h-48 w-full overflow-auto rounded-md border">
                   <div

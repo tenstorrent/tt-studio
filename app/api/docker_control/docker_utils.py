@@ -320,7 +320,7 @@ def perform_reset():
             if return_code != 0:
                 return {
                     "status": "error",
-                    "message": f"tt-smi command failed with return code {return_code}.",
+                    "message": f"tt-smi command failed with return code {return_code}. Please check if tt-smi is properly installed.",
                     "output": "".join(output),
                     "http_status": 500,  # Internal Server Error
                 }
@@ -351,8 +351,14 @@ def perform_reset():
             if return_code != 0:
                 logger.info(f"Command failed with return code {return_code}")
                 output.append(f"Command failed with return code {return_code}")
+                error_message = "tt-smi reset failed. Please check if:\n"
+                error_message += "1. The Tenstorrent device is properly connected\n"
+                error_message += "2. You have the correct permissions to access the device\n"
+                error_message += "3. The tt-smi utility is properly installed\n"
+                error_message += "4. The device firmware is up to date"
                 return {
                     "status": "error",
+                    "message": error_message,
                     "output": "".join(output),
                     "http_status": 500,  # Internal Server Error
                 }
@@ -370,9 +376,13 @@ def perform_reset():
 
         # Step 2: Run the reset using the generated JSON
         reset_result = stream_command_output(["tt-smi", "-r", CONFIG_PATH])
+        if reset_result.get("status") == "error":
+            return reset_result
         return reset_result or {
             "status": "error",
+            "message": "tt-smi reset failed with no output. Please check device connection and try again.",
             "output": "No output from reset command",
+            "http_status": 500
         }
 
     except Exception as e:
