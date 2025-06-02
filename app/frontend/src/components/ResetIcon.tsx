@@ -186,7 +186,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
       await customToast.promise(resetBoardAsync(), {
         loading: "Resetting board...",
         success: "Board reset successfully!",
-        error: (err) => err.message || "Failed to reset board.",
+        error: "Failed to reset board.",
       });
 
       if (onReset) {
@@ -349,6 +349,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
             variant="outline"
             className="bg-red-600 text-white hover:bg-red-700"
             onClick={resetBoard}
+            disabled={!!(boardInfo && boardInfo.type === "unknown")}
           >
             Yes, Reset
           </Button>
