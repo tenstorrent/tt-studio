@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import { Button } from "./ui/button";
 import { StepperFormActions } from "./StepperFormActions";
 import { useStepper } from "./ui/stepper";
 import { useEffect, useState } from "react";
 import { Progress } from "./ui/progress";
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "./ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import StatusBadge from "./StatusBadge";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip";
@@ -44,7 +47,7 @@ interface PullProgress {
 
 export function DockerStepForm({
   selectedModel,
-  imageStatus,
+  // imageStatus,
   pullingImage,
   pullImage,
   removeDynamicSteps,
@@ -66,7 +69,7 @@ export function DockerStepForm({
 
           // Check if current selected model has an ongoing pull
           if (selectedModel && data.models[selectedModel]) {
-            const modelData = data.models[selectedModel];
+            // const modelData = data.models[selectedModel];
 
             // Check individual image status for pull progress
             try {
