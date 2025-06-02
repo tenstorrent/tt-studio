@@ -8,21 +8,8 @@ import axios from "axios";
 import { useEffect, useState } from "react";
 import { Bot, Cpu, CheckCircle, XCircle } from "lucide-react";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "./ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
 import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
@@ -92,6 +79,11 @@ export function FirstStepForm({
           setFormError(true);
           return;
         }
+        if (selectedModel.is_compatible === null) {
+          customToast.warning(
+            `Board detection failed - this model's compatibility is unknown. It may not work properly.`
+          );
+        }
         setSelectedModel(selectedModel.id);
         customToast.success("Model Selected!: " + selectedModel.name);
         setFormError(false);
@@ -107,12 +99,12 @@ export function FirstStepForm({
 
   // Get current board info and separate compatible/incompatible models
   const currentBoard = models[0]?.current_board || "unknown";
-  const compatibleModels = models.filter(
-    (model) => model.is_compatible === true
-  );
-  const incompatibleModels = models.filter(
-    (model) => model.is_compatible === false
-  );
+  const compatibleModels = models.filter((model) => model.is_compatible === true);
+  const incompatibleModels = models.filter((model) => model.is_compatible === false);
+  const unknownCompatibilityModels = models.filter((model) => model.is_compatible === null);
+
+  // If all models have unknown compatibility, show a warning
+  const allModelsUnknown = models.length > 0 && unknownCompatibilityModels.length === models.length;
 
   return (
     <Form {...form}>
@@ -151,14 +143,18 @@ export function FirstStepForm({
               >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        isLoading ? "Loading models..." : "Select a model"
-                      }
-                    />
+                    <SelectValue placeholder={isLoading ? "Loading models..." : "Select a model"} />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
+                  {/* Warning message when board detection failed */}
+                  {allModelsUnknown && (
+                    <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 mb-2">
+                      <XCircle className="w-3 h-3" />
+                      <span>Board detection failed - compatibility unknown</span>
+                    </div>
+                  )}
+
                   {/* Compatible Models Section */}
                   {compatibleModels.length > 0 && (
                     <>
@@ -198,9 +194,30 @@ export function FirstStepForm({
                           <div className="flex items-center w-full">
                             <span className="text-red-500 mr-2">●</span>
                             <span className="text-gray-500">{model.name}</span>
-                            <span className="ml-2 text-xs text-red-500">
-                              (Requires T3000)
-                            </span>
+                            <span className="ml-2 text-xs text-red-500">(Requires T3000)</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Unknown Compatibility Models Section */}
+                  {unknownCompatibilityModels.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 mt-1">
+                        <span className="text-yellow-500">?</span>
+                        <span>Unknown</span>
+                      </div>
+                      {unknownCompatibilityModels.map((model) => (
+                        <SelectItem
+                          key={model.id}
+                          value={model.name}
+                          className="pl-4 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                        >
+                          <div className="flex items-center w-full">
+                            <span className="text-yellow-500 mr-2">●</span>
+                            <span>{model.name}</span>
+                            <span className="ml-2 text-xs text-yellow-600">(Unknown)</span>
                           </div>
                         </SelectItem>
                       ))}
@@ -209,9 +226,7 @@ export function FirstStepForm({
 
                   {/* If no models loaded yet */}
                   {models.length === 0 && !isLoading && (
-                    <div className="px-2 py-4 text-center text-gray-500">
-                      No models available
-                    </div>
+                    <div className="px-2 py-4 text-center text-gray-500">No models available</div>
                   )}
                 </SelectContent>
               </Select>
@@ -221,8 +236,8 @@ export function FirstStepForm({
                 <div className="flex items-center gap-2 mt-2 text-sm text-gray-600 dark:text-gray-300">
                   <Bot className="w-4 h-4" />
                   <span>
-                    {compatibleModels.length} compatible,{" "}
-                    {incompatibleModels.length} incompatible models
+                    {compatibleModels.length} compatible, {incompatibleModels.length} incompatible,{" "}
+                    {unknownCompatibilityModels.length} unknown models
                   </span>
                 </div>
               )}
@@ -233,11 +248,7 @@ export function FirstStepForm({
             </FormItem>
           )}
         />
-        <StepperFormActions
-          form={form}
-          removeDynamicSteps={() => {}}
-          isSubmitting={isSubmitting}
-        />
+        <StepperFormActions form={form} removeDynamicSteps={() => {}} isSubmitting={isSubmitting} />
       </form>
     </Form>
   );
