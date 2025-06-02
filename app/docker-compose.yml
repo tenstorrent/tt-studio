@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 services:
   tt_studio_backend:
@@ -16,7 +16,7 @@ services:
     ports:
       - "8000:8000"
 
-    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 backend.wsgi:application
+    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
     depends_on:
       tt_studio_chroma:
         condition: service_healthy
@@ -77,9 +77,6 @@ services:
       - VITE_ENABLE_RAG_ADMIN
       - VITE_TEST_AUDIO_URL
       - VITE_TEST_AUDIO_AUTH
-    volumes:
-      #! for development mount api changes
-      - ./frontend:/frontend
     # command: sh
     command: bash -c "npm i && npm run dev"
 
