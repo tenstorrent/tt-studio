@@ -6,7 +6,19 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import axios from "axios";
 import { useEffect, useState } from "react";
-import { Bot, Cpu, CheckCircle, XCircle } from "lucide-react";
+import {
+  Bot,
+  Cpu,
+  CheckCircle,
+  XCircle,
+  MessageSquare,
+  Image,
+  Eye,
+  Mic,
+  Palette,
+  Camera,
+} from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
@@ -20,6 +32,45 @@ interface BoardInfo {
   type: string;
   name: string;
 }
+
+// Model type configuration with icons and labels
+const MODEL_TYPE_CONFIG = {
+  chat: {
+    label: "Chat & Language Models",
+    icon: MessageSquare,
+    color: "text-blue-500",
+    bgColor: "bg-blue-50 dark:bg-blue-900/20",
+    borderColor: "border-blue-200 dark:border-blue-800",
+  },
+  image_generation: {
+    label: "Image Generation",
+    icon: Palette,
+    color: "text-purple-500",
+    bgColor: "bg-purple-50 dark:bg-purple-900/20",
+    borderColor: "border-purple-200 dark:border-purple-800",
+  },
+  object_detection: {
+    label: "Object Detection",
+    icon: Eye,
+    color: "text-emerald-500",
+    bgColor: "bg-emerald-50 dark:bg-emerald-900/20",
+    borderColor: "border-emerald-200 dark:border-emerald-800",
+  },
+  speech_recognition: {
+    label: "Speech Recognition",
+    icon: Mic,
+    color: "text-orange-500",
+    bgColor: "bg-orange-50 dark:bg-orange-900/20",
+    borderColor: "border-orange-200 dark:border-orange-800",
+  },
+  mock: {
+    label: "Test Models",
+    icon: Bot,
+    color: "text-gray-500",
+    bgColor: "bg-gray-50 dark:bg-gray-900/20",
+    borderColor: "border-gray-200 dark:border-gray-800",
+  },
+};
 
 const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
@@ -97,14 +148,42 @@ export function FirstStepForm({
     }
   };
 
-  // Get current board info and separate compatible/incompatible models
+  // Get current board info and group models by type and compatibility
   const currentBoard = models[0]?.current_board || "unknown";
-  const compatibleModels = models.filter((model) => model.is_compatible === true);
-  const incompatibleModels = models.filter((model) => model.is_compatible === false);
-  const unknownCompatibilityModels = models.filter((model) => model.is_compatible === null);
 
-  // If all models have unknown compatibility, show a warning
-  const allModelsUnknown = models.length > 0 && unknownCompatibilityModels.length === models.length;
+  // Group models by type and compatibility
+  const groupModelsByType = () => {
+    const grouped: Record<
+      string,
+      {
+        compatible: Model[];
+        incompatible: Model[];
+        unknown: Model[];
+      }
+    > = {};
+
+    models.forEach((model) => {
+      const modelType = model.model_type || "unknown";
+
+      if (!grouped[modelType]) {
+        grouped[modelType] = { compatible: [], incompatible: [], unknown: [] };
+      }
+
+      if (model.is_compatible === true) {
+        grouped[modelType].compatible.push(model);
+      } else if (model.is_compatible === false) {
+        grouped[modelType].incompatible.push(model);
+      } else {
+        grouped[modelType].unknown.push(model);
+      }
+    });
+
+    return grouped;
+  };
+
+  const groupedModels = groupModelsByType();
+  const allModelsUnknown =
+    models.length > 0 && models.every((model) => model.is_compatible === null);
 
   return (
     <Form {...form}>
@@ -155,73 +234,82 @@ export function FirstStepForm({
                     </div>
                   )}
 
-                  {/* Compatible Models Section */}
-                  {compatibleModels.length > 0 && (
-                    <>
-                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20">
-                        <CheckCircle className="w-3 h-3" />
-                        <span>Compatible Models</span>
-                      </div>
-                      {compatibleModels.map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={model.name}
-                          className="pl-4 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                        >
-                          <div className="flex items-center w-full">
-                            <span className="text-green-500 mr-2">●</span>
-                            <span>{model.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
+                  {/* Render models grouped by type */}
+                  {Object.entries(groupedModels).map(
+                    ([modelType, modelsByCompatibility], typeIndex) => {
+                      const typeConfig =
+                        MODEL_TYPE_CONFIG[modelType as keyof typeof MODEL_TYPE_CONFIG];
+                      const hasModels =
+                        modelsByCompatibility.compatible.length +
+                          modelsByCompatibility.incompatible.length +
+                          modelsByCompatibility.unknown.length >
+                        0;
 
-                  {/* Incompatible Models Section */}
-                  {incompatibleModels.length > 0 && (
-                    <>
-                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 mt-1">
-                        <XCircle className="w-3 h-3" />
-                        <span>Incompatible Models</span>
-                      </div>
-                      {incompatibleModels.map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={model.name}
-                          disabled={true}
-                          className="pl-4 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                        >
-                          <div className="flex items-center w-full">
-                            <span className="text-red-500 mr-2">●</span>
-                            <span className="text-gray-500">{model.name}</span>
-                            <span className="ml-2 text-xs text-red-500">(Requires T3000)</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
+                      if (!hasModels) return null;
 
-                  {/* Unknown Compatibility Models Section */}
-                  {unknownCompatibilityModels.length > 0 && (
-                    <>
-                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 mt-1">
-                        <span className="text-yellow-500">?</span>
-                        <span>Unknown</span>
-                      </div>
-                      {unknownCompatibilityModels.map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={model.name}
-                          className="pl-4 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                        >
-                          <div className="flex items-center w-full">
-                            <span className="text-yellow-500 mr-2">●</span>
-                            <span>{model.name}</span>
-                            <span className="ml-2 text-xs text-yellow-600">(Unknown)</span>
+                      const IconComponent = typeConfig?.icon || Bot;
+
+                      return (
+                        <div key={modelType}>
+                          {/* Model Type Header */}
+                          {typeIndex > 0 && (
+                            <div className="h-px bg-gray-200 dark:bg-gray-700 my-2" />
+                          )}
+                          <div
+                            className={`flex items-center gap-2 px-2 py-2 text-xs font-semibold ${typeConfig?.color || "text-gray-600"} ${typeConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
+                          >
+                            <IconComponent className="w-4 h-4" />
+                            <span>{typeConfig?.label || modelType}</span>
                           </div>
-                        </SelectItem>
-                      ))}
-                    </>
+
+                          {/* Compatible Models */}
+                          {modelsByCompatibility.compatible.map((model) => (
+                            <SelectItem
+                              key={model.id}
+                              value={model.name}
+                              className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                            >
+                              <div className="flex items-center w-full">
+                                <span className="text-green-500 mr-2 text-xs">●</span>
+                                <span className="flex-1">{model.name}</span>
+                                <span className="text-xs text-green-600 ml-2">Compatible</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+
+                          {/* Incompatible Models */}
+                          {modelsByCompatibility.incompatible.map((model) => (
+                            <SelectItem
+                              key={model.id}
+                              value={model.name}
+                              disabled={true}
+                              className="pl-6 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                            >
+                              <div className="flex items-center w-full">
+                                <span className="text-red-500 mr-2 text-xs">●</span>
+                                <span className="text-gray-500 flex-1">{model.name}</span>
+                                <span className="text-xs text-red-500 ml-2">Incompatible</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+
+                          {/* Unknown Compatibility Models */}
+                          {modelsByCompatibility.unknown.map((model) => (
+                            <SelectItem
+                              key={model.id}
+                              value={model.name}
+                              className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                            >
+                              <div className="flex items-center w-full">
+                                <span className="text-yellow-500 mr-2 text-xs">●</span>
+                                <span className="flex-1">{model.name}</span>
+                                <span className="text-xs text-yellow-600 ml-2">Unknown</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </div>
+                      );
+                    }
                   )}
 
                   {/* If no models loaded yet */}
@@ -234,11 +322,52 @@ export function FirstStepForm({
               {/* Summary info */}
               {!isLoading && models.length > 0 && (
                 <div className="flex items-center gap-2 mt-2 text-sm text-gray-600 dark:text-gray-300">
-                  <Bot className="w-4 h-4" />
-                  <span>
-                    {compatibleModels.length} compatible, {incompatibleModels.length} incompatible,{" "}
-                    {unknownCompatibilityModels.length} unknown models
-                  </span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="flex items-center gap-2 cursor-help">
+                          <Cpu className="w-4 h-4" />
+                          <span>
+                            {(() => {
+                              const totalCompatible = Object.values(groupedModels).reduce(
+                                (acc, group) => acc + group.compatible.length,
+                                0
+                              );
+                              const totalIncompatible = Object.values(groupedModels).reduce(
+                                (acc, group) => acc + group.incompatible.length,
+                                0
+                              );
+                              const totalUnknown = Object.values(groupedModels).reduce(
+                                (acc, group) => acc + group.unknown.length,
+                                0
+                              );
+                              return `Board compatibility: ${totalCompatible} compatible, ${totalIncompatible} incompatible, ${totalUnknown} unknown`;
+                            })()}
+                          </span>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="bottom"
+                        align="start"
+                        sideOffset={4}
+                        className="max-w-sm text-xs text-left leading-relaxed"
+                      >
+                        <div className="font-semibold mb-1">Board Compatibility</div>
+                        <div>
+                          <span className="text-green-500 font-bold">Compatible</span>
+                          <span>: Model will run on your detected board.</span>
+                        </div>
+                        <div>
+                          <span className="text-red-500 font-bold">Incompatible</span>
+                          <span>: Model will not run on your board.</span>
+                        </div>
+                        <div>
+                          <span className="text-yellow-500 font-bold">Unknown</span>
+                          <span>: Board detection failed; compatibility cannot be determined.</span>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               )}
 
