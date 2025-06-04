@@ -14,6 +14,7 @@ const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {
   "app-api": "app",
   "collections-api": "collections",
   "logs-api": "logs",
+  "board-api": "board",
 };
 
 const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
