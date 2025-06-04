@@ -31,4 +31,5 @@ urlpatterns = [
     path("reset_board/", include("docker_control.urls")),
     path("collections/", include("vector_db_control.urls")),
     path("logs/", include("logs_control.urls")),
+    path("board/", include("board_control.urls")),
 ]

@@ -18,14 +18,33 @@ import {
   Palette,
   Camera,
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "./ui/form";
 import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
+import BoardBadge from "./BoardBadge";
 
 // Add board type interface
 interface BoardInfo {
@@ -203,12 +222,7 @@ export function FirstStepForm({
                 <div className="flex items-center gap-3 mb-4">
                   <span>Select Model</span>
                   {currentBoard !== "unknown" && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-full">
-                      <Cpu className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                      <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                        {currentBoard} Board
-                      </span>
-                    </div>
+                    <BoardBadge boardName={currentBoard} />
                   )}
                 </div>
               </FormLabel>
@@ -222,7 +236,11 @@ export function FirstStepForm({
               >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder={isLoading ? "Loading models..." : "Select a model"} />
+                    <SelectValue
+                      placeholder={
+                        isLoading ? "Loading models..." : "Select a model"
+                      }
+                    />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
@@ -230,7 +248,9 @@ export function FirstStepForm({
                   {allModelsUnknown && (
                     <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 mb-2">
                       <XCircle className="w-3 h-3" />
-                      <span>Board detection failed - compatibility unknown</span>
+                      <span>
+                        Board detection failed - compatibility unknown
+                      </span>
                     </div>
                   )}
 
@@ -238,7 +258,9 @@ export function FirstStepForm({
                   {Object.entries(groupedModels).map(
                     ([modelType, modelsByCompatibility], typeIndex) => {
                       const typeConfig =
-                        MODEL_TYPE_CONFIG[modelType as keyof typeof MODEL_TYPE_CONFIG];
+                        MODEL_TYPE_CONFIG[
+                          modelType as keyof typeof MODEL_TYPE_CONFIG
+                        ];
                       const hasModels =
                         modelsByCompatibility.compatible.length +
                           modelsByCompatibility.incompatible.length +
@@ -270,9 +292,13 @@ export function FirstStepForm({
                               className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
                             >
                               <div className="flex items-center w-full">
-                                <span className="text-green-500 mr-2 text-xs">●</span>
+                                <span className="text-green-500 mr-2 text-xs">
+                                  ●
+                                </span>
                                 <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-green-600 ml-2">Compatible</span>
+                                <span className="text-xs text-green-600 ml-2">
+                                  Compatible
+                                </span>
                               </div>
                             </SelectItem>
                           ))}
@@ -286,9 +312,15 @@ export function FirstStepForm({
                               className="pl-6 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
                             >
                               <div className="flex items-center w-full">
-                                <span className="text-red-500 mr-2 text-xs">●</span>
-                                <span className="text-gray-500 flex-1">{model.name}</span>
-                                <span className="text-xs text-red-500 ml-2">Incompatible</span>
+                                <span className="text-red-500 mr-2 text-xs">
+                                  ●
+                                </span>
+                                <span className="text-gray-500 flex-1">
+                                  {model.name}
+                                </span>
+                                <span className="text-xs text-red-500 ml-2">
+                                  Incompatible
+                                </span>
                               </div>
                             </SelectItem>
                           ))}
@@ -301,9 +333,13 @@ export function FirstStepForm({
                               className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
                             >
                               <div className="flex items-center w-full">
-                                <span className="text-yellow-500 mr-2 text-xs">●</span>
+                                <span className="text-yellow-500 mr-2 text-xs">
+                                  ●
+                                </span>
                                 <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-yellow-600 ml-2">Unknown</span>
+                                <span className="text-xs text-yellow-600 ml-2">
+                                  Unknown
+                                </span>
                               </div>
                             </SelectItem>
                           ))}
@@ -314,7 +350,9 @@ export function FirstStepForm({
 
                   {/* If no models loaded yet */}
                   {models.length === 0 && !isLoading && (
-                    <div className="px-2 py-4 text-center text-gray-500">No models available</div>
+                    <div className="px-2 py-4 text-center text-gray-500">
+                      No models available
+                    </div>
                   )}
                 </SelectContent>
               </Select>
@@ -329,15 +367,21 @@ export function FirstStepForm({
                           <Cpu className="w-4 h-4" />
                           <span>
                             {(() => {
-                              const totalCompatible = Object.values(groupedModels).reduce(
+                              const totalCompatible = Object.values(
+                                groupedModels
+                              ).reduce(
                                 (acc, group) => acc + group.compatible.length,
                                 0
                               );
-                              const totalIncompatible = Object.values(groupedModels).reduce(
+                              const totalIncompatible = Object.values(
+                                groupedModels
+                              ).reduce(
                                 (acc, group) => acc + group.incompatible.length,
                                 0
                               );
-                              const totalUnknown = Object.values(groupedModels).reduce(
+                              const totalUnknown = Object.values(
+                                groupedModels
+                              ).reduce(
                                 (acc, group) => acc + group.unknown.length,
                                 0
                               );
@@ -352,18 +396,29 @@ export function FirstStepForm({
                         sideOffset={4}
                         className="max-w-sm text-xs text-left leading-relaxed"
                       >
-                        <div className="font-semibold mb-1">Board Compatibility</div>
+                        <div className="font-semibold mb-1">
+                          Board Compatibility
+                        </div>
                         <div>
-                          <span className="text-green-500 font-bold">Compatible</span>
+                          <span className="text-green-500 font-bold">
+                            Compatible
+                          </span>
                           <span>: Model will run on your detected board.</span>
                         </div>
                         <div>
-                          <span className="text-red-500 font-bold">Incompatible</span>
+                          <span className="text-red-500 font-bold">
+                            Incompatible
+                          </span>
                           <span>: Model will not run on your board.</span>
                         </div>
                         <div>
-                          <span className="text-yellow-500 font-bold">Unknown</span>
-                          <span>: Board detection failed; compatibility cannot be determined.</span>
+                          <span className="text-yellow-500 font-bold">
+                            Unknown
+                          </span>
+                          <span>
+                            : Board detection failed; compatibility cannot be
+                            determined.
+                          </span>
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -377,7 +432,11 @@ export function FirstStepForm({
             </FormItem>
           )}
         />
-        <StepperFormActions form={form} removeDynamicSteps={() => {}} isSubmitting={isSubmitting} />
+        <StepperFormActions
+          form={form}
+          removeDynamicSteps={() => {}}
+          isSubmitting={isSubmitting}
+        />
       </form>
     </Form>
   );
