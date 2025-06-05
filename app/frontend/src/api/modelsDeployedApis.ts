@@ -5,8 +5,10 @@ import { customToast } from "../components/CustomToaster";
 import { NavigateFunction } from "react-router-dom";
 
 const dockerAPIURL = "/docker-api/";
+const modelAPIURL = "/models-api/";
 const statusURl = `${dockerAPIURL}status/`;
 const stopModelsURL = `${dockerAPIURL}stop/`;
+const deployedModelsURL = `${modelAPIURL}deployed/`;
 
 interface PortBinding {
   HostIp: string;
@@ -46,6 +48,18 @@ interface StopResponse {
   reset_response?: {
     status: string;
     output?: string;
+  };
+}
+
+interface DeployedModelInfo {
+  id: string;
+  modelName: string;
+  status: string;
+  internal_url?: string;
+  health_url?: string;
+  model_impl?: {
+    model_name?: string;
+    hf_model_id?: string;
   };
 }
 
@@ -262,6 +276,65 @@ export const checkDeployedModels = async (): Promise<boolean> => {
     console.log("Error fetching models:", error);
     console.error("Error checking deployed models:", error);
     return false;
+  }
+};
+
+/**
+ * Fetch deployed models from the models-api endpoint
+ * This provides more detailed information about deployed models than the docker status endpoint
+ */
+export const fetchDeployedModelsInfo = async (): Promise<DeployedModelInfo[]> => {
+  try {
+    const response = await fetch(deployedModelsURL);
+    if (!response.ok) {
+      if (response.status === 404) {
+        // No deployed models or endpoint not available
+        return [];
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Transform the deployed models data into our format
+    const modelsArray: DeployedModelInfo[] = Object.entries(data).map(([id, modelData]: [string, any]) => ({
+      id,
+      modelName: modelData.model_impl?.model_name || modelData.model_impl?.hf_model_id || "Unknown Model",
+      status: "deployed",
+      internal_url: modelData.internal_url,
+      health_url: modelData.health_url,
+      model_impl: modelData.model_impl,
+    }));
+
+    return modelsArray;
+  } catch (error) {
+    console.error("Failed to fetch deployed models info:", error);
+    return [];
+  }
+};
+
+/**
+ * Check if any models are currently deployed and return their count and names
+ */
+export const checkCurrentlyDeployedModels = async (): Promise<{
+  hasDeployedModels: boolean;
+  count: number;
+  modelNames: string[];
+}> => {
+  try {
+    const deployedModels = await fetchDeployedModelsInfo();
+    return {
+      hasDeployedModels: deployedModels.length > 0,
+      count: deployedModels.length,
+      modelNames: deployedModels.map(model => model.modelName),
+    };
+  } catch (error) {
+    console.error("Error checking currently deployed models:", error);
+    return {
+      hasDeployedModels: false,
+      count: 0,
+      modelNames: [],
+    };
   }
 };
 

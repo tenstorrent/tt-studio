@@ -5,6 +5,13 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../providers/ThemeProvider";
+import { useNavigate } from "react-router-dom";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 interface FooterProps {
   className?: string;
@@ -23,11 +30,20 @@ interface SystemStatus {
     power: number;
     voltage: number;
   }>;
+  hardware_status?: "healthy" | "error" | "unknown";
+  hardware_error?: string;
   error?: string;
+}
+
+interface DeployedModel {
+  id: string;
+  modelName: string;
+  status: string;
 }
 
 const Footer: React.FC<FooterProps> = ({ className }) => {
   const { theme } = useTheme();
+  const navigate = useNavigate();
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     cpuUsage: 0,
     memoryUsage: 0,
@@ -35,7 +51,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     boardName: "Loading...",
     temperature: 0,
     devices: [],
+    hardware_status: "unknown",
   });
+  const [deployedModels, setDeployedModels] = useState<DeployedModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +79,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
       // Keep previous data or use fallback
       setSystemStatus((prev) => ({
         ...prev,
-        boardName: "Error",
+        boardName: prev.hardware_status === "error" ? prev.boardName : "Error",
+        hardware_status: prev.hardware_status === "error" ? "error" : "unknown",
         error: err instanceof Error ? err.message : "Unknown error",
       }));
     } finally {
@@ -69,12 +88,50 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     }
   };
 
+  // Fetch deployed models from API
+  const fetchDeployedModels = async () => {
+    try {
+      const response = await fetch("/models-api/deployed/");
+      if (!response.ok) {
+        if (response.status === 404) {
+          // No deployed models or endpoint not available
+          setDeployedModels([]);
+          return;
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Transform the deployed models data into our format
+      const modelsArray: DeployedModel[] = Object.entries(data).map(
+        ([id, modelData]: [string, any]) => ({
+          id,
+          modelName:
+            modelData.model_impl?.model_name ||
+            modelData.model_impl?.hf_model_id ||
+            "Unknown Model",
+          status: "deployed", // All models from this endpoint are deployed
+        })
+      );
+
+      setDeployedModels(modelsArray);
+    } catch (err) {
+      console.error("Failed to fetch deployed models:", err);
+      setDeployedModels([]);
+    }
+  };
+
   useEffect(() => {
     // Initial fetch
     fetchSystemStatus();
+    fetchDeployedModels();
 
     // Set up polling every 5 seconds
-    const interval = setInterval(fetchSystemStatus, 5000);
+    const interval = setInterval(() => {
+      fetchSystemStatus();
+      fetchDeployedModels();
+    }, 5000);
 
     // Cleanup interval on unmount
     return () => clearInterval(interval);
@@ -84,6 +141,22 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const borderColor = theme === "dark" ? "border-zinc-700" : "border-gray-200";
   const bgColor = theme === "dark" ? "bg-zinc-900/95" : "bg-white/95";
   const mutedTextColor = theme === "dark" ? "text-zinc-400" : "text-gray-500";
+
+  // Handle click on deployed models section
+  const handleDeployedModelsClick = () => {
+    navigate("/models-deployed");
+  };
+
+  // Create deployed models display text
+  const getDeployedModelsText = () => {
+    if (deployedModels.length === 0) {
+      return "No models deployed";
+    } else if (deployedModels.length === 1) {
+      return `${deployedModels[0].modelName}`;
+    } else {
+      return `${deployedModels.length} models deployed`;
+    }
+  };
 
   // Show loading state
   if (loading) {
@@ -123,16 +196,55 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
         <div className="flex items-center space-x-3">
           <span className={`text-sm ${textColor}`}>TT Studio 1.5.0</span>
           <Badge
-            variant={error ? "destructive" : "default"}
+            variant={
+              systemStatus.hardware_status === "error"
+                ? "destructive"
+                : error
+                  ? "destructive"
+                  : "default"
+            }
             className="text-xs"
+            title={systemStatus.hardware_error || error || "Hardware status"}
           >
             {systemStatus.boardName}
+            {systemStatus.hardware_status === "error" && " ⚠️"}
           </Badge>
-          {error && (
-            <span className={`text-xs text-red-500`} title={error}>
+          {(error || systemStatus.hardware_error) && (
+            <span
+              className={`text-xs text-red-500`}
+              title={systemStatus.hardware_error || error || "System error"}
+            >
               ⚠️
             </span>
           )}
+
+          {/* Deployed Models Section */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="inline-block">
+                  <Badge
+                    variant={deployedModels.length > 0 ? "default" : "outline"}
+                    className={`text-xs cursor-pointer transition-colors hover:bg-opacity-80 ${
+                      deployedModels.length > 0
+                        ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-100 dark:hover:bg-green-800"
+                        : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    }`}
+                    onClick={handleDeployedModelsClick}
+                  >
+                    📟 {getDeployedModelsText()}
+                  </Badge>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  {deployedModels.length > 0
+                    ? `Click to view ${deployedModels.length} deployed model${deployedModels.length > 1 ? "s" : ""}${deployedModels.length === 1 ? `: ${deployedModels[0].modelName}` : ""}`
+                    : "Click to view deployed models page"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
 
         {/* Right Section - System Resources & Controls */}
@@ -143,14 +255,23 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
           <span className={`text-sm ${textColor}`}>
             RAM: {systemStatus.memoryUsage.toFixed(1)}% (
             {systemStatus.memoryTotal}) | CPU:{" "}
-            {systemStatus.cpuUsage.toFixed(2)}% | TEMP:{" "}
-            {systemStatus.temperature.toFixed(1)}°C
+            {systemStatus.cpuUsage.toFixed(2)}%
+            {systemStatus.hardware_status === "healthy" && (
+              <> | TEMP: {systemStatus.temperature.toFixed(1)}°C</>
+            )}
+            {systemStatus.hardware_status === "error" && (
+              <> | TT HARDWARE: UNAVAILABLE</>
+            )}
+            {systemStatus.hardware_status === "unknown" && (
+              <> | TT HARDWARE: CHECKING...</>
+            )}
           </span>
-          {systemStatus.devices.length > 1 && (
-            <span className={`text-xs ${mutedTextColor}`}>
-              ({systemStatus.devices.length} devices)
-            </span>
-          )}
+          {systemStatus.devices.length > 1 &&
+            systemStatus.hardware_status === "healthy" && (
+              <span className={`text-xs ${mutedTextColor}`}>
+                ({systemStatus.devices.length} devices)
+              </span>
+            )}
         </div>
       </div>
     </motion.footer>

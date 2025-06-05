@@ -45,6 +45,8 @@ import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
+import { DeployedModelsWarning } from "./DeployedModelsWarning";
+import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
 
 // Add board type interface
 interface BoardInfo {
@@ -106,6 +108,40 @@ export function FirstStepForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deployedInfo, setDeployedInfo] = useState<{
+    hasDeployedModels: boolean;
+    count: number;
+    modelNames: string[];
+  }>({
+    hasDeployedModels: false,
+    count: 0,
+    modelNames: [],
+  });
+  const [checkingDeployed, setCheckingDeployed] = useState(true);
+
+  // Check for deployed models immediately when component loads
+  useEffect(() => {
+    const checkDeployedModels = async () => {
+      try {
+        setCheckingDeployed(true);
+        const info = await checkCurrentlyDeployedModels();
+        setDeployedInfo(info);
+
+        // Show immediate toast notification if models are deployed
+        if (info.hasDeployedModels) {
+          customToast.warning(
+            `${info.count} model${info.count > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`
+          );
+        }
+      } catch (error) {
+        console.error("Error checking deployed models:", error);
+      } finally {
+        setCheckingDeployed(false);
+      }
+    };
+
+    checkDeployedModels();
+  }, []);
 
   // Fetch models with compatibility information
   useEffect(() => {
@@ -154,6 +190,14 @@ export function FirstStepForm({
             `Board detection failed - this model's compatibility is unknown. It may not work properly.`
           );
         }
+
+        // Extra warning if models are deployed
+        if (deployedInfo.hasDeployedModels) {
+          customToast.warning(
+            `Warning: ${deployedInfo.count} model${deployedInfo.count > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedInfo.count > 1 ? "them" : "it"} before deploying this model.`
+          );
+        }
+
         setSelectedModel(selectedModel.id);
         customToast.success("Model Selected!: " + selectedModel.name);
         setFormError(false);
@@ -213,6 +257,20 @@ export function FirstStepForm({
         }}
         className="space-y-10"
       >
+        {/* Always show deployed models warning prominently */}
+        {checkingDeployed ? (
+          <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800 rounded-md p-4 mb-6">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                Checking for deployed models...
+              </span>
+            </div>
+          </div>
+        ) : (
+          <DeployedModelsWarning className="mb-6" />
+        )}
+
         <FormField
           control={form.control}
           name="model"
@@ -223,6 +281,13 @@ export function FirstStepForm({
                   <span>Select Model</span>
                   {currentBoard !== "unknown" && (
                     <BoardBadge boardName={currentBoard} />
+                  )}
+                  {/* Show inline warning if models are deployed */}
+                  {deployedInfo.hasDeployedModels && (
+                    <span className="bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200 text-xs px-2 py-1 rounded-md font-normal">
+                      ⚠️ {deployedInfo.count} model
+                      {deployedInfo.count > 1 ? "s" : ""} deployed
+                    </span>
                   )}
                 </div>
               </FormLabel>
@@ -358,37 +423,51 @@ export function FirstStepForm({
               </Select>
 
               {/* Summary info */}
-              {!isLoading && models.length > 0 && (
-                <div className="flex items-center gap-2 mt-2 text-sm text-gray-600 dark:text-gray-300">
+              {models.length > 0 && !isLoading && (
+                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900/20 rounded-lg">
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="flex items-center gap-2 cursor-help">
-                          <Cpu className="w-4 h-4" />
-                          <span>
-                            {(() => {
-                              const totalCompatible = Object.values(
-                                groupedModels
-                              ).reduce(
-                                (acc, group) => acc + group.compatible.length,
-                                0
-                              );
-                              const totalIncompatible = Object.values(
-                                groupedModels
-                              ).reduce(
-                                (acc, group) => acc + group.incompatible.length,
-                                0
-                              );
-                              const totalUnknown = Object.values(
-                                groupedModels
-                              ).reduce(
-                                (acc, group) => acc + group.unknown.length,
-                                0
-                              );
-                              return `Board compatibility: ${totalCompatible} compatible, ${totalIncompatible} incompatible, ${totalUnknown} unknown`;
-                            })()}
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600 dark:text-gray-300">
+                            Board compatibility:
                           </span>
-                        </span>
+                          <div className="flex items-center gap-4">
+                            <span className="flex items-center gap-1">
+                              <span className="text-green-500 text-xs">●</span>
+                              <span className="text-gray-700 dark:text-gray-200">
+                                {
+                                  models.filter(
+                                    (model) => model.is_compatible === true
+                                  ).length
+                                }{" "}
+                                compatible
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="text-red-500 text-xs">●</span>
+                              <span className="text-gray-700 dark:text-gray-200">
+                                {
+                                  models.filter(
+                                    (model) => model.is_compatible === false
+                                  ).length
+                                }{" "}
+                                incompatible
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="text-yellow-500 text-xs">●</span>
+                              <span className="text-gray-700 dark:text-gray-200">
+                                {
+                                  models.filter(
+                                    (model) => model.is_compatible === null
+                                  ).length
+                                }{" "}
+                                unknown
+                              </span>
+                            </span>
+                          </div>
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent
                         side="bottom"

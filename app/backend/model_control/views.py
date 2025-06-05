@@ -177,6 +177,11 @@ class DeployedModelsView(APIView):
             v["model_impl"]["device_configurations"] = [
                 e.name for e in v["model_impl"]["device_configurations"]
             ]
+            # Convert enum values to their string representations for JSON serialization
+            if hasattr(v["model_impl"]["model_type"], 'value'):
+                v["model_impl"]["model_type"] = v["model_impl"]["model_type"].value
+            if hasattr(v["model_impl"]["setup_type"], 'value'):
+                v["model_impl"]["setup_type"] = v["model_impl"]["setup_type"].value
             # for security reasons remove variables
             del v["model_impl"]["docker_config"]
             del v["env_vars"]
