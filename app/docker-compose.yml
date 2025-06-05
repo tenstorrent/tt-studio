@@ -43,6 +43,8 @@ services:
       - CLOUD_STABLE_DIFFUSION_AUTH_TOKEN
       - CLOUD_SPEECH_RECOGNITION_URL
       - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
+      - GITHUB_USERNAME
+      - GITHUB_PAT
 
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds

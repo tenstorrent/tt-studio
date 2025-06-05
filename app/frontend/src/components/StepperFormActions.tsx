@@ -18,11 +18,13 @@ export function StepperFormActions<
   removeDynamicSteps,
   isSubmitting,
   onPrevStep,
+  disableNext,
 }: {
   form?: UseFormReturn<TFieldValues, TContext>;
   removeDynamicSteps: () => void;
   isSubmitting?: boolean;
   onPrevStep?: () => void;
+  disableNext?: boolean;
 }) {
   const {
     prevStep,
@@ -69,7 +71,7 @@ export function StepperFormActions<
             <Button
               size="sm"
               type={form ? "submit" : "button"}
-              disabled={isSubmitting}
+              disabled={isSubmitting || disableNext}
               onClick={!form ? nextStep : undefined}
             >
               {isOptionalStep ? "Skip" : "Next"}

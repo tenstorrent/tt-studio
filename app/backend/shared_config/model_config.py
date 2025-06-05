@@ -266,6 +266,7 @@ model_implmentations_list = [
         model_type=ModelTypes.IMAGE_GENERATION,
     ),
 
+
     # Object Detection
     ModelImpl(
         model_name="YOLOv4",

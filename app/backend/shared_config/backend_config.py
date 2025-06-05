@@ -18,6 +18,8 @@ class BackendConfig:
     weights_dir: str
     model_container_cache_root: str
     jwt_secret: str
+    github_username: str = os.environ.get("GITHUB_USERNAME", "")
+    github_pat: str = os.environ.get("GITHUB_PAT", "")
 
 
 # environment variables are ideally terminated on import to fail-fast and provide obvious
@@ -35,6 +37,8 @@ backend_config = BackendConfig(
     weights_dir="model_weights",
     model_container_cache_root="/home/container_app_user/cache_root",
     jwt_secret=os.environ["JWT_SECRET"],
+    github_username=os.environ.get("GITHUB_USERNAME", ""),
+    github_pat=os.environ.get("GITHUB_PAT", ""),
 )
 
 # make backend volume if not existing
