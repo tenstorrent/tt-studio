@@ -34,7 +34,7 @@ RUN git clone https://github.com/tenstorrent/tt-smi /tmp/tt-smi && \
   cd /tmp/tt-smi && \
   pip3 install .
 
-WORKDIR /api
-COPY ./requirements.txt /api
+WORKDIR /backend
+COPY ./requirements.txt /backend
 RUN pip3 install -r requirements.txt --no-cache-dir
-COPY . /api
+COPY . /backend

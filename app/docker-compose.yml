@@ -1,28 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 services:
   tt_studio_backend:
     container_name: tt_studio_backend_api
     # hostnames must not contain underscores
     hostname: tt-studio-backend-api
-    image: ghcr.io/tenstorrent/tt-studio/api:v0.0.0
-    build: ./api
-    #* DEV: Uncomment devices to use Tenstorrent hardware
-    #! devices:
-    #* mounts all tenstorrent devices to backend container
-    #!   - /dev/tenstorrent:/dev/tenstorrent
+    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
+    build: ./backend
 
     # note that `network_mode: host` does not work on mac OS
     networks:
       - tt_studio_network
     ports:
       - "8000:8000"
-    # command: bash
-    # dev server can be used for breakpoint debugging, does not support streaming
-    # command: python ./manage.py runserver 0.0.0.0:8000
-    # gunicorn is used from production, supports streaming
 
     command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
     depends_on:
@@ -56,8 +48,7 @@ services:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
-      # for development mount api changes
-      # - ./api:/api
+
 
     healthcheck:
       # On first application load resources for transformers/etc
@@ -86,9 +77,6 @@ services:
       - VITE_ENABLE_RAG_ADMIN
       - VITE_TEST_AUDIO_URL
       - VITE_TEST_AUDIO_AUTH
-    volumes:
-      #! for development mount api changes
-      - ./frontend:/frontend
     # command: sh
     command: bash -c "npm i && npm run dev"
 

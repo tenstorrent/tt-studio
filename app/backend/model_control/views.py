@@ -9,13 +9,33 @@ import requests
 from PIL import Image
 import io
 import time
+import docker
+from docker.errors import NotFound
 
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.http import StreamingHttpResponse
 from django.http import HttpResponse
+from rest_framework.renderers import JSONRenderer
+from rest_framework.parsers import JSONParser
+from rest_framework.negotiation import DefaultContentNegotiation
+from django.views import View
 
+# Add this renderer class for SSE support
+class PlainTextRenderer(JSONRenderer):
+    media_type = 'text/plain'
+    format = 'txt'
+
+class EventStreamRenderer(JSONRenderer):
+    media_type = 'text/event-stream'
+    format = 'txt'
+
+# Add this negotiation class to bypass content type checks
+class IgnoreClientContentNegotiation(DefaultContentNegotiation):
+    def select_renderer(self, request, renderers, format_suffix):
+        # Force the first renderer without checking Accept headers
+        return (renderers[0], renderers[0].media_type)
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from model_control.model_utils import (
@@ -111,16 +131,37 @@ class ModelHealthView(APIView):
         if serializer.is_valid():
             deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
-            health_url = "http://" + deploy["health_url"]
-            logger.info(f"health_url:= {health_url}")
-            check_passed, health_content = health_check(health_url, json_data=None)
-            if check_passed:
-                ret_status = status.HTTP_200_OK
-                content = {"message": "Healthy", "details": health_content}
-            else:
-                ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
-                content = {"message": "Unavaliable", "details": health_content}
-            return Response(content, status=ret_status)
+            
+            # Try all available health URLs
+            health_urls = deploy.get("health_urls", [deploy["health_url"]])
+            last_error = None
+            
+            for health_url in health_urls:
+                # Rewrite localhost/127.0.0.1 to container name if available
+                if deploy.get("container_name") and ("localhost" in health_url or "127.0.0.1" in health_url):
+                    # Extract port and path from original URL
+                    parts = health_url.split(":", 1)
+                    if len(parts) == 2:
+                        port_and_path = parts[1]
+                        # Use container name instead of localhost
+                        full_url = f"http://{deploy['container_name']}:{port_and_path}"
+                    else:
+                        full_url = f"http://{deploy['container_name']}{health_url}"
+                else:
+                    full_url = "http://" + health_url
+                
+                logger.info(f"Trying health_url:= {full_url}")
+                # Pass the encoded JWT token
+                check_passed, health_content = health_check(full_url, json_data=encoded_jwt)
+                if check_passed:
+                    return Response({"message": "Healthy", "details": health_content}, status=status.HTTP_200_OK)
+                last_error = health_content
+            
+            # If we get here, all URLs failed
+            return Response(
+                {"message": "Unavailable", "details": last_error}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -528,3 +569,57 @@ class SpeechRecognitionInferenceCloudView(APIView):
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+class ContainerLogsView(View):
+    def get(self, request, container_id, *args, **kwargs):
+        """Stream logs from a Docker container using Server-Sent Events"""
+        logger.info(f"ContainerLogsView received request for container_id: {container_id}")
+        
+        try:
+            logger.info("Initializing Docker client")
+            client = docker.from_env()
+            
+            logger.info(f"Attempting to get container: {container_id}")
+            container = client.containers.get(container_id)
+            logger.info(f"Found container: {container.name} (ID: {container.id})")
+            
+            def generate_logs():
+                try:
+                    # Set SSE headers in initial response
+                    yield "retry: 1000\n\n"  # Reconnection time in ms
+                    
+                    # Stream logs in real-time
+                    for log in container.logs(stream=True, follow=True, tail=100):
+                        log_line = log.decode('utf-8').strip()
+                        if log_line:  # Only send non-empty lines
+                            yield f"data: {log_line}\n\n"
+                except Exception as e:
+                    logger.error(f"Error in log stream: {str(e)}")
+                    yield f"data: Error streaming logs: {str(e)}\n\n"
+            
+            response = StreamingHttpResponse(
+                generate_logs(),
+                content_type='text/event-stream'
+            )
+            
+            # Set required headers for SSE
+            response['Cache-Control'] = 'no-cache, no-transform'
+            response['X-Accel-Buffering'] = 'no'
+            response['Connection'] = 'keep-alive'
+            
+            return response
+            
+        except NotFound:
+            logger.error(f"Container not found: {container_id}")
+            return HttpResponse(
+                status=404,
+                content=f"Container {container_id} not found"
+            )
+        except Exception as e:
+            logger.error(f"Error streaming container logs: {str(e)}")
+            return HttpResponse(
+                status=500,
+                content=str(e)
+            )
+
+

@@ -314,11 +314,14 @@ model_implmentations_list = [
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-1B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
-        image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
         docker_config=base_docker_config(),
+        shm_size="32G",
+        service_port=7000,
         service_route="/v1/chat/completions",
+        health_route="/health",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
     ),
