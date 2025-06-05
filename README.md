@@ -88,7 +88,7 @@ Developers can control and run the app directly via `docker compose`, keeping th
    ./startup.sh
    ```
 
-   When prompted to whether run the app in development mode, say yes.
+   When prompted whether to run the app in development mode, say yes. In development mode, the frontend and backend code will be mounted inside the container. As a result, any changes done in code will be reflected inside the container as well.
 
    ```bash
    Do you want to run in development mode? (y/n): y
@@ -97,8 +97,8 @@ Developers can control and run the app directly via `docker compose`, keeping th
 2. **Hot Reload & Debugging**:
 
    #### Frontend
-   - The frontend supports hot reloading when running inside the `docker compose` environment.
-   - Ensure that the required lines (**81-83**) in `docker-compose.yml` are uncommented.
+   - Local files in `./frontend` are mounted to `/frontend` within the container for development.
+   - Code changes trigger an automatic rebuild and redeployment of the frontend.
 
    #### Backend
    - Local files in `./backend` are mounted to `/backend` within the container for development.
@@ -112,9 +112,13 @@ Developers can control and run the app directly via `docker compose`, keeping th
 3. **Stopping the Services**:
 
    To shut down the application and remove running containers:
-
    ```bash
    ./startup.sh --cleanup
+   ```
+
+   If some containers are still running, stop them using:
+   ```bash
+   docker compose down
    ```
 
 4. **Using the Mock vLLM Model**:

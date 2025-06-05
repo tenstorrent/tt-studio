@@ -43,6 +43,7 @@ Run the backend and frontend server interactively: \
 ```bash
 docker compose -f <TT_STUDIO_ROOT>/app/docker-compose.yml -f <TT_STUDIO_ROOT>/app/docker-compose.dev-mode.yml up
 ```
+**Note:** Here, `TT_STUDIO_ROOT` is the root directory of `tt_studio`
 
 If running on TT hardware
 ```bash
