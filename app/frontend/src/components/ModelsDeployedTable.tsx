@@ -280,6 +280,7 @@ function LogsDialog({
   const eventsRef = useRef<HTMLDivElement>(null);
   const metricsRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
 
   // Helper to get the current ref based on tab
   const getCurrentRef = () => {
@@ -300,8 +301,10 @@ function LogsDialog({
     }
   };
 
-  // Auto-scroll to bottom when new data arrives (unless user scrolled up)
+  // Auto-scroll to bottom when new data arrives (only if auto-scroll is enabled)
   useEffect(() => {
+    if (!autoScrollEnabled) return;
+
     const ref = getCurrentRef();
     if (ref.current) {
       const isAtBottom =
@@ -309,12 +312,12 @@ function LogsDialog({
           ref.current.scrollTop -
           ref.current.clientHeight <
         50; // Increased threshold for more responsive auto-scroll
-      if (isAtBottom) {
+      if (isAtBottom || logs.length === 1 || events.length === 1) {
         setTimeout(() => scrollToBottom(), 100); // Small delay for smoother scrolling
       }
     }
     // eslint-disable-next-line
-  }, [logs, events, metrics, activeTab]);
+  }, [logs, events, metrics, activeTab, autoScrollEnabled]);
 
   // Show/hide scroll button based on scroll position
   const handleScroll = () => {
@@ -550,10 +553,30 @@ function LogsDialog({
               ) : (
                 events.map((event, index) => {
                   const parsed = parseAnsiColors(event);
+                  const isError =
+                    parsed.level &&
+                    ["ERROR", "FATAL", "CRITICAL"].includes(parsed.level);
+                  const isWarning =
+                    parsed.level && ["WARN", "WARNING"].includes(parsed.level);
+                  const isInfo =
+                    parsed.level && ["INFO"].includes(parsed.level);
+                  const isStartupEvent =
+                    event.includes("startup complete") ||
+                    event.includes("Uvicorn running") ||
+                    event.includes("Started server process");
+
                   return (
                     <div
                       key={index}
-                      className="whitespace-pre-wrap leading-relaxed py-0.5 hover:bg-gray-900 hover:bg-opacity-30 transition-colors duration-150 group"
+                      className={`whitespace-pre-wrap leading-relaxed py-1 px-2 rounded hover:bg-gray-900 hover:bg-opacity-50 transition-colors duration-150 group mb-1 border-l-4 ${
+                        isError
+                          ? "border-red-500 bg-red-900 bg-opacity-20"
+                          : isWarning
+                            ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
+                            : isInfo || isStartupEvent
+                              ? "border-green-500 bg-green-900 bg-opacity-20"
+                              : "border-blue-500 bg-blue-900 bg-opacity-20"
+                      }`}
                       style={{
                         wordWrap: "break-word",
                         overflowWrap: "break-word",
@@ -561,31 +584,74 @@ function LogsDialog({
                           'Consolas, "Courier New", "Monaco", monospace',
                       }}
                     >
-                      <span className="text-gray-500 text-xs mr-2 select-none">
-                        {String(index + 1).padStart(3, "0")}
-                      </span>
-                      {parsed.level && (
-                        <span
-                          className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
-                        >
-                          [{parsed.level}]
+                      <div className="flex items-start gap-2">
+                        <span className="text-gray-500 text-xs mr-1 select-none flex-shrink-0">
+                          {String(index + 1).padStart(3, "0")}
                         </span>
-                      )}
-                      <span className="terminal-content">
-                        {parsed.segments.map((segment, segIndex) => (
-                          <span
-                            key={segIndex}
-                            style={{
-                              color: segment.color || "#8BE9FD",
-                              backgroundColor: segment.backgroundColor,
-                              fontWeight: segment.bold ? "bold" : "normal",
-                              fontStyle: segment.italic ? "italic" : "normal",
-                            }}
-                          >
-                            {segment.text}
+
+                        {/* Event severity icon */}
+                        <span className="flex-shrink-0 mt-0.5">
+                          {isError && (
+                            <span className="text-red-400 text-xs">🔴</span>
+                          )}
+                          {isWarning && (
+                            <span className="text-yellow-400 text-xs">🟡</span>
+                          )}
+                          {(isInfo || isStartupEvent) && (
+                            <span className="text-green-400 text-xs">🟢</span>
+                          )}
+                          {!isError &&
+                            !isWarning &&
+                            !isInfo &&
+                            !isStartupEvent && (
+                              <span className="text-blue-400 text-xs">🔵</span>
+                            )}
+                        </span>
+
+                        <div className="flex-1">
+                          {parsed.level && (
+                            <span
+                              className={`text-xs font-bold mr-2 px-1 py-0.5 rounded ${
+                                isError
+                                  ? "bg-red-500 text-white"
+                                  : isWarning
+                                    ? "bg-yellow-500 text-black"
+                                    : isInfo || isStartupEvent
+                                      ? "bg-green-500 text-white"
+                                      : "bg-blue-500 text-white"
+                              }`}
+                            >
+                              {parsed.level}
+                            </span>
+                          )}
+
+                          <span className="terminal-content">
+                            {parsed.segments.map((segment, segIndex) => (
+                              <span
+                                key={segIndex}
+                                style={{
+                                  color:
+                                    segment.color ||
+                                    (isError
+                                      ? "#FF6B6B"
+                                      : isWarning
+                                        ? "#FFD93D"
+                                        : isInfo || isStartupEvent
+                                          ? "#50FA7B"
+                                          : "#8BE9FD"),
+                                  backgroundColor: segment.backgroundColor,
+                                  fontWeight: segment.bold ? "bold" : "normal",
+                                  fontStyle: segment.italic
+                                    ? "italic"
+                                    : "normal",
+                                }}
+                              >
+                                {segment.text}
+                              </span>
+                            ))}
                           </span>
-                        ))}
-                      </span>
+                        </div>
+                      </div>
                     </div>
                   );
                 })
@@ -634,15 +700,42 @@ function LogsDialog({
             </div>
           </TabsContent>
         </Tabs>
-        {/* Always visible scroll to bottom button, outside scrollable area */}
-        <button
-          onClick={scrollToBottom}
-          className="fixed md:absolute right-6 bottom-6 z-50 bg-green-600 hover:bg-green-500 text-white p-3 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-110 border-2 border-green-400"
-          title="Scroll to bottom (Auto-scroll enabled)"
-          style={{ pointerEvents: "auto" }}
-        >
-          <ChevronDown size={20} className="animate-bounce" />
-        </button>
+        {/* Scroll controls */}
+        <div className="fixed md:absolute right-6 bottom-6 z-50 flex flex-col gap-2">
+          {/* Auto-scroll toggle button */}
+          <button
+            onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
+            className={`p-3 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-110 border-2 ${
+              autoScrollEnabled
+                ? "bg-green-600 hover:bg-green-500 border-green-400 text-white"
+                : "bg-gray-600 hover:bg-gray-500 border-gray-400 text-white"
+            }`}
+            title={
+              autoScrollEnabled
+                ? "Auto-scroll ON (click to disable)"
+                : "Auto-scroll OFF (click to enable)"
+            }
+            style={{ pointerEvents: "auto" }}
+          >
+            {autoScrollEnabled ? (
+              <ChevronDown size={20} className="animate-bounce" />
+            ) : (
+              <ChevronDown size={20} />
+            )}
+          </button>
+
+          {/* Manual scroll to bottom button (only show when auto-scroll is disabled) */}
+          {!autoScrollEnabled && (
+            <button
+              onClick={scrollToBottom}
+              className="p-3 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-110 border-2 bg-blue-600 hover:bg-blue-500 border-blue-400 text-white"
+              title="Scroll to bottom"
+              style={{ pointerEvents: "auto" }}
+            >
+              <ChevronDown size={20} />
+            </button>
+          )}
+        </div>
       </div>
     );
   };

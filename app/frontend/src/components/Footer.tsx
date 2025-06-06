@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../providers/ThemeProvider";
 import { useNavigate } from "react-router-dom";
+import { useModels } from "../providers/ModelsContext";
 import {
   Tooltip,
   TooltipContent,
@@ -44,6 +45,7 @@ interface DeployedModel {
 const Footer: React.FC<FooterProps> = ({ className }) => {
   const { theme } = useTheme();
   const navigate = useNavigate();
+  const { models } = useModels(); // Use models from context
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     cpuUsage: 0,
     memoryUsage: 0,
@@ -53,7 +55,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     devices: [],
     hardware_status: "unknown",
   });
-  const [deployedModels, setDeployedModels] = useState<DeployedModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,49 +89,13 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     }
   };
 
-  // Fetch deployed models from API
-  const fetchDeployedModels = async () => {
-    try {
-      const response = await fetch("/models-api/deployed/");
-      if (!response.ok) {
-        if (response.status === 404) {
-          // No deployed models or endpoint not available
-          setDeployedModels([]);
-          return;
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // Transform the deployed models data into our format
-      const modelsArray: DeployedModel[] = Object.entries(data).map(
-        ([id, modelData]: [string, any]) => ({
-          id,
-          modelName:
-            modelData.model_impl?.model_name ||
-            modelData.model_impl?.hf_model_id ||
-            "Unknown Model",
-          status: "deployed", // All models from this endpoint are deployed
-        })
-      );
-
-      setDeployedModels(modelsArray);
-    } catch (err) {
-      console.error("Failed to fetch deployed models:", err);
-      setDeployedModels([]);
-    }
-  };
-
   useEffect(() => {
     // Initial fetch
     fetchSystemStatus();
-    fetchDeployedModels();
 
-    // Set up polling every 5 seconds
+    // Set up polling every 5 seconds for system status only
     const interval = setInterval(() => {
       fetchSystemStatus();
-      fetchDeployedModels();
     }, 5000);
 
     // Cleanup interval on unmount
@@ -147,14 +112,14 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     navigate("/models-deployed");
   };
 
-  // Create deployed models display text
+  // Create deployed models display text using models from context
   const getDeployedModelsText = () => {
-    if (deployedModels.length === 0) {
+    if (models.length === 0) {
       return "No models deployed";
-    } else if (deployedModels.length === 1) {
-      return `${deployedModels[0].modelName}`;
+    } else if (models.length === 1) {
+      return `${models[0].name || "Unknown Model"}`;
     } else {
-      return `${deployedModels.length} models deployed`;
+      return `${models.length} models deployed`;
     }
   };
 
@@ -224,9 +189,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               <TooltipTrigger asChild>
                 <div className="inline-block">
                   <Badge
-                    variant={deployedModels.length > 0 ? "default" : "outline"}
+                    variant={models.length > 0 ? "default" : "outline"}
                     className={`text-xs cursor-pointer transition-colors hover:bg-opacity-80 ${
-                      deployedModels.length > 0
+                      models.length > 0
                         ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-100 dark:hover:bg-green-800"
                         : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
                     }`}
@@ -238,8 +203,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               </TooltipTrigger>
               <TooltipContent>
                 <p>
-                  {deployedModels.length > 0
-                    ? `Click to view ${deployedModels.length} deployed model${deployedModels.length > 1 ? "s" : ""}${deployedModels.length === 1 ? `: ${deployedModels[0].modelName}` : ""}`
+                  {models.length > 0
+                    ? `Click to view ${models.length} deployed model${models.length > 1 ? "s" : ""}${models.length === 1 ? `: ${models[0].name || "Unknown Model"}` : ""}`
                     : "Click to view deployed models page"}
                 </p>
               </TooltipContent>

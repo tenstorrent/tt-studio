@@ -588,9 +588,52 @@ class ContainerLogsView(View):
                                     import datetime
                                     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                     
-                                    # Format as a log message with raw content preserved
+                                    # Determine if this should be an event or a log
+                                    line_upper = line.upper()
+                                    message_type = "log"  # Default to log
+                                    
+                                    # Check for event-worthy log levels
+                                    if any(level in line_upper for level in ['[ERROR]', '[FATAL]', '[CRITICAL]']):
+                                        message_type = "event"
+                                    elif any(level in line_upper for level in ['[WARN]', '[WARNING]']):
+                                        message_type = "event"  
+                                    elif 'RESPONSE_Q OUT OF SYNC' in line_upper:
+                                        message_type = "event"
+                                    elif 'ABORTED' in line_upper or 'CORE DUMPED' in line_upper:
+                                        message_type = "event"
+                                    elif 'TERMINATED' in line_upper or 'EXCEPTION' in line_upper:
+                                        message_type = "event"
+                                    elif 'DESTINATION UNREACHABLE' in line_upper:
+                                        message_type = "event"
+                                    elif 'CLUSTER GENERATION FAILED' in line_upper:
+                                        message_type = "event"
+                                    # Application startup and ready state events
+                                    elif 'APPLICATION STARTUP COMPLETE' in line_upper:
+                                        message_type = "event"
+                                    elif 'UVICORN RUNNING ON' in line_upper:
+                                        message_type = "event"
+                                    elif 'STARTED SERVER PROCESS' in line_upper:
+                                        message_type = "event"
+                                    elif 'WAITING FOR APPLICATION STARTUP' in line_upper:
+                                        message_type = "event"
+                                    elif 'WH_ARCH_YAML:' in line_upper:
+                                        message_type = "event"
+                                    elif 'DEVICE |' in line_upper and 'OPENING USER MODE DEVICE DRIVER' in line_upper:
+                                        message_type = "event"
+                                    elif 'SILICONDRIVER' in line_upper and ('OPENED PCI DEVICE' in line_upper or 'DETECTED PCI' in line_upper):
+                                        message_type = "event"
+                                    elif 'SOFTWARE VERSION' in line_upper and 'ETHERNET FW VERSION' in line_upper:
+                                        message_type = "event"
+                                    elif 'PLATFORM LINUX' in line_upper or 'PYTEST-' in line_upper:
+                                        message_type = "event"
+                                    elif 'ROOTDIR:' in line_upper or 'PLUGINS:' in line_upper:
+                                        message_type = "event"
+                                    elif 'COLLECTED' in line_upper and 'ITEM' in line_upper:
+                                        message_type = "event"
+                                    
+                                    # Format the message
                                     log_data = {
-                                        "type": "log",
+                                        "type": message_type,
                                         "message": line,
                                         "timestamp": timestamp,
                                         "raw": True  # Indicates this preserves original formatting
