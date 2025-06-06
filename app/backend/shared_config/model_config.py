@@ -323,10 +323,7 @@ model_implmentations_list = [
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
         device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
-        shm_size="32G",
-        service_port=7000,
         service_route="/v1/chat/completions",
-        health_route="/health",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
     ),

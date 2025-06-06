@@ -179,24 +179,12 @@ class DeployView(APIView):
         if serializer.is_valid():
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
-            is_external = request.data.get("is_external", False)
-            external_port = request.data.get("external_port", 7000)
-            external_container_id = request.data.get("external_container_id")
-            
             impl = model_implmentations[impl_id]
-            response = run_container(
-                impl, 
-                weights_id, 
-                is_external=is_external, 
-                external_port=external_port,
-                external_container_id=external_container_id
-            )
-            
+            response = run_container(impl, weights_id)
             if os.getenv("TAVILY_API_KEY") == "your-tavily-api-key":
                 agent_api_key_set = False 
             else:
                 agent_api_key_set = True
-                
             if impl.model_type == ModelTypes.CHAT and agent_api_key_set:
                 run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
             return Response(response, status=status.HTTP_201_CREATED)

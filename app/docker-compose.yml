@@ -9,13 +9,15 @@ services:
     hostname: tt-studio-backend-api
     image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
     build: ./backend
-
+    #* DEV: Uncomment devices to use Tenstorrent hardware
+    devices:
+      #* mounts all tenstorrent devices to backend container
+      - /dev/tenstorrent:/dev/tenstorrent
     # note that `network_mode: host` does not work on mac OS
     networks:
       - tt_studio_network
     ports:
       - "8000:8000"
-
     command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
     depends_on:
       tt_studio_chroma:
@@ -50,7 +52,6 @@ services:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
-
 
     healthcheck:
       # On first application load resources for transformers/etc

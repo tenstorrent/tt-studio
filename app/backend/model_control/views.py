@@ -9,6 +9,7 @@ import requests
 from PIL import Image
 import io
 import time
+import datetime
 import docker
 from docker.errors import NotFound
 import json
@@ -132,37 +133,16 @@ class ModelHealthView(APIView):
         if serializer.is_valid():
             deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
-            
-            # Try all available health URLs
-            health_urls = deploy.get("health_urls", [deploy["health_url"]])
-            last_error = None
-            
-            for health_url in health_urls:
-                # Rewrite localhost/127.0.0.1 to container name if available
-                if deploy.get("container_name") and ("localhost" in health_url or "127.0.0.1" in health_url):
-                    # Extract port and path from original URL
-                    parts = health_url.split(":", 1)
-                    if len(parts) == 2:
-                        port_and_path = parts[1]
-                        # Use container name instead of localhost
-                        full_url = f"http://{deploy['container_name']}:{port_and_path}"
-                    else:
-                        full_url = f"http://{deploy['container_name']}{health_url}"
-                else:
-                    full_url = "http://" + health_url
-                
-                logger.info(f"Trying health_url:= {full_url}")
-                # Pass the encoded JWT token
-                check_passed, health_content = health_check(full_url, json_data=encoded_jwt)
-                if check_passed:
-                    return Response({"message": "Healthy", "details": health_content}, status=status.HTTP_200_OK)
-                last_error = health_content
-            
-            # If we get here, all URLs failed
-            return Response(
-                {"message": "Unavailable", "details": last_error}, 
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
+            health_url = "http://" + deploy["health_url"]
+            logger.info(f"health_url:= {health_url}")
+            check_passed, health_content = health_check(health_url, json_data=None)
+            if check_passed:
+                ret_status = status.HTTP_200_OK
+                content = {"message": "Healthy", "details": health_content}
+            else:
+                ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
+                content = {"message": "Unavaliable", "details": health_content}
+            return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -594,14 +574,36 @@ class ContainerLogsView(View):
                     # Set SSE headers in initial response
                     yield "retry: 1000\n\n"  # Reconnection time in ms
                     
-                    # Stream logs in real-time
+                    # Stream logs in real-time with better formatting
                     for log in container.logs(stream=True, follow=True, tail=100):
-                        log_line = log.decode('utf-8').strip()
-                        if log_line:  # Only send non-empty lines
-                            # Format as a log message
+                        try:
+                            # Decode and handle potential multi-line logs
+                            log_text = log.decode('utf-8', errors='replace')
+                            
+                            # Split into individual lines and process each
+                            for line in log_text.split('\n'):
+                                line = line.rstrip('\r')  # Remove carriage returns
+                                if line:  # Only send non-empty lines
+                                    # Add timestamp if not present
+                                    import datetime
+                                    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                    
+                                    # Format as a log message with raw content preserved
+                                    log_data = {
+                                        "type": "log",
+                                        "message": line,
+                                        "timestamp": timestamp,
+                                        "raw": True  # Indicates this preserves original formatting
+                                    }
+                                    yield f"data: {json.dumps(log_data)}\n\n"
+                        except Exception as decode_error:
+                            # Fallback for problematic log lines
+                            error_msg = f"[LOG DECODE ERROR] {str(decode_error)}"
                             log_data = {
-                                "type": "log",
-                                "message": log_line
+                                "type": "log", 
+                                "message": error_msg,
+                                "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                "raw": True
                             }
                             yield f"data: {json.dumps(log_data)}\n\n"
                     
@@ -647,7 +649,6 @@ class ContainerLogsView(View):
             # Set required headers for SSE
             response['Cache-Control'] = 'no-cache, no-transform'
             response['X-Accel-Buffering'] = 'no'
-            response['Connection'] = 'keep-alive'
             
             return response
             
@@ -663,5 +664,4 @@ class ContainerLogsView(View):
                 status=500,
                 content=str(e)
             )
-
 

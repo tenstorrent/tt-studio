@@ -62,6 +62,185 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
+// ANSI color code parsing utilities
+const ANSI_REGEX = /\u001b\[[0-9;]*m/g;
+const LOG_LEVEL_REGEX = /(ERROR|WARN|WARNING|INFO|DEBUG|TRACE|FATAL|CRITICAL)/i;
+
+interface ParsedLogLine {
+  text: string;
+  level?: string;
+  hasColors: boolean;
+  segments: Array<{
+    text: string;
+    color?: string;
+    backgroundColor?: string;
+    bold?: boolean;
+    italic?: boolean;
+  }>;
+}
+
+// Map ANSI color codes to CSS classes
+const ansiToColor = (
+  code: string
+): {
+  color?: string;
+  backgroundColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+} => {
+  const num = parseInt(code);
+  const styles: any = {};
+
+  switch (num) {
+    case 0:
+      return {}; // Reset
+    case 1:
+      styles.bold = true;
+      break; // Bold
+    case 3:
+      styles.italic = true;
+      break; // Italic
+    case 30:
+      styles.color = "#000000";
+      break; // Black
+    case 31:
+      styles.color = "#FF5555";
+      break; // Red
+    case 32:
+      styles.color = "#50FA7B";
+      break; // Green
+    case 33:
+      styles.color = "#F1FA8C";
+      break; // Yellow
+    case 34:
+      styles.color = "#BD93F9";
+      break; // Blue
+    case 35:
+      styles.color = "#FF79C6";
+      break; // Magenta
+    case 36:
+      styles.color = "#8BE9FD";
+      break; // Cyan
+    case 37:
+      styles.color = "#F8F8F2";
+      break; // White
+    case 90:
+      styles.color = "#6272A4";
+      break; // Bright Black (Gray)
+    case 91:
+      styles.color = "#FF6E6E";
+      break; // Bright Red
+    case 92:
+      styles.color = "#69FF94";
+      break; // Bright Green
+    case 93:
+      styles.color = "#FFFFA5";
+      break; // Bright Yellow
+    case 94:
+      styles.color = "#D6ACFF";
+      break; // Bright Blue
+    case 95:
+      styles.color = "#FF92DF";
+      break; // Bright Magenta
+    case 96:
+      styles.color = "#A4FFFF";
+      break; // Bright Cyan
+    case 97:
+      styles.color = "#FFFFFF";
+      break; // Bright White
+    default:
+      break;
+  }
+
+  return styles;
+};
+
+// Parse ANSI codes and return colored segments
+const parseAnsiColors = (text: string): ParsedLogLine => {
+  const segments: ParsedLogLine["segments"] = [];
+  let currentStyles: any = {};
+  let lastIndex = 0;
+  let match;
+  const hasColors = ANSI_REGEX.test(text);
+
+  // Reset regex index
+  ANSI_REGEX.lastIndex = 0;
+
+  while ((match = ANSI_REGEX.exec(text)) !== null) {
+    // Add text before the ANSI code
+    if (match.index > lastIndex) {
+      const textBefore = text.slice(lastIndex, match.index);
+      if (textBefore) {
+        segments.push({
+          text: textBefore,
+          ...currentStyles,
+        });
+      }
+    }
+
+    // Parse the ANSI code
+    const ansiCode = match[0];
+    const codes = ansiCode.slice(2, -1).split(";");
+
+    for (const code of codes) {
+      const newStyles = ansiToColor(code);
+      if (code === "0") {
+        currentStyles = {}; // Reset
+      } else {
+        currentStyles = { ...currentStyles, ...newStyles };
+      }
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    const remainingText = text.slice(lastIndex);
+    if (remainingText) {
+      segments.push({
+        text: remainingText,
+        ...currentStyles,
+      });
+    }
+  }
+
+  // If no ANSI codes found, add the whole text as one segment
+  if (segments.length === 0) {
+    segments.push({ text: text.replace(ANSI_REGEX, "") });
+  }
+
+  const cleanText = text.replace(ANSI_REGEX, "");
+  const levelMatch = cleanText.match(LOG_LEVEL_REGEX);
+
+  return {
+    text: cleanText,
+    level: levelMatch ? levelMatch[1].toUpperCase() : undefined,
+    hasColors,
+    segments,
+  };
+};
+
+// Get color based on log level
+const getLogLevelColor = (level?: string): string => {
+  switch (level) {
+    case "ERROR":
+    case "FATAL":
+    case "CRITICAL":
+      return "text-red-400";
+    case "WARN":
+    case "WARNING":
+      return "text-yellow-400";
+    case "INFO":
+      return "text-blue-400";
+    case "DEBUG":
+    case "TRACE":
+      return "text-gray-400";
+    default:
+      return "text-green-400";
+  }
+};
+
 // Add fetchHealth utility
 type HealthStatus = "healthy" | "unavailable" | "unhealthy" | "unknown";
 const fetchHealth = async (deployId: string): Promise<HealthStatus> => {
@@ -110,11 +289,14 @@ function LogsDialog({
     return logsRef;
   };
 
-  // Scroll to bottom function
+  // Scroll to bottom function with smooth behavior
   const scrollToBottom = () => {
     const ref = getCurrentRef();
     if (ref.current) {
-      ref.current.scrollTop = ref.current.scrollHeight;
+      ref.current.scrollTo({
+        top: ref.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
   };
 
@@ -126,9 +308,9 @@ function LogsDialog({
         ref.current.scrollHeight -
           ref.current.scrollTop -
           ref.current.clientHeight <
-        10;
+        50; // Increased threshold for more responsive auto-scroll
       if (isAtBottom) {
-        scrollToBottom();
+        setTimeout(() => scrollToBottom(), 100); // Small delay for smoother scrolling
       }
     }
     // eslint-disable-next-line
@@ -277,17 +459,74 @@ function LogsDialog({
             <div
               ref={logsRef}
               onScroll={handleScroll}
-              className="bg-black text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative"
-              style={{ minHeight: 200 }}
+              className="bg-gray-950 text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative border border-gray-700 shadow-inner"
+              style={{
+                minHeight: 200,
+                lineHeight: "1.5",
+                scrollBehavior: "smooth",
+                fontFamily:
+                  'Consolas, "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace',
+              }}
             >
               {logs.length === 0 ? (
-                <div className="text-gray-500">No logs available</div>
+                <div className="text-gray-500 italic">
+                  No logs available - waiting for container output...
+                </div>
               ) : (
-                logs.map((log, index) => (
-                  <div key={index} className="whitespace-pre-wrap">
-                    {log}
-                  </div>
-                ))
+                logs.map((log, index) => {
+                  const parsed = parseAnsiColors(log);
+                  return (
+                    <div
+                      key={index}
+                      className="whitespace-pre-wrap leading-relaxed py-0.5 hover:bg-gray-900 hover:bg-opacity-30 transition-colors duration-150 group"
+                      style={{
+                        wordWrap: "break-word",
+                        overflowWrap: "break-word",
+                        fontFamily:
+                          'Consolas, "Courier New", "Monaco", monospace',
+                      }}
+                    >
+                      <span className="text-gray-500 text-xs mr-2 select-none">
+                        {String(index + 1).padStart(3, "0")}
+                      </span>
+                      {parsed.level && (
+                        <span
+                          className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
+                        >
+                          [{parsed.level}]
+                        </span>
+                      )}
+                      <span className="terminal-content">
+                        {parsed.segments.map((segment, segIndex) => (
+                          <span
+                            key={segIndex}
+                            style={{
+                              color:
+                                segment.color ||
+                                (parsed.level ? undefined : "#50FA7B"),
+                              backgroundColor: segment.backgroundColor,
+                              fontWeight: segment.bold ? "bold" : "normal",
+                              fontStyle: segment.italic ? "italic" : "normal",
+                            }}
+                          >
+                            {segment.text}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+              {/* Terminal cursor */}
+              {logs.length > 0 && (
+                <div className="flex items-center mt-2 opacity-75">
+                  <span className="text-gray-500 text-xs mr-2 select-none">
+                    $
+                  </span>
+                  <span className="text-green-400 animate-pulse text-sm">
+                    █
+                  </span>
+                </div>
               )}
             </div>
           </TabsContent>
@@ -295,17 +534,61 @@ function LogsDialog({
             <div
               ref={eventsRef}
               onScroll={handleScroll}
-              className="bg-black text-blue-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative"
-              style={{ minHeight: 200 }}
+              className="bg-gray-950 text-blue-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative border border-gray-700 shadow-inner"
+              style={{
+                minHeight: 200,
+                lineHeight: "1.5",
+                scrollBehavior: "smooth",
+                fontFamily:
+                  'Consolas, "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace',
+              }}
             >
               {events.length === 0 ? (
-                <div className="text-gray-500">No events available</div>
+                <div className="text-gray-500 italic">
+                  No events available - container events will appear here...
+                </div>
               ) : (
-                events.map((event, index) => (
-                  <div key={index} className="whitespace-pre-wrap">
-                    {event}
-                  </div>
-                ))
+                events.map((event, index) => {
+                  const parsed = parseAnsiColors(event);
+                  return (
+                    <div
+                      key={index}
+                      className="whitespace-pre-wrap leading-relaxed py-0.5 hover:bg-gray-900 hover:bg-opacity-30 transition-colors duration-150 group"
+                      style={{
+                        wordWrap: "break-word",
+                        overflowWrap: "break-word",
+                        fontFamily:
+                          'Consolas, "Courier New", "Monaco", monospace',
+                      }}
+                    >
+                      <span className="text-gray-500 text-xs mr-2 select-none">
+                        {String(index + 1).padStart(3, "0")}
+                      </span>
+                      {parsed.level && (
+                        <span
+                          className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
+                        >
+                          [{parsed.level}]
+                        </span>
+                      )}
+                      <span className="terminal-content">
+                        {parsed.segments.map((segment, segIndex) => (
+                          <span
+                            key={segIndex}
+                            style={{
+                              color: segment.color || "#8BE9FD",
+                              backgroundColor: segment.backgroundColor,
+                              fontWeight: segment.bold ? "bold" : "normal",
+                              fontStyle: segment.italic ? "italic" : "normal",
+                            }}
+                          >
+                            {segment.text}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  );
+                })
               )}
             </div>
           </TabsContent>
@@ -313,20 +596,37 @@ function LogsDialog({
             <div
               ref={metricsRef}
               onScroll={handleScroll}
-              className="bg-black text-yellow-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative"
-              style={{ minHeight: 200 }}
+              className="bg-gray-950 text-yellow-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative border border-gray-700 shadow-inner"
+              style={{
+                minHeight: 200,
+                lineHeight: "1.5",
+                scrollBehavior: "smooth",
+                fontFamily:
+                  'Consolas, "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace',
+              }}
             >
               {Object.keys(metrics).length === 0 ? (
-                <div className="text-gray-500">No metrics available</div>
+                <div className="text-gray-500 italic">
+                  No metrics available - container metrics will appear here...
+                </div>
               ) : (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-3">
                   {Object.entries(metrics).map(([name, value]) => (
                     <div
                       key={name}
-                      className="flex justify-between items-center"
+                      className="flex justify-between items-center p-2 bg-gray-900 bg-opacity-30 rounded hover:bg-opacity-50 transition-colors duration-150"
+                      style={{
+                        fontFamily: 'Consolas, "Courier New", monospace',
+                      }}
                     >
-                      <span>{name}:</span>
-                      <span className="font-bold">{value}</span>
+                      <span className="text-yellow-300 font-medium">
+                        {name.replace(/_/g, " ").toUpperCase()}:
+                      </span>
+                      <span className="font-bold text-yellow-400">
+                        {typeof value === "number"
+                          ? value.toLocaleString()
+                          : value}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -337,11 +637,11 @@ function LogsDialog({
         {/* Always visible scroll to bottom button, outside scrollable area */}
         <button
           onClick={scrollToBottom}
-          className="fixed md:absolute right-8 bottom-8 z-50 bg-zinc-800 text-white p-3 rounded-full shadow-lg hover:bg-zinc-700 transition-colors"
-          title="Scroll to bottom"
+          className="fixed md:absolute right-6 bottom-6 z-50 bg-green-600 hover:bg-green-500 text-white p-3 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-110 border-2 border-green-400"
+          title="Scroll to bottom (Auto-scroll enabled)"
           style={{ pointerEvents: "auto" }}
         >
-          <ChevronDown size={24} />
+          <ChevronDown size={20} className="animate-bounce" />
         </button>
       </div>
     );
@@ -351,7 +651,15 @@ function LogsDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl max-h-[90vh] min-w-[400px] min-h-[300px] resize both overflow-auto">
         <DialogHeader>
-          <DialogTitle>Container Monitoring - {containerId}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <span>Container Monitoring - {containerId}</span>
+            {!isLoading && !error && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-xs text-green-600 font-medium">LIVE</span>
+              </div>
+            )}
+          </DialogTitle>
         </DialogHeader>
         {renderContent()}
       </DialogContent>
