@@ -401,22 +401,15 @@ export function FirstStepForm({
                       <span className="text-gray-600 dark:text-gray-300">
                         Detected board:
                       </span>
-                      <Select>
-                        <SelectTrigger className="w-auto h-8 px-2 py-1 border-0 bg-transparent shadow-none focus:ring-0">
-                          <span className="text-xs text-gray-400">Show</span>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <div className="px-2 py-2">
-                            {currentBoard !== "unknown" ? (
-                              <BoardBadge boardName={currentBoard} />
-                            ) : (
-                              <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
-                                Unknown
-                              </span>
-                            )}
-                          </div>
-                        </SelectContent>
-                      </Select>
+                      <div className="px-2 py-2">
+                        {currentBoard !== "unknown" ? (
+                          <BoardBadge boardName={currentBoard} />
+                        ) : (
+                          <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                            Unknown
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <TooltipProvider>
