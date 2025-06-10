@@ -312,10 +312,11 @@ function LogsDialog({
 
   // Auto-scroll to bottom when new data arrives (only if auto-scroll is enabled)
   useEffect(() => {
-    if (autoScrollEnabled && logsRef.current) {
-      logsRef.current.scrollTop = logsRef.current.scrollHeight;
+    const currentRef = getCurrentRef();
+    if (autoScrollEnabled && currentRef.current) {
+      currentRef.current.scrollTop = currentRef.current.scrollHeight;
     }
-  }, [logs, autoScrollEnabled]);
+  }, [logs, events, metrics, autoScrollEnabled, activeTab]);
 
   // Show/hide scroll button based on scroll position
   const handleScroll = () => {
@@ -493,7 +494,9 @@ function LogsDialog({
                       </span>
                       {parsed.level && (
                         <span
-                          className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
+                          className={`text-xs font-bold mr-2 ${getLogLevelColor(
+                            parsed.level
+                          )}`}
                         >
                           [{parsed.level}]
                         </span>
@@ -580,10 +583,10 @@ function LogsDialog({
                         isError
                           ? "border-red-500 bg-red-900 bg-opacity-20"
                           : isWarning
-                            ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
-                            : isInfo || isStartupEvent
-                              ? "border-green-500 bg-green-900 bg-opacity-20"
-                              : "border-blue-500 bg-blue-900 bg-opacity-20"
+                          ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
+                          : isInfo || isStartupEvent
+                          ? "border-green-500 bg-green-900 bg-opacity-20"
+                          : "border-blue-500 bg-blue-900 bg-opacity-20"
                       }`}
                       style={{
                         wordWrap: "break-word",
@@ -623,10 +626,10 @@ function LogsDialog({
                                 isError
                                   ? "bg-red-500 text-white"
                                   : isWarning
-                                    ? "bg-yellow-500 text-black"
-                                    : isInfo || isStartupEvent
-                                      ? "bg-green-500 text-white"
-                                      : "bg-blue-500 text-white"
+                                  ? "bg-yellow-500 text-black"
+                                  : isInfo || isStartupEvent
+                                  ? "bg-green-500 text-white"
+                                  : "bg-blue-500 text-white"
                               }`}
                             >
                               {parsed.level}
@@ -643,10 +646,10 @@ function LogsDialog({
                                     (isError
                                       ? "#FF6B6B"
                                       : isWarning
-                                        ? "#FFD93D"
-                                        : isInfo || isStartupEvent
-                                          ? "#50FA7B"
-                                          : "#8BE9FD"),
+                                      ? "#FFD93D"
+                                      : isInfo || isStartupEvent
+                                      ? "#50FA7B"
+                                      : "#8BE9FD"),
                                   backgroundColor: segment.backgroundColor,
                                   fontWeight: segment.bold ? "bold" : "normal",
                                   fontStyle: segment.italic
