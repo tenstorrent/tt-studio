@@ -46,7 +46,7 @@ import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
 import { DeployedModelsWarning } from "./DeployedModelsWarning";
-import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
+import { useModels } from "../providers/ModelsContext";
 
 // Add board type interface
 interface BoardInfo {
@@ -105,43 +105,28 @@ export function FirstStepForm({
   setFormError: (hasError: boolean) => void;
 }) {
   const { nextStep } = useStepper();
+  const {
+    models: deployedModels,
+    hasDeployedModels,
+    refreshModels,
+  } = useModels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [deployedInfo, setDeployedInfo] = useState<{
-    hasDeployedModels: boolean;
-    count: number;
-    modelNames: string[];
-  }>({
-    hasDeployedModels: false,
-    count: 0,
-    modelNames: [],
-  });
-  const [checkingDeployed, setCheckingDeployed] = useState(true);
 
-  // Check for deployed models immediately when component loads
+  // Refresh models context when component mounts
   useEffect(() => {
-    const checkDeployedModels = async () => {
-      try {
-        setCheckingDeployed(true);
-        const info = await checkCurrentlyDeployedModels();
-        setDeployedInfo(info);
+    refreshModels();
+  }, [refreshModels]);
 
-        // Show immediate toast notification if models are deployed
-        if (info.hasDeployedModels) {
-          customToast.warning(
-            `${info.count} model${info.count > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`
-          );
-        }
-      } catch (error) {
-        console.error("Error checking deployed models:", error);
-      } finally {
-        setCheckingDeployed(false);
-      }
-    };
-
-    checkDeployedModels();
-  }, []);
+  // Show immediate toast notification if models are deployed
+  useEffect(() => {
+    if (hasDeployedModels && deployedModels.length > 0) {
+      customToast.warning(
+        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`
+      );
+    }
+  }, [hasDeployedModels, deployedModels]);
 
   // Fetch models with compatibility information
   useEffect(() => {
@@ -192,9 +177,9 @@ export function FirstStepForm({
         }
 
         // Extra warning if models are deployed
-        if (deployedInfo.hasDeployedModels) {
+        if (hasDeployedModels && deployedModels.length > 0) {
           customToast.warning(
-            `Warning: ${deployedInfo.count} model${deployedInfo.count > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedInfo.count > 1 ? "them" : "it"} before deploying this model.`
+            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
           );
         }
 
@@ -258,18 +243,7 @@ export function FirstStepForm({
         className="space-y-10"
       >
         {/* Always show deployed models warning prominently */}
-        {checkingDeployed ? (
-          <div className="bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800 rounded-md p-4 mb-6">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                Checking for deployed models...
-              </span>
-            </div>
-          </div>
-        ) : (
-          <DeployedModelsWarning className="mb-6" />
-        )}
+        <DeployedModelsWarning className="mb-6" />
 
         <FormField
           control={form.control}
@@ -279,14 +253,11 @@ export function FirstStepForm({
               <FormLabel className="text-lg font-semibold text-gray-800 dark:text-white">
                 <div className="flex items-center gap-3 mb-4">
                   <span>Select Model</span>
-                  {currentBoard !== "unknown" && (
-                    <BoardBadge boardName={currentBoard} />
-                  )}
                   {/* Show inline warning if models are deployed */}
-                  {deployedInfo.hasDeployedModels && (
+                  {hasDeployedModels && deployedModels.length > 0 && (
                     <span className="bg-amber-100 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200 text-xs px-2 py-1 rounded-md font-normal">
-                      ⚠️ {deployedInfo.count} model
-                      {deployedInfo.count > 1 ? "s" : ""} deployed
+                      ⚠️ {deployedModels.length} model
+                      {deployedModels.length > 1 ? "s" : ""} deployed
                     </span>
                   )}
                 </div>
@@ -425,6 +396,29 @@ export function FirstStepForm({
               {/* Summary info */}
               {models.length > 0 && !isLoading && (
                 <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900/20 rounded-lg">
+                  <div className="flex items-center justify-between text-sm mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-600 dark:text-gray-300">
+                        Detected board:
+                      </span>
+                      <Select>
+                        <SelectTrigger className="w-auto h-8 px-2 py-1 border-0 bg-transparent shadow-none focus:ring-0">
+                          <span className="text-xs text-gray-400">Show</span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <div className="px-2 py-2">
+                            {currentBoard !== "unknown" ? (
+                              <BoardBadge boardName={currentBoard} />
+                            ) : (
+                              <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                                Unknown
+                              </span>
+                            )}
+                          </div>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
