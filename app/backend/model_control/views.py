@@ -141,7 +141,7 @@ class ModelHealthView(APIView):
                 content = {"message": "Healthy", "details": health_content}
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
-                content = {"message": "Unavaliable", "details": health_content}
+                content = {"message": "Unavailable", "details": health_content}
             return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
