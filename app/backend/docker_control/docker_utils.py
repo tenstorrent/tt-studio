@@ -239,7 +239,27 @@ def get_container_status():
 
 
 def update_deploy_cache():
+    # Get current running containers
     data = get_container_status()
+    cache = caches[backend_config.django_deploy_cache_name]
+    
+    # Get all cached container IDs (need to strip version tag)
+    cached_container_ids = set()
+    for key in cache._cache.keys():
+        # Strip the version tag to get the actual container ID
+        clean_key = key.replace(":version:", "")
+        cached_container_ids.add(clean_key)
+    
+    # Get current running container IDs
+    current_container_ids = set(data.keys())
+    
+    # Remove containers from cache that are no longer running
+    containers_to_remove = cached_container_ids - current_container_ids
+    for container_id in containers_to_remove:
+        logger.info(f"Removing stopped container from deploy cache: {container_id}")
+        cache.delete(container_id)
+    
+    # Add/update current running containers in cache
     for con_id, con in data.items():
         con_model_id = con['env_vars'].get("MODEL_ID")
         model_impl = model_implmentations.get(con_model_id)
@@ -269,7 +289,7 @@ def update_deploy_cache():
             con["health_url"] = (
                 f"{hostname}:{model_impl.service_port}{model_impl.health_route}"
             )
-            caches[backend_config.django_deploy_cache_name].set(con_id, con, timeout=None)
+            cache.set(con_id, con, timeout=None)
             # TODO: validation
 
 
