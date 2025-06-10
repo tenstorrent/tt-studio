@@ -52,6 +52,7 @@ import {
   ChevronLeft,
   MoreHorizontal,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Tooltip,
@@ -59,7 +60,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 // ANSI color code parsing utilities
@@ -746,6 +753,9 @@ export default function ModelsDeployedTable() {
   const [showImage, setShowImage] = useState(false);
   const [showPorts, setShowPorts] = useState(true);
   const [showContainerId, setShowContainerId] = useState(true);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
@@ -802,42 +812,42 @@ export default function ModelsDeployedTable() {
     }
   }, [models]);
 
-  const handleDelete = async (modelId: string) => {
-    console.log(`Delete button clicked for model ID: ${modelId}`);
-    const truncatedModelId = modelId.substring(0, 4);
+  // Placeholder for backend reset call
+  const resetCard = async () => {
+    // TODO: Replace with actual backend call for tt-smi reset
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return { success: true };
+  };
 
-    setPulsatingModels((prev) => [...prev, modelId]);
+  const handleDelete = (modelId: string) => {
+    setDeleteTargetId(modelId);
+    setShowDeleteModal(true);
+  };
 
-    const deleteModelAsync = async () => {
-      setLoadingModels((prev) => [...prev, modelId]);
-      try {
-        const response = await deleteModel(modelId);
-        const resetOutput =
-          response.reset_response?.output || "No reset output available";
-        console.log(`Reset Output in tsx: ${resetOutput}`);
-
-        setFadingModels((prev) => [...prev, modelId]);
-
-        // Refresh the ModelsContext to sync with backend
-        await refreshModels();
-
-        const remainingModels = models.filter((model) => model.id !== modelId);
-        if (remainingModels.length === 0) {
-          triggerRefresh();
-        }
-      } catch (error) {
-        console.error("Error stopping the container:", error);
-      } finally {
-        setLoadingModels((prev) => prev.filter((id) => id !== modelId));
-        setPulsatingModels((prev) => prev.filter((id) => id !== modelId));
-      }
-    };
-
-    customToast.promise(deleteModelAsync(), {
-      loading: `Attempting to delete Model ID: ${truncatedModelId}...`,
-      success: `Model ID: ${truncatedModelId} has been deleted.`,
-      error: `Failed to delete Model ID: ${truncatedModelId}.`,
-    });
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setIsProcessingDelete(true);
+    const truncatedModelId = deleteTargetId.substring(0, 4);
+    try {
+      await customToast.promise(deleteModel(deleteTargetId), {
+        loading: `Attempting to delete Model ID: ${truncatedModelId}...`,
+        success: `Model ID: ${truncatedModelId} has been deleted.`,
+        error: `Failed to delete Model ID: ${truncatedModelId}.`,
+      });
+      await customToast.promise(resetCard(), {
+        loading: "Resetting card (tt-smi reset)...",
+        success: "Card reset successfully!",
+        error: "Failed to reset card.",
+      });
+      await refreshModels();
+      setShowDeleteModal(false);
+      setDeleteTargetId(null);
+    } catch (error) {
+      setShowDeleteModal(false);
+      setDeleteTargetId(null);
+    } finally {
+      setIsProcessingDelete(false);
+    }
   };
 
   useEffect(() => {
@@ -1272,6 +1282,54 @@ export default function ModelsDeployedTable() {
         containerId={selectedContainerId || ""}
         setSelectedContainerId={setSelectedContainerId}
       />
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="sm:max-w-md p-6 rounded-lg shadow-lg bg-zinc-900 text-white border border-yellow-700">
+          <DialogHeader>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
+                <DialogTitle className="text-lg font-semibold text-white">
+                  Delete Model & Reset Card
+                </DialogTitle>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="mb-4 p-4 bg-yellow-900/20 text-yellow-200 rounded-md flex items-start">
+            <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 flex-shrink-0" />
+            <div>
+              <div className="font-bold mb-1 text-yellow-100">
+                Warning! This action will stop and remove the model, then reset
+                the card.
+              </div>
+              <div className="text-sm text-yellow-200">
+                Deleting a model will attempt to stop and remove the model
+                container.
+                <br />
+                After deletion, the card will automatically be reset using{" "}
+                <code>tt-smi reset</code>.<br />
+                <span className="font-bold text-yellow-300">
+                  This may interrupt any ongoing processes on the card.
+                </span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="mt-4 flex justify-end space-x-2">
+            <Button
+              onClick={() => setShowDeleteModal(false)}
+              disabled={isProcessingDelete}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmDelete}
+              className="bg-red-600 text-white hover:bg-red-700"
+              disabled={isProcessingDelete}
+            >
+              {isProcessingDelete ? "Processing..." : "Yes, Delete & Reset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
