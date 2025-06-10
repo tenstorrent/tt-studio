@@ -25,6 +25,7 @@ import {
 } from "./ui/accordion";
 import { ScrollArea } from "./ui/scroll-area";
 import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
+import { useModels } from "../providers/ModelsContext";
 import BoardBadge from "./BoardBadge";
 
 interface ResetIconProps {
@@ -39,6 +40,7 @@ interface BoardInfo {
 
 const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const { theme } = useTheme();
+  const { refreshModels } = useModels();
   const [isLoading, setIsLoading] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -90,6 +92,9 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
           error: `Failed to delete Model ID: ${model.id.substring(0, 4)}.`,
         });
       }
+
+      // Refresh the ModelsContext to sync with backend
+      await refreshModels();
     } catch (error) {
       console.error("Error deleting models:", error);
       throw new Error("Failed to delete all models.");
