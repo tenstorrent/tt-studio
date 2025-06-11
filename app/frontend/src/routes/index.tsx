@@ -2,30 +2,17 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import NavBar from "../components/NavBar";
-import Footer from "../components/Footer";
 import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
 import { getRoutes } from "./route-config";
-
-// Define a layout component
-const MainLayout = ({ children }: { children: React.ReactNode }) => (
-  <>
-    <NavBar />
-    <div className="main-content pb-16">{children}</div>
-    <Footer />
-  </>
-);
+import { MainLayout } from "../layouts/MainLayout";
 
 const AppRouter = () => {
   // Get routes from configuration
   const routes = getRoutes();
 
   // Log environment variables for debugging
-  console.log(
-    "isDeployedEnabled",
-    import.meta.env.VITE_ENABLE_DEPLOYED === "true"
-  );
+  console.log("isDeployedEnabled", import.meta.env.VITE_ENABLE_DEPLOYED === "true");
 
   return (
     <RefreshProvider>
