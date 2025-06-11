@@ -19,6 +19,19 @@ C_BOLD='\033[1m'
 C_ORANGE='\033[38;5;208m'
 C_TT_PURPLE='\033[38;5;99m' # Corresponds to #7C68FA
 
+# --- Color Definitions ---
+C_RESET='\033[0m'
+C_RED='\033[0;31m'
+C_GREEN='\033[0;32m'
+C_YELLOW='\033[0;33m'
+C_BLUE='\033[0;34m'
+C_MAGENTA='\033[0;35m'
+C_CYAN='\033[0;36m'
+C_WHITE='\033[0;37m'
+C_BOLD='\033[1m'
+C_ORANGE='\033[38;5;208m'
+C_TT_PURPLE='\033[38;5;99m' # Corresponds to #7C68FA
+
 # Define setup script path
 SETUP_SCRIPT="./setup.sh"
 
@@ -120,6 +133,7 @@ for arg in "$@"; do
             ;;
         *)
             echo -e "${C_RED}⛔ Unknown option: $arg${C_RESET}"
+            echo -e "${C_RED}⛔ Unknown option: $arg${C_RESET}"
             usage
             ;;
     esac
@@ -127,6 +141,27 @@ done
 
 # Check Docker installation first
 check_docker_installation
+
+# Display welcome banner unless in cleanup mode
+if [[ "$RUN_CLEANUP" = false ]]; then
+    # Clear screen for a clean splash screen effect
+    clear
+    echo -e "${C_TT_PURPLE}"
+    echo "┌──────────────────────────────────┐"
+    echo "│      ✨ Welcome to TT Studio     │"
+    echo "└──────────────────────────────────┘"
+    echo ""
+    echo "████████╗████████╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ "
+    echo "╚══██╔══╝╚══██╔══╝    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗"
+    echo "   ██║      ██║       ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║"
+    echo "   ██║      ██║       ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║"
+    echo "   ██║      ██║       ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝"
+    echo "   ╚═╝      ╚═╝       ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ "
+    echo -e "${C_RESET}"
+    echo ""
+    # An extra newline for spacing
+    echo
+fi
 
 # Display welcome banner unless in cleanup mode
 if [[ "$RUN_CLEANUP" = false ]]; then
