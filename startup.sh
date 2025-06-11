@@ -52,7 +52,7 @@ check_docker_installation() {
 # Function to shorten path for display
 shorten_path() {
     local path="$1"
-    local segments=(${path//\// })
+    IFS='/' read -ra segments <<< "$path"
     local num_segments=${#segments[@]}
     
     if [ $num_segments -le 3 ]; then
