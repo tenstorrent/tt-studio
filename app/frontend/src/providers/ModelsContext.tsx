@@ -34,13 +34,13 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const refreshModels = useCallback(async () => {
     try {
-      // First try to get deployed models info from the backend
-      const deployedModelsInfo = await fetchDeployedModelsInfo();
+      // Fetch deployed models info and Docker container info in parallel
+      const [deployedModelsInfo, dockerModels] = await Promise.all([
+        fetchDeployedModelsInfo(),
+        fetchModels(),
+      ]);
 
       if (deployedModelsInfo.length > 0) {
-        // If we have deployed models, also get the Docker container info
-        const dockerModels = await fetchModels();
-
         // Merge the deployed models info with Docker container info
         const mergedModels = deployedModelsInfo.map((deployedModel) => {
           // Find corresponding Docker container
