@@ -8,6 +8,15 @@ services:
     volumes:
       # Mount the local api directory for live code changes
       - ./backend:/backend
+      # TT Inference Server named volumes - these will be shared with inference containers
+      - tt_inference_cache_volume:/backend/submodules/tt-inference-server/persistent_volume
+      - tt_inference_src_volume:/backend/submodules/tt-inference-server/vllm-tt-metal-llama3/src
+      - tt_inference_benchmarking_volume:/backend/submodules/tt-inference-server/benchmarking
+      - tt_inference_evals_volume:/backend/submodules/tt-inference-server/evals
+      - tt_inference_locust_volume:/backend/submodules/tt-inference-server/locust
+      - tt_inference_utils_volume:/backend/submodules/tt-inference-server/utils
+      - tt_inference_tests_volume:/backend/submodules/tt-inference-server/tests
+      - tt_inference_weights_volume:/root/.cache/huggingface/hub
     command: python ./manage.py runserver 0.0.0.0:8000
     environment:
       - DEBUG=True

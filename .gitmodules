@@ -1,0 +1,3 @@
+[submodule "app/backend/submodules/tt-inference-server"]
+	path = app/backend/submodules/tt-inference-server
+	url = https://github.com/tenstorrent/tt-inference-server.git
