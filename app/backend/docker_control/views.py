@@ -185,9 +185,19 @@ class DeployView(APIView):
                 agent_api_key_set = False 
             else:
                 agent_api_key_set = True
-            if impl.model_type == ModelTypes.CHAT and agent_api_key_set:
+            # Only run agent container if the main container started successfully
+            if (response.get("status") == "success" and 
+                impl.model_type == ModelTypes.CHAT and 
+                agent_api_key_set and 
+                "container_name" in response and 
+                "port_bindings" in response):
                 run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
-            return Response(response, status=status.HTTP_201_CREATED)
+            
+            # Return appropriate status code based on response
+            if response.get("status") == "success":
+                return Response(response, status=status.HTTP_201_CREATED)
+            else:
+                return Response(response, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

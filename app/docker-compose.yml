@@ -47,11 +47,15 @@ services:
       - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
       - GITHUB_USERNAME
       - GITHUB_PAT
+      - HF_TOKEN
 
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
+      # TODO: remove this once we have a proper way to mount the tt-inference-server directory
+      # Mount tt-inference-server directory for TT Inference Server integration
+      - ${TT_STUDIO_ROOT}/../tt-inference-server:/tt-inference-server
 
     healthcheck:
       # On first application load resources for transformers/etc
