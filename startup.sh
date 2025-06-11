@@ -25,29 +25,72 @@ SETUP_SCRIPT="./setup.sh"
 # Step 0: detect OS
 OS_NAME="$(uname)"
 
+# Function to check Docker installation
+check_docker_installation() {
+    if ! command -v docker &> /dev/null; then
+        echo -e "${C_RED}⛔ Error: Docker is not installed.${C_RESET}"
+        if [[ "$OS_NAME" == "Darwin" ]]; then
+            echo -e "${C_YELLOW}Please install Docker Desktop from: https://www.docker.com/products/docker-desktop${C_RESET}"
+        else
+            echo -e "${C_YELLOW}Please install Docker using: sudo apt install docker.io docker-compose-plugin${C_RESET}"
+            echo -e "${C_YELLOW}Then add your user to the docker group: sudo usermod -aG docker $USER${C_RESET}"
+        fi
+        exit 1
+    fi
+
+    if ! docker compose version &> /dev/null; then
+        echo -e "${C_RED}⛔ Error: Docker Compose is not installed.${C_RESET}"
+        if [[ "$OS_NAME" == "Darwin" ]]; then
+            echo -e "${C_YELLOW}Please install Docker Desktop from: https://www.docker.com/products/docker-desktop${C_RESET}"
+        else
+            echo -e "${C_YELLOW}Please install Docker Compose using: sudo apt install docker-compose-plugin${C_RESET}"
+        fi
+        exit 1
+    fi
+}
+
+# Function to shorten path for display
+shorten_path() {
+    local path="$1"
+    local segments=(${path//\// })
+    local num_segments=${#segments[@]}
+    
+    if [ $num_segments -le 3 ]; then
+        echo "$path"
+    else
+        echo ".../${segments[$num_segments-3]}/${segments[$num_segments-2]}/${segments[$num_segments-1]}"
+    fi
+}
+
 # Function to show usage/help
 usage() {
-    echo -e "🤖 Usage: ./startup.sh [options]"
-    echo
-    echo -e "This script sets up the TT-Studio environment by performing the following steps:"
-    echo -e "  1. 🧭 Detects the OS."
-    echo -e "  2. 🛠️  Sets the TT_STUDIO_ROOT variable in .env based on the running directory."
-    echo -e "  3. 🌐 Checks for and creates a Docker network named 'tt_studio_network' if not present."
-    echo -e "  4. 🚀 Runs Docker Compose to start the TT Studio services."
-    echo
-    echo -e "Options:"
-    echo -e "  --help              ❓ Show this help message and exit."
-    # echo -e "  --setup             🔧 Run the setup script with sudo and all steps before executing main steps."
-    echo -e "  --cleanup           🧹 Stop and remove Docker services."
-    echo -e "  --dev               💻 Run in development mode with live code reloading."
-    echo
-    echo -e "Examples:"
+    echo -e "${C_TT_PURPLE}${C_BOLD}"
+    echo "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓"
+    echo "┃        🤖  TT Studio Startup Script - Help & Usage         ┃"
+    echo "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
+    echo -e "${C_RESET}"
+    echo -e "${C_BOLD}${C_CYAN}Usage:${C_RESET} ${C_WHITE}./startup.sh [options]${C_RESET}\n"
+    echo -e "${C_BOLD}${C_YELLOW}Description:${C_RESET}"
+    echo -e "  This script sets up the TT-Studio environment by performing the following steps:"
+    echo -e "    ${C_GREEN}1.${C_RESET} 🧭  Detects the OS."
+    echo -e "    ${C_GREEN}2.${C_RESET} 🛠️   Sets the TT_STUDIO_ROOT variable in .env based on the running directory."
+    echo -e "    ${C_GREEN}3.${C_RESET} 🌐  Checks for and creates a Docker network named 'tt_studio_network' if not present."
+    echo -e "    ${C_GREEN}4.${C_RESET} 🚀  Runs Docker Compose to start the TT Studio services.\n"
+    echo -e "${C_BOLD}${C_MAGENTA}Options:${C_RESET}"
+    echo -e "${C_CYAN}  --help      ${C_RESET}${C_WHITE}❓  Show this help message and exit.${C_RESET}"
+    # echo -e "${C_CYAN}  --setup     ${C_RESET}${C_WHITE}🔧  Run the setup script with sudo and all steps before executing main steps.${C_RESET}"
+    echo -e "${C_CYAN}  --cleanup   ${C_RESET}${C_WHITE}🧹  Stop and remove Docker services.${C_RESET}"
+    echo -e "${C_CYAN}  --dev       ${C_RESET}${C_WHITE}💻  Run in development mode with live code reloading.${C_RESET}\n"
+    echo -e "${C_BOLD}${C_ORANGE}Examples:${C_RESET}"
     #! TODO add back in support once setup scripts are merged in
     # echo -e "  ./startup.sh --setup             # Run setup steps as sudo, then main steps" phase this out for now .
-    echo -e "  ./startup.sh                     # Run the main setup steps directly"
-    echo -e "  ./startup.sh --cleanup           # Stop and clean up Docker services"
-    echo -e "  ./startup.sh --help              # Display this help message"
-    echo -e "  ./startup.sh --dev               # Run in development mode"
+    echo -e "  ${C_GREEN}./startup.sh${C_RESET}           ${C_WHITE}# Run the main setup steps directly${C_RESET}"
+    echo -e "  ${C_GREEN}./startup.sh --cleanup${C_RESET}  ${C_WHITE}# Stop and clean up Docker services${C_RESET}"
+    echo -e "  ${C_GREEN}./startup.sh --help${C_RESET}     ${C_WHITE}# Display this help message${C_RESET}"
+    echo -e "  ${C_GREEN}./startup.sh --dev${C_RESET}      ${C_WHITE}# Run in development mode${C_RESET}\n"
+    echo -e "${C_TT_PURPLE}${C_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${C_RESET}"
+    echo -e "${C_TT_PURPLE}${C_BOLD}┃  For more info, see the README or visit our documentation.  ┃${C_RESET}"
+    echo -e "${C_TT_PURPLE}${C_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${C_RESET}"
     exit 0
 }
 
@@ -82,6 +125,9 @@ for arg in "$@"; do
     esac
 done
 
+# Check Docker installation first
+check_docker_installation
+
 # Display welcome banner unless in cleanup mode
 if [[ "$RUN_CLEANUP" = false ]]; then
     # Clear screen for a clean splash screen effect
@@ -105,7 +151,8 @@ fi
 
 # Set TT_STUDIO_ROOT before any operations
 TT_STUDIO_ROOT="$(pwd)"
-echo -e "${C_CYAN}TT_STUDIO_ROOT is set to: ${TT_STUDIO_ROOT}${C_RESET}"
+SHORT_PATH=$(shorten_path "$TT_STUDIO_ROOT")
+echo -e "${C_CYAN}TT_STUDIO_ROOT is set to: ${SHORT_PATH}${C_RESET}"
 
 DOCKER_COMPOSE_FILE="${TT_STUDIO_ROOT}/app/docker-compose.yml"
 DOCKER_COMPOSE_TT_HARDWARE_FILE="${TT_STUDIO_ROOT}/app/docker-compose.tt-hardware.yml"
@@ -241,6 +288,12 @@ else
     fi
 fi
 
+# Display Docker version information
+echo -e "${C_BLUE}Docker version:${C_RESET}"
+docker --version
+echo -e "${C_BLUE}Docker Compose version:${C_RESET}"
+docker compose version
+
 # Step 4: Pull Docker image for agent 
 echo -e "${C_BLUE}Pulling latest agent image...${C_RESET}"
 docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1 || { echo -e "${C_RED}Docker pull failed. Please authenticate and re-run the docker pull manually.${C_RESET}"; }
@@ -269,39 +322,48 @@ docker compose ${COMPOSE_FILES} up --build -d
 echo
 echo -e "${C_GREEN}✔ Setup Complete!${C_RESET}"
 echo
-echo -e "${C_WHITE}${C_BOLD}┌─────────────────────────────────────────────────────────┐${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}│                                                         │${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}│   🚀 Tenstorrent TT Studio is ready!                  │${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}│                                                         │${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}│   Access it at: ${C_CYAN}http://localhost:3000${C_RESET}${C_WHITE}${C_BOLD}                 │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}┌────────────────────────────────────────────────────────────┐${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│                                                            │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│   🚀 Tenstorrent TT Studio is ready!                     │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│                                                            │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│   Access it at: ${C_CYAN}http://localhost:3000${C_RESET}${C_WHITE}${C_BOLD}                    │${C_RESET}"
 if [[ "$OS_NAME" == "Darwin" ]]; then
-    echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}(Cmd+Click the link to open in browser)${C_RESET}${C_WHITE}${C_BOLD}             │${C_RESET}"
+    echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}(Cmd+Click the link to open in browser)${C_RESET}${C_WHITE}${C_BOLD}                │${C_RESET}"
 else
-    echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}(Ctrl+Click the link to open in browser)${C_RESET}${C_WHITE}${C_BOLD}            │${C_RESET}"
+    echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}(Ctrl+Click the link to open in browser)${C_RESET}${C_WHITE}${C_BOLD}               │${C_RESET}"
 fi
-echo -e "${C_WHITE}${C_BOLD}│                                                         │${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}└─────────────────────────────────────────────────────────┘${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│                                                            │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}└────────────────────────────────────────────────────────────┘${C_RESET}"
 echo
 
 # Display info about special modes if they are enabled
 if [[ "$RUN_DEV_MODE" = true || "$RUN_TT_HARDWARE" = true ]]; then
-    echo -e "${C_WHITE}${C_BOLD}┌─────────────────────────────────────────────────────────┐${C_RESET}"
-    echo -e "${C_WHITE}${C_BOLD}│                    ${C_YELLOW}Active Modes${C_WHITE}${C_BOLD}                         │${C_RESET}"
+    echo -e "${C_WHITE}${C_BOLD}┌────────────────────────────────────────────────────────────┐${C_RESET}"
+    echo -e "${C_WHITE}${C_BOLD}│                    ${C_YELLOW}Active Modes${C_WHITE}${C_BOLD}                            │${C_RESET}"
     if [[ "$RUN_DEV_MODE" = true ]]; then
-        echo -e "${C_WHITE}${C_BOLD}│   ${C_CYAN}💻 Development Mode: ENABLED${C_WHITE}${C_BOLD}                        │${C_RESET}"
+        echo -e "${C_WHITE}${C_BOLD}│   ${C_CYAN}💻 Development Mode: ENABLED${C_WHITE}${C_BOLD}                           │${C_RESET}"
     fi
     if [[ "$RUN_TT_HARDWARE" = true ]]; then
-        echo -e "${C_WHITE}${C_BOLD}│   ${C_CYAN}🔧 Tenstorrent Device: MOUNTED${C_WHITE}${C_BOLD}                     │${C_RESET}"
+        echo -e "${C_WHITE}${C_BOLD}│   ${C_CYAN}🔧 Tenstorrent Device: MOUNTED${C_WHITE}${C_BOLD}                         │${C_RESET}"
     fi
-    echo -e "${C_WHITE}${C_BOLD}└─────────────────────────────────────────────────────────┘${C_RESET}"
+    echo -e "${C_WHITE}${C_BOLD}└────────────────────────────────────────────────────────────┘${C_RESET}"
     echo
 fi
 
-echo -e "${C_WHITE}${C_BOLD}┌─────────────────────────────────────────────────────────┐${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}🧹 To stop all services, run:${C_RESET}${C_WHITE}${C_BOLD}                       │${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}│   ${C_MAGENTA}./startup.sh --cleanup${C_RESET}${C_WHITE}${C_BOLD}                              │${C_RESET}"
-echo -e "${C_WHITE}${C_BOLD}└─────────────────────────────────────────────────────────┘${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}┌────────────────────────────────────────────────────────────┐${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}🧹 To stop all services, run:${C_RESET}${C_WHITE}${C_BOLD}                           │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│   ${C_MAGENTA}./startup.sh --cleanup${C_RESET}${C_WHITE}${C_BOLD}                                  │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}└────────────────────────────────────────────────────────────┘${C_RESET}"
 echo
+
+# Try to open the browser automatically
+if [[ "$OS_NAME" == "Darwin" ]]; then
+    open "http://localhost:3000" 2>/dev/null || echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+elif command -v xdg-open &> /dev/null; then
+    xdg-open "http://localhost:3000" 2>/dev/null || echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+else
+    echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+fi
 
 # If in dev mode, show logs
 if [[ "$RUN_DEV_MODE" = true ]]; then
