@@ -10,9 +10,9 @@ services:
     image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
     build: ./backend
     #* DEV: Uncomment devices to use Tenstorrent hardware
-    devices:
-      #* mounts all tenstorrent devices to backend container
-      - /dev/tenstorrent:/dev/tenstorrent
+    # devices:
+    #* mounts all tenstorrent devices to backend container
+    # - /dev/tenstorrent:/dev/tenstorrent
     # note that `network_mode: host` does not work on mac OS
     networks:
       - tt_studio_network

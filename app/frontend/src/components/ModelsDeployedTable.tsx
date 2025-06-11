@@ -738,7 +738,7 @@ function LogsDialog({
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
   const { refreshTrigger, triggerRefresh } = useRefresh();
-  const { models, setModels, refreshModels } = useModels();
+  const { models, refreshModels } = useModels();
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [pulsatingModels, setPulsatingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
