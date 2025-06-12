@@ -29,44 +29,129 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
     )
 
 
+# def run_container(impl, weights_id):
+#     """Run a docker container from an image"""
+#     try:
+#         logger.info(f"run_container called for model_name: {impl.model_name}")
+#         logger.info(f"run_container called for model_id: {impl.model_id}")
+
+        
+#         run_kwargs = copy.deepcopy(impl.docker_config)
+#         # handle runtime configuration changes to docker kwargs
+#         device_mounts = get_devices_mounts(impl)
+#         if device_mounts:
+#             run_kwargs.update({"devices": device_mounts})
+#         run_kwargs.update({"ports": get_port_mounts(impl)})
+#         # add bridge inter-container network
+#         run_kwargs.update({"network": backend_config.docker_bridge_network_name})
+#         # add unique container name suffixing with host port
+#         host_port = list(run_kwargs["ports"].values())[0]
+#         run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
+#         run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
+#         # add environment variables
+#         run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
+#         # container path, not backend path
+#         run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
+#             impl.model_container_weights_dir, weights_id
+#         )
+#         logger.info(f"run_kwargs:= {run_kwargs}")
+#         container = client.containers.run(impl.image_version, **run_kwargs)
+#         # 
+#         verify_container(impl, run_kwargs, container)
+#         # on changes to containers, update deploy cache
+#         update_deploy_cache()
+#         return {
+#             "status": "success",
+#             "container_id": container.id,
+#             "container_name": container.name,
+#             "service_route": impl.service_route,
+#             "port_bindings": run_kwargs["ports"],
+#         }
+#     except docker.errors.ContainerError as e:
+#         return {"status": "error", "message": str(e)}
+
 def run_container(impl, weights_id):
     """Run a docker container from an image"""
     try:
-        logger.info(f"run_container called for {impl.model_name}")
+        # logger.info(f"run_container called for model_name: {impl.model_name}")
+        # logger.info(f"run_container called for model_id: {impl.model_id}")
 
+        model_name = impl.hf_model_id
+        model_name = model_name.split("/")[-1]
+        device_name = detect_board_type()
+        device_name = device_name.lower()
+        logger.info(f"run_container called for device_name: {device_name}")
+        logger.info(f"run_container called for model_name: {model_name}")
+
+        # Construct the command
+        cmd = [
+            "python3", "run.py",
+            "--model", model_name,
+            "--workflow", "server",
+            "--device", device_name,
+            "--docker-server",
+            "--dev-mode",
+            "--service-port", "7000"
+        ]
+
+        # Change to the tt-inference-server directory and execute the command
+        tt_inference_path = Path("submodules/tt-inference-server")
+        if not tt_inference_path.exists():
+            raise FileNotFoundError(f"Directory not found: {tt_inference_path}")
         
-        run_kwargs = copy.deepcopy(impl.docker_config)
-        # handle runtime configuration changes to docker kwargs
-        device_mounts = get_devices_mounts(impl)
-        if device_mounts:
-            run_kwargs.update({"devices": device_mounts})
-        run_kwargs.update({"ports": get_port_mounts(impl)})
-        # add bridge inter-container network
-        run_kwargs.update({"network": backend_config.docker_bridge_network_name})
-        # add unique container name suffixing with host port
-        host_port = list(run_kwargs["ports"].values())[0]
-        run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
-        run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
-        # add environment variables
-        run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
-        # container path, not backend path
-        run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
-            impl.model_container_weights_dir, weights_id
+        os.environ["AUTOMATIC_HOST_SETUP"] = "true"
+
+        # Execute the command
+        logger.info(f"Executing command: {' '.join(cmd)}")
+        process = subprocess.Popen(
+            cmd,
+            cwd=tt_inference_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            universal_newlines=True
         )
-        logger.info(f"run_kwargs:= {run_kwargs}")
-        container = client.containers.run(impl.image_version, **run_kwargs)
-        # 
-        verify_container(impl, run_kwargs, container)
-        # on changes to containers, update deploy cache
-        update_deploy_cache()
+
+        # Stream the output
+        output = []
+        while True:
+            # Read stdout
+            stdout_line = process.stdout.readline()
+            if stdout_line:
+                logger.info(f"STDOUT INF SERVER: {stdout_line.strip()}")
+                output.append(stdout_line)
+            
+            # Read stderr
+            stderr_line = process.stderr.readline()
+            if stderr_line:
+                logger.error(f"STDERR INF SERVER: {stderr_line.strip()}")
+                output.append(stderr_line)
+            
+            # Check if process has finished
+            if process.poll() is not None:
+                # Read any remaining output
+                for line in process.stdout:
+                    logger.info(f"STDOUT INF SERVER: {line.strip()}")
+                    output.append(line)
+                for line in process.stderr:
+                    logger.error(f"STDERR INF SERVER: {line.strip()}")
+                    output.append(line)
+                break
+
+        if process.returncode != 0:
+            error_msg = f"Command failed with return code {process.returncode}"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg, "output": "".join(output)}
+
         return {
             "status": "success",
-            "container_id": container.id,
-            "container_name": container.name,
-            "service_route": impl.service_route,
-            "port_bindings": run_kwargs["ports"],
+            "model_name": model_name,
+            "device_name": device_name,
+            "output": "".join(output)
         }
-    except docker.errors.ContainerError as e:
+    except Exception as e:
+        logger.error(f"Error in run_container: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 def run_agent_container(container_name, port_bindings, impl):
