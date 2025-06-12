@@ -55,7 +55,9 @@ class FooterDataView(APIView):
                 "memoryTotal": system_resources["host_info"]["memory_total"],
                 "boardName": system_resources["board_name"],
                 "temperature": 0,  # Will be set from device data
-                "devices": []
+                "devices": [],
+                "hardware_status": system_resources.get("hardware_status", "unknown"),
+                "hardware_error": system_resources.get("hardware_error", None)
             }
             
             # Get average temperature and device info

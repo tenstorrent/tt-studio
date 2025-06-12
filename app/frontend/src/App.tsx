@@ -7,6 +7,8 @@ import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "react-query";
 import { setTitleBasedOnEnvironment } from "./api/utlis.ts";
 import { HeroSectionProvider } from "./providers/HeroSectionContext";
+import HardwareWarningModal from "./components/HardwareWarningModal";
+import { useHardwareStatus } from "./hooks/useHardwareStatus";
 
 function App() {
   const client = new QueryClient({
@@ -15,12 +17,21 @@ function App() {
 
   setTitleBasedOnEnvironment();
 
+  const { showModal, dismissModal, hardwareError, boardName } =
+    useHardwareStatus();
+
   return (
     <>
       <ThemeProvider>
         <QueryClientProvider client={client}>
           <HeroSectionProvider>
             <AppRouter />
+            <HardwareWarningModal
+              isOpen={showModal}
+              onClose={dismissModal}
+              hardwareError={hardwareError || undefined}
+              boardName={boardName || undefined}
+            />
           </HeroSectionProvider>
         </QueryClientProvider>
       </ThemeProvider>

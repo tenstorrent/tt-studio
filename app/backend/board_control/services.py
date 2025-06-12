@@ -160,7 +160,12 @@ class SystemResourceService:
                 else:
                     # tt-smi failed - indicate potential hardware issue
                     system_status["hardware_status"] = "error"
-                    system_status["hardware_error"] = "Unable to communicate with TT hardware. The card may be in a bad state or tt-smi is not responding."
+                    system_status["hardware_error"] = (
+                        "Unable to communicate with TT hardware. The tt-smi command failed, "
+                        "which typically indicates the hardware card is in a bad state, "
+                        "not properly connected, or needs to be reset. "
+                        "Please try resetting the card or check hardware connections."
+                    )
                     system_status["board_name"] = "TT Board (Error)"
                     logger.warning("tt-smi failed - hardware may be in bad state")
                     
