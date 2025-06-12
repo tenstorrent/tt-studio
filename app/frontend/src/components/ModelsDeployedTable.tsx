@@ -52,6 +52,7 @@ import {
   ChevronLeft,
   MoreHorizontal,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Tooltip,
@@ -59,7 +60,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 // ANSI color code parsing utilities
@@ -298,26 +305,18 @@ function LogsDialog({
         top: ref.current.scrollHeight,
         behavior: "smooth",
       });
+      setAutoScrollEnabled(true);
+      setShowScrollButton(false);
     }
   };
 
   // Auto-scroll to bottom when new data arrives (only if auto-scroll is enabled)
   useEffect(() => {
-    if (!autoScrollEnabled) return;
-
-    const ref = getCurrentRef();
-    if (ref.current) {
-      const isAtBottom =
-        ref.current.scrollHeight -
-          ref.current.scrollTop -
-          ref.current.clientHeight <
-        50; // Increased threshold for more responsive auto-scroll
-      if (isAtBottom || logs.length === 1 || events.length === 1) {
-        setTimeout(() => scrollToBottom(), 100); // Small delay for smoother scrolling
-      }
+    const currentRef = getCurrentRef();
+    if (autoScrollEnabled && currentRef.current) {
+      currentRef.current.scrollTop = currentRef.current.scrollHeight;
     }
-    // eslint-disable-next-line
-  }, [logs, events, metrics, activeTab, autoScrollEnabled]);
+  }, [logs, events, metrics, autoScrollEnabled, activeTab]);
 
   // Show/hide scroll button based on scroll position
   const handleScroll = () => {
@@ -328,6 +327,7 @@ function LogsDialog({
           ref.current.scrollTop -
           ref.current.clientHeight <
         10;
+      setAutoScrollEnabled(isAtBottom);
       setShowScrollButton(!isAtBottom);
     }
   };
@@ -494,7 +494,9 @@ function LogsDialog({
                       </span>
                       {parsed.level && (
                         <span
-                          className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
+                          className={`text-xs font-bold mr-2 ${getLogLevelColor(
+                            parsed.level
+                          )}`}
                         >
                           [{parsed.level}]
                         </span>
@@ -532,6 +534,15 @@ function LogsDialog({
                 </div>
               )}
             </div>
+            {showScrollButton && (
+              <button
+                onClick={scrollToBottom}
+                className="fixed bottom-8 right-8 z-50 bg-blue-600 text-white rounded-full p-2 shadow-lg"
+                title="Scroll to bottom"
+              >
+                <ChevronDown className="w-6 h-6" />
+              </button>
+            )}
           </TabsContent>
           <TabsContent value="events" className="mt-4">
             <div
@@ -700,42 +711,6 @@ function LogsDialog({
             </div>
           </TabsContent>
         </Tabs>
-        {/* Scroll controls */}
-        <div className="fixed md:absolute right-6 bottom-6 z-50 flex flex-col gap-2">
-          {/* Auto-scroll toggle button */}
-          <button
-            onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
-            className={`p-3 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-110 border-2 ${
-              autoScrollEnabled
-                ? "bg-green-600 hover:bg-green-500 border-green-400 text-white"
-                : "bg-gray-600 hover:bg-gray-500 border-gray-400 text-white"
-            }`}
-            title={
-              autoScrollEnabled
-                ? "Auto-scroll ON (click to disable)"
-                : "Auto-scroll OFF (click to enable)"
-            }
-            style={{ pointerEvents: "auto" }}
-          >
-            {autoScrollEnabled ? (
-              <ChevronDown size={20} className="animate-bounce" />
-            ) : (
-              <ChevronDown size={20} />
-            )}
-          </button>
-
-          {/* Manual scroll to bottom button (only show when auto-scroll is disabled) */}
-          {!autoScrollEnabled && (
-            <button
-              onClick={scrollToBottom}
-              className="p-3 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 transform hover:scale-110 border-2 bg-blue-600 hover:bg-blue-500 border-blue-400 text-white"
-              title="Scroll to bottom"
-              style={{ pointerEvents: "auto" }}
-            >
-              <ChevronDown size={20} />
-            </button>
-          )}
-        </div>
       </div>
     );
   };
@@ -763,7 +738,7 @@ function LogsDialog({
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
   const { refreshTrigger, triggerRefresh } = useRefresh();
-  const { models, setModels } = useModels();
+  const { models, setModels, refreshModels } = useModels();
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [pulsatingModels, setPulsatingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
@@ -781,6 +756,9 @@ export default function ModelsDeployedTable() {
   const [showImage, setShowImage] = useState(false);
   const [showPorts, setShowPorts] = useState(true);
   const [showContainerId, setShowContainerId] = useState(true);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
@@ -837,39 +815,42 @@ export default function ModelsDeployedTable() {
     }
   }, [models]);
 
-  const handleDelete = async (modelId: string) => {
-    console.log(`Delete button clicked for model ID: ${modelId}`);
-    const truncatedModelId = modelId.substring(0, 4);
+  // Placeholder for backend reset call
+  const resetCard = async () => {
+    // TODO: Replace with actual backend call for tt-smi reset
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return { success: true };
+  };
 
-    setPulsatingModels((prev) => [...prev, modelId]);
+  const handleDelete = (modelId: string) => {
+    setDeleteTargetId(modelId);
+    setShowDeleteModal(true);
+  };
 
-    const deleteModelAsync = async () => {
-      setLoadingModels((prev) => [...prev, modelId]);
-      try {
-        const response = await deleteModel(modelId);
-        const resetOutput =
-          response.reset_response?.output || "No reset output available";
-        console.log(`Reset Output in tsx: ${resetOutput}`);
-
-        setFadingModels((prev) => [...prev, modelId]);
-
-        const remainingModels = models.filter((model) => model.id !== modelId);
-        if (remainingModels.length === 0) {
-          triggerRefresh();
-        }
-      } catch (error) {
-        console.error("Error stopping the container:", error);
-      } finally {
-        setLoadingModels((prev) => prev.filter((id) => id !== modelId));
-        setPulsatingModels((prev) => prev.filter((id) => id !== modelId));
-      }
-    };
-
-    customToast.promise(deleteModelAsync(), {
-      loading: `Attempting to delete Model ID: ${truncatedModelId}...`,
-      success: `Model ID: ${truncatedModelId} has been deleted.`,
-      error: `Failed to delete Model ID: ${truncatedModelId}.`,
-    });
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    setIsProcessingDelete(true);
+    const truncatedModelId = deleteTargetId.substring(0, 4);
+    try {
+      await customToast.promise(deleteModel(deleteTargetId), {
+        loading: `Attempting to delete Model ID: ${truncatedModelId}...`,
+        success: `Model ID: ${truncatedModelId} has been deleted.`,
+        error: `Failed to delete Model ID: ${truncatedModelId}.`,
+      });
+      await customToast.promise(resetCard(), {
+        loading: "Resetting card (tt-smi reset)...",
+        success: "Card reset successfully!",
+        error: "Failed to reset card.",
+      });
+      await refreshModels();
+      setShowDeleteModal(false);
+      setDeleteTargetId(null);
+    } catch (error) {
+      setShowDeleteModal(false);
+      setDeleteTargetId(null);
+    } finally {
+      setIsProcessingDelete(false);
+    }
   };
 
   useEffect(() => {
@@ -1304,6 +1285,54 @@ export default function ModelsDeployedTable() {
         containerId={selectedContainerId || ""}
         setSelectedContainerId={setSelectedContainerId}
       />
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="sm:max-w-md p-6 rounded-lg shadow-lg bg-zinc-900 text-white border border-yellow-700">
+          <DialogHeader>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
+                <DialogTitle className="text-lg font-semibold text-white">
+                  Delete Model & Reset Card
+                </DialogTitle>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="mb-4 p-4 bg-yellow-900/20 text-yellow-200 rounded-md flex items-start">
+            <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 flex-shrink-0" />
+            <div>
+              <div className="font-bold mb-1 text-yellow-100">
+                Warning! This action will stop and remove the model, then reset
+                the card.
+              </div>
+              <div className="text-sm text-yellow-200">
+                Deleting a model will attempt to stop and remove the model
+                container.
+                <br />
+                After deletion, the card will automatically be reset using{" "}
+                <code>tt-smi reset</code>.<br />
+                <span className="font-bold text-yellow-300">
+                  This may interrupt any ongoing processes on the card.
+                </span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="mt-4 flex justify-end space-x-2">
+            <Button
+              onClick={() => setShowDeleteModal(false)}
+              disabled={isProcessingDelete}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmDelete}
+              className="bg-red-600 text-white hover:bg-red-700"
+              disabled={isProcessingDelete}
+            >
+              {isProcessingDelete ? "Processing..." : "Yes, Delete & Reset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

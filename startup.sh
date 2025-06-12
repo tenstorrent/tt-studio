@@ -123,11 +123,23 @@ if [[ -e "/dev/tenstorrent" ]]; then
 
     # Prompt user for enabling TT hardware support
     if [[ "$RUN_TT_HARDWARE" = false ]]; then
-        read -p "Do you want to mount Tenstorrent hardware? (y/n): " enable_hardware
-        if [[ "$enable_hardware" =~ ^[Yy]$ ]]; then
-            RUN_TT_HARDWARE=true
-            echo "Enabling Tenstorrent hardware support..."
-        fi
+        while true; do
+            read -p "Do you want to mount Tenstorrent hardware? (y/n): " enable_hardware
+            case "$enable_hardware" in
+                [Yy]* ) 
+                    RUN_TT_HARDWARE=true
+                    echo "Enabling Tenstorrent hardware support..."
+                    break
+                    ;;
+                [Nn]* ) 
+                    RUN_TT_HARDWARE=false
+                    break
+                    ;;
+                * ) 
+                    echo "Please answer 'y' or 'n'"
+                    ;;
+            esac
+        done
     fi
 else
     echo "⛔ No Tenstorrent device found at /dev/tenstorrent. Skipping Mounting hardware setup."
@@ -195,11 +207,23 @@ docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1 || { echo "Docker pul
 
 # Before running Docker Compose, ask about dev mode if not specified in args
 if [[ "$RUN_DEV_MODE" = false ]]; then
-    read -p "Do you want to run in development mode? (y/n): " enable_dev_mode
-    if [[ "$enable_dev_mode" =~ ^[Yy]$ ]]; then
-        RUN_DEV_MODE=true
-        echo "Enabling development mode..."
-    fi
+    while true; do
+        read -p "Do you want to run in development mode? (y/n): " enable_dev_mode
+        case "$enable_dev_mode" in
+            [Yy]* ) 
+                RUN_DEV_MODE=true
+                echo "Enabling development mode..."
+                break
+                ;;
+            [Nn]* ) 
+                RUN_DEV_MODE=false
+                break
+                ;;
+            * ) 
+                echo "Please answer 'y' or 'n'"
+                ;;
+        esac
+    done
 fi
 
 # Step 5: Run Docker Compose with appropriate configuration
@@ -255,3 +279,14 @@ echo
 echo -e "\e[1;33m🛑 To stop the app and services, run:\e[0m \e[1;33m'./startup.sh --cleanup'\e[0m"
 echo
 echo -e "\e[1;33m=====================================================\e[0m"
+
+# If in dev mode, show logs
+if [[ "$RUN_DEV_MODE" = true ]]; then
+    echo
+    echo -e "\e[1;33m=====================================================\e[0m"
+    echo -e "\e[1;33m            📜 Starting Log Stream...              \e[0m"
+    echo -e "\e[1;33m=====================================================\e[0m"
+    echo -e "\e[1;33m⚠️  Press Ctrl+C to stop viewing logs\e[0m"
+    echo
+    cd "${TT_STUDIO_ROOT}/app" && docker compose logs -f
+fi
