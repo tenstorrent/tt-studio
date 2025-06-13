@@ -583,10 +583,10 @@ function LogsDialog({
                         isError
                           ? "border-red-500 bg-red-900 bg-opacity-20"
                           : isWarning
-                          ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
-                          : isInfo || isStartupEvent
-                          ? "border-green-500 bg-green-900 bg-opacity-20"
-                          : "border-blue-500 bg-blue-900 bg-opacity-20"
+                            ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
+                            : isInfo || isStartupEvent
+                              ? "border-green-500 bg-green-900 bg-opacity-20"
+                              : "border-blue-500 bg-blue-900 bg-opacity-20"
                       }`}
                       style={{
                         wordWrap: "break-word",
@@ -626,10 +626,10 @@ function LogsDialog({
                                 isError
                                   ? "bg-red-500 text-white"
                                   : isWarning
-                                  ? "bg-yellow-500 text-black"
-                                  : isInfo || isStartupEvent
-                                  ? "bg-green-500 text-white"
-                                  : "bg-blue-500 text-white"
+                                    ? "bg-yellow-500 text-black"
+                                    : isInfo || isStartupEvent
+                                      ? "bg-green-500 text-white"
+                                      : "bg-blue-500 text-white"
                               }`}
                             >
                               {parsed.level}
@@ -646,10 +646,10 @@ function LogsDialog({
                                     (isError
                                       ? "#FF6B6B"
                                       : isWarning
-                                      ? "#FFD93D"
-                                      : isInfo || isStartupEvent
-                                      ? "#50FA7B"
-                                      : "#8BE9FD"),
+                                        ? "#FFD93D"
+                                        : isInfo || isStartupEvent
+                                          ? "#50FA7B"
+                                          : "#8BE9FD"),
                                   backgroundColor: segment.backgroundColor,
                                   fontWeight: segment.bold ? "bold" : "normal",
                                   fontStyle: segment.italic
@@ -738,7 +738,7 @@ function LogsDialog({
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
   const { refreshTrigger, triggerRefresh } = useRefresh();
-  const { models, refreshModels } = useModels();
+  const { models, setModels, refreshModels } = useModels();
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [pulsatingModels, setPulsatingModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState<string[]>([]);
