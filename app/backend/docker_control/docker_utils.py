@@ -30,44 +30,58 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
 
 
 def run_container(impl, weights_id):
-    """Run a docker container from an image"""
+    """Run a docker container via TT Inference Server API"""
     try:
         logger.info(f"run_container called for {impl.model_name}")
 
+        device = detect_board_type().lower()
         
-        run_kwargs = copy.deepcopy(impl.docker_config)
-        # handle runtime configuration changes to docker kwargs
-        device_mounts = get_devices_mounts(impl)
-        if device_mounts:
-            run_kwargs.update({"devices": device_mounts})
-        run_kwargs.update({"ports": get_port_mounts(impl)})
-        # add bridge inter-container network
-        run_kwargs.update({"network": backend_config.docker_bridge_network_name})
-        # add unique container name suffixing with host port
-        host_port = list(run_kwargs["ports"].values())[0]
-        run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
-        run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
-        # add environment variables
-        run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
-        # container path, not backend path
-        run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
-            impl.model_container_weights_dir, weights_id
-        )
-        logger.info(f"run_kwargs:= {run_kwargs}")
-        container = client.containers.run(impl.image_version, **run_kwargs)
-        # 
-        verify_container(impl, run_kwargs, container)
-        # on changes to containers, update deploy cache
-        update_deploy_cache()
-        return {
-            "status": "success",
-            "container_id": container.id,
-            "container_name": container.name,
-            "service_route": impl.service_route,
-            "port_bindings": run_kwargs["ports"],
+        # Create payload for the API call
+        payload = {
+            "model": impl.model_name,
+            "workflow": "server",  # Default workflow for container runs
+            "device": device,  # Extract device from impl
+            "docker_server": True,
+            "dev_mode": True
         }
-    except docker.errors.ContainerError as e:
-        return {"status": "error", "message": str(e)}
+
+        logger.info(f"API payload: {payload}")
+        
+        # Make POST request to TT Inference Server API
+        import requests
+        api_url = "http://172.18.0.1:8001/run"
+        
+        response = requests.post(
+            api_url,
+            json=payload,
+            timeout=300  # 5 minute timeout for container startup
+        )
+        
+        if response.status_code == 200:
+            api_result = response.json()
+            logger.info(f"API call successful: {api_result}")
+            
+            # Update deploy cache on success
+            update_deploy_cache()
+            
+            return {
+                "status": "success",
+                "container_name": api_result["container_name"],
+                "api_response": api_result
+            }
+        else:
+            error_msg = f"API call failed with status {response.status_code}: {response.text}"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg}
+            
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error calling TT Inference Server API: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
+    except Exception as e:
+        error_msg = f"Unexpected error in run_container: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
 
 def run_agent_container(container_name, port_bindings, impl):
     # runs agent container after associated llm container runs
