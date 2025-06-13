@@ -22,10 +22,7 @@ logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
-logger.info(f"JWT payload: {json_payload}")
-logger.info(f"Using JWT secret: {backend_config.jwt_secret}")
 encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
-logger.info(f"Generated JWT token: {encoded_jwt}")
 AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 
 def get_deploy_cache():
@@ -45,32 +42,14 @@ def get_deploy_cache():
 def health_check(url, json_data, timeout=5):
     logger.info(f"calling health_url:= {url}")
     try:
-        # First try without JWT
-        logger.info("Attempting health check without JWT")
-        response = requests.get(url, timeout=timeout)
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        response = requests.get(url, json=json_data, headers=headers, timeout=5)
         response.raise_for_status()
-        logger.info(f"Health check succeeded without JWT: {response.text}")
-        return True, response.text
+        logger.info(f"Health check passed: {response.status_code}")
+        return True, response.json() if response.content else {}
     except requests.RequestException as e:
-        logger.info(f"First health check attempt failed, trying with JWT: {str(e)}")
-        try:
-            # Try with JWT
-            headers = {"Authorization": f"Bearer {json_data}"}
-            logger.info(f"Attempting health check with JWT headers: {headers}")
-            response = requests.get(url, headers=headers, timeout=timeout)
-            response.raise_for_status()
-            logger.info(f"Health check succeeded with JWT: {response.text}")
-            return True, response.text
-        except requests.RequestException as e:
-            logger.error(f"Health check failed with JWT: {str(e)}")
-            # Add more detailed error information
-            error_details = {
-                "error": str(e),
-                "url": url,
-                "headers": headers if 'headers' in locals() else None,
-                "timeout": timeout
-            }
-            return False, error_details
+        logger.error(f"Health check failed: {str(e)}")
+        return False, str(e)
 
 def stream_response_from_agent_api(url, json_data):
     try:
@@ -439,5 +418,4 @@ def stream_response_from_external_api(url, json_data):
     except requests.RequestException as e:
         logger.error(f"RequestException: {str(e)}")
         yield f"error: {str(e)}"
-
 

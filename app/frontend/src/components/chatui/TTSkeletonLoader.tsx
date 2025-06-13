@@ -3,7 +3,12 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import logo from "../../assets/logo/tt_logo.svg";
+let logo: string | undefined;
+try {
+  logo = require("../../assets/logo/tt_logo.svg");
+} catch (e) {
+  logo = undefined;
+}
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 interface TTSkeletonLoaderProps {
@@ -37,15 +42,18 @@ const TTSkeletonLoader: React.FC<TTSkeletonLoaderProps> = ({
           ease: "easeInOut",
         }}
       >
-        <ImageWithFallback
-          src={logo}
-          alt="Tenstorrent Logo"
-          className={`
-            w-full h-full object-contain
-            transition-all duration-500 ease-out
-            ${className}
-          `}
-        />
+        {logo && (
+          <ImageWithFallback
+            src={logo}
+            alt="Tenstorrent Logo"
+            className={`
+              w-full h-full object-contain
+              transition-all duration-500 ease-out
+              ${className}
+            `}
+            onError={() => {}}
+          />
+        )}
       </motion.div>
     </motion.div>
   );
