@@ -32,15 +32,12 @@ export function usePersistentState<T>(
         try {
           return JSON.parse(localStorageValue);
         } catch (parseError) {
-          console.log(`Initial value for ${key} is not valid JSON`);
+          // console.log(`Initial value for ${key} is not valid JSON`);
           // For non-JSON values, we'll fall back to initialValue and let the async load handle it
         }
       }
     } catch (e) {
-      console.error(
-        `Error reading initial value from localStorage for ${key}:`,
-        e
-      );
+      console.error(`Error reading initial value from localStorage for ${key}:`, e);
     }
     return initialValue;
   });
@@ -62,7 +59,7 @@ export function usePersistentState<T>(
         const storedValue = await IndexedDB.getItem<T>(key);
 
         if (storedValue !== null && isMounted) {
-          console.log(`Loaded ${key} from IndexedDB:`, storedValue);
+          // console.log(`Loaded ${key} from IndexedDB:`, storedValue);
           setState(storedValue);
           hasLoadedRef.current = true;
           return;
@@ -77,15 +74,13 @@ export function usePersistentState<T>(
             try {
               parsedValue = JSON.parse(localStorageValue);
             } catch (parseError) {
-              console.log(
-                `Value for ${key} is not valid JSON, using as string`
-              );
+              // console.log(`Value for ${key} is not valid JSON, using as string`);
               parsedValue = localStorageValue;
             }
 
             // Save to IndexedDB for future use
             await IndexedDB.setItem(key, parsedValue);
-            console.log(`Migrated ${key} from localStorage to IndexedDB`);
+            // console.log(`Migrated ${key} from localStorage to IndexedDB`);
 
             if (isMounted) {
               setState(parsedValue as T);
@@ -93,10 +88,7 @@ export function usePersistentState<T>(
             }
           }
         } catch (localStorageError) {
-          console.error(
-            `Error reading from localStorage for ${key}:`,
-            localStorageError
-          );
+          console.error(`Error reading from localStorage for ${key}:`, localStorageError);
         }
       } catch (error) {
         console.error(`Error loading state for ${key}:`, error);
@@ -109,30 +101,22 @@ export function usePersistentState<T>(
 
       // Check if migration has already been completed
       try {
-        const migrationCompleted =
-          localStorage.getItem(MIGRATION_COMPLETED_KEY) === "true";
+        const migrationCompleted = localStorage.getItem(MIGRATION_COMPLETED_KEY) === "true";
 
         if (!migrationCompleted) {
           // Perform migration
-          console.log(
-            "Starting one-time migration from localStorage to IndexedDB..."
-          );
+          // console.log("Starting one-time migration from localStorage to IndexedDB...");
           IndexedDB.migrateFromLocalStorage()
             .then(() => {
               // Mark migration as completed
               localStorage.setItem(MIGRATION_COMPLETED_KEY, "true");
-              console.log(
-                "Migration from localStorage to IndexedDB completed successfully"
-              );
+              // console.log("Migration from localStorage to IndexedDB completed successfully");
             })
             .catch((err) => {
-              console.error(
-                "Error during migration from localStorage to IndexedDB:",
-                err
-              );
+              console.error("Error during migration from localStorage to IndexedDB:", err);
             });
         } else {
-          console.log("IndexedDB migration already completed, skipping");
+          // console.log("IndexedDB migration already completed, skipping");
         }
       } catch (e) {
         console.error("Error checking migration status:", e);
@@ -154,9 +138,7 @@ export function usePersistentState<T>(
         if (key === "chat_threads") {
           let prunedData = [...data];
           if (prunedData.length > MAX_THREADS) {
-            console.log(
-              `Pruning threads from ${prunedData.length} to ${MAX_THREADS}`
-            );
+            // console.log(`Pruning threads from ${prunedData.length} to ${MAX_THREADS}`);
             prunedData = prunedData.slice(-MAX_THREADS);
           }
 
@@ -193,69 +175,52 @@ export function usePersistentState<T>(
   );
 
   // Function to save state to IndexedDB with error handling
-  const saveToStorage = useCallback(
-    async () => {
-      // Avoid saving if we're already in the process of saving
-      if (isSavingRef.current) return;
+  const saveToStorage = useCallback(async () => {
+    // Avoid saving if we're already in the process of saving
+    if (isSavingRef.current) return;
 
-      // Mark that we're saving
-      isSavingRef.current = true;
+    // Mark that we're saving
+    isSavingRef.current = true;
+
+    try {
+      // Always use the latest state from the ref to avoid race conditions
+      const stateToSave = latestStateRef.current;
+      // console.log(`Saving ${key} to IndexedDB:`, stateToSave);
+
+      // Try to save to IndexedDB
+      await IndexedDB.setItem(key, stateToSave);
+    } catch (error) {
+      console.warn(`Error saving to IndexedDB for ${key}, attempting to prune data:`, error);
 
       try {
-        // Always use the latest state from the ref to avoid race conditions
-        const stateToSave = latestStateRef.current;
-        console.log(`Saving ${key} to IndexedDB:`, stateToSave);
-
-        // Try to save to IndexedDB
-        await IndexedDB.setItem(key, stateToSave);
-      } catch (error) {
-        console.warn(
-          `Error saving to IndexedDB for ${key}, attempting to prune data:`,
-          error
-        );
-
+        // Try to prune the data and save again
+        const prunedState = pruneData(latestStateRef.current);
         try {
-          // Try to prune the data and save again
-          const prunedState = pruneData(latestStateRef.current);
-          try {
-            await IndexedDB.setItem(key, prunedState);
-            console.log(
-              `Successfully saved pruned data to IndexedDB for ${key}`
-            );
-            // Update the state to match the pruned version if needed
-            if (
-              JSON.stringify(prunedState) !==
-              JSON.stringify(latestStateRef.current)
-            ) {
-              setState(prunedState as T);
-            }
-          } catch (innerError) {
-            console.error(
-              `Still cannot save to IndexedDB after pruning for ${key}:`,
-              innerError
-            );
-
-            // As a last resort, try localStorage
-            try {
-              localStorage.setItem(key, JSON.stringify(prunedState));
-              console.log(`Saved ${key} to localStorage as fallback`);
-            } catch (localStorageError) {
-              console.error(
-                `Failed to save ${key} to localStorage fallback:`,
-                localStorageError
-              );
-            }
+          await IndexedDB.setItem(key, prunedState);
+          // console.log(`Successfully saved pruned data to IndexedDB for ${key}`);
+          // Update the state to match the pruned version if needed
+          if (JSON.stringify(prunedState) !== JSON.stringify(latestStateRef.current)) {
+            setState(prunedState as T);
           }
-        } catch (pruneError) {
-          console.error(`Error during data pruning for ${key}:`, pruneError);
+        } catch (innerError) {
+          console.error(`Still cannot save to IndexedDB after pruning for ${key}:`, innerError);
+
+          // As a last resort, try localStorage
+          try {
+            localStorage.setItem(key, JSON.stringify(prunedState));
+            // console.log(`Saved ${key} to localStorage as fallback`);
+          } catch (localStorageError) {
+            console.error(`Failed to save ${key} to localStorage fallback:`, localStorageError);
+          }
         }
-      } finally {
-        // Mark that we're done saving
-        isSavingRef.current = false;
+      } catch (pruneError) {
+        console.error(`Error during data pruning for ${key}:`, pruneError);
       }
-    },
-    [key, pruneData]
-  );
+    } finally {
+      // Mark that we're done saving
+      isSavingRef.current = false;
+    }
+  }, [key, pruneData]);
 
   // Custom setState function that updates state and saves to storage
   const setStateAndSave = useCallback(
@@ -263,9 +228,7 @@ export function usePersistentState<T>(
       setState((prevState) => {
         // Calculate the new state
         const nextState =
-          typeof newState === "function"
-            ? (newState as (prevState: T) => T)(prevState)
-            : newState;
+          typeof newState === "function" ? (newState as (prevState: T) => T)(prevState) : newState;
 
         // Update the latest state ref immediately
         latestStateRef.current = nextState;

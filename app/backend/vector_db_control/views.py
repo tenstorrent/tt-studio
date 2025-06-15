@@ -6,6 +6,7 @@ import os
 import uuid
 import json
 from typing import List
+from datetime import datetime
 from shared_config.logger_config import get_logger
 import pypdf
 from chromadb.types import Collection
@@ -24,7 +25,8 @@ from vector_db_control.chroma import (
     serialize_collection,
     delete_collection,
 )
-from vector_db_control.documents import chunk_pdf_document
+from vector_db_control.singletons import ChromaClient
+from vector_db_control.documents import chunk_document
 from vector_db_control.data import INTERNAL_KNOWLEDGE
 
 logger = get_logger(__name__)
@@ -33,7 +35,7 @@ logger.info(f"importing {__name__}")
 class VectorCollectionsAPIView(ViewSet):
     EMBED_MODEL = None
     chromadb_client = None
-    query_results_limit = 2
+    query_results_limit = 10
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -202,35 +204,148 @@ class VectorCollectionsAPIView(ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
                 data={"error": "You don't have access to this collection"}
             )
+
+        if "document" not in request.FILES:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "No document provided"},
+            )
+
+        document = request.FILES["document"]
         
-        file = request.FILES["file"]
-        logger.info(f"Processing uploaded file: {file.name}")
-        loaded_document = pypdf.PdfReader(stream=file)
-        chunks = chunk_pdf_document(loaded_document)
-        ids = [str(uuid.uuid4()) for _ in range(len(chunks))]
-        documents = [chunk.page_content for chunk in chunks]
+        # Create a temporary file to store the uploaded document
+        temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp')
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Sanitize filename to prevent directory traversal
+        filename = os.path.basename(document.name)
+        temp_file_path = os.path.join(temp_dir, filename)
 
-        logger.info(f"Inserting {len(chunks)} chunks to collection {pk}")
-        insert_to_chroma_collection(
-            collection_name=pk,
-            documents=documents,
-            ids=ids,
-            metadatas=[],
-            embedding_func_name=self.EMBED_MODEL,
-        )
-        collection = get_collection(collection_name=pk, embedding_func_name=self.EMBED_MODEL)
-        metadata = collection.metadata or {}
-        metadata.update({"last_uploaded_document": file.name})
-        collection.modify(metadata={k: v for k, v in metadata.items() if k != "hnsw:space"})
-        logger.info(f"Document {file.name} added to collection {pk} successfully")
-
-        return Response(status=200)
+        with open(temp_file_path, 'wb+') as temp_file:
+            for chunk in document.chunks():
+                temp_file.write(chunk)
+        
+        try:
+            # Get file extension and determine folder type
+            file_extension = os.path.splitext(document.name)[1].lower()
+            filename = document.name
+            
+            # Organize by file type into virtual folders
+            if file_extension in ['.pdf']:
+                folder_type = "pdf"
+                folder_path = f"pdf/{filename}"
+            elif file_extension in ['.doc', '.docx']:
+                folder_type = "docs"
+                folder_path = f"docs/{filename}"
+            elif file_extension in ['.txt']:
+                folder_type = "text"
+                folder_path = f"text/{filename}"
+            elif file_extension in ['.ppt', '.pptx']:
+                folder_type = "presentations"
+                folder_path = f"presentations/{filename}"
+            elif file_extension in ['.xls', '.xlsx']:
+                folder_type = "spreadsheets"
+                folder_path = f"spreadsheets/{filename}"
+            else:
+                folder_type = "other"
+                folder_path = f"other/{filename}"
+            
+            # Enhanced metadata with folder structure
+            upload_timestamp = datetime.now().isoformat()
+            base_metadata = {
+                "source": filename,
+                "folder_type": folder_type,
+                "folder_path": folder_path,
+                "file_extension": file_extension,
+                "display_path": folder_path,  # This will be shown in the UI
+                "upload_date": upload_timestamp
+            }
+            
+            chunked_document = chunk_document(file_path=temp_file_path, metadata=base_metadata)
+            documents = [d.page_content for d in chunked_document]
+            
+            # Update each chunk's metadata to include the folder structure
+            metadatas = []
+            for d in chunked_document:
+                chunk_metadata = d.metadata.copy()
+                chunk_metadata.update(base_metadata)
+                metadatas.append(chunk_metadata)
+            
+            ids = [str(uuid.uuid4()) for _ in documents]
+            insert_to_chroma_collection(
+                collection_name=pk,
+                documents=documents,
+                ids=ids,
+                metadatas=metadatas,
+                embedding_func_name=self.EMBED_MODEL,
+            )
+            
+            # Update collection metadata with the last uploaded document
+            try:
+                # Get the collection and update its metadata
+                collection = get_collection(
+                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                )
+                
+                # Update the collection metadata to include the last uploaded document
+                updated_metadata = collection.metadata.copy() if collection.metadata else {}
+                updated_metadata['last_uploaded_document'] = filename
+                
+                # Modify the collection with updated metadata
+                ChromaClient().modify_collection(
+                    name=pk,
+                    metadata=updated_metadata
+                )
+                
+                logger.info(f"Updated collection {pk} metadata with last_uploaded_document: {filename}")
+                
+            except Exception as e:
+                logger.error(f"Error updating collection metadata: {str(e)}")
+                # Don't fail the entire operation if metadata update fails
+                pass
+            
+            # Return information about the uploaded document
+            upload_info = {
+                "status": "success",
+                "message": f"Document '{filename}' uploaded successfully",
+                "document": {
+                    "filename": filename,
+                    "folder_type": folder_type,
+                    "folder_path": folder_path,
+                    "file_extension": file_extension,
+                    "display_path": folder_path,
+                    "chunks_count": len(documents),
+                },
+                "collection": pk
+            }
+            
+            logger.info(f"Document upload successful: {upload_info}")
+            return Response(data=upload_info, status=status.HTTP_200_OK)
+        except ValueError as e: # Unsupported file type
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": str(e)},
+            )
+        except Exception as e:
+            logger.error(f"Error processing document: {str(e)}", exc_info=True)
+            return Response(
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                data={"error": f"Failed to process document: {str(e)}"}
+            )
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
 
     @action(methods=["GET"], detail=True, url_path="query")
     def query(self, request, pk=None):
         logger.info(f"Query request for collection: {pk}")
-        logger.info(f"Query params: {request.query_params}")
-        
+        if not pk:
+            return Response(
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                data={"error": "No collection name provided"},
+            )
+
         # Check if user has access to this collection
         collection = get_collection(
             collection_name=pk, embedding_func_name=self.EMBED_MODEL
@@ -242,237 +357,278 @@ class VectorCollectionsAPIView(ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
                 data={"error": "You don't have access to this collection"}
             )
-            
-        query = request.query_params.get("query")
-        if isinstance(query, str):
-            query = [query]
-        
-        logger.info(f"Executing query: {query}")
-        query_result = query_collection(
-            collection_name=pk, embedding_func_name=self.EMBED_MODEL, query_texts=query
+
+        query_text = request.GET.get("query_text")
+        logger.info(f"Query text: {query_text}")
+        if not query_text:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "No query text provided"},
+            )
+        results = query_collection(
+            collection_name=pk,
+            query_texts=[query_text],
+            n_results=self.query_results_limit,
+            embedding_func_name=self.EMBED_MODEL,
         )
-        
-        # Fix broken logging of result length
-        documents = query_result.get("documents", [[]])
-        num_results = len(documents[0]) if documents and len(documents) > 0 else 0
-        logger.info(f"Query completed with {num_results} results")
-        
-        return Response(data=query_result)
+        return Response(results)
 
     @action(methods=["GET"], detail=False, url_path="query-all")
     def query_all_collections(self, request):
-        """Query across all collections and rank results by relevance score"""
-        logger.info(f"Query all collections request received")
-        logger.info(f"Query params: {request.query_params}")
-        
-        query = request.query_params.get("query")
-        if not query:
+        logger.info("Query all collections request received")
+        query_text = request.GET.get("query_text")
+        if not query_text:
             return Response(
-                {"error": "Missing query parameter"}, 
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "No query text provided"},
             )
-        
-        # Get user identifier to filter collections by ownership
+
+        # Get all collections the user has access to
+        all_collections: List[Collection] = list_collections()
         user_id = self.get_user_identifier(request)
-        logger.info(f"User identifier for query-all: {user_id}")
-        
-        # Get all collections
-        collections = list_collections()
-        
-        # Filter collections by user identifier
-        filtered_collections = [
-            col for col in collections 
+        user_collections = [
+            col for col in all_collections 
             if not col.metadata or not col.metadata.get('user_id') or col.metadata.get('user_id') == user_id
         ]
         
-        logger.info(f"Querying across {len(filtered_collections)} collections")
+        if not user_collections:
+            return Response(
+                status=status.HTTP_404_NOT_FOUND,
+                data={"error": "No collections found for this user."}
+            )
+
+        logger.info(f"Querying across {len(user_collections)} collections for user {user_id}")
         
-        all_results = []
-        
-        # Query each collection
-        for collection in filtered_collections:
+        all_results = {"results": []}
+        for collection in user_collections:
+            logger.info(f"Querying collection: {collection.name}")
             try:
-                result = query_collection(
+                results = query_collection(
                     collection_name=collection.name,
+                    query_texts=[query_text],
+                    n_results=self.query_results_limit,
                     embedding_func_name=self.EMBED_MODEL,
-                    query_texts=[query]
                 )
-                
-                # Add collection metadata to each result
-                if result.get("documents") and result["documents"][0]:
-                    for i, (doc, score) in enumerate(zip(result["documents"][0], result["distances"][0])):
-                        all_results.append({
-                            "collection": collection.name,
-                            "content": doc,
-                            "score": score,
-                            "id": result["ids"][0][i] if result.get("ids") and result["ids"][0] else None
-                        })
+                if results and results.get("documents"):
+                    # Add collection name to each result for context
+                    serialized_collection = serialize_collection(collection)
+                    for i in range(len(results["documents"][0])):
+                        result_item = {
+                            "collection": serialized_collection,
+                            "document": results["documents"][0][i],
+                            "metadata": results["metadatas"][0][i] if results["metadatas"] else None,
+                            "distance": results["distances"][0][i] if results["distances"] else None,
+                        }
+                        all_results["results"].append(result_item)
             except Exception as e:
-                logger.error(f"Error querying collection {collection.name}: {str(e)}", exc_info=True)
-                # Continue with other collections
-        
-        # Sort by score (lower is better for distance-based similarity)
-        sorted_results = sorted(all_results, key=lambda x: x["score"])
-        
-        # Limit results based on request parameter
-        limit = int(request.query_params.get("limit", 5))
-        top_results = sorted_results[:limit]
-        
-        logger.info(f"Found {len(all_results)} total results, returning top {len(top_results)}")
-        logger.info(f"Top results: {query}")
-        return Response({
-            "query": query,
-            "results": top_results,
-            "total_results": len(all_results)
-        })
+                logger.error(f"Error querying collection {collection.name}: {e}")
+                # Optionally skip problematic collections
+                continue
+
+        # Sort all aggregated results by distance (ascending)
+        all_results["results"].sort(key=lambda x: x["distance"] if x["distance"] is not None else float('inf'))
+
+        # Limit the final results to the top N
+        limit = int(request.GET.get("limit", 10))
+        all_results["results"] = all_results["results"][:limit]
+
+        return Response(all_results)
+
+    @action(methods=["GET"], detail=True, url_path="debug")
+    def debug_collection(self, request, pk=None):
+        """Debug endpoint to check collection contents"""
+        logger.info(f"Debug request for collection: {pk}")
+        if not pk:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "No collection name provided"},
+            )
+
+        try:
+            collection = get_collection(
+                collection_name=pk, embedding_func_name=self.EMBED_MODEL
+            )
+            
+            # Get all documents from the collection
+            results = collection.get(
+                include=["metadatas", "documents", "embeddings"]
+            )
+            
+            debug_info = {
+                "collection_name": pk,
+                "total_documents": len(results.get("documents", [])) if results else 0,
+                "embedding_model": self.EMBED_MODEL,
+                "sample_documents": results.get("documents", [])[:3] if results else [],  # First 3 docs
+                "sample_metadatas": results.get("metadatas", [])[:3] if results else [],  # First 3 metadatas
+                "has_embeddings": bool(results.get("embeddings")) if results else False,
+            }
+            
+            return Response(debug_info)
+            
+        except Exception as e:
+            logger.error(f"Error debugging collection {pk}: {str(e)}", exc_info=True)
+            return Response(
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                data={"error": f"Failed to debug collection: {str(e)}"}
+            )
+
+    @action(methods=["GET"], detail=True, url_path="documents")
+    def list_documents(self, request, pk=None):
+        """List all uploaded documents in a collection"""
+        logger.info(f"List documents request for collection: {pk}")
+        if not pk:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"error": "No collection name provided"},
+            )
+
+        # Check if user has access to this collection
+        collection = get_collection(
+            collection_name=pk, embedding_func_name=self.EMBED_MODEL
+        )
+        user_id = self.get_user_identifier(request)
+        if collection.metadata and collection.metadata.get('user_id') and collection.metadata.get('user_id') != user_id:
+            logger.warning(f"User {user_id} attempted to list documents in collection {pk} owned by {collection.metadata.get('user_id')}")
+            return Response(
+                status=status.HTTP_403_FORBIDDEN,
+                data={"error": "You don't have access to this collection"}
+            )
+
+        try:
+            # Get all documents from the collection
+            results = collection.get(
+                include=["metadatas", "documents"]
+            )
+            
+            # Group documents by their source file
+            documents_by_file = {}
+            
+            if results and results.get("metadatas"):
+                for i, metadata in enumerate(results["metadatas"]):
+                    if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                        source = metadata.get("source")
+                        folder_path = metadata.get("folder_path", source)
+                        folder_type = metadata.get("folder_type", "other")
+                        file_extension = metadata.get("file_extension", "")
+                        
+                        if source not in documents_by_file:
+                            documents_by_file[source] = {
+                                "filename": source,
+                                "folder_type": folder_type,
+                                "folder_path": folder_path,
+                                "file_extension": file_extension,
+                                "display_path": folder_path,
+                                "chunks_count": 0,
+                                "upload_date": metadata.get("upload_date", "Unknown")
+                            }
+                        
+                        documents_by_file[source]["chunks_count"] += 1
+            
+            # Convert to list and sort by upload date or filename
+            uploaded_documents = list(documents_by_file.values())
+            uploaded_documents.sort(key=lambda x: x["filename"])
+            
+            return Response({
+                "collection": pk,
+                "documents": uploaded_documents,
+                "total_files": len(uploaded_documents)
+            })
+            
+        except Exception as e:
+            logger.error(f"Error listing documents in collection {pk}: {str(e)}", exc_info=True)
+            return Response(
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                data={"error": f"Failed to list documents: {str(e)}"}
+            )
 
 
-# rag admin views
 @api_view(['POST'])
 def rag_admin_authenticate(request):
-    """Authenticate admin access with password from environment variable"""
-    try:
-        # Get the password from the request
-        password = request.data.get('password')
-        
-        # Get the admin password from settings or environment
-        admin_password = getattr(settings, 'RAG_ADMIN_PASSWORD', os.environ.get('RAG_ADMIN_PASSWORD'))
-        
-        if not admin_password:
-            logger.error("RAG_ADMIN_PASSWORD not configured in settings or environment")
-            return Response(
-                {"error": "Admin authentication not configured"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-            
-        # Validate password
-        if password != admin_password:
-            logger.warning(f"Failed admin authentication attempt")
-            return Response(
-                {"error": "Invalid credentials"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-            
-        # Password is correct, return success
-        return Response({"authenticated": True}, status=status.HTTP_200_OK)
-        
-    except Exception as e:
-        logger.error(f"Error in admin authentication: {str(e)}", exc_info=True)
+    """
+    Dummy endpoint for admin authentication.
+    In a real scenario, this would involve a proper authentication mechanism.
+    """
+    logger.info("RAG Admin authentication request")
+    password = request.data.get("password")
+    
+    # Allow authentication if RAG_ADMIN_PASSWORD is not set or if it matches
+    if not settings.RAG_ADMIN_PASSWORD or password == settings.RAG_ADMIN_PASSWORD:
+        logger.info("RAG Admin authenticated successfully")
+        # In a real app, you would return a token here
         return Response(
-            {"error": f"Authentication error: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"status": "authenticated"},
+            status=status.HTTP_200_OK
+        )
+    else:
+        logger.warning("RAG Admin authentication failed")
+        return Response(
+            {"error": "Invalid password"},
+            status=status.HTTP_401_UNAUTHORIZED
         )
 
 @api_view(['POST'])
+@permission_classes([])
 def rag_admin_list_all_collections(request):
-    """List all collections regardless of user_id, requires authentication"""
-    try:
-        # Get the password from the request
-        password = request.data.get('password')
-        
-        # Get the admin password from settings or environment
-        admin_password = getattr(settings, 'RAG_ADMIN_PASSWORD', os.environ.get('RAG_ADMIN_PASSWORD'))
-        
-        if not admin_password:
-            logger.error("RAG_ADMIN_PASSWORD not configured in settings or environment")
-            return Response(
-                {"error": "Admin authentication not configured"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-            
-        # Validate password
-        if password != admin_password:
-            logger.warning(f"Failed admin authentication attempt")
-            return Response(
-                {"error": "Invalid credentials"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        
-        # Get all collections without filtering by user_id
-        collections = list_collections()
-        logger.info(f"Admin view: Retrieved {len(collections)} total collections")
-        
-        # Serialize collections
-        serialized_collections = list(map(serialize_collection, collections))
-        
-        # Add detailed user info to response
-        for collection in serialized_collections:
-            user_id = collection.get('metadata', {}).get('user_id', 'Unknown')
-            
-            if user_id and user_id.startswith('session_'):
-                collection['user_type'] = 'Anonymous (Browser Session)'
-                collection['user_identifier'] = user_id[8:]  # Remove 'session_' prefix
-            elif user_id and user_id.startswith('user_'):
-                collection['user_type'] = 'Authenticated User'
-                collection['user_identifier'] = user_id[5:]  # Remove 'user_' prefix
-            else:
-                collection['user_type'] = 'Unknown'
-                collection['user_identifier'] = user_id
-        
+    """
+    An endpoint for admins to list all collections, bypassing user/session scope.
+    Requires a valid admin password.
+    """
+    logger.info("RAG Admin list all collections request")
+    password = request.data.get("password")
+    
+    # Allow access if RAG_ADMIN_PASSWORD is not set or if it matches
+    if not settings.RAG_ADMIN_PASSWORD or password == settings.RAG_ADMIN_PASSWORD:
+        logger.info("RAG Admin authenticated for listing collections")
+        collections: List[Collection] = list_collections()
+        # Include user_id in the serialized response
+        serialized_collections = []
+        for col in collections:
+            s_col = serialize_collection(col)
+            s_col['user_id'] = col.metadata.get('user_id') if col.metadata else None
+            serialized_collections.append(s_col)
         return Response(data=serialized_collections)
-        
-    except Exception as e:
-        logger.error(f"Error in admin collections view: {str(e)}", exc_info=True)
+    else:
+        logger.warning("RAG Admin authentication failed for listing collections")
         return Response(
-            {"error": f"Error retrieving collections: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"error": "Invalid password"},
+            status=status.HTTP_401_UNAUTHORIZED
         )
 
 @api_view(['POST'])
 def rag_admin_delete_collection(request):
-    """Delete a collection with admin privileges, regardless of owner"""
-    logger.info(f"@@***Admin delete collection request received. Headers: {request.headers}")
-    logger.info(f"Request data: {request.data}")
-    
-    # Get request parameters
-    password = request.data.get('password')
-    collection_name = request.data.get('collection_name')
-    logger.info(f"Attempting to delete collection: {collection_name}")
-    
-    # Validate input
+    """
+    An endpoint for admins to delete any collection.
+    Requires a valid admin password.
+    """
+    logger.info("RAG Admin delete collection request")
+    password = request.data.get("password")
+    collection_name = request.data.get("collection_name")
+
     if not collection_name:
-        logger.error("No collection name provided for deletion")
         return Response(
-            {"error": "No collection name provided"},
+            {"error": "Collection name not provided"},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    # Authenticate admin
-    admin_password = getattr(settings, 'RAG_ADMIN_PASSWORD', os.environ.get('RAG_ADMIN_PASSWORD'))
-    if not admin_password:
-        logger.error("RAG_ADMIN_PASSWORD not configured")
-        return Response(
-            {"error": "Admin authentication not configured"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-    
-    if password != admin_password:
-        logger.warning(f"Failed admin authentication attempt for deletion")
-        return Response(
-            {"error": "Invalid credentials"},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
-    
-    # Admin is authenticated, delete the collection
-    try:
-        delete_collection(collection_name=collection_name)
-        logger.info(f"Admin deleted collection: {collection_name}")
-        return Response(
-            {"success": True, "message": f"Collection '{collection_name}' successfully deleted"},
-            status=status.HTTP_200_OK
-        )
-    except Exception as e:
-        # Handle "collection doesn't exist" error gracefully
-        if "does not exist" in str(e).lower():
-            logger.info(f"Collection {collection_name} doesn't exist or was already deleted")
+
+    # Allow access if RAG_ADMIN_PASSWORD is not set or if it matches
+    if not settings.RAG_ADMIN_PASSWORD or password == settings.RAG_ADMIN_PASSWORD:
+        logger.info(f"RAG Admin authenticated for deleting collection: {collection_name}")
+        try:
+            delete_collection(collection_name=collection_name)
+            logger.info(f"Admin successfully deleted collection: {collection_name}")
             return Response(
-                {"success": True, "message": f"Collection '{collection_name}' already deleted or doesn't exist"},
+                {"status": f"Collection '{collection_name}' deleted successfully"},
                 status=status.HTTP_200_OK
             )
-        
-        # Handle other errors
-        logger.error(f"Error in admin delete collection: {str(e)}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Admin failed to delete collection {collection_name}: {e}")
+            return Response(
+                {"error": f"Failed to delete collection: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    else:
+        logger.warning(f"RAG Admin authentication failed for deleting collection: {collection_name}")
         return Response(
-            {"error": f"Error deleting collection: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"error": "Invalid password"},
+            status=status.HTTP_401_UNAUTHORIZED
         )

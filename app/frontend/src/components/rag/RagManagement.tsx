@@ -17,7 +17,6 @@ import CopyableText from "@/src/components/CopyableText";
 import { useTheme } from "@/src/providers/ThemeProvider";
 import CustomToaster, { customToast } from "@/src/components/CustomToaster";
 import React, { useRef, useState, useEffect } from "react";
-import RagDataSourceForm from "./RagDataSourceForm";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import {
   fetchCollections,
@@ -34,6 +33,8 @@ import {
   Settings,
   ChevronDown,
   ChevronUp,
+  Plus,
+  Cloud,
 } from "lucide-react";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
 import { v4 as uuidv4 } from "uuid";
@@ -129,9 +130,8 @@ export default function RagManagement() {
   const [ragDataSources, setRagDataSources] = useState<RagDataSource[]>([]);
   const [error, setError] = useState<Error | null>(null);
 
-  const [targetCollection, setTargetCollection] = useState<RagDataSource | undefined>(undefined);
-
   const [collectionsUploading, setCollectionsUploading] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
 
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -174,6 +174,81 @@ export default function RagManagement() {
     loadCollections();
   }, []);
 
+  // Auto-create collection and upload document
+  const autoCreateAndUploadMutation = useMutation({
+    mutationFn: async ({ file, collectionName }: { file: File; collectionName: string }) => {
+      // First create the collection
+      await createCollection({ collectionName });
+
+      // Then upload the document
+      await uploadDocument({ file, collectionName });
+
+      return { file, collectionName };
+    },
+    onMutate: ({ collectionName }) => {
+      setCollectionsUploading([...collectionsUploading, collectionName]);
+      customToast.success(`Creating datasource "${collectionName}" and uploading document...`);
+    },
+    onError: (error: any, { file, collectionName }) => {
+      setCollectionsUploading(collectionsUploading.filter((e) => e !== collectionName));
+      if (error.message === "Collection name already exists") {
+        customToast.error(
+          `Collection "${collectionName}" already exists. Please choose a different name.`
+        );
+      } else {
+        customToast.error(`Error creating datasource and uploading ${file.name}: ${error.message}`);
+      }
+    },
+    onSuccess: async ({ file, collectionName }) => {
+      setCollectionsUploading(collectionsUploading.filter((e) => e !== collectionName));
+      customToast.success(
+        `Successfully created datasource "${collectionName}" and uploaded "${file.name}"`
+      );
+
+      // Add a delay to allow backend to process the upload and update metadata
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Refresh the data with retry logic
+      setLoading(true);
+      try {
+        let retries = 3;
+        let data;
+
+        while (retries > 0) {
+          data = await fetchCollections();
+
+          // Check if the collection we just created has the file metadata
+          const newCollection = data.find((col: RagDataSource) => col.name === collectionName);
+          console.log(`[AutoUpload] Checking collection "${collectionName}":`, newCollection);
+          console.log(
+            `[AutoUpload] Expected file: "${file.name}", Found metadata:`,
+            newCollection?.metadata
+          );
+
+          if (newCollection && newCollection.metadata?.last_uploaded_document) {
+            // Metadata is updated, we're good
+            console.log(
+              `[AutoUpload] Metadata found for ${collectionName}: ${newCollection.metadata.last_uploaded_document}`
+            );
+            break;
+          }
+
+          // If not updated yet, wait a bit more and retry
+          if (retries > 1) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+          retries--;
+        }
+
+        setRagDataSources(data);
+      } catch (err) {
+        console.error("Error fetching collections:", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+  });
+
   // Delete collection mutation
   const deleteCollectionMutation = useMutation({
     mutationFn: deleteCollection,
@@ -191,29 +266,7 @@ export default function RagManagement() {
     },
   });
 
-  // Create collection
-  const createCollectionMutation = useMutation({
-    mutationFn: createCollection,
-    onSuccess: async (_data, variables) => {
-      customToast.success(`RAG Datasource created successfully: ${variables.collectionName}`);
-
-      // Refresh the data
-      setLoading(true);
-      try {
-        const data = await fetchCollections();
-        setRagDataSources(data);
-      } catch (err) {
-        console.error("Error fetching collections:", err);
-      } finally {
-        setLoading(false);
-      }
-    },
-    onError: (error: any) => {
-      console.error("Error in createCollectionMutation:", error);
-    },
-  });
-
-  // Upload document mutation
+  // Upload document mutation (for existing collections)
   const uploadDocumentMutation = useMutation({
     mutationFn: uploadDocument,
     onMutate: ({ collectionName }) => {
@@ -227,10 +280,47 @@ export default function RagManagement() {
       setCollectionsUploading(collectionsUploading.filter((e) => e !== collectionName));
       customToast.success(`Uploaded ${file.name} to ${collectionName}`);
 
-      // Refresh the data
+      // Add a delay to allow backend to process the upload and update metadata
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Refresh the data with retry logic
       setLoading(true);
       try {
-        const data = await fetchCollections();
+        let retries = 3;
+        let data;
+
+        while (retries > 0) {
+          data = await fetchCollections();
+
+          // Check if the collection has the updated file metadata
+          const updatedCollection = data.find((col: RagDataSource) => col.name === collectionName);
+          console.log(
+            `[UploadExisting] Checking collection "${collectionName}":`,
+            updatedCollection
+          );
+          console.log(
+            `[UploadExisting] Expected file: "${file.name}", Found metadata:`,
+            updatedCollection?.metadata
+          );
+
+          if (
+            updatedCollection &&
+            updatedCollection.metadata?.last_uploaded_document === file.name
+          ) {
+            // Metadata is updated with the new file, we're good
+            console.log(
+              `[UploadExisting] Metadata updated for ${collectionName}: ${updatedCollection.metadata.last_uploaded_document}`
+            );
+            break;
+          }
+
+          // If not updated yet, wait a bit more and retry
+          if (retries > 1) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+          retries--;
+        }
+
         setRagDataSources(data);
       } catch (err) {
         console.error("Error fetching collections:", err);
@@ -238,10 +328,73 @@ export default function RagManagement() {
         setLoading(false);
       }
     },
-    onSettled: () => {
-      setTargetCollection(undefined);
-    },
   });
+
+  // Generate collection name from file name
+  const generateCollectionName = (fileName: string): string => {
+    // Remove extension and special characters, replace spaces with underscores
+    return fileName
+      .replace(/\.[^/.]+$/, "") // Remove file extension
+      .replace(/[^a-zA-Z0-9_-]/g, "_") // Replace special chars with underscores
+      .replace(/_{2,}/g, "_") // Replace multiple underscores with single
+      .replace(/^_|_$/g, "") // Remove leading/trailing underscores
+      .toLowerCase();
+  };
+
+  // Handle file drop
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    handleFileUpload(files);
+  };
+
+  // Handle file selection
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+
+    const files = Array.from(e.target.files);
+    handleFileUpload(files);
+
+    // Reset input
+    e.target.value = "";
+  };
+
+  // Handle file upload
+  const handleFileUpload = (files: File[]) => {
+    files.forEach((file) => {
+      const collectionName = generateCollectionName(file.name);
+
+      if (collectionName.length < 2) {
+        customToast.error(
+          `Generated collection name "${collectionName}" is too short. Please rename the file.`
+        );
+        return;
+      }
+
+      // Check if collection already exists
+      const existingCollection = ragDataSources.find((rds) => rds.name === collectionName);
+      if (existingCollection) {
+        // Upload to existing collection
+        uploadDocumentMutation.mutate({ file, collectionName });
+      } else {
+        // Create new collection and upload
+        autoCreateAndUploadMutation.mutate({ file, collectionName });
+      }
+    });
+  };
+
+  // Drag handlers
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
 
   // Show skeleton while loading
   if (loading) {
@@ -261,17 +414,6 @@ export default function RagManagement() {
       </TableWrapper>
     );
   }
-
-  // Handle file selection for upload
-  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || !targetCollection) return;
-
-    const file = e.target.files[0];
-    uploadDocumentMutation.mutate({
-      file,
-      collectionName: targetCollection.name,
-    });
-  };
 
   // Action buttons component for reuse
   const ActionButtons = ({
@@ -303,10 +445,12 @@ export default function RagManagement() {
       <ConfirmDialog
         dialogDescription={
           item.metadata?.last_uploaded_document
-            ? `This will replace the existing PDF "${item.metadata.last_uploaded_document}" with the new uploaded PDF. Are you sure you want to continue?`
-            : "Select a PDF document to upload to this collection."
+            ? `This will replace the existing document "${item.metadata.last_uploaded_document}" with the new one. Are you sure?`
+            : "Select a document to upload to this collection. Supported types: PDF, TXT, DOCX, MD, HTML, and source code files."
         }
-        dialogTitle={item.metadata?.last_uploaded_document ? "Replace existing PDF?" : "Upload PDF"}
+        dialogTitle={
+          item.metadata?.last_uploaded_document ? "Replace existing document?" : "Upload Document"
+        }
         onConfirm={() => onUploadClick(item)}
         alertTrigger={
           <Button
@@ -447,31 +591,51 @@ export default function RagManagement() {
   return (
     <>
       <TableWrapper>
-        {/* Hidden file input for uploads */}
+        {/* Hidden file input */}
         <input
           type="file"
-          onChange={onFileSelected}
-          accept="application/pdf"
-          id="file"
+          onChange={handleFileInput}
+          accept=".pdf,.txt,.docx,.doc,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/html,application/json,text/xml,text/csv"
+          multiple
           ref={inputFile}
           style={{ display: "none" }}
         />
+
+        {/* File Upload Area */}
         <Card
-          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg overflow-hidden mt-8 md:mt-0`}
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 ${
+            isDragging ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : ""
+          }`}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+        >
+          <div className="p-8 text-center">
+            <Cloud className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+            <h3 className="text-lg font-medium mb-2">Upload Documents to Create RAG Datasources</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Drag & drop files here or click to browse. Datasources will be created automatically
+              using file names.
+            </p>
+            <Button
+              onClick={() => inputFile.current?.click()}
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Select Files
+            </Button>
+          </div>
+        </Card>
+
+        <Card
+          className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg overflow-hidden`}
         >
           <ScrollArea className="whitespace-nowrap rounded-md border w-full max-w-full p-2 sm:p-0">
             <CustomToaster />
-            <RagDataSourceForm
-              onSubmit={async (d) =>
-                await createCollectionMutation.mutate({
-                  collectionName: d.collectionName,
-                })
-              }
-            />
             <div className="overflow-x-auto">
               <Table className="w-full">
                 <TableCaption className="text-TT-black dark:text-TT-white text-lg md:text-xl">
-                  Manage Rag Datasources
+                  Manage RAG Datasources
                 </TableCaption>
                 <TableHeader>
                   <TableRow className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}>
@@ -508,8 +672,22 @@ export default function RagManagement() {
                           item: rds,
                           isUploading: collectionsUploading.includes(rds.name),
                           onUploadClick: (rds: RagDataSource) => {
-                            setTargetCollection(rds);
-                            inputFile.current?.click();
+                            // Create a mock file input for single file upload to existing collection
+                            const input = document.createElement("input");
+                            input.type = "file";
+                            input.multiple = false;
+                            input.accept =
+                              ".pdf,.txt,.docx,.doc,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/html,application/json,text/xml,text/csv";
+                            input.onchange = (e) => {
+                              const target = e.target as HTMLInputElement;
+                              if (target.files && target.files[0]) {
+                                uploadDocumentMutation.mutate({
+                                  file: target.files[0],
+                                  collectionName: rds.name,
+                                });
+                              }
+                            };
+                            input.click();
                           },
                           onDelete: (rds: RagDataSource) =>
                             deleteCollectionMutation.mutate({

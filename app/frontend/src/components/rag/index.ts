@@ -27,11 +27,7 @@ export const fetchCollections = async () => {
   }
 };
 
-export const createCollection = async ({
-  collectionName,
-}: {
-  collectionName: string;
-}) => {
+export const createCollection = async ({ collectionName }: { collectionName: string }) => {
   try {
     const response = await axios.post(`${collectionsAPIURL}/`, {
       name: collectionName,
@@ -48,11 +44,7 @@ export const createCollection = async ({
   }
 };
 
-export const deleteCollection = async ({
-  collectionName,
-}: {
-  collectionName: string;
-}) => {
+export const deleteCollection = async ({ collectionName }: { collectionName: string }) => {
   try {
     return await axios.delete(`${collectionsAPIURL}/${collectionName}`);
   } catch (error) {
@@ -71,17 +63,13 @@ export const uploadDocument = async ({
   try {
     // Fix the URL to match the Django @action URL pattern
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("document", file);
 
-    return await axios.post(
-      `${collectionsAPIURL}/${collectionName}/insert_document`,
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      }
-    );
+    return await axios.post(`${collectionsAPIURL}/${collectionName}/insert_document`, formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
   } catch (error) {
     console.error("Error uploading document:", error);
     throw error;
