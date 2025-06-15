@@ -238,10 +238,10 @@ class ObjectDetectionInferenceCloudView(APIView):
             
         image = image.file  # we should only receive 1 file
         
-        # Get deploy_id and handle the case where it's the string "null"
+        # Get deploy_id and handle the case where it's the string "null" or empty
         deploy_id = data.get("deploy_id")
-        if deploy_id == "null":
-            # Use cloud URL when deploy_id is "null"
+        if deploy_id == "null" or not deploy_id:
+            # Use cloud URL when deploy_id is "null" or empty
             internal_url = CLOUD_YOLOV4_API_URL
             logger.info(f"Using cloud URL: {internal_url}")
             headers = {"Authorization": f"Bearer {CLOUD_YOLOV4_API_AUTH_TOKEN}"}
@@ -370,8 +370,8 @@ class SpeechRecognitionInferenceCloudView(APIView):
             
         # Get deploy_id and handle the case where it's the string "null"
         deploy_id = data.get("deploy_id")
-        if deploy_id == "null":
-            # Use cloud URL when deploy_id is "null"
+        if deploy_id == "null" or not deploy_id:
+            # Use cloud URL when deploy_id is "null" or empty
             internal_url = CLOUD_SPEECH_RECOGNITION_URL
             if not internal_url:
                 return Response(
@@ -524,8 +524,8 @@ class SpeechRecognitionInferenceCloudView(APIView):
             
         # Get deploy_id and handle the case where it's the string "null"
         deploy_id = data.get("deploy_id")
-        if deploy_id == "null":
-            # Use cloud URL when deploy_id is "null"
+        if deploy_id == "null" or not deploy_id:
+            # Use cloud URL when deploy_id is "null" or empty
             internal_url = CLOUD_SPEECH_RECOGNITION_URL
             if not internal_url:
                 return Response(

@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, useRef, useCallback, useEffect } from "react";
-import { startCapture, stopCapture, sendSnapshot } from "../utlis/webcamUtlis";
+import { startCapture, stopCapture, sendSnapshot } from "../utils/webcamUtils";
 import { Detection, DetectionMetadata } from "../types/objectDetection";
 
 export const useWebcam = (
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void,
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void,
   setLiveMode: (mode: boolean) => void,
   setIsLoading: (isLoading: boolean) => void,
   setIsStreaming: (isStreaming: boolean) => void,
@@ -22,8 +19,7 @@ export const useWebcam = (
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const processFrame = useCallback(async () => {
-    if (!isLiveRef.current || processingRef.current || !videoRef.current)
-      return;
+    if (!isLiveRef.current || processingRef.current || !videoRef.current) return;
 
     processingRef.current = true;
     try {
@@ -55,14 +51,7 @@ export const useWebcam = (
       setIsLoading(false);
       isLiveRef.current = false;
     }
-  }, [
-    setDetections,
-    setLiveMode,
-    setIsLoading,
-    setIsStreaming,
-    setIsCameraOn,
-    processFrame,
-  ]);
+  }, [setDetections, setLiveMode, setIsLoading, setIsStreaming, setIsCameraOn, processFrame]);
 
   const handleStopCapture = useCallback(() => {
     setIsCapturing(false);

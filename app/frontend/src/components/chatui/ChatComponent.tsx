@@ -385,7 +385,9 @@ export default function ChatComponent() {
       lastScrollPositionRef.current = scrollTop;
 
       // Show scroll button when scrolled up significantly
-      setShowScrollToBottom(distanceFromBottom > 100);
+      const isScrolledUp = distanceFromBottom > 100;
+      setIsScrolledUp(isScrolledUp);
+      setShowScrollToBottom(isScrolledUp);
 
       // Track if user has scrolled away from bottom - INCREASED SENSITIVITY
       // Even tiny scroll (10px) will stop auto-scroll
@@ -401,6 +403,7 @@ export default function ChatComponent() {
     const scrollToBottom = () => {
       if (container) {
         container.scrollTop = container.scrollHeight;
+        setIsScrolledUp(false);
       }
     };
 

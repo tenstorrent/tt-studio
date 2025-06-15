@@ -21,10 +21,7 @@ export interface DetectionMetadata {
 }
 
 export interface WebcamPickerProps {
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void;
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
   setLiveMode: (mode: boolean) => void;
   setIsLoading: (isLoading: boolean) => void;
   setIsStreaming: (isStreaming: boolean) => void;
@@ -33,6 +30,7 @@ export interface WebcamPickerProps {
   setExternalControls?: (controls: React.ReactNode) => void;
   videoOnly?: boolean;
   hoveredIndex?: number | null;
+  videoRef?: React.RefObject<HTMLVideoElement>;
 }
 export interface InferenceRequest {
   deploy_id: string | null;

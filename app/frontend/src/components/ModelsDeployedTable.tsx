@@ -50,23 +50,11 @@ import {
   X,
   FileText,
   ChevronLeft,
-  MoreHorizontal,
   ChevronDown,
   AlertTriangle,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "./ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 // ANSI color code parsing utilities
@@ -323,10 +311,7 @@ function LogsDialog({
     const ref = getCurrentRef();
     if (ref.current) {
       const isAtBottom =
-        ref.current.scrollHeight -
-          ref.current.scrollTop -
-          ref.current.clientHeight <
-        10;
+        ref.current.scrollHeight - ref.current.scrollTop - ref.current.clientHeight < 10;
       setAutoScrollEnabled(isAtBottom);
       setShowScrollButton(!isAtBottom);
     }
@@ -398,13 +383,9 @@ function LogsDialog({
         clearTimeout(connectionTimeoutId);
 
         if (isLoading) {
-          setError(
-            "Failed to connect to log stream. The container may have stopped."
-          );
+          setError("Failed to connect to log stream. The container may have stopped.");
         } else {
-          setError(
-            "Connection to log stream lost. The container may have stopped."
-          );
+          setError("Connection to log stream lost. The container may have stopped.");
         }
 
         eventSource?.close();
@@ -485,8 +466,7 @@ function LogsDialog({
                       style={{
                         wordWrap: "break-word",
                         overflowWrap: "break-word",
-                        fontFamily:
-                          'Consolas, "Courier New", "Monaco", monospace',
+                        fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
                       }}
                     >
                       <span className="text-gray-500 text-xs mr-2 select-none">
@@ -494,9 +474,7 @@ function LogsDialog({
                       </span>
                       {parsed.level && (
                         <span
-                          className={`text-xs font-bold mr-2 ${getLogLevelColor(
-                            parsed.level
-                          )}`}
+                          className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
                         >
                           [{parsed.level}]
                         </span>
@@ -506,9 +484,7 @@ function LogsDialog({
                           <span
                             key={segIndex}
                             style={{
-                              color:
-                                segment.color ||
-                                (parsed.level ? undefined : "#50FA7B"),
+                              color: segment.color || (parsed.level ? undefined : "#50FA7B"),
                               backgroundColor: segment.backgroundColor,
                               fontWeight: segment.bold ? "bold" : "normal",
                               fontStyle: segment.italic ? "italic" : "normal",
@@ -525,12 +501,8 @@ function LogsDialog({
               {/* Terminal cursor */}
               {logs.length > 0 && (
                 <div className="flex items-center mt-2 opacity-75">
-                  <span className="text-gray-500 text-xs mr-2 select-none">
-                    $
-                  </span>
-                  <span className="text-green-400 animate-pulse text-sm">
-                    █
-                  </span>
+                  <span className="text-gray-500 text-xs mr-2 select-none">$</span>
+                  <span className="text-green-400 animate-pulse text-sm">█</span>
                 </div>
               )}
             </div>
@@ -565,12 +537,9 @@ function LogsDialog({
                 events.map((event, index) => {
                   const parsed = parseAnsiColors(event);
                   const isError =
-                    parsed.level &&
-                    ["ERROR", "FATAL", "CRITICAL"].includes(parsed.level);
-                  const isWarning =
-                    parsed.level && ["WARN", "WARNING"].includes(parsed.level);
-                  const isInfo =
-                    parsed.level && ["INFO"].includes(parsed.level);
+                    parsed.level && ["ERROR", "FATAL", "CRITICAL"].includes(parsed.level);
+                  const isWarning = parsed.level && ["WARN", "WARNING"].includes(parsed.level);
+                  const isInfo = parsed.level && ["INFO"].includes(parsed.level);
                   const isStartupEvent =
                     event.includes("startup complete") ||
                     event.includes("Uvicorn running") ||
@@ -591,8 +560,7 @@ function LogsDialog({
                       style={{
                         wordWrap: "break-word",
                         overflowWrap: "break-word",
-                        fontFamily:
-                          'Consolas, "Courier New", "Monaco", monospace',
+                        fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
                       }}
                     >
                       <div className="flex items-start gap-2">
@@ -602,21 +570,14 @@ function LogsDialog({
 
                         {/* Event severity icon */}
                         <span className="flex-shrink-0 mt-0.5">
-                          {isError && (
-                            <span className="text-red-400 text-xs">🔴</span>
-                          )}
-                          {isWarning && (
-                            <span className="text-yellow-400 text-xs">🟡</span>
-                          )}
+                          {isError && <span className="text-red-400 text-xs">🔴</span>}
+                          {isWarning && <span className="text-yellow-400 text-xs">🟡</span>}
                           {(isInfo || isStartupEvent) && (
                             <span className="text-green-400 text-xs">🟢</span>
                           )}
-                          {!isError &&
-                            !isWarning &&
-                            !isInfo &&
-                            !isStartupEvent && (
-                              <span className="text-blue-400 text-xs">🔵</span>
-                            )}
+                          {!isError && !isWarning && !isInfo && !isStartupEvent && (
+                            <span className="text-blue-400 text-xs">🔵</span>
+                          )}
                         </span>
 
                         <div className="flex-1">
@@ -652,9 +613,7 @@ function LogsDialog({
                                           : "#8BE9FD"),
                                   backgroundColor: segment.backgroundColor,
                                   fontWeight: segment.bold ? "bold" : "normal",
-                                  fontStyle: segment.italic
-                                    ? "italic"
-                                    : "normal",
+                                  fontStyle: segment.italic ? "italic" : "normal",
                                 }}
                               >
                                 {segment.text}
@@ -700,9 +659,7 @@ function LogsDialog({
                         {name.replace(/_/g, " ").toUpperCase()}:
                       </span>
                       <span className="font-bold text-yellow-400">
-                        {typeof value === "number"
-                          ? value.toLocaleString()
-                          : value}
+                        {typeof value === "number" ? value.toLocaleString() : value}
                       </span>
                     </div>
                   ))}
@@ -745,13 +702,9 @@ export default function ModelsDeployedTable() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { theme } = useTheme();
-  const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(
-    () => ({})
-  );
+  const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(() => ({}));
   const [showBanner, setShowBanner] = useState(true);
-  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
-    null
-  );
+  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null);
   // New state variables for column visibility
   const [showImage, setShowImage] = useState(false);
   const [showPorts, setShowPorts] = useState(true);
@@ -825,11 +778,13 @@ export default function ModelsDeployedTable() {
   const handleDelete = (modelId: string) => {
     setDeleteTargetId(modelId);
     setShowDeleteModal(true);
+    setPulsatingModels((prev) => [...prev, modelId]);
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteTargetId) return;
     setIsProcessingDelete(true);
+    setLoadingModels((prev) => [...prev, deleteTargetId]);
     const truncatedModelId = deleteTargetId.substring(0, 4);
     try {
       await customToast.promise(deleteModel(deleteTargetId), {
@@ -850,14 +805,14 @@ export default function ModelsDeployedTable() {
       setDeleteTargetId(null);
     } finally {
       setIsProcessingDelete(false);
+      setLoadingModels((prev) => prev.filter((id) => id !== deleteTargetId));
+      setPulsatingModels((prev) => prev.filter((id) => id !== deleteTargetId));
     }
   };
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setModels((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id))
-      );
+      setModels((prevModels) => prevModels.filter((model) => !fadingModels.includes(model.id)));
       setFadingModels([]);
     }, 3000);
     return () => clearTimeout(timer);
@@ -873,13 +828,8 @@ export default function ModelsDeployedTable() {
         <div className="flex flex-col items-center justify-center gap-4">
           <AlertCircle className="w-16 h-16 text-red-500" />
           <h2 className="text-2xl font-semibold">Connection Error</h2>
-          <p className="text-center text-gray-600 dark:text-gray-300 max-w-md">
-            {loadError}
-          </p>
-          <Button
-            onClick={handleRetry}
-            className="mt-4 bg-blue-500 hover:bg-blue-600 text-white"
-          >
+          <p className="text-center text-gray-600 dark:text-gray-300 max-w-md">{loadError}</p>
+          <Button onClick={handleRetry} className="mt-4 bg-blue-500 hover:bg-blue-600 text-white">
             Retry Connection
           </Button>
         </div>
@@ -968,9 +918,8 @@ export default function ModelsDeployedTable() {
               />
             </svg>
             <span>
-              Note: Some models may take up to <b>5–7 minutes</b> to start up,
-              especially on first use. Please be patient if the health status is
-              not yet 'healthy'.
+              Note: Some models may take up to <b>5–7 minutes</b> to start up, especially on first
+              use. Please be patient if the health status is not yet 'healthy'.
             </span>
           </div>
           <button
@@ -991,18 +940,14 @@ export default function ModelsDeployedTable() {
           <TableHeader>
             <TableRow
               className={`${
-                theme === "dark"
-                  ? "bg-zinc-900 rounded-lg"
-                  : "bg-zinc-200 rounded-lg"
+                theme === "dark" ? "bg-zinc-900 rounded-lg" : "bg-zinc-200 rounded-lg"
               }`}
             >
               {showContainerId && (
                 <TableHead className={getColumnHeaderStyle(showContainerId)}>
                   <div className="flex items-center">
                     <Box className="inline-block mr-2" size={16} /> Container ID{" "}
-                    <span className="text-xs font-normal text-gray-500">
-                      (click for logs)
-                    </span>
+                    <span className="text-xs font-normal text-gray-500">(click for logs)</span>
                     <button
                       onClick={() => setShowContainerId(false)}
                       className="ml-2 p-1 rounded hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
@@ -1126,9 +1071,7 @@ export default function ModelsDeployedTable() {
                       ? "bg-zinc-900 opacity-50"
                       : "bg-zinc-200 opacity-50"
                     : ""
-                } ${
-                  pulsatingModels.includes(model.id) ? "animate-pulse" : ""
-                } rounded-lg`}
+                } ${pulsatingModels.includes(model.id) ? "animate-pulse" : ""} rounded-lg`}
               >
                 {showContainerId ? (
                   <TableCell className="text-left">
@@ -1139,10 +1082,7 @@ export default function ModelsDeployedTable() {
                             onClick={() => setSelectedContainerId(model.id)}
                             className="text-blue-500 hover:text-blue-700 underline flex items-center"
                           >
-                            <CopyableText
-                              text={model.id}
-                              isInsideButton={true}
-                            />
+                            <CopyableText text={model.id} isInsideButton={true} />
                             <FileText className="w-4 h-4 ml-2 text-gray-500" />
                           </button>
                         </TooltipTrigger>
@@ -1154,11 +1094,7 @@ export default function ModelsDeployedTable() {
                   </TableCell>
                 ) : null}
                 <TableCell className="text-left">
-                  {model.name ? (
-                    <CopyableText text={extractShortModelName(model.name)} />
-                  ) : (
-                    "N/A"
-                  )}
+                  {model.name ? <CopyableText text={extractShortModelName(model.name)} /> : "N/A"}
                 </TableCell>
                 {showImage ? (
                   <TableCell className="text-left">
@@ -1180,9 +1116,7 @@ export default function ModelsDeployedTable() {
                   <div className="flex gap-2 justify-center">
                     {fadingModels.includes(model.id) ? (
                       <Button
-                        onClick={() =>
-                          model.image && handleRedeploy(model.image)
-                        }
+                        onClick={() => model.image && handleRedeploy(model.image)}
                         className={`$${
                           theme === "light"
                             ? "bg-zinc-700 hover:bg-zinc-600 text-white"
@@ -1220,11 +1154,7 @@ export default function ModelsDeployedTable() {
                               <Button
                                 onClick={() =>
                                   model.name &&
-                                  handleModelNavigationClick(
-                                    model.id,
-                                    model.name,
-                                    navigate
-                                  )
+                                  handleModelNavigationClick(model.id, model.name, navigate)
                                 }
                                 className={`$${
                                   theme === "dark"
@@ -1232,9 +1162,7 @@ export default function ModelsDeployedTable() {
                                     : "bg-blue-500 hover:bg-blue-400 text-white"
                                 } rounded-lg`}
                                 disabled={
-                                  !model.name ||
-                                  (modelHealth[model.id] ?? "unknown") !==
-                                    "healthy"
+                                  !model.name || (modelHealth[model.id] ?? "unknown") !== "healthy"
                                 }
                               >
                                 {getModelIcon(model.name)}
@@ -1245,23 +1173,15 @@ export default function ModelsDeployedTable() {
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent className="bg-gray-700 text-white">
-                              {(modelHealth[model.id] ?? "unknown") !==
-                              "healthy" ? (
-                                <p>
-                                  Action unavailable: Model health is not
-                                  healthy.
-                                </p>
+                              {(modelHealth[model.id] ?? "unknown") !== "healthy" ? (
+                                <p>Action unavailable: Model health is not healthy.</p>
                               ) : isLLaMAModel(model.name || "") ? (
                                 <p>
-                                  Warning: First-time inference may take up to
-                                  an hour. Subsequent runs may take 5-7 minutes.
+                                  Warning: First-time inference may take up to an hour. Subsequent
+                                  runs may take 5-7 minutes.
                                 </p>
                               ) : (
-                                <p>
-                                  {getTooltipText(
-                                    getModelTypeLabel(model.name)
-                                  )}
-                                </p>
+                                <p>{getTooltipText(getModelTypeLabel(model.name))}</p>
                               )}
                             </TooltipContent>
                           </Tooltip>
@@ -1274,10 +1194,7 @@ export default function ModelsDeployedTable() {
             ))}
           </TableBody>
         </Table>
-        <ScrollBar
-          className="scrollbar-thumb-rounded"
-          orientation="horizontal"
-        />
+        <ScrollBar className="scrollbar-thumb-rounded" orientation="horizontal" />
       </ScrollArea>
       <LogsDialog
         isOpen={!!selectedContainerId}
@@ -1301,15 +1218,13 @@ export default function ModelsDeployedTable() {
             <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 flex-shrink-0" />
             <div>
               <div className="font-bold mb-1 text-yellow-100">
-                Warning! This action will stop and remove the model, then reset
-                the card.
+                Warning! This action will stop and remove the model, then reset the card.
               </div>
               <div className="text-sm text-yellow-200">
-                Deleting a model will attempt to stop and remove the model
-                container.
+                Deleting a model will attempt to stop and remove the model container.
                 <br />
-                After deletion, the card will automatically be reset using{" "}
-                <code>tt-smi reset</code>.<br />
+                After deletion, the card will automatically be reset using <code>tt-smi reset</code>
+                .<br />
                 <span className="font-bold text-yellow-300">
                   This may interrupt any ongoing processes on the card.
                 </span>
@@ -1317,10 +1232,7 @@ export default function ModelsDeployedTable() {
             </div>
           </div>
           <DialogFooter className="mt-4 flex justify-end space-x-2">
-            <Button
-              onClick={() => setShowDeleteModal(false)}
-              disabled={isProcessingDelete}
-            >
+            <Button onClick={() => setShowDeleteModal(false)} disabled={isProcessingDelete}>
               Cancel
             </Button>
             <Button

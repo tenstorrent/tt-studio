@@ -16,7 +16,6 @@ import {
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
-  Mic,
   Cog,
   Menu,
 } from "lucide-react";
@@ -29,18 +28,9 @@ try {
   logo = undefined;
 }
 
-import {
-  NavigationMenu,
-  NavigationMenuItem,
-  NavigationMenuList,
-} from "./ui/navigation-menu";
+import { NavigationMenu, NavigationMenuItem, NavigationMenuList } from "./ui/navigation-menu";
 import { Separator } from "./ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
@@ -206,11 +196,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       return <ModeToggle />;
     } else if (IconComponent === ResetIcon) {
       // Only pass onReset if onClick is not null
-      return onClick ? (
-        <ResetIcon onReset={onClick} />
-      ) : (
-        <ResetIcon onReset={() => {}} />
-      );
+      return onClick ? <ResetIcon onReset={onClick} /> : <ResetIcon onReset={() => {}} />;
       // HelpIcon handling removed
     } else {
       // Fallback for any other icon component
@@ -257,30 +243,6 @@ interface ActionButtonType {
   icon: React.ComponentType<any>;
   tooltipText: string;
   onClick: (() => void) | null;
-}
-
-function SplashToggleMenuItem() {
-  const [enabled, setEnabled] = useState(() => {
-    const val = localStorage.getItem("splashEnabled");
-    return val === null ? false : val === "true"; // Default to false if not set
-  });
-
-  const handleToggle = () => {
-    const newVal = !enabled;
-    setEnabled(newVal);
-    localStorage.setItem("splashEnabled", newVal ? "true" : "false");
-    window.dispatchEvent(new Event("splash-toggle"));
-  };
-
-  return (
-    <button
-      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
-      onClick={handleToggle}
-    >
-      <Cog className="w-4 h-4 mr-2" />
-      {enabled ? "Hide Welcome Splash" : "Show Welcome Splash"}
-    </button>
-  );
 }
 
 function HeroSectionToggleMenuItem({
@@ -387,15 +349,13 @@ export default function NavBar() {
 
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
-  const hoverTextColor =
-    theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
+  const hoverTextColor = theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
   const activeBorderColor = "border-TT-purple-accent";
-  const hoverBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
+  const hoverBackgroundColor = theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
 
   const navLinkClass = `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`;
 
-  const getNavLinkClass = (isActive: boolean, isChatUIIcon = false): string => {
+  const getNavLinkClass = (isActive: boolean): string => {
     return `${navLinkClass} ${
       isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
     } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
@@ -423,10 +383,6 @@ export default function NavBar() {
     } else {
       navigate(route);
     }
-  };
-
-  const handleImageGenerationClick = () => {
-    handleNavigation("/image-generation");
   };
 
   const toggleHorizontalExpand = (): void => {
@@ -547,8 +503,7 @@ export default function NavBar() {
           type: "button",
           icon: getNavIconFromModelType(modelType),
           label: getModelPageNameFromModelType(modelType),
-          onClick: () =>
-            handleNavigation(getDestinationFromModelType(modelType)),
+          onClick: () => handleNavigation(getDestinationFromModelType(modelType)),
           isDisabled: models.length === 0,
           tooltipText:
             models.length > 0
@@ -605,8 +560,7 @@ export default function NavBar() {
                     alt="Tenstorrent Logo"
                     className="w-10 h-10"
                     onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display =
-                        "none";
+                      (e.currentTarget as HTMLImageElement).style.display = "none";
                     }}
                     whileHover={{ scale: 1.1, rotate: 360 }}
                     transition={{ type: "spring", stiffness: 300, damping: 10 }}
@@ -638,9 +592,7 @@ export default function NavBar() {
                           iconColor={iconColor}
                           getNavLinkClass={getNavLinkClass}
                           isActive={
-                            item.type === "button" && item.route
-                              ? isRouteActive(item.route)
-                              : false
+                            item.type === "button" && item.route ? isRouteActive(item.route) : false
                           }
                           isDisabled={item.isDisabled}
                           tooltipText={item.tooltipText}
@@ -688,8 +640,7 @@ export default function NavBar() {
                   alt="Tenstorrent Logo"
                   className="w-8 h-8"
                   onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display =
-                      "none";
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
                   }}
                   whileHover={{ scale: 1.1, rotate: 360 }}
                   transition={{ type: "spring", stiffness: 300, damping: 10 }}
@@ -721,9 +672,7 @@ export default function NavBar() {
                         iconColor={iconColor}
                         getNavLinkClass={getNavLinkClass}
                         isActive={
-                          item.type === "button" && item.route
-                            ? isRouteActive(item.route)
-                            : false
+                          item.type === "button" && item.route ? isRouteActive(item.route) : false
                         }
                         isDisabled={item.isDisabled}
                         tooltipText={item.tooltipText}
@@ -740,10 +689,7 @@ export default function NavBar() {
                   className="focus:outline-none ml-2"
                   aria-label="Collapse menu"
                 >
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
+                  <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                     <ChevronLeft className={`w-6 h-6 ${iconColor}`} />
                   </motion.div>
                 </button>
@@ -753,10 +699,7 @@ export default function NavBar() {
                   className="focus:outline-none ml-2"
                   aria-label="Expand menu"
                 >
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
+                  <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
                     <ChevronRight className={`w-6 h-6 ${iconColor}`} />
                   </motion.div>
                 </button>
@@ -796,9 +739,7 @@ export default function NavBar() {
                           iconColor={iconColor}
                           getNavLinkClass={getNavLinkClass}
                           isActive={
-                            item.type === "button" && item.route
-                              ? isRouteActive(item.route)
-                              : false
+                            item.type === "button" && item.route ? isRouteActive(item.route) : false
                           }
                           isDisabled={item.isDisabled}
                           tooltipText={item.tooltipText}
@@ -882,9 +823,7 @@ export default function NavBar() {
                       iconColor={iconColor}
                       getNavLinkClass={getNavLinkClass}
                       isActive={
-                        item.type === "button" && item.route
-                          ? isRouteActive(item.route)
-                          : false
+                        item.type === "button" && item.route ? isRouteActive(item.route) : false
                       }
                       isDisabled={item.isDisabled}
                       tooltipText={item.tooltipText}
@@ -892,10 +831,7 @@ export default function NavBar() {
                     />
                   )}
                   {index < navItems.length - 1 && (
-                    <Separator
-                      className="h-6 w-px bg-zinc-400 mx-1"
-                      orientation="vertical"
-                    />
+                    <Separator className="h-6 w-px bg-zinc-400 mx-1" orientation="vertical" />
                   )}
                 </div>
               ))}
@@ -918,11 +854,7 @@ export default function NavBar() {
                 <Menu className="w-6 h-6" />
               </button>
               <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-50">
-                {/* <SplashToggleMenuItem /> */}
-                <HeroSectionToggleMenuItem
-                  showHero={showHero}
-                  setShowHero={setShowHero}
-                />
+                <HeroSectionToggleMenuItem showHero={showHero} setShowHero={setShowHero} />
               </div>
             </div>
           </div>

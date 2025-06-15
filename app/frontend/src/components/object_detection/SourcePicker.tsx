@@ -2,25 +2,15 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { FileUpload } from "../ui/file-upload";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Detection,
-  DetectionMetadata,
-  InferenceRequest,
-} from "./types/objectDetection";
-import { runInference } from "./utlis/runInference";
+import { Detection, DetectionMetadata, InferenceRequest } from "./types/objectDetection";
+import { runInference } from "./utils/runInference";
 import { Button } from "../ui/button";
 import { X } from "lucide-react";
-import {
-  getConfidenceColorClass,
-  getLabelColorClass,
-} from "./utlis/colorUtils";
+import { getConfidenceColorClass, getLabelColorClass } from "./utils/colorUtils";
 
 interface SourcePickerProps {
   containerRef: React.RefObject<HTMLDivElement>;
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void;
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
   setLiveMode: (mode: boolean) => void;
   scaledDetections: Detection[];
   modelID: string | null;
@@ -101,10 +91,12 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
 
   return (
     <div className="h-full flex flex-col p-4 rounded-xl bg-background/50 shadow-sm">
-      <div className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 bg-muted/5" 
-        onMouseLeave={() => setIsFilenameFocused(false)}>
+      <div
+        className="flex items-center justify-between gap-2 mb-4 p-2 rounded-lg border border-muted/10 bg-muted/5"
+        onMouseLeave={() => setIsFilenameFocused(false)}
+      >
         {!showUpload && imageFile && (
-          <span 
+          <span
             className={`text-sm text-muted-foreground truncate px-2 transition-opacity duration-200 ${isFilenameFocused ? "opacity-100" : "opacity-20"}`}
             onMouseEnter={() => setIsFilenameFocused(true)}
           >
@@ -120,11 +112,11 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
             className="transition-opacity duration-200 group"
             onMouseEnter={() => setIsFilenameFocused(true)}
           >
-            <X 
-              size={16} 
-              className={`transition-colors duration-0 ${isFilenameFocused ? "text-red-500" : "text-muted-foreground opacity-20"}`} 
+            <X
+              size={16}
+              className={`transition-colors duration-0 ${isFilenameFocused ? "text-red-500" : "text-muted-foreground opacity-20"}`}
             />
-            <span 
+            <span
               className={`transition-colors duration-0 ${isFilenameFocused ? "text-red-500" : "text-muted-foreground opacity-20"}`}
             >
               Remove Image
@@ -137,10 +129,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
         <FileUpload onChange={handleFileUpload} />
       ) : (
         <div className="flex-1 min-h-0 relative bg-muted/5 rounded-lg p-4">
-          <div
-            ref={containerRef}
-            className="h-full flex items-center justify-center"
-          >
+          <div ref={containerRef} className="h-full flex items-center justify-center">
             {image && (
               <div className="relative max-h-full">
                 <img
