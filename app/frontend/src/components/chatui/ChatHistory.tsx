@@ -29,9 +29,9 @@ const RagPill: React.FC<{
   <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-TT-slate/30 text-xs text-gray-300 mb-2">
     <Database size={12} />
     <span>{ragDatasource.name}</span>
-    {ragDatasource.metadata?.last_uploaded_document && (
-      <span className="text-gray-400">· {ragDatasource.metadata.last_uploaded_document}</span>
-    )}
+    <span className="text-gray-400">
+      · {ragDatasource.metadata?.last_uploaded_document || "Untitled"}
+    </span>
   </div>
 );
 
