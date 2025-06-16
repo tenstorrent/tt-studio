@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+import React from "react";
 import { FileUpload } from "../ui/file-upload";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Detection, DetectionMetadata, InferenceRequest } from "./types/objectDetection";

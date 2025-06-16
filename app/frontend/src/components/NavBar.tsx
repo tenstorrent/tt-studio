@@ -20,13 +20,7 @@ import {
   Menu,
 } from "lucide-react";
 
-// Remove the direct import and use a try-catch
-let logo: string | undefined;
-try {
-  logo = require("../assets/logo/tt_logo.svg");
-} catch (e) {
-  logo = undefined;
-}
+import logo from "../assets/logo/tt_logo.svg";
 
 import { NavigationMenu, NavigationMenuItem, NavigationMenuList } from "./ui/navigation-menu";
 import { Separator } from "./ui/separator";

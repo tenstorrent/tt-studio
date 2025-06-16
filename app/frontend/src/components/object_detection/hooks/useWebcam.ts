@@ -16,7 +16,7 @@ export const useWebcam = (
   const videoRef = useRef<HTMLVideoElement>(null);
   const isLiveRef = useRef(false);
   const processingRef = useRef(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const processFrame = useCallback(async () => {
     if (!isLiveRef.current || processingRef.current || !videoRef.current) return;

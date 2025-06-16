@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+import React from "react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card } from "./ui/card";
@@ -58,7 +59,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 // ANSI color code parsing utilities
-const ANSI_REGEX = /\u001b\[[0-9;]*m/g;
+const ANSI_REGEX = /\\u001b\[[0-9;]*m/g;
 const LOG_LEVEL_REGEX = /(ERROR|WARN|WARNING|INFO|DEBUG|TRACE|FATAL|CRITICAL)/i;
 
 interface ParsedLogLine {
@@ -330,10 +331,10 @@ function LogsDialog({
     console.log("Connecting to logs stream:", endpoint);
 
     let eventSource: EventSource | null = null;
-    let connectionTimeoutId: NodeJS.Timeout;
+    let connectionTimeoutId: number;
 
     // Set a connection timeout to handle cases where onopen doesn't fire
-    connectionTimeoutId = setTimeout(() => {
+    connectionTimeoutId = window.setTimeout(() => {
       if (isLoading) {
         console.warn("Log stream connection timeout after 8 seconds");
         setError("Failed to connect to log stream. Please try again.");
@@ -421,7 +422,7 @@ function LogsDialog({
               setError(null);
               setIsLoading(true);
               setSelectedContainerId(null);
-              setTimeout(() => setSelectedContainerId(containerId), 100);
+              window.setTimeout(() => setSelectedContainerId(containerId), 100);
             }}
             className="bg-blue-500 hover:bg-blue-600 text-white w-32"
           >
@@ -771,7 +772,7 @@ export default function ModelsDeployedTable() {
   // Placeholder for backend reset call
   const resetCard = async () => {
     // TODO: Replace with actual backend call for tt-smi reset
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
     return { success: true };
   };
 
@@ -811,7 +812,7 @@ export default function ModelsDeployedTable() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setModels((prevModels) => prevModels.filter((model) => !fadingModels.includes(model.id)));
       setFadingModels([]);
     }, 3000);

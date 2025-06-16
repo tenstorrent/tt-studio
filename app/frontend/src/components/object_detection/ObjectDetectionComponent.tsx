@@ -330,7 +330,8 @@ export const ObjectDetectionComponent: React.FC = () => {
     // Create a more robust handler that checks video dimensions
     const updateWebcamBoxes = () => {
       // Only update if video dimensions are available
-      if (webcamVideoRef.current?.videoWidth! > 0 && webcamVideoRef.current?.videoHeight! > 0) {
+      const videoElement = webcamVideoRef.current;
+      if (videoElement && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
         const updatedDetections = updateBoxPositions(
           webcamContainerRef,
           webcamVideoRef,
@@ -369,7 +370,8 @@ export const ObjectDetectionComponent: React.FC = () => {
       return;
 
     const timer = setTimeout(() => {
-      if (webcamVideoRef.current?.videoWidth! > 0) {
+      const videoElement = webcamVideoRef.current;
+      if (videoElement && videoElement.videoWidth > 0) {
         const updatedDetections = updateBoxPositions(
           webcamContainerRef,
           webcamVideoRef,

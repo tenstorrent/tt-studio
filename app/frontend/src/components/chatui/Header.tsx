@@ -46,6 +46,7 @@ import {
 // import { Skeleton } from "../ui/skeleton";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { cn } from "../../lib/utils";
+import ttLogo from "../../assets/logo/tt_logo.svg";
 
 interface HeaderProps {
   modelName: string | null;
@@ -264,19 +265,12 @@ export default function Header({
     setShowMobileMenu(!showMobileMenu);
   };
 
-  let logo: string | undefined;
-  try {
-    logo = require("../../assets/logo/tt_logo.svg");
-  } catch (e) {
-    logo = undefined;
-  }
-
   return (
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-2 md:p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex flex-col md:flex-row justify-between items-start md:items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
       <div className="flex items-center w-full md:w-auto justify-between md:justify-start">
         <div className="flex items-center">
           {/* Logo - Mobile Only */}
-          <ImageWithFallback src={logo} alt="TT Logo" className="h-6 w-auto mr-2 md:hidden" />
+          <ImageWithFallback src={ttLogo} alt="TT Logo" className="h-6 w-auto mr-2 md:hidden" />
 
           {/* Only show panel toggle and breadcrumb on desktop */}
           <div className="hidden md:flex items-center">
@@ -406,7 +400,7 @@ export default function Header({
           {/* App Title */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <ImageWithFallback src={logo} alt="TT Logo" className="h-6 w-auto mr-2" />
+              <ImageWithFallback src={ttLogo} alt="TT Logo" className="h-6 w-auto mr-2" />
               <span className="text-white text-base font-bold">AI Playground</span>
             </div>
             <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="text-white">

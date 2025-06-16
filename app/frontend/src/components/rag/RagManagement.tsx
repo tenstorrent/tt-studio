@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
 import { v4 as uuidv4 } from "uuid";
+import type { JSX } from "react";
 
 // Spinner component with size variants
 type SpinnerProps = {
@@ -83,9 +84,12 @@ const getBrowserId = (): string => {
 
 // Add browser ID to headers for all fetch requests
 const originalFetch = window.fetch;
-window.fetch = function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+window.fetch = function (
+  input: string | URL | Request,
+  init?: globalThis.RequestInit
+): Promise<Response> {
   // Create new options object to avoid mutating the original
-  const newInit: RequestInit = { ...(init || {}) };
+  const newInit: globalThis.RequestInit = { ...(init || {}) };
 
   // Initialize headers if not present
   newInit.headers = newInit.headers || {};

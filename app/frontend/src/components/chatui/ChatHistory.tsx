@@ -96,9 +96,7 @@ interface ChatHistoryProps {
   ragDatasource?: {
     id: string;
     name: string;
-    metadata?: {
-      /* ... */
-    };
+    metadata?: Record<string, unknown>;
   };
   isMobileView?: boolean;
 }

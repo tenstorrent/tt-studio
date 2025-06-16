@@ -43,6 +43,8 @@ interface MainContentProps {
   modelID: string;
 }
 
+type ScrollBehavior = "auto" | "instant" | "smooth";
+
 export function MainContent({
   conversations,
   selectedConversation,
@@ -76,7 +78,7 @@ export function MainContent({
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     if (contentContainerRef.current) {
       // Force a layout calculation to ensure accurate heights
-      contentContainerRef.current.offsetHeight;
+      void contentContainerRef.current.offsetHeight; // Force layout calculation
 
       // Use scrollTo with behavior parameter
       setTimeout(() => {

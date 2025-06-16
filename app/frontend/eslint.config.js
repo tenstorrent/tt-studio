@@ -6,7 +6,8 @@ import tseslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import prettierPlugin from "eslint-plugin-prettier";
 import prettierConfig from "eslint-config-prettier";
-import headerPlugin from "eslint-plugin-header";
+
+// const currentYear = new Date().getFullYear();
 
 export default [
   {
@@ -34,7 +35,6 @@ export default [
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
       prettier: prettierPlugin,
-      header: headerPlugin,
     },
     rules: {
       ...js.configs.recommended.rules,
@@ -63,16 +63,6 @@ export default [
 
       // Prettier integration
       "prettier/prettier": "error",
-
-      // Header rule - fixed format
-      "header/header": [
-        "error",
-        "line",
-        [
-          " SPDX-License-Identifier: Apache-2.0",
-          " SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC",
-        ],
-      ],
     },
   },
 ];

@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 // Constants for database configuration
-const DB_NAME = 'tt-studio-chat';
+const DB_NAME = "tt-studio-chat";
 const DB_VERSION = 1;
-const STORE_NAME = 'persistent-state';
+const STORE_NAME = "persistent-state";
 
 // Interface for stored items
 interface StoredItem {
@@ -21,8 +21,8 @@ export const openDatabase = (): Promise<IDBDatabase> => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onerror = (event) => {
-      console.error('Error opening IndexedDB:', event);
-      reject(new Error('Could not open IndexedDB'));
+      console.error("Error opening IndexedDB:", event);
+      reject(new Error("Could not open IndexedDB"));
     };
 
     request.onsuccess = (event) => {
@@ -32,11 +32,11 @@ export const openDatabase = (): Promise<IDBDatabase> => {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      
+
       // Create object store if it doesn't exist
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'key' });
-        store.createIndex('key', 'key', { unique: true });
+        const store = db.createObjectStore(STORE_NAME, { keyPath: "key" });
+        store.createIndex("key", "key", { unique: true });
       }
     };
   });
@@ -50,9 +50,9 @@ export const openDatabase = (): Promise<IDBDatabase> => {
 export const getItem = async <T>(key: string): Promise<T | null> => {
   try {
     const db = await openDatabase();
-    
+
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const transaction = db.transaction(STORE_NAME, "readonly");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.get(key);
 
@@ -75,7 +75,7 @@ export const getItem = async <T>(key: string): Promise<T | null> => {
       };
     });
   } catch (error) {
-    console.error('IndexedDB getItem error:', error);
+    console.error("IndexedDB getItem error:", error);
     return null;
   }
 };
@@ -89,11 +89,11 @@ export const getItem = async <T>(key: string): Promise<T | null> => {
 export const setItem = async <T>(key: string, value: T): Promise<void> => {
   try {
     const db = await openDatabase();
-    
+
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const transaction = db.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
-      
+
       const item: StoredItem = { key, value };
       const request = store.put(item);
 
@@ -111,7 +111,7 @@ export const setItem = async <T>(key: string, value: T): Promise<void> => {
       };
     });
   } catch (error) {
-    console.error('IndexedDB setItem error:', error);
+    console.error("IndexedDB setItem error:", error);
     throw error;
   }
 };
@@ -124,9 +124,9 @@ export const setItem = async <T>(key: string, value: T): Promise<void> => {
 export const removeItem = async (key: string): Promise<void> => {
   try {
     const db = await openDatabase();
-    
+
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const transaction = db.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.delete(key);
 
@@ -144,7 +144,7 @@ export const removeItem = async (key: string): Promise<void> => {
       };
     });
   } catch (error) {
-    console.error('IndexedDB removeItem error:', error);
+    console.error("IndexedDB removeItem error:", error);
     throw error;
   }
 };
@@ -156,15 +156,15 @@ export const removeItem = async (key: string): Promise<void> => {
 export const clearStore = async (): Promise<void> => {
   try {
     const db = await openDatabase();
-    
+
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const transaction = db.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.clear();
 
       request.onerror = (event) => {
-        console.error('Error clearing store:', event);
-        reject(new Error('Failed to clear store'));
+        console.error("Error clearing store:", event);
+        reject(new Error("Failed to clear store"));
       };
 
       request.onsuccess = () => {
@@ -176,7 +176,7 @@ export const clearStore = async (): Promise<void> => {
       };
     });
   } catch (error) {
-    console.error('IndexedDB clearStore error:', error);
+    console.error("IndexedDB clearStore error:", error);
     throw error;
   }
 };
@@ -188,15 +188,15 @@ export const clearStore = async (): Promise<void> => {
 export const getAllKeys = async (): Promise<string[]> => {
   try {
     const db = await openDatabase();
-    
+
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const transaction = db.transaction(STORE_NAME, "readonly");
       const store = transaction.objectStore(STORE_NAME);
       const request = store.getAllKeys();
 
       request.onerror = (event) => {
-        console.error('Error getting all keys:', event);
-        reject(new Error('Failed to get all keys'));
+        console.error("Error getting all keys:", event);
+        reject(new Error("Failed to get all keys"));
       };
 
       request.onsuccess = (event) => {
@@ -209,7 +209,7 @@ export const getAllKeys = async (): Promise<string[]> => {
       };
     });
   } catch (error) {
-    console.error('IndexedDB getAllKeys error:', error);
+    console.error("IndexedDB getAllKeys error:", error);
     return [];
   }
 };
@@ -222,14 +222,14 @@ export const migrateFromLocalStorage = async (): Promise<void> => {
   try {
     // Get all keys from localStorage
     const keys = Object.keys(localStorage);
-    
+
     // Migrate each item
     for (const key of keys) {
       try {
         const value = localStorage.getItem(key);
         if (value) {
           let parsedValue;
-          
+
           try {
             // Try to parse as JSON
             parsedValue = JSON.parse(value);
@@ -238,7 +238,7 @@ export const migrateFromLocalStorage = async (): Promise<void> => {
             console.log(`Value for key ${key} is not valid JSON, storing as string`);
             parsedValue = value;
           }
-          
+
           // Store in IndexedDB
           await setItem(key, parsedValue);
           console.log(`Migrated ${key} from localStorage to IndexedDB`);
@@ -247,10 +247,10 @@ export const migrateFromLocalStorage = async (): Promise<void> => {
         console.error(`Error migrating ${key}:`, error);
       }
     }
-    
-    console.log('Migration from localStorage to IndexedDB complete');
+
+    console.log("Migration from localStorage to IndexedDB complete");
   } catch (error) {
-    console.error('Migration error:', error);
+    console.error("Migration error:", error);
     throw error;
   }
 };
