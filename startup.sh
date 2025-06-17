@@ -133,7 +133,6 @@ for arg in "$@"; do
             ;;
         *)
             echo -e "${C_RED}⛔ Unknown option: $arg${C_RESET}"
-            echo -e "${C_RED}⛔ Unknown option: $arg${C_RESET}"
             usage
             ;;
     esac
@@ -142,8 +141,8 @@ done
 # Check Docker installation first
 check_docker_installation
 
-# Display welcome banner unless in cleanup mode
-if [[ "$RUN_CLEANUP" = false ]]; then
+# Function to display the welcome banner
+function display_welcome_banner() {
     # Clear screen for a clean splash screen effect
     clear
     echo -e "${C_TT_PURPLE}"
@@ -161,27 +160,11 @@ if [[ "$RUN_CLEANUP" = false ]]; then
     echo ""
     # An extra newline for spacing
     echo
-fi
+}
 
 # Display welcome banner unless in cleanup mode
 if [[ "$RUN_CLEANUP" = false ]]; then
-    # Clear screen for a clean splash screen effect
-    clear
-    echo -e "${C_TT_PURPLE}"
-    echo "┌──────────────────────────────────┐"
-    echo "│      ✨ Welcome to TT Studio     │"
-    echo "└──────────────────────────────────┘"
-    echo ""
-    echo "████████╗████████╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ "
-    echo "╚══██╔══╝╚══██╔══╝    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗"
-    echo "   ██║      ██║       ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║"
-    echo "   ██║      ██║       ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║"
-    echo "   ██║      ██║       ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝"
-    echo "   ╚═╝      ╚═╝       ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ "
-    echo -e "${C_RESET}"
-    echo ""
-    # An extra newline for spacing
-    echo
+    display_welcome_banner
 fi
 
 # Set TT_STUDIO_ROOT before any operations
