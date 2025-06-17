@@ -329,11 +329,7 @@ docker --version
 echo -e "${C_BLUE}Docker Compose version:${C_RESET}"
 docker compose version
 
-# Step 4: Pull Docker image for agent 
-echo -e "${C_BLUE}Pulling latest agent image...${C_RESET}"
-docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1 || { echo -e "${C_RED}Docker pull failed. Please authenticate and re-run the docker pull manually.${C_RESET}"; }
-
-# Step 5: Run Docker Compose with appropriate configuration
+# Step 4: Run Docker Compose with appropriate configuration
 COMPOSE_FILES="-f ${TT_STUDIO_ROOT}/app/docker-compose.yml"
 
 if [[ "$RUN_DEV_MODE" = true ]]; then
