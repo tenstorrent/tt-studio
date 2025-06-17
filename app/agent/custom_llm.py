@@ -148,7 +148,8 @@ class CustomLLM(BaseChatModel):
             }
 
         print(f"Making request to: {self.server_url}")
-        print(f"Headers: {headers}")
+        redacted_headers = {key: ("<REDACTED>" if key.lower() == "authorization" else value) for key, value in headers.items()}
+        print(f"Headers: {redacted_headers}")
         print(f"JSON data: {json.dumps(json_data, indent=2)}")
         
         try:
