@@ -185,8 +185,9 @@ class DeployView(APIView):
                 agent_api_key_set = False 
             else:
                 agent_api_key_set = True
-            if impl.model_type == ModelTypes.CHAT and agent_api_key_set:
-                run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
+            # Commenting out because agent container is not needed for chat models
+            # if impl.model_type == ModelTypes.CHAT and agent_api_key_set:
+            #     run_agent_container(response["container_name"], response["port_bindings"], impl) # run agent container that maps to appropriate LLM container
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
