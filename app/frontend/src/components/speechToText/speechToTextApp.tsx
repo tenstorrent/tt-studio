@@ -30,9 +30,7 @@ interface Conversation {
 export default function SpeechToTextApp() {
   console.log("Rendering SpeechToTextApp");
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selectedConversation, setSelectedConversation] = useState<
-    string | null
-  >(null);
+  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [conversationCounter, setConversationCounter] = useState(1);
   const [showRecordingInterface, setShowRecordingInterface] = useState(false);
@@ -45,7 +43,7 @@ export default function SpeechToTextApp() {
     if (location.state) {
       if (!location.state.containerID) {
         customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab",
+          "modelID is unavailable. Try navigating here from the Models Deployed tab"
         );
         return;
       }
@@ -144,21 +142,23 @@ export default function SpeechToTextApp() {
   return (
     <div className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4">
       {/* Main card container with subtle glow effect */}
-      <Card className={cn(
-        "flex w-full h-full shadow-xl overflow-hidden rounded-xl backdrop-blur-sm",
-        theme === "dark" 
-          ? "bg-[#1A1A1A] border-TT-purple/20" 
-          : "bg-white border-TT-purple-shade/20"
-      )}>
+      <Card
+        className={cn(
+          "flex w-full h-full shadow-xl overflow-hidden rounded-xl backdrop-blur-sm",
+          theme === "dark"
+            ? "bg-[#1A1A1A] border-TT-purple/20"
+            : "bg-white border-TT-purple-shade/20"
+        )}
+      >
         <SidebarProvider defaultOpen={false}>
           <div className="flex w-full h-full">
             {/* Sidebar - has its own scrolling */}
-            <div className={cn(
-              "h-full border-r overflow-y-auto",
-              theme === "dark" 
-                ? "border-TT-purple/20" 
-                : "border-TT-purple-shade/20"
-            )}>
+            <div
+              className={cn(
+                "h-full border-r overflow-y-auto",
+                theme === "dark" ? "border-TT-purple/20" : "border-TT-purple-shade/20"
+              )}
+            >
               <AppSidebar
                 conversations={conversations}
                 selectedConversation={selectedConversation}
@@ -172,27 +172,31 @@ export default function SpeechToTextApp() {
             </div>
 
             <div className="flex flex-col flex-1 h-full">
-              <div className={cn(
-                "sticky top-0 z-50 h-16 md:h-16 border-b flex items-center justify-between px-3 md:px-6",
-                theme === "dark"
-                  ? "border-TT-purple/30 bg-gradient-to-r from-[#1A1A1A] via-[#222222] to-[#1A1A1A]"
-                  : "border-TT-purple-shade/20 bg-gradient-to-r from-white via-gray-50 to-white"
-              )}>
+              <div
+                className={cn(
+                  "sticky top-0 z-50 h-16 md:h-16 border-b flex items-center justify-between px-3 md:px-6",
+                  theme === "dark"
+                    ? "border-TT-purple/30 bg-gradient-to-r from-[#1A1A1A] via-[#222222] to-[#1A1A1A]"
+                    : "border-TT-purple-shade/20 bg-gradient-to-r from-white via-gray-50 to-white"
+                )}
+              >
                 <div className="flex items-center">
                   <SidebarTrigger className="mr-2 md:mr-4 text-TT-purple hover:text-TT-purple-accent" />
                   <h1 className="text-lg md:text-xl font-semibold text-TT-purple truncate max-w-[150px] md:max-w-full">
                     {selectedConversation
-                      ? conversations.find((c) => c.id === selectedConversation)
-                          ?.title || "Speech to Text"
+                      ? conversations.find((c) => c.id === selectedConversation)?.title ||
+                        "Speech to Text"
                       : "New Conversation"}
                   </h1>
                   {selectedConversation && selectedConversationData && (
-                    <div className={cn(
-                      "ml-2 md:ml-4 text-xs md:text-sm px-2 md:px-2.5 py-0.5 md:py-1 rounded-full",
-                      theme === "dark"
-                        ? "text-TT-purple-tint1 bg-TT-purple-shade/40"
-                        : "text-TT-purple bg-TT-purple-shade/20"
-                    )}>
+                    <div
+                      className={cn(
+                        "ml-2 md:ml-4 text-xs md:text-sm px-2 md:px-2.5 py-0.5 md:py-1 rounded-full",
+                        theme === "dark"
+                          ? "text-TT-purple-tint1 bg-TT-purple-shade/40"
+                          : "text-TT-purple bg-TT-purple-shade/20"
+                      )}
+                    >
                       {selectedConversationData.transcriptions.length || 0}{" "}
                       {selectedConversationData.transcriptions.length === 1
                         ? "message"
@@ -216,8 +220,7 @@ export default function SpeechToTextApp() {
                       {showRecordingInterface ? (
                         <>
                           <MessageSquare className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2 text-TT-purple-accent" />
-                          <span className="hidden xs:inline">View</span>{" "}
-                          Conversation
+                          <span className="hidden xs:inline">View</span> Conversation
                         </>
                       ) : (
                         <>
@@ -239,8 +242,8 @@ export default function SpeechToTextApp() {
                   setIsRecording={setIsRecording}
                   showRecordingInterface={showRecordingInterface}
                   setShowRecordingInterface={setShowRecordingInterface}
-                  modelID={modelID}
-              />
+                  modelID={modelID || ""}
+                />
               </div>
             </div>
           </div>

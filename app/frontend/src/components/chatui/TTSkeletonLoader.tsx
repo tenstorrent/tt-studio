@@ -3,12 +3,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-let logo: string | undefined;
-try {
-  logo = require("../../assets/logo/tt_logo.svg");
-} catch (e) {
-  logo = undefined;
-}
+import ttLogo from "../../assets/logo/tt_logo.svg";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 
 interface TTSkeletonLoaderProps {
@@ -16,10 +11,7 @@ interface TTSkeletonLoaderProps {
   className?: string;
 }
 
-const TTSkeletonLoader: React.FC<TTSkeletonLoaderProps> = ({
-  size = 24,
-  className = "",
-}) => {
+const TTSkeletonLoader: React.FC<TTSkeletonLoaderProps> = ({ size = 24, className = "" }) => {
   return (
     <motion.div
       className={`flex items-center justify-center ${className}`}
@@ -42,9 +34,9 @@ const TTSkeletonLoader: React.FC<TTSkeletonLoaderProps> = ({
           ease: "easeInOut",
         }}
       >
-        {logo && (
+        {ttLogo && (
           <ImageWithFallback
-            src={logo}
+            src={ttLogo}
             alt="Tenstorrent Logo"
             className={`
               w-full h-full object-contain

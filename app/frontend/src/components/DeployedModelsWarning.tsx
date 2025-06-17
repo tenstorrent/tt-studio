@@ -58,11 +58,13 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
 
   if (minimal) {
     return (
-      <div className={`bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 ${className}`}>
+      <div
+        className={`bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 ${className}`}
+      >
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
           <span className="text-sm text-amber-800 dark:text-amber-200">
-            {deployedInfo.count} model{deployedInfo.count > 1 ? 's' : ''} already deployed
+            {deployedInfo.count} model{deployedInfo.count > 1 ? "s" : ""} already deployed
           </span>
           {showNavigateButton && (
             <Button
@@ -80,14 +82,16 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
   }
 
   return (
-    <Alert className={`border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 ${className}`}>
+    <Alert
+      className={`border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 ${className}`}
+    >
       <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
       <AlertTitle className="text-amber-800 dark:text-amber-200">
         Models Already Deployed
       </AlertTitle>
       <AlertDescription className="text-amber-700 dark:text-amber-300 space-y-2">
         <p>
-          {deployedInfo.count} model{deployedInfo.count > 1 ? 's are' : ' is'} currently deployed:
+          {deployedInfo.count} model{deployedInfo.count > 1 ? "s are" : " is"} currently deployed:
         </p>
         <ul className="list-disc list-inside space-y-1 text-sm">
           {deployedInfo.modelNames.map((name, index) => (
@@ -97,7 +101,8 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
           ))}
         </ul>
         <p className="text-sm">
-          Deploying additional models may affect system performance or require stopping existing deployments.
+          Deploying additional models may affect system performance or require stopping existing
+          deployments.
         </p>
         {showNavigateButton && (
           <div className="flex gap-2 pt-2">
@@ -125,4 +130,4 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
       </AlertDescription>
     </Alert>
   );
-}; 
+};

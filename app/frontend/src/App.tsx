@@ -5,7 +5,7 @@ import "./App.css";
 import { ThemeProvider } from "./providers/ThemeProvider";
 import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "react-query";
-import { setTitleBasedOnEnvironment } from "./api/utlis.ts";
+import { useSetTitle } from "./api/utlis.ts";
 import { HeroSectionProvider } from "./providers/HeroSectionContext";
 
 function App() {
@@ -13,7 +13,7 @@ function App() {
     defaultOptions: {},
   });
 
-  setTitleBasedOnEnvironment();
+  useSetTitle();
 
   return (
     <>

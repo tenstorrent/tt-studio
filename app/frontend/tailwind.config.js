@@ -3,6 +3,7 @@
 
 import svgToDataUri from "mini-svg-data-uri";
 import flattenColorPalette from "tailwindcss/lib/util/flattenColorPalette";
+import tailwindAnimate from "tailwindcss-animate";
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -133,14 +134,7 @@ export default {
           "Arial",
           "sans-serif",
         ],
-        mono: [
-          "Roboto Mono",
-          "SFMono-Regular",
-          "Menlo",
-          "Monaco",
-          "Consolas",
-          "Liberation Mono",
-        ],
+        mono: ["Roboto Mono", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono"],
       },
       keyframes: {
         "accordion-down": {
@@ -180,7 +174,7 @@ export default {
     },
   },
   plugins: [
-    require("tailwindcss-animate"),
+    tailwindAnimate,
     addVariablesForColors,
     function ({ matchUtilities, theme }) {
       matchUtilities(
@@ -207,13 +201,12 @@ export default {
         }
       );
     },
-    require("daisyui"),
   ],
 };
 
 function addVariablesForColors({ addBase, theme }) {
-  let allColors = flattenColorPalette(theme("colors"));
-  let newVars = Object.fromEntries(
+  const allColors = flattenColorPalette(theme("colors"));
+  const newVars = Object.fromEntries(
     Object.entries(allColors).map(([key, val]) => [`--${key}`, val])
   );
 

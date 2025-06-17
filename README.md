@@ -197,7 +197,7 @@ If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt
 - **Running vLLM Model(s) and Mock vLLM Model in TT-Studio**: [HowToRun_vLLM_Models.md](HowToRun_vLLM_Models.md)  
   Step-by-step instructions on how to configure and run the vLLM model(s) using TT-Studio.
 
-- **Running AI Agent with Chat LLM Models in TT-Studio**: [app/backend/agent_control/README.md](app/backend/agent_control/README.md)
+- **Running AI Agent with Chat LLM Models in TT-Studio**: [app/agent/README.md](app/agent/README.md)
    Instructions on how to run AI Agent by providing an API Key. 
 
 - **Contribution Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)  

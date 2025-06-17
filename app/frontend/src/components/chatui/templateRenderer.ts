@@ -72,6 +72,8 @@ SAFETY GUIDELINES:
 • If unsure, reply with: "I'm not sure — please upload a document or ask a human reviewer"
 • Format replies with markdown, bullet points, and code blocks where applicable
 
+${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
+
 ${
   processedQuery.intent.type === "greeting" || !processedQuery.intent.action
     ? "Keep responses warm and natural while following safety guidelines."

@@ -5,12 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
-let logo: string | undefined;
-try {
-  logo = require("../../assets/logo/tt_logo.svg");
-} catch (e) {
-  logo = undefined;
-}
+import ttLogo from "../../assets/logo/tt_logo.svg";
 import { fetchModels } from "../../api/modelsDeployedApis";
 import { useQuery } from "react-query";
 import { fetchCollections } from "@/src/components/rag";
@@ -385,7 +380,9 @@ export default function ChatComponent() {
       lastScrollPositionRef.current = scrollTop;
 
       // Show scroll button when scrolled up significantly
-      setShowScrollToBottom(distanceFromBottom > 100);
+      const isScrolledUp = distanceFromBottom > 100;
+      setIsScrolledUp(isScrolledUp);
+      setShowScrollToBottom(isScrolledUp);
 
       // Track if user has scrolled away from bottom - INCREASED SENSITIVITY
       // Even tiny scroll (10px) will stop auto-scroll
@@ -401,6 +398,7 @@ export default function ChatComponent() {
     const scrollToBottom = () => {
       if (container) {
         container.scrollTop = container.scrollHeight;
+        setIsScrolledUp(false);
       }
     };
 
@@ -1196,7 +1194,7 @@ export default function ChatComponent() {
                 const currentThread = getCurrentThread();
                 return Array.isArray(currentThread?.messages) ? currentThread.messages : [];
               })()}
-              logo={logo || ""}
+              logo={ttLogo || ""}
               setTextInput={setTextInput}
               isStreaming={isStreaming}
               onReRender={handleReRender}
