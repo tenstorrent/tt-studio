@@ -75,7 +75,40 @@ class VectorCollectionsAPIView(ViewSet):
         for col in filtered_collections:
             logger.info(f"Collection: {col.name}, Metadata: {col.metadata}")
         
-        return Response(data=list(map(serialize_collection, filtered_collections)))
+        # Serialize collections and add fallback for missing document names
+        serialized_collections = []
+        for collection in filtered_collections:
+            serialized_collection = serialize_collection(collection)
+            
+            # If last_uploaded_document is missing from collection metadata, 
+            # try to get it from the individual document chunks as a fallback
+            if not serialized_collection.get('metadata', {}).get('last_uploaded_document'):
+                try:
+                    results = collection.get(include=["metadatas"])
+                    if results and results.get("metadatas"):
+                        # Find the most recent document based on upload_date
+                        latest_document = None
+                        latest_date = None
+                        
+                        for metadata in results["metadatas"]:
+                            if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                                upload_date = metadata.get("upload_date")
+                                if upload_date and (not latest_date or upload_date > latest_date):
+                                    latest_date = upload_date
+                                    latest_document = metadata.get("source")
+                        
+                        # Update the serialized collection with the fallback document name
+                        if latest_document:
+                            if 'metadata' not in serialized_collection:
+                                serialized_collection['metadata'] = {}
+                            serialized_collection['metadata']['last_uploaded_document'] = latest_document
+                            logger.info(f"Fallback: Found document name '{latest_document}' for collection {collection.name}")
+                except Exception as e:
+                    logger.error(f"Error getting fallback document name for collection {collection.name}: {str(e)}")
+            
+            serialized_collections.append(serialized_collection)
+        
+        return Response(data=serialized_collections)
 
     def post(self, request):
         logger.info(f"Post request received. Headers: {request.headers}")
@@ -162,8 +195,36 @@ class VectorCollectionsAPIView(ViewSet):
                 status=status.HTTP_403_FORBIDDEN,
                 data={"error": "You don't have access to this collection"}
             )
+        
+        serialized_collection = serialize_collection(collection)
+        
+        # If last_uploaded_document is missing from collection metadata, 
+        # try to get it from the individual document chunks as a fallback
+        if not serialized_collection.get('metadata', {}).get('last_uploaded_document'):
+            try:
+                results = collection.get(include=["metadatas"])
+                if results and results.get("metadatas"):
+                    # Find the most recent document based on upload_date
+                    latest_document = None
+                    latest_date = None
+                    
+                    for metadata in results["metadatas"]:
+                        if metadata and metadata.get("source") and metadata.get("source") != "internal_knowledge":
+                            upload_date = metadata.get("upload_date")
+                            if upload_date and (not latest_date or upload_date > latest_date):
+                                latest_date = upload_date
+                                latest_document = metadata.get("source")
+                    
+                    # Update the serialized collection with the fallback document name
+                    if latest_document:
+                        if 'metadata' not in serialized_collection:
+                            serialized_collection['metadata'] = {}
+                        serialized_collection['metadata']['last_uploaded_document'] = latest_document
+                        logger.info(f"Fallback: Found document name '{latest_document}' for collection {pk}")
+            except Exception as e:
+                logger.error(f"Error getting fallback document name for collection {pk}: {str(e)}")
             
-        return Response(data=serialize_collection(collection))
+        return Response(data=serialized_collection)
 
     @action(methods=["DELETE"], detail=True)
     def delete(self, request, pk=None):
@@ -252,6 +313,11 @@ class VectorCollectionsAPIView(ViewSet):
             
             # Enhanced metadata with folder structure
             upload_timestamp = datetime.now().isoformat()
+            # Ensure filename is never empty, default to "Untitled" if missing
+            if not filename or filename.strip() == "":
+                filename = "Untitled"
+                logger.warning(f"Document filename was empty, defaulting to 'Untitled'")
+            
             base_metadata = {
                 "source": filename,
                 "folder_type": folder_type,
@@ -281,6 +347,7 @@ class VectorCollectionsAPIView(ViewSet):
             )
             
             # Update collection metadata with the last uploaded document
+            metadata_update_success = False
             try:
                 # Get the collection and update its metadata
                 collection = get_collection(
@@ -291,18 +358,46 @@ class VectorCollectionsAPIView(ViewSet):
                 updated_metadata = collection.metadata.copy() if collection.metadata else {}
                 updated_metadata['last_uploaded_document'] = filename
                 
+                logger.info(f"Attempting to update collection {pk} metadata: {updated_metadata}")
+                
                 # Modify the collection with updated metadata
-                ChromaClient().modify_collection(
+                chroma_client = ChromaClient()
+                chroma_client.modify_collection(
                     name=pk,
                     metadata=updated_metadata
                 )
                 
-                logger.info(f"Updated collection {pk} metadata with last_uploaded_document: {filename}")
+                # Verify the metadata was updated by re-fetching the collection
+                updated_collection = get_collection(
+                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                )
                 
+                if updated_collection.metadata and updated_collection.metadata.get('last_uploaded_document') == filename:
+                    metadata_update_success = True
+                    logger.info(f"Successfully updated collection {pk} metadata with last_uploaded_document: {filename}")
+                else:
+                    logger.warning(f"Metadata update for collection {pk} may not have persisted correctly")
+                    # Try alternative approach: Get the collection directly and check if modify_collection worked
+                    try:
+                        logger.info(f"Alternative check: Current collection metadata: {updated_collection.metadata}")
+                        # Force a small delay to ensure consistency
+                        import time
+                        time.sleep(0.1)
+                        
+                        # Try one more verification
+                        final_collection = get_collection(
+                            collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                        )
+                        if final_collection.metadata and final_collection.metadata.get('last_uploaded_document') == filename:
+                            metadata_update_success = True
+                            logger.info(f"Metadata update verified on second check for {pk}")
+                    except Exception as alt_e:
+                        logger.error(f"Alternative metadata check failed: {str(alt_e)}")
+                    
             except Exception as e:
-                logger.error(f"Error updating collection metadata: {str(e)}")
-                # Don't fail the entire operation if metadata update fails
-                pass
+                logger.error(f"Error updating collection metadata for {pk}: {str(e)}", exc_info=True)
+                # Don't fail the entire operation if metadata update fails, but log it properly
+                metadata_update_success = False
             
             # Return information about the uploaded document
             upload_info = {
@@ -316,8 +411,22 @@ class VectorCollectionsAPIView(ViewSet):
                     "display_path": folder_path,
                     "chunks_count": len(documents),
                 },
-                "collection": pk
+                "collection": pk,
+                "metadata_updated": metadata_update_success
             }
+            
+            # Add current collection metadata to response for debugging
+            try:
+                current_collection = get_collection(
+                    collection_name=pk, embedding_func_name=self.EMBED_MODEL
+                )
+                upload_info["collection_metadata"] = current_collection.metadata
+            except Exception as meta_e:
+                logger.error(f"Error fetching collection metadata for response: {str(meta_e)}")
+                upload_info["collection_metadata"] = None
+            
+            if not metadata_update_success:
+                upload_info["warning"] = "Document uploaded successfully but collection metadata may not have been updated. File name might not display correctly in the UI."
             
             logger.info(f"Document upload successful: {upload_info}")
             return Response(data=upload_info, status=status.HTTP_200_OK)

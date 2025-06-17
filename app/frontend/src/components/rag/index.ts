@@ -75,3 +75,16 @@ export const uploadDocument = async ({
     throw error;
   }
 };
+
+export const fetchDocuments = async (collectionName: string) => {
+  try {
+    const response = await axios.get(`${collectionsAPIURL}/${collectionName}/documents`);
+    if (response?.data) {
+      return response.data;
+    }
+    return { documents: [], total_files: 0 };
+  } catch (error) {
+    console.error("Error fetching documents:", error);
+    throw error;
+  }
+};

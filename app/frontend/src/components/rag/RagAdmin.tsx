@@ -303,7 +303,7 @@ export default function RagAdmin() {
               <TableHead className="text-left">
                 <div className="flex items-center gap-2">
                   <FileType className="w-4 h-4" />
-                  File Name
+                  Documents
                 </div>
               </TableHead>
               <TableHead className="text-left">
@@ -345,7 +345,10 @@ export default function RagAdmin() {
                       <CopyableText text={item.metadata.last_uploaded_document} />
                     </div>
                   ) : (
-                    "No file uploaded"
+                    <div className="flex items-center gap-2">
+                      <FileType color="gray" className="w-4 h-4 opacity-50" />
+                      <span className="text-gray-500 italic">Untitled</span>
+                    </div>
                   )}
                 </TableCell>
                 <TableCell className="text-left">
