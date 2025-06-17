@@ -133,7 +133,6 @@ for arg in "$@"; do
             ;;
         *)
             echo -e "${C_RED}⛔ Unknown option: $arg${C_RESET}"
-            echo -e "${C_RED}⛔ Unknown option: $arg${C_RESET}"
             usage
             ;;
     esac
