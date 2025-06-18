@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Define the repo root and directories to process
     repo_root = Path(__file__).resolve().parent.parent
     directories_to_process = [
-        repo_root / "tt-studio/app/api",
+        repo_root / "tt-studio/app/backend",
         repo_root / "tt-studio/models",
     ]
 

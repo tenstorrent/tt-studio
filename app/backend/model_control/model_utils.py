@@ -40,7 +40,7 @@ def get_deploy_cache():
 
 
 def health_check(url, json_data, timeout=5):
-    logger.info(f"calilng health_url:= {url}")
+    logger.info(f"calling health_url:= {url}")
     try:
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         response = requests.get(url, json=json_data, headers=headers, timeout=5)
@@ -418,5 +418,4 @@ def stream_response_from_external_api(url, json_data):
     except requests.RequestException as e:
         logger.error(f"RequestException: {str(e)}")
         yield f"error: {str(e)}"
-
 

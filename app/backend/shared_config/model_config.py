@@ -215,16 +215,19 @@ def base_docker_config():
 # model_ids are unique strings to define a model, they could be uuids but
 # using friendly strings prefixed with id_ is more helpful for debugging
 
-# 
+# Helper device configuration sets for easier management
+N150_N300 = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML}
+ALL_BOARDS = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
+T3000_ONLY = {DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
 
 model_implmentations_list = [
-    # Speech Recognition
+    # Speech Recognition - Can run on N150 and N300
     ModelImpl(
         model_name="Whisper-Distil-Large-v3",
         model_id="id_whisper_distil_large_v3_v0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-whisper-distil-large-v3-dev",
         image_tag="v0.0.1-tt-metal-1a1a9e2bb102",
-        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
+        device_configurations=N150_N300,  # Can run on N150 and N300
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -234,13 +237,13 @@ model_implmentations_list = [
         model_type=ModelTypes.SPEECH_RECOGNITION,
     ),
 
-    # Image Generation
+    # Image Generation - Can run on N150 and N300
     ModelImpl(
         model_name="Stable-Diffusion-3.5-medium",
         model_id="id_stable_diffusion_3.5_mediumv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
         image_tag="v0.0.1-tt-metal-a0560feb3eed",
-        device_configurations={DeviceConfigurations.N150},
+        device_configurations=N150_N300,  # Can run on N150 and N300
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -250,13 +253,13 @@ model_implmentations_list = [
         model_type=ModelTypes.IMAGE_GENERATION,
     ),
 
-    # Image Generation
+    # Image Generation - Can run on N150 and N300
     ModelImpl(
         model_name="Stable-Diffusion-1.4",
         model_id="id_stable_diffusionv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-1.4-src-base",
         image_tag="v0.0.1-tt-metal-cc8b4e1dac99",
-        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
+        device_configurations=N150_N300,  # Can run on N150 and N300
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -266,13 +269,13 @@ model_implmentations_list = [
         model_type=ModelTypes.IMAGE_GENERATION,
     ),
 
-    # Object Detection
+    # Object Detection - Can run on all boards
     ModelImpl(
         model_name="YOLOv4",
         model_id="id_yolov4v0.0.1",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
         image_tag="v0.0.1-tt-metal-65d246482b3f",
-        device_configurations={DeviceConfigurations.N150_WH_ARCH_YAML},
+        device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -299,11 +302,12 @@ model_implmentations_list = [
     ),
 
     # --- Chat Models ---
+    # 70B models - Only T3000
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-llama3-70b-src-base-vllm",
         image_tag="v0.0.3-tt-metal-385904186f81-384f1790c3be",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations=T3000_ONLY,  # Only T3000
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -312,11 +316,12 @@ model_implmentations_list = [
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
     ),
+    # 1B, 3B, 8B, 11B models - Can run on all boards
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-1B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -326,7 +331,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.2-3B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -336,7 +341,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -346,7 +351,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-70206b9cf111-b9564bf364e9",
-        device_configurations={DeviceConfigurations.N300x4},
+        device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -356,7 +361,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations=T3000_ONLY,  # Only T3000
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -366,7 +371,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-llama3-src-dev-ubuntu-20.04-amd64",
         image_tag="v0.0.1-47fb1a2fb6e0-2f33504bad49",
-        device_configurations={DeviceConfigurations.N300x4_WH_ARCH_YAML},
+        device_configurations=T3000_ONLY,  # Only T3000
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,

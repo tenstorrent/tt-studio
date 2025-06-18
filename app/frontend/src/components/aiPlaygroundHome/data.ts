@@ -18,7 +18,7 @@
  *   id: string           - Unique identifier (e.g., "llama", "stable-diffusion")
  *   title: string        - Model name displayed on card (e.g., "Llama 3.1 70b")
  *   image: string        - Model preview image path
- *   path: string         - Route to model's playground (e.g., "/chat-ui")
+ *   path: string         - Route to model's playground (e.g., "/chat")
  *   filter: string       - Brand color overlay for visual consistency
  *   TTDevice: string     - Tenstorrent hardware badge (e.g., "loudbox")
  *   poweredByText: string - Hardware info shown on hover

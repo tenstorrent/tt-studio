@@ -9,13 +9,35 @@ import requests
 from PIL import Image
 import io
 import time
+import datetime
+import docker
+from docker.errors import NotFound
+import json
 
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.http import StreamingHttpResponse
 from django.http import HttpResponse
+from rest_framework.renderers import JSONRenderer
+from rest_framework.parsers import JSONParser
+from rest_framework.negotiation import DefaultContentNegotiation
+from django.views import View
 
+# Add this renderer class for SSE support
+class PlainTextRenderer(JSONRenderer):
+    media_type = 'text/plain'
+    format = 'txt'
+
+class EventStreamRenderer(JSONRenderer):
+    media_type = 'text/event-stream'
+    format = 'txt'
+
+# Add this negotiation class to bypass content type checks
+class IgnoreClientContentNegotiation(DefaultContentNegotiation):
+    def select_renderer(self, request, renderers, format_suffix):
+        # Force the first renderer without checking Accept headers
+        return (renderers[0], renderers[0].media_type)
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
 from model_control.model_utils import (
@@ -119,7 +141,7 @@ class ModelHealthView(APIView):
                 content = {"message": "Healthy", "details": health_content}
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
-                content = {"message": "Unavaliable", "details": health_content}
+                content = {"message": "Unavailable", "details": health_content}
             return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -135,6 +157,11 @@ class DeployedModelsView(APIView):
             v["model_impl"]["device_configurations"] = [
                 e.name for e in v["model_impl"]["device_configurations"]
             ]
+            # Convert enum values to their string representations for JSON serialization
+            if hasattr(v["model_impl"]["model_type"], 'value'):
+                v["model_impl"]["model_type"] = v["model_impl"]["model_type"].value
+            if hasattr(v["model_impl"]["setup_type"], 'value'):
+                v["model_impl"]["setup_type"] = v["model_impl"]["setup_type"].value
             # for security reasons remove variables
             del v["model_impl"]["docker_config"]
             del v["env_vars"]
@@ -528,3 +555,156 @@ class SpeechRecognitionInferenceCloudView(APIView):
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+class ContainerLogsView(View):
+    def get(self, request, container_id, *args, **kwargs):
+        """Stream logs, events, and metrics from a Docker container using Server-Sent Events"""
+        logger.info(f"ContainerLogsView received request for container_id: {container_id}")
+        
+        try:
+            logger.info("Initializing Docker client")
+            client = docker.from_env()
+            
+            logger.info(f"Attempting to get container: {container_id}")
+            container = client.containers.get(container_id)
+            logger.info(f"Found container: {container.name} (ID: {container.id})")
+            
+            def generate_container_data():
+                try:
+                    # Set SSE headers in initial response
+                    yield "retry: 1000\n\n"  # Reconnection time in ms
+                    
+                    # Stream logs in real-time with better formatting
+                    for log in container.logs(stream=True, follow=True, tail=100):
+                        try:
+                            # Decode and handle potential multi-line logs
+                            log_text = log.decode('utf-8', errors='replace')
+                            
+                            # Split into individual lines and process each
+                            for line in log_text.split('\n'):
+                                line = line.rstrip('\r')  # Remove carriage returns
+                                if line:  # Only send non-empty lines
+                                    # Add timestamp if not present
+                                    import datetime
+                                    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                    
+                                    # Determine if this should be an event or a log
+                                    line_upper = line.upper()
+                                    message_type = "log"  # Default to log
+                                    
+                                    # Check for event-worthy log levels
+                                    if any(level in line_upper for level in ['[ERROR]', '[FATAL]', '[CRITICAL]']):
+                                        message_type = "event"
+                                    elif any(level in line_upper for level in ['[WARN]', '[WARNING]']):
+                                        message_type = "event"  
+                                    elif 'RESPONSE_Q OUT OF SYNC' in line_upper:
+                                        message_type = "event"
+                                    elif 'ABORTED' in line_upper or 'CORE DUMPED' in line_upper:
+                                        message_type = "event"
+                                    elif 'TERMINATED' in line_upper or 'EXCEPTION' in line_upper:
+                                        message_type = "event"
+                                    elif 'DESTINATION UNREACHABLE' in line_upper:
+                                        message_type = "event"
+                                    elif 'CLUSTER GENERATION FAILED' in line_upper:
+                                        message_type = "event"
+                                    # Application startup and ready state events
+                                    elif 'APPLICATION STARTUP COMPLETE' in line_upper:
+                                        message_type = "event"
+                                    elif 'UVICORN RUNNING ON' in line_upper:
+                                        message_type = "event"
+                                    elif 'STARTED SERVER PROCESS' in line_upper:
+                                        message_type = "event"
+                                    elif 'WAITING FOR APPLICATION STARTUP' in line_upper:
+                                        message_type = "event"
+                                    elif 'WH_ARCH_YAML:' in line_upper:
+                                        message_type = "event"
+                                    elif 'DEVICE |' in line_upper and 'OPENING USER MODE DEVICE DRIVER' in line_upper:
+                                        message_type = "event"
+                                    elif 'SILICONDRIVER' in line_upper and ('OPENED PCI DEVICE' in line_upper or 'DETECTED PCI' in line_upper):
+                                        message_type = "event"
+                                    elif 'SOFTWARE VERSION' in line_upper and 'ETHERNET FW VERSION' in line_upper:
+                                        message_type = "event"
+                                    elif 'PLATFORM LINUX' in line_upper or 'PYTEST-' in line_upper:
+                                        message_type = "event"
+                                    elif 'ROOTDIR:' in line_upper or 'PLUGINS:' in line_upper:
+                                        message_type = "event"
+                                    elif 'COLLECTED' in line_upper and 'ITEM' in line_upper:
+                                        message_type = "event"
+                                    
+                                    # Format the message
+                                    log_data = {
+                                        "type": message_type,
+                                        "message": line,
+                                        "timestamp": timestamp,
+                                        "raw": True  # Indicates this preserves original formatting
+                                    }
+                                    yield f"data: {json.dumps(log_data)}\n\n"
+                        except Exception as decode_error:
+                            # Fallback for problematic log lines
+                            error_msg = f"[LOG DECODE ERROR] {str(decode_error)}"
+                            log_data = {
+                                "type": "log", 
+                                "message": error_msg,
+                                "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                "raw": True
+                            }
+                            yield f"data: {json.dumps(log_data)}\n\n"
+                    
+                    # Get container stats for metrics
+                    stats = container.stats(stream=True, decode=True)
+                    for stat in stats:
+                        # Format metrics data
+                        metrics_data = {
+                            "type": "metric",
+                            "name": "cpu_usage",
+                            "value": stat.get("cpu_stats", {}).get("cpu_usage", {}).get("total_usage", 0)
+                        }
+                        yield f"data: {json.dumps(metrics_data)}\n\n"
+                        
+                        metrics_data = {
+                            "type": "metric",
+                            "name": "memory_usage",
+                            "value": stat.get("memory_stats", {}).get("usage", 0)
+                        }
+                        yield f"data: {json.dumps(metrics_data)}\n\n"
+                        
+                        # Format as an event when significant changes occur
+                        if stat.get("precpu_stats"):
+                            event_data = {
+                                "type": "event",
+                                "message": f"Container stats updated at {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                            }
+                            yield f"data: {json.dumps(event_data)}\n\n"
+                            
+                except Exception as e:
+                    logger.error(f"Error in data stream: {str(e)}")
+                    error_data = {
+                        "type": "log",
+                        "message": f"Error streaming data: {str(e)}"
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+            
+            response = StreamingHttpResponse(
+                generate_container_data(),
+                content_type='text/event-stream'
+            )
+            
+            # Set required headers for SSE
+            response['Cache-Control'] = 'no-cache, no-transform'
+            response['X-Accel-Buffering'] = 'no'
+            
+            return response
+            
+        except NotFound:
+            logger.error(f"Container not found: {container_id}")
+            return HttpResponse(
+                status=404,
+                content=f"Container {container_id} not found"
+            )
+        except Exception as e:
+            logger.error(f"Error streaming container data: {str(e)}")
+            return HttpResponse(
+                status=500,
+                content=str(e)
+            )
+

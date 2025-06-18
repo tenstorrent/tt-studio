@@ -3,6 +3,7 @@
 
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import NavBar from "../components/NavBar";
+import Footer from "../components/Footer";
 import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
 import { getRoutes } from "./route-config";
@@ -11,7 +12,8 @@ import { getRoutes } from "./route-config";
 const MainLayout = ({ children }: { children: React.ReactNode }) => (
   <>
     <NavBar />
-    <div className="main-content ">{children}</div>
+    <div className="main-content pb-16">{children}</div>
+    <Footer />
   </>
 );
 

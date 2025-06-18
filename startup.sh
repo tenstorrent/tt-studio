@@ -26,6 +26,7 @@ usage() {
     echo -e "  --help              ❓ Show this help message and exit."
     echo -e "  --setup             🔧 Run the setup script with sudo and all steps before executing main steps."
     echo -e "  --cleanup           🧹 Stop and remove Docker services."
+    echo -e "  --dev               💻 Run in development mode with live code reloading."
     echo
     echo -e "Examples:"
     #! TODO add back in support once setup scripts are merged in
@@ -33,6 +34,7 @@ usage() {
     echo -e "  ./startup.sh                     # Run the main setup steps directly"
     echo -e "  ./startup.sh --cleanup           # Stop and clean up Docker services"
     echo -e "  ./startup.sh --help              # Display this help message"
+    echo -e "  ./startup.sh --dev               # Run in development mode"
     exit 0
 }
 
@@ -40,6 +42,7 @@ usage() {
 RUN_SETUP=false
 RUN_CLEANUP=false
 RUN_TT_HARDWARE=false
+RUN_DEV_MODE=false
 
 # Parse options
 for arg in "$@"; do
@@ -55,6 +58,9 @@ for arg in "$@"; do
             ;;
         --tt-hardware)
             RUN_TT_HARDWARE=true
+            ;;
+        --dev)
+            RUN_DEV_MODE=true
             ;;
         *)
             echo "⛔ Unknown option: $arg"
@@ -117,11 +123,23 @@ if [[ -e "/dev/tenstorrent" ]]; then
 
     # Prompt user for enabling TT hardware support
     if [[ "$RUN_TT_HARDWARE" = false ]]; then
-        read -p "Do you want to mount Tenstorrent hardware? (y/n): " enable_hardware
-        if [[ "$enable_hardware" =~ ^[Yy]$ ]]; then
-            RUN_TT_HARDWARE=true
-            echo "Enabling Tenstorrent hardware support..."
-        fi
+        while true; do
+            read -p "Do you want to mount Tenstorrent hardware? (y/n): " enable_hardware
+            case "$enable_hardware" in
+                [Yy]* ) 
+                    RUN_TT_HARDWARE=true
+                    echo "Enabling Tenstorrent hardware support..."
+                    break
+                    ;;
+                [Nn]* ) 
+                    RUN_TT_HARDWARE=false
+                    break
+                    ;;
+                * ) 
+                    echo "Please answer 'y' or 'n'"
+                    ;;
+            esac
+        done
     fi
 else
     echo "⛔ No Tenstorrent device found at /dev/tenstorrent. Skipping Mounting hardware setup."
@@ -187,15 +205,46 @@ fi
 # Step 4: Pull Docker image for agent 
 docker pull ghcr.io/tenstorrent/tt-studio/agent_image:v1.1 || { echo "Docker pull failed. Please authenticate and re-run the docker pull manually."; }
 
-# Step 5: Run Docker Compose with or without hardware support
-if [[ "$RUN_TT_HARDWARE" = true ]]; then
-    echo "🚀 Running Docker Compose with TT hardware support..."
-    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" -f "${DOCKER_COMPOSE_TT_HARDWARE_FILE}" up --build -d
-else
-    echo "🚀 Running Docker Compose without TT hardware support..."
-    docker compose -f "${TT_STUDIO_ROOT}/app/docker-compose.yml" up --build -d
+# Before running Docker Compose, ask about dev mode if not specified in args
+if [[ "$RUN_DEV_MODE" = false ]]; then
+    while true; do
+        read -p "Do you want to run in development mode? (y/n): " enable_dev_mode
+        case "$enable_dev_mode" in
+            [Yy]* ) 
+                RUN_DEV_MODE=true
+                echo "Enabling development mode..."
+                break
+                ;;
+            [Nn]* ) 
+                RUN_DEV_MODE=false
+                break
+                ;;
+            * ) 
+                echo "Please answer 'y' or 'n'"
+                ;;
+        esac
+    done
 fi
 
+# Step 5: Run Docker Compose with appropriate configuration
+COMPOSE_FILES="-f ${TT_STUDIO_ROOT}/app/docker-compose.yml"
+
+if [[ "$RUN_DEV_MODE" = true ]]; then
+    echo "🚀 Running Docker Compose in development mode..."
+    COMPOSE_FILES="${COMPOSE_FILES} -f ${TT_STUDIO_ROOT}/app/docker-compose.dev-mode.yml"
+else
+    echo "🚀 Running Docker Compose in production mode..."
+fi
+
+if [[ "$RUN_TT_HARDWARE" = true ]]; then
+    echo "🚀 Running Docker Compose with TT hardware support..."
+    COMPOSE_FILES="${COMPOSE_FILES} -f ${DOCKER_COMPOSE_TT_HARDWARE_FILE}"
+else
+    echo "🚀 Running Docker Compose without TT hardware support..."
+fi
+
+echo "🚀 Running Docker Compose with above selected configuration..."
+docker compose ${COMPOSE_FILES} up --build -d
 
 # Final message to the user with instructions on where to access the app
 echo -e "\e[1;32m=====================================================\e[0m"
@@ -203,6 +252,15 @@ echo -e "\e[1;32m          🎉 TT-Studio Setup Complete! 🎉           \e[0m"
 echo -e "\e[1;32m=====================================================\e[0m"
 echo
 echo -e "\e[1;32m🚀 The application is now accessible at:\e[0m \e[4mhttp://localhost:3000\e[0m"
+
+# Let user know if special modes are enabled
+if [[ "$RUN_DEV_MODE" = true ]]; then
+    echo
+    echo -e "\e[1;34m=====================================================\e[0m"
+    echo -e "\e[1;34m             💻 Development Mode: ENABLED            \e[0m"
+    echo -e "\e[1;34m=====================================================\e[0m"
+    echo -e "\e[1;34m💻 Live code reloading is active for both frontend and backend.\e[0m"
+fi
 
 # Let user know if TT hardware support is enabled
 if [[ "$RUN_TT_HARDWARE" = true ]]; then
@@ -221,3 +279,14 @@ echo
 echo -e "\e[1;33m🛑 To stop the app and services, run:\e[0m \e[1;33m'./startup.sh --cleanup'\e[0m"
 echo
 echo -e "\e[1;33m=====================================================\e[0m"
+
+# If in dev mode, show logs
+if [[ "$RUN_DEV_MODE" = true ]]; then
+    echo
+    echo -e "\e[1;33m=====================================================\e[0m"
+    echo -e "\e[1;33m            📜 Starting Log Stream...              \e[0m"
+    echo -e "\e[1;33m=====================================================\e[0m"
+    echo -e "\e[1;33m⚠️  Press Ctrl+C to stop viewing logs\e[0m"
+    echo
+    cd "${TT_STUDIO_ROOT}/app" && docker compose logs -f
+fi

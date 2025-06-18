@@ -99,7 +99,7 @@ const Sidebar = forwardRef((_, ref) => {
           </Card>
         ),
 
-        "/chat-ui": (
+        "/chat": (
           <Card className={baseStyles}>
             <CardHeader>
               <CardTitle className="text-2xl font-bold text-left">
