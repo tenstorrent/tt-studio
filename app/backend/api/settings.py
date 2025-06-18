@@ -70,7 +70,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "docker_control",
+    "docker_control.apps.DockerControlConfig",
     "model_control",
     "vector_db_control",
     "corsheaders",

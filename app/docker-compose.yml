@@ -47,6 +47,7 @@ services:
       - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
       - GITHUB_USERNAME
       - GITHUB_PAT
+      - VITE_ENABLE_DEPLOYED
 
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
@@ -82,6 +83,34 @@ services:
       - VITE_TEST_AUDIO_AUTH
     # command: sh
     command: bash -c "npm i && npm run dev"
+
+  tt_studio_agent:
+    container_name: tt_studio_agent
+    hostname: tt-studio-agent
+    image: ghcr.io/tenstorrent/tt-studio/agent:v0.0.0
+    build: ./agent
+    depends_on:
+      tt_studio_backend:
+        condition: service_healthy
+    networks:
+      - tt_studio_network
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_SECRET
+      - TAVILY_API_KEY
+      - CLOUD_CHAT_UI_URL
+      - CLOUD_CHAT_UI_AUTH_TOKEN
+      - USE_CLOUD_LLM=true
+      - LLM_CONTAINER_NAME
+      - BACKEND_API_HOSTNAME
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      timeout: 60s
+      interval: 10s
+      retries: 3
 
   tt_studio_chroma:
     image: chromadb/chroma:0.5.3

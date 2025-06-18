@@ -18,12 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -45,12 +40,14 @@ import {
   Database,
   Search,
   FolderOpen,
-  Settings as SettingsIcon,
+  // Settings as SettingsIcon,
   Sliders,
+  Bot,
 } from "lucide-react";
-import { Skeleton } from "../ui/skeleton";
+// import { Skeleton } from "../ui/skeleton";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { cn } from "../../lib/utils";
+import ttLogo from "../../assets/logo/tt_logo.svg";
 
 interface HeaderProps {
   modelName: string | null;
@@ -88,10 +85,7 @@ const ModelSelector = React.forwardRef<
   }
 >(({ modelsDeployed, setModelID, setModelName }, ref) => (
   <DropdownMenu>
-    <DropdownMenuTrigger
-      ref={ref}
-      className="flex items-center gap-1 focus:outline-none"
-    >
+    <DropdownMenuTrigger ref={ref} className="flex items-center gap-1 focus:outline-none">
       <BreadcrumbEllipsis className="h-4 w-4 text-gray-600" />
       <span className="sr-only">Toggle menu</span>
     </DropdownMenuTrigger>
@@ -152,9 +146,7 @@ const ForwardedSelect = React.forwardRef<
           <div className="p-3 flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <Search className="h-5 w-5 text-[#7C68FA]" />
-              <span className="font-medium text-white">
-                Search All Collections
-              </span>
+              <span className="font-medium text-white">Search All Collections</span>
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
               <Database className="h-4 w-4" />
@@ -193,10 +185,7 @@ const ForwardedSelect = React.forwardRef<
         <>
           <SelectSeparator className="my-2 bg-gray-800" />
           <div className="px-2 pb-2">
-            <SelectItem
-              value="remove"
-              className="text-red-400 hover:bg-red-500/10 rounded-lg"
-            >
+            <SelectItem value="remove" className="text-red-400 hover:bg-red-500/10 rounded-lg">
               <div className="flex items-center gap-2">
                 <X className="h-4 w-4 text-red-400" />
                 <span>Remove Context</span>
@@ -218,9 +207,12 @@ const ForwardedAISelect = React.forwardRef<
   <Select {...props}>
     <SelectTrigger
       ref={ref}
-      className="w-full md:w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm"
+      className="w-full md:w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm flex items-center gap-2"
     >
-      <SelectValue placeholder="Select AI Agent" />
+      <Bot className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+      <SelectValue placeholder="Select AI Agent">
+        {props.value ? (props.value === "search-agent" ? "Search Agent" : props.value) : null}
+      </SelectValue>
     </SelectTrigger>
     {props.children}
   </Select>
@@ -240,8 +232,8 @@ export default function Header({
   setIsHistoryPanelOpen,
   setIsAgentSelected,
   isMobileView = false,
-  setIsRagExplicitlyDeselected,
-  onOpenSettings,
+  // setIsRagExplicitlyDeselected,
+  // onOpenSettings,
   isSettingsOpen,
   setIsSettingsOpen,
 }: HeaderProps) {
@@ -272,42 +264,17 @@ export default function Header({
     }
   };
 
-  // Handle RAG context selection/deselection
-  const handleRagSelection = (value: string) => {
-    if (value === "remove") {
-      setRagDatasource(undefined);
-      setIsRagExplicitlyDeselected?.(true);
-    } else {
-      const dataSource = ragDataSources.find((rds) => rds.name === value);
-      if (dataSource) {
-        setRagDatasource(dataSource);
-        setIsRagExplicitlyDeselected?.(false);
-      }
-    }
-  };
-
   // Toggle mobile dropdown menu
   const toggleMobileMenu = () => {
     setShowMobileMenu(!showMobileMenu);
   };
-
-  let logo: string | undefined;
-  try {
-    logo = require("../../assets/logo/tt_logo.svg");
-  } catch (e) {
-    logo = undefined;
-  }
 
   return (
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-2 md:p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex flex-col md:flex-row justify-between items-start md:items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
       <div className="flex items-center w-full md:w-auto justify-between md:justify-start">
         <div className="flex items-center">
           {/* Logo - Mobile Only */}
-          <ImageWithFallback
-            src={logo}
-            alt="TT Logo"
-            className="h-6 w-auto mr-2 md:hidden"
-          />
+          <ImageWithFallback src={ttLogo} alt="TT Logo" className="h-6 w-auto mr-2 md:hidden" />
 
           {/* Only show panel toggle and breadcrumb on desktop */}
           <div className="hidden md:flex items-center">
@@ -425,12 +392,7 @@ export default function Header({
 
         {/* Mobile hamburger menu button */}
         {isMobileView && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleMobileMenu}
-            className="md:hidden"
-          >
+          <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="md:hidden">
             <Menu className="h-4 w-4" />
           </Button>
         )}
@@ -442,21 +404,10 @@ export default function Header({
           {/* App Title */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <ImageWithFallback
-                src={logo}
-                alt="TT Logo"
-                className="h-6 w-auto mr-2"
-              />
-              <span className="text-white text-base font-bold">
-                AI Playground
-              </span>
+              <ImageWithFallback src={ttLogo} alt="TT Logo" className="h-6 w-auto mr-2" />
+              <span className="text-white text-base font-bold">AI Playground</span>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleMobileMenu}
-              className="text-white"
-            >
+            <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="text-white">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -533,9 +484,7 @@ export default function Header({
           {/* Panel Status */}
           <div className="mt-4 border-t border-[#7C68FA]/20 pt-3">
             <div className="flex items-center justify-between">
-              <span className="text-white text-xs font-medium">
-                History Panel
-              </span>
+              <span className="text-white text-xs font-medium">History Panel</span>
               <div className="flex items-center">
                 <span className="text-white text-xs mr-2">
                   {isHistoryPanelOpen ? "Open" : "Closed"}
@@ -561,9 +510,7 @@ export default function Header({
           <div className="mt-3 space-y-2">
             {modelsDeployed.length > 0 && (
               <div>
-                <span className="text-white text-xs font-medium block mb-1">
-                  Current Model
-                </span>
+                <span className="text-white text-xs font-medium block mb-1">Current Model</span>
                 <Select
                   value={modelName || ""}
                   onValueChange={(v) => {
@@ -593,9 +540,7 @@ export default function Header({
             )}
 
             <div>
-              <span className="text-white text-xs font-medium block mb-1">
-                RAG Context
-              </span>
+              <span className="text-white text-xs font-medium block mb-1">RAG Context</span>
               <ForwardedSelect
                 value={
                   ragDatasource
@@ -610,9 +555,7 @@ export default function Header({
                   } else if (v === "special-all") {
                     setRagDatasource(allCollectionsOption);
                   } else {
-                    const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v
-                    );
+                    const dataSource = ragDataSources.find((rds) => rds.name === v);
                     if (dataSource) {
                       setRagDatasource(dataSource);
                     }
@@ -644,8 +587,7 @@ export default function Header({
                           key={c.id}
                           value={c.name}
                           className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
-                            ragDatasource?.name === c.name &&
-                            ragDatasource.id !== "special-all"
+                            ragDatasource?.name === c.name && ragDatasource.id !== "special-all"
                               ? "bg-[#7C68FA]/10"
                               : ""
                           }`}
@@ -656,8 +598,7 @@ export default function Header({
                               <span className="font-medium">{c.name}</span>
                               {c.metadata?.last_uploaded_document && (
                                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  Last updated:{" "}
-                                  {c.metadata.last_uploaded_document}
+                                  Last updated: {c.metadata.last_uploaded_document}
                                 </span>
                               )}
                               {c.metadata?.embedding_func_name && (
@@ -686,38 +627,31 @@ export default function Header({
               </ForwardedSelect>
             </div>
 
-            {modelsDeployed.length > 0 && (
-              <div>
-                <span className="text-white text-xs font-medium block mb-1">
-                  AI Agent
-                </span>
-                <ForwardedAISelect
-                  value={selectedAIAgent || ""}
-                  onValueChange={handleAgentSelection}
-                >
-                  <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
-                    <SelectItem
-                      value="search-agent"
-                      className="text-white hover:bg-[#7C68FA]/20 text-xs"
-                    >
-                      Search Agent
-                    </SelectItem>
+            <div>
+              <span className="text-white text-xs font-medium block mb-1">AI Agent</span>
+              <ForwardedAISelect value={selectedAIAgent || ""} onValueChange={handleAgentSelection}>
+                <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
+                  <SelectItem
+                    value="search-agent"
+                    className="text-white hover:bg-[#7C68FA]/20 text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Bot className="h-4 w-4" />
+                      <span>Search Agent</span>
+                    </div>
+                  </SelectItem>
 
-                    {selectedAIAgent && (
-                      <SelectItem
-                        value="remove"
-                        className="text-red-500 hover:bg-red-900/20 text-xs"
-                      >
-                        <span className="flex items-center">
-                          <X className="mr-2 h-3 w-3" />
-                          Remove AI Agent
-                        </span>
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </ForwardedAISelect>
-              </div>
-            )}
+                  {selectedAIAgent && (
+                    <SelectItem value="remove" className="text-red-500 hover:bg-red-900/20 text-xs">
+                      <span className="flex items-center">
+                        <X className="mr-2 h-3 w-3" />
+                        Remove AI Agent
+                      </span>
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </ForwardedAISelect>
+            </div>
           </div>
 
           {/* Add Settings to mobile menu */}
@@ -755,9 +689,7 @@ export default function Header({
                     } else if (v === "special-all") {
                       setRagDatasource(allCollectionsOption);
                     } else {
-                      const dataSource = ragDataSources.find(
-                        (rds) => rds.name === v
-                      );
+                      const dataSource = ragDataSources.find((rds) => rds.name === v);
                       if (dataSource) {
                         setRagDatasource(dataSource);
                       }
@@ -789,8 +721,7 @@ export default function Header({
                             key={c.id}
                             value={c.name}
                             className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
-                              ragDatasource?.name === c.name &&
-                              ragDatasource.id !== "special-all"
+                              ragDatasource?.name === c.name && ragDatasource.id !== "special-all"
                                 ? "bg-[#7C68FA]/10"
                                 : ""
                             }`}
@@ -801,8 +732,7 @@ export default function Header({
                                 <span className="font-medium">{c.name}</span>
                                 {c.metadata?.last_uploaded_document && (
                                   <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    Last updated:{" "}
-                                    {c.metadata.last_uploaded_document}
+                                    Last updated: {c.metadata.last_uploaded_document}
                                   </span>
                                 )}
                                 {c.metadata?.embedding_func_name && (
@@ -842,47 +772,44 @@ export default function Header({
             </Tooltip>
           </TooltipProvider>
 
-          {/* AI Agent Selector */}
-          {modelsDeployed.length > 0 && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <ForwardedAISelect
-                    value={selectedAIAgent || ""}
-                    onValueChange={handleAgentSelection}
-                  >
-                    <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
-                      <SelectItem
-                        value="search-agent"
-                        className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
-                      >
-                        Search Agent
-                      </SelectItem>
+          {/* AI Agent Selector - Always show regardless of deployed models */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ForwardedAISelect
+                  value={selectedAIAgent || ""}
+                  onValueChange={handleAgentSelection}
+                >
+                  <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
+                    <SelectItem
+                      value="search-agent"
+                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Bot className="h-4 w-4" />
+                        <span>Search Agent</span>
+                      </div>
+                    </SelectItem>
 
-                      {selectedAIAgent && (
-                        <SelectItem
-                          value="remove"
-                          className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
-                        >
-                          <span className="flex items-center">
-                            <X className="mr-2 h-4 w-4" />
-                            Remove AI Agent
-                          </span>
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </ForwardedAISelect>
-                </TooltipTrigger>
-                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <p>
-                    {selectedAIAgent
-                      ? "Change or remove AI agent"
-                      : "Select AI Agent"}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+                    {selectedAIAgent && (
+                      <SelectItem
+                        value="remove"
+                        className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
+                      >
+                        <span className="flex items-center">
+                          <X className="mr-2 h-4 w-4" />
+                          Remove AI Agent
+                        </span>
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </ForwardedAISelect>
+              </TooltipTrigger>
+              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                <p>{selectedAIAgent ? "Change or remove AI agent" : "Select AI Agent"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           {/* Settings Button */}
           <TooltipProvider>
@@ -894,8 +821,7 @@ export default function Header({
                   onClick={() => setIsSettingsOpen(!isSettingsOpen)}
                   className={cn(
                     "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white",
-                    isSettingsOpen &&
-                      "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
+                    isSettingsOpen && "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
                   )}
                 >
                   <Sliders className="h-4 w-4" />

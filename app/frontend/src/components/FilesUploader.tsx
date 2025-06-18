@@ -36,8 +36,7 @@ const FileUploader = () => {
     }, 50);
   };
 
-  const progressColorClass =
-    uploadProgress < 100 ? "bg-blue-500" : "bg-green-500";
+  const progressColorClass = uploadProgress < 100 ? "bg-blue-500" : "bg-green-500";
 
   return (
     <div className="flex flex-col items-center w-full p-4">
@@ -54,9 +53,7 @@ const FileUploader = () => {
         colorClass={progressColorClass}
       />
       <p className="text-center mb-4 text-lg">
-        {isLinked
-          ? "Linked"
-          : `Selected File: ${fileName || "No file selected"}`}
+        {isLinked ? "Linked" : `Selected File: ${fileName || "No file selected"}`}
       </p>
       <Button
         className="self-end mt-auto bg-blue-500 text-white rounded hover:bg-blue-700 disabled:opacity-50"

@@ -1,14 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Button } from "../ui/button";
-import {
-  X,
-  Thermometer,
-  TextQuote,
-  Shuffle,
-  ListFilter,
-  Info,
-} from "lucide-react";
+import { X, Thermometer, TextQuote, Shuffle, ListFilter, Info } from "lucide-react";
 import { Slider } from "@/src/components/ui/slider";
 import { Input } from "../ui/input";
 import {
@@ -94,13 +87,9 @@ const Parameter = ({
   <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
-          {icon}
-        </div>
+        <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">{icon}</div>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-            {label}
-          </span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</span>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -136,12 +125,7 @@ const Parameter = ({
   </div>
 );
 
-export default function Settings({
-  isOpen,
-  onClose,
-  settings,
-  onSettingsChange,
-}: SettingsProps) {
+export default function Settings({ isOpen, onClose, settings, onSettingsChange }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
     if (!value || isNaN(numValue) || numValue <= 0) {

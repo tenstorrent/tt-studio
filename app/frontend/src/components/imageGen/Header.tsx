@@ -9,12 +9,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "../ui/breadcrumb";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { ArrowLeft, PanelRight } from "lucide-react";
 
@@ -24,11 +19,7 @@ interface HeaderProps {
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
 }
 
-export default function Header({
-  onBack,
-  isHistoryPanelOpen,
-  setIsHistoryPanelOpen,
-}: HeaderProps) {
+export default function Header({ onBack, isHistoryPanelOpen, setIsHistoryPanelOpen }: HeaderProps) {
   return (
     <div className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 p-4 shadow-lg sticky top-2 z-10 flex justify-between items-center border-b  transition-all duration-300 ease-in-out rounded-lg">
       <div className="flex items-center">
