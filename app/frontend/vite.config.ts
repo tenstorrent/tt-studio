@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-/* eslint-disable @typescript-eslint/no-unused-vars */
+
 import { defineConfig, HttpProxy, ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -28,19 +28,12 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
       timeout: 0,
       // debug logging
       configure: (proxy: HttpProxy.Server) => {
-        proxy.on(
-          "error",
-          (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
-            console.log("proxy error", err);
-          }
-        );
+        proxy.on("error", (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
+          console.log("proxy error", err);
+        });
         proxy.on(
           "proxyReq",
-          (
-            proxyReq: ClientRequest,
-            req: IncomingMessage,
-            _res: ServerResponse
-          ) => {
+          (proxyReq: ClientRequest, req: IncomingMessage, _res: ServerResponse) => {
             console.log("Sending Request to the Target:", req.method, req.url);
 
             // Ensure proper headers for SSE requests
@@ -52,34 +45,20 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
         );
         proxy.on(
           "proxyRes",
-          (
-            proxyRes: IncomingMessage,
-            req: IncomingMessage,
-            res: ServerResponse
-          ) => {
-            console.log(
-              "Received Response from the Target:",
-              proxyRes.statusCode,
-              req.url
-            );
+          (proxyRes: IncomingMessage, req: IncomingMessage, res: ServerResponse) => {
+            console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
 
             // Handle SSE responses properly
-            if (
-              proxyRes.headers["content-type"]?.includes("text/event-stream")
-            ) {
+            if (proxyRes.headers["content-type"]?.includes("text/event-stream")) {
               res.setHeader("Cache-Control", "no-cache");
               res.setHeader("Connection", "keep-alive");
               res.setHeader("Access-Control-Allow-Origin", "*");
-              res.setHeader(
-                "Access-Control-Allow-Headers",
-                "Content-Type, Accept"
-              );
+              res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
             }
           }
         );
       },
-      rewrite: (path: string) =>
-        path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
+      rewrite: (path: string) => path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
     },
   ])
 );
@@ -97,11 +76,7 @@ proxyConfig["/reset-board"] = {
       console.log("Sending Request to the Target:", req.method, req.url);
     });
     proxy.on("proxyRes", (proxyRes, req) => {
-      console.log(
-        "Received Response from the Target:",
-        proxyRes.statusCode,
-        req.url
-      );
+      console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
     });
   },
 };

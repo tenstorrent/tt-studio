@@ -38,6 +38,7 @@
 const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 const isRagAdminEnabled = import.meta.env.VITE_ENABLE_RAG_ADMIN === "true";
 
+import React from "react";
 import HomePage from "../pages/HomePage";
 import ModelsDeployed from "../pages/ModelsDeployed";
 import ChatUI from "../pages/ChatUIPage";

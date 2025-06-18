@@ -6,14 +6,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Card, CardContent } from "../ui/card";
-import {
-  ChevronRight,
-  File,
-  Folder,
-  ExternalLink,
-  ArrowUp,
-  ArrowDown,
-} from "lucide-react";
+import { ChevronRight, File, Folder, ExternalLink, ArrowUp, ArrowDown } from "lucide-react";
 import { openEncodedLogInNewTab } from "./openEncodedLogInNewTab";
 import { parseLogFileName } from "./parseLogFileName";
 
@@ -43,13 +36,9 @@ export default function LogsViewer() {
 
   const extractDateFromFileName = (fileName: string) => {
     // Adjusted regex to match 'YYYY-MM-DD-HH_MM_SS' format in log files
-    const match = fileName.match(
-      /(\d{4})-(\d{2})-(\d{2})-(\d{2})_(\d{2})_(\d{2})/,
-    );
+    const match = fileName.match(/(\d{4})-(\d{2})-(\d{2})-(\d{2})_(\d{2})_(\d{2})/);
     if (match) {
-      const [year, month, day, hour, minute, second] = match
-        .slice(1)
-        .map(Number);
+      const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
       return new Date(year, month - 1, day, hour, minute, second); // Create a valid Date object
     }
     return null;
@@ -62,9 +51,7 @@ export default function LogsViewer() {
         const dateB = extractDateFromFileName(b.name);
 
         if (!dateA || !dateB) {
-          return sortOrder === "asc"
-            ? a.name.localeCompare(b.name)
-            : b.name.localeCompare(a.name);
+          return sortOrder === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
         }
 
         return sortOrder === "asc"
@@ -72,7 +59,7 @@ export default function LogsViewer() {
           : dateB.getTime() - dateA.getTime();
       });
     },
-    [sortOrder],
+    [sortOrder]
   );
 
   useEffect(() => {
@@ -148,9 +135,7 @@ export default function LogsViewer() {
             onClick={() => openLogInNewTab(currentPath.slice(1))}
           >
             <File className="h-4 w-4 mr-2 flex-shrink-0 text-blue-500" />
-            <div className="text-sm truncate text-left flex-grow">
-              {formatFileName(node.name)}
-            </div>
+            <div className="text-sm truncate text-left flex-grow">{formatFileName(node.name)}</div>
             <ExternalLink className="h-4 w-4 ml-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
           </Button>
         );
@@ -183,17 +168,13 @@ export default function LogsViewer() {
             <div className="p-4">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
-                  <p className="text-lg text-muted-foreground">
-                    Loading logs...
-                  </p>
+                  <p className="text-lg text-muted-foreground">Loading logs...</p>
                 </div>
               ) : logs.length > 0 ? (
                 renderTree(logs)
               ) : (
                 <div className="flex items-center justify-center h-full">
-                  <p className="text-lg text-muted-foreground">
-                    No log files found.
-                  </p>
+                  <p className="text-lg text-muted-foreground">No log files found.</p>
                 </div>
               )}
             </div>

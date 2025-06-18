@@ -28,9 +28,7 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
   onReset,
 }) => {
   const [hoveredTabIndex, setHoveredTabIndex] = useState<number | null>(null);
-  const [buttonRefs, setButtonRefs] = useState<Array<HTMLButtonElement | null>>(
-    []
-  );
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const navRef = useRef<HTMLDivElement>(null);
 
   const getHoverAnimationProps = (hoveredRect: DOMRect, navRect: DOMRect) => ({
@@ -42,9 +40,8 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
 
   const navRect = navRef.current?.getBoundingClientRect();
   const selectedTabIndex = tabs.findIndex((tab) => tab.value === selectedTab);
-  const selectedRect = buttonRefs[selectedTabIndex]?.getBoundingClientRect();
-  const hoveredRect =
-    buttonRefs[hoveredTabIndex ?? -1]?.getBoundingClientRect();
+  const selectedRect = buttonRefs.current[selectedTabIndex]?.getBoundingClientRect();
+  const hoveredRect = buttonRefs.current[hoveredTabIndex ?? -1]?.getBoundingClientRect();
 
   return (
     <nav
@@ -69,7 +66,7 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
           >
             <motion.span
               ref={(el) => {
-                buttonRefs[i] = el as HTMLButtonElement;
+                buttonRefs.current[i] = el as HTMLButtonElement;
               }}
               className={cn("flex items-center gap-3", {
                 "text-zinc-500": !isActive,
