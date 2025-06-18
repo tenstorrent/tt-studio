@@ -11,8 +11,7 @@ import StatusBadge from "./StatusBadge";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip";
 import { Loader2, Trash2, Download, XCircle, HardDrive } from "lucide-react";
-import { FaDocker } from "react-icons/fa";
-
+import { Container } from "lucide-react";
 const dockerAPIURL = "/docker-api/";
 const catalogURL = `${dockerAPIURL}catalog/`;
 
