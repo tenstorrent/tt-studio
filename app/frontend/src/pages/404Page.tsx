@@ -2,17 +2,13 @@
 
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import type React from "react";
+import React from "react";
 import { useState, useEffect } from "react";
-import {
-  useMotionValue,
-  useMotionTemplate,
-  motion,
-  type MotionValue,
-} from "framer-motion";
+import { useMotionValue, useMotionTemplate, motion, type MotionValue } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { Button } from "../components/ui/button";
+import ttLogo from "../assets/logo/tt_logo.svg";
 
 const PageSpotlight = ({ children }: { children: React.ReactNode }) => {
   const mouseX = useMotionValue(0);
@@ -55,13 +51,7 @@ function PagePattern({
   );
 }
 
-const LoginCard = ({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) => {
+const LoginCard = ({ children, className }: { children: React.ReactNode; className?: string }) => {
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
   const [randomString, setRandomString] = useState("");
@@ -71,11 +61,7 @@ const LoginCard = ({
     setRandomString(str);
   }, []);
 
-  function onMouseMove({
-    currentTarget,
-    clientX,
-    clientY,
-  }: React.MouseEvent<HTMLDivElement>) {
+  function onMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent<HTMLDivElement>) {
     const { left, top } = currentTarget.getBoundingClientRect();
     mouseX.set(clientX - left);
     mouseY.set(clientY - top);
@@ -89,11 +75,7 @@ const LoginCard = ({
       )}
       onMouseMove={onMouseMove}
     >
-      <CardPattern
-        mouseX={mouseX}
-        mouseY={mouseY}
-        randomString={randomString}
-      />
+      <CardPattern mouseX={mouseX} mouseY={mouseY} randomString={randomString} />
       <div className="relative z-10">{children}</div>
     </div>
   );
@@ -130,8 +112,7 @@ function CardPattern({
   );
 }
 
-const characters =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const generateRandomString = (length: number) => {
   const word = "tenstorrent";
   let result = "";
@@ -140,9 +121,7 @@ const generateRandomString = (length: number) => {
       result += word;
       i += word.length - 1;
     } else {
-      result += characters.charAt(
-        Math.floor(Math.random() * characters.length)
-      );
+      result += characters.charAt(Math.floor(Math.random() * characters.length));
     }
   }
   return result;
@@ -165,9 +144,7 @@ function ImageCarousel() {
   };
 
   const prevImage = () => {
-    setCurrentIndex(
-      (prevIndex) => (prevIndex - 1 + chipImages.length) % chipImages.length
-    );
+    setCurrentIndex((prevIndex) => (prevIndex - 1 + chipImages.length) % chipImages.length);
   };
 
   const handleHover = () => {
@@ -222,12 +199,6 @@ function ImageCarousel() {
 
 export default function NotFoundPage() {
   const navigate = useNavigate();
-  let ttLogo: string | undefined;
-  try {
-    ttLogo = require("../assets/logo/tt_logo.svg");
-  } catch (e) {
-    ttLogo = undefined;
-  }
 
   return (
     <PageSpotlight>

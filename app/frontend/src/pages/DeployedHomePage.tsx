@@ -3,19 +3,12 @@
 import { DeployedHome } from "../components/aiPlaygroundHome/DeployedHome";
 import { RetroGrid } from "../components/ui/retro-grid";
 import { useTheme } from "../providers/ThemeProvider";
-import NavBar from "../components/NavBar";
-import { useState, useEffect } from "react";
+import { useHeroSection } from "../providers/HeroSectionContext";
+// import NavBar from "../components/NavBar";
 
 const DeployedHomePage = () => {
   const { theme } = useTheme();
-  const [showHero, setShowHero] = useState(() => {
-    const val = localStorage.getItem("showHeroSection");
-    return val === "true";
-  });
-  useEffect(() => {
-    localStorage.setItem("showHeroSection", showHero ? "true" : "false");
-  }, [showHero]);
-
+  const { showHero } = useHeroSection();
   return (
     <div className="relative min-h-screen w-full bg-white/95 dark:bg-black/95">
       {/* RetroGrid Background */}
@@ -25,9 +18,7 @@ const DeployedHomePage = () => {
             className="w-full h-full transform-gpu"
             opacity={0.7}
             lightLineColor={
-              theme === "dark"
-                ? "rgba(124, 104, 250, 0.9)"
-                : "rgba(124, 104, 250, 0.4)"
+              theme === "dark" ? "rgba(124, 104, 250, 0.9)" : "rgba(124, 104, 250, 0.4)"
             }
             darkLineColor="rgba(124, 104, 250, 0.9)"
             cellSize={50}
@@ -49,7 +40,7 @@ const DeployedHomePage = () => {
 
       {/* Content */}
       <div className="relative z-10">
-        <DeployedHome showHero={showHero} />
+        <DeployedHome onlyCards={!showHero} />
       </div>
     </div>
   );

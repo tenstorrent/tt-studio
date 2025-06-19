@@ -73,13 +73,10 @@ export const ModelType = {
 export const fetchModels = async (): Promise<Model[]> => {
   try {
     console.log(`Fetching models from ${statusURl}`);
-    const response = await axios.get<{ [key: string]: ContainerData }>(
-      statusURl,
-      {
-        timeout: 10000, // 10 second timeout
-        headers: { "Cache-Control": "no-cache" },
-      }
-    );
+    const response = await axios.get<{ [key: string]: ContainerData }>(statusURl, {
+      timeout: 10000, // 10 second timeout
+      headers: { "Cache-Control": "no-cache" },
+    });
 
     if (!response.data) {
       console.error("Received empty response data");
@@ -99,10 +96,7 @@ export const fetchModels = async (): Promise<Model[]> => {
 
       // Handle possible null port_bindings
       let portMapping = "No ports";
-      if (
-        container.port_bindings &&
-        Object.keys(container.port_bindings).length > 0
-      ) {
+      if (container.port_bindings && Object.keys(container.port_bindings).length > 0) {
         portMapping = Object.keys(container.port_bindings)
           .filter((port) => container.port_bindings[port] !== null)
           .map((port) => {
@@ -132,9 +126,7 @@ export const fetchModels = async (): Promise<Model[]> => {
       if (error.code === "ECONNABORTED") {
         customToast.error("Request timeout: Server took too long to respond");
       } else if (error.response) {
-        customToast.error(
-          `Server error: ${error.response.status} ${error.response.statusText}`
-        );
+        customToast.error(`Server error: ${error.response.status} ${error.response.statusText}`);
       } else if (error.request) {
         customToast.error("Network error: No response received from server");
       } else {
@@ -170,25 +162,16 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       customToast.error("Failed to stop the container");
       throw new Error("Failed to stop the container");
     } else {
-      customToast.success(
-        `Model ID: ${truncatedModelId} has been deleted successfully.`
-      );
+      customToast.success(`Model ID: ${truncatedModelId} has been deleted successfully.`);
 
-      if (
-        response.data.reset_response &&
-        response.data.reset_response.status === "success"
-      ) {
-        customToast.success(
-          `Model ID: ${truncatedModelId} has been reset successfully.`
-        );
+      if (response.data.reset_response && response.data.reset_response.status === "success") {
+        customToast.success(`Model ID: ${truncatedModelId} has been reset successfully.`);
       } else {
         customToast.error(`Board Reset failed.`);
       }
 
       console.log(
-        `Reset Output: ${
-          response.data.reset_response?.output || "No reset output available"
-        }`
+        `Reset Output: ${response.data.reset_response?.output || "No reset output available"}`
       );
     }
 
@@ -203,14 +186,10 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
       );
     } else if (error instanceof Error) {
       console.error("Error stopping the container:", error.message);
-      customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`
-      );
+      customToast.error(`Failed to delete Model ID: ${truncatedModelId} - ${error.message}`);
     } else {
       console.error("Unknown error stopping the container", error);
-      customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - Unknown error`
-      );
+      customToast.error(`Failed to delete Model ID: ${truncatedModelId} - Unknown error`);
     }
     throw error;
   }
@@ -295,16 +274,19 @@ export const fetchDeployedModelsInfo = async (): Promise<DeployedModelInfo[]> =>
     }
 
     const data = await response.json();
-    
+
     // Transform the deployed models data into our format
-    const modelsArray: DeployedModelInfo[] = Object.entries(data).map(([id, modelData]: [string, any]) => ({
-      id,
-      modelName: modelData.model_impl?.model_name || modelData.model_impl?.hf_model_id || "Unknown Model",
-      status: "deployed",
-      internal_url: modelData.internal_url,
-      health_url: modelData.health_url,
-      model_impl: modelData.model_impl,
-    }));
+    const modelsArray: DeployedModelInfo[] = Object.entries(data).map(
+      ([id, modelData]: [string, any]) => ({
+        id,
+        modelName:
+          modelData.model_impl?.model_name || modelData.model_impl?.hf_model_id || "Unknown Model",
+        status: "deployed",
+        internal_url: modelData.internal_url,
+        health_url: modelData.health_url,
+        model_impl: modelData.model_impl,
+      })
+    );
 
     return modelsArray;
   } catch (error) {
@@ -326,7 +308,7 @@ export const checkCurrentlyDeployedModels = async (): Promise<{
     return {
       hasDeployedModels: deployedModels.length > 0,
       count: deployedModels.length,
-      modelNames: deployedModels.map(model => model.modelName),
+      modelNames: deployedModels.map((model) => model.modelName),
     };
   } catch (error) {
     console.error("Error checking currently deployed models:", error);

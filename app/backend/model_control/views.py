@@ -104,26 +104,30 @@ class InferenceView(APIView):
 class AgentView(APIView):
     def post(self, request, *agrs, **kwargs):
         logger.info(f"URL '/agent/' accessed via POST method by {request.META['REMOTE_ADDR']}")        
-        data = request.data 
+        data = request.data.copy()  # Make a copy to avoid modifying the original
         logger.info(f"AgentView data:={data}")
-        serializer = InferenceSerializer(data=data)
-        if serializer.is_valid():
-            deploy_id = data.pop("deploy_id")
-            logger.info(f"Deploy ID: {deploy_id}")
-            deploy = get_deploy_cache()[deploy_id]
-            colon_idx = deploy["internal_url"].rfind(":")
-            underscore_idx = deploy["internal_url"].rfind("_")
-            llm_host_port = deploy["internal_url"][underscore_idx + 2: colon_idx] # add 2 to remove the p
-            # agent port on host is 200 + the llm host port
-            internal_url = f"http://ai_agent_container_p{llm_host_port}:{int(llm_host_port) + 200}/poll_requests"
-            logger.info(f"internal_url:= {internal_url}")
-            logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
+        
+        # For agent requests, we don't need to validate deploy_id since agents can work with cloud models
+        deploy_id = data.get("deploy_id", "")
+        logger.info(f"Deploy ID: {deploy_id}")
+        
+        # Check if we have a valid deployment, if not, proceed without it (for cloud/agent mode)
+        deploy_cache = get_deploy_cache()
+        if deploy_id and deploy_id in deploy_cache:
+            deploy = deploy_cache[deploy_id]
+            logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
             data["model"] = deploy["model_impl"].hf_model_id
-            logger.info(f"Using internal url: {internal_url}")
-            response_stream = stream_response_from_agent_api(internal_url, data)
-            return StreamingHttpResponse(response_stream, content_type="text/plain")
         else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            logger.info("No valid deployment found, proceeding with agent-only mode (cloud LLM)")
+            # Remove deploy_id from data since it's not needed for agent
+            data.pop("deploy_id", None)
+        
+        # Use the standalone agent service instead of dynamically created containers
+        internal_url = "http://tt_studio_agent:8080/poll_requests"
+        logger.info(f"internal_url:= {internal_url}")
+        logger.info(f"Using internal url: {internal_url}")
+        response_stream = stream_response_from_agent_api(internal_url, data)
+        return StreamingHttpResponse(response_stream, content_type="text/plain")
 
 class ModelHealthView(APIView):
     def get(self, request, *args, **kwargs):
@@ -237,10 +241,10 @@ class ObjectDetectionInferenceCloudView(APIView):
             
         image = image.file  # we should only receive 1 file
         
-        # Get deploy_id and handle the case where it's the string "null"
+        # Get deploy_id and handle the case where it's the string "null" or empty
         deploy_id = data.get("deploy_id")
-        if deploy_id == "null":
-            # Use cloud URL when deploy_id is "null"
+        if deploy_id == "null" or not deploy_id:
+            # Use cloud URL when deploy_id is "null" or empty
             internal_url = CLOUD_YOLOV4_API_URL
             logger.info(f"Using cloud URL: {internal_url}")
             headers = {"Authorization": f"Bearer {CLOUD_YOLOV4_API_AUTH_TOKEN}"}
@@ -369,8 +373,8 @@ class SpeechRecognitionInferenceCloudView(APIView):
             
         # Get deploy_id and handle the case where it's the string "null"
         deploy_id = data.get("deploy_id")
-        if deploy_id == "null":
-            # Use cloud URL when deploy_id is "null"
+        if deploy_id == "null" or not deploy_id:
+            # Use cloud URL when deploy_id is "null" or empty
             internal_url = CLOUD_SPEECH_RECOGNITION_URL
             if not internal_url:
                 return Response(
@@ -523,8 +527,8 @@ class SpeechRecognitionInferenceCloudView(APIView):
             
         # Get deploy_id and handle the case where it's the string "null"
         deploy_id = data.get("deploy_id")
-        if deploy_id == "null":
-            # Use cloud URL when deploy_id is "null"
+        if deploy_id == "null" or not deploy_id:
+            # Use cloud URL when deploy_id is "null" or empty
             internal_url = CLOUD_SPEECH_RECOGNITION_URL
             if not internal_url:
                 return Response(

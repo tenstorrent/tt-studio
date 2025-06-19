@@ -9,8 +9,8 @@ import type { Model } from "./types";
 import ScrollProgressBar from "../ui/scroll-progress-bar";
 import { Button } from "../ui/button";
 import { TypewriterEffectSmooth } from "../ui/typewriter-effect";
-import { LineShadowText } from "../ui/line-shadow-text";
-import { useState, useEffect } from "react";
+// import { LineShadowText } from "../ui/line-shadow-text";
+// import { useState, useEffect } from "react";
 import { useHeroSection } from "../../providers/HeroSectionContext";
 
 export function DeployedHome({ onlyCards = false }: { onlyCards?: boolean } = {}) {

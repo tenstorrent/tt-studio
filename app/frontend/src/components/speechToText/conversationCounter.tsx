@@ -17,7 +17,7 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
   animate = false,
 }) => {
   const { theme } = useTheme();
-  
+
   // Determine label based on count
   const label = count === 1 ? "message" : "messages";
 
@@ -26,8 +26,8 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
       <span
         className={cn(
           "inline-flex items-center justify-center",
-          theme === "dark" 
-            ? "bg-TT-purple-shade/40 text-TT-purple-tint1" 
+          theme === "dark"
+            ? "bg-TT-purple-shade/40 text-TT-purple-tint1"
             : "bg-TT-purple/10 text-TT-purple-accent",
           "text-xs font-medium rounded-full px-2 py-0.5",
           animate && count > 0 && "animate-pulse",
@@ -67,8 +67,8 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
       className={cn(
         "inline-flex items-center gap-1",
         theme === "dark"
-            ? "bg-TT-purple/20 text-TT-purple-tint2 border-TT-purple/20"
-            : "bg-TT-purple-shade/30 text-TT-purple-tint1 border-TT-purple/10",
+          ? "bg-TT-purple/20 text-TT-purple-tint2 border-TT-purple/20"
+          : "bg-TT-purple-shade/30 text-TT-purple-tint1 border-TT-purple/10",
         "rounded-md px-2 py-0.5",
         "border shadow-sm",
         animate && count > 0 && "animate-pulse",
