@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import type React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import type React from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import {
   Paperclip,
@@ -165,6 +168,7 @@ export default function InputArea({
 
   useEffect(() => {
     if (textareaRef.current && !isStreaming) {
+    if (textareaRef.current && !isStreaming) {
       textareaRef.current.focus();
     }
   }, [isStreaming]);
@@ -173,6 +177,7 @@ export default function InputArea({
     if (textareaRef.current) {
       adjustTextareaHeight();
     }
+  }, []);
   }, []);
 
   const adjustTextareaHeight = () => {
@@ -210,6 +215,7 @@ export default function InputArea({
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
     if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
       e.preventDefault();
       if (textInput.trim() !== "" || files.length > 0) {

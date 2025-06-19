@@ -179,33 +179,6 @@ export default function ChatComponent() {
     loadModels();
   }, [location.state]);
 
-  // Update RAG datasource when thread changes
-  useEffect(() => {
-    // Skip updating if RAG was explicitly deselected
-    if (isRagExplicitlyDeselected) return;
-
-    const currentThread = getCurrentThread();
-    if (
-      currentThread &&
-      Array.isArray(currentThread.messages) &&
-      currentThread.messages.length > 0
-    ) {
-      const messagesWithRag = currentThread.messages
-        .filter((msg) => msg.sender === "user" && msg.ragDatasource)
-        .reverse();
-
-      if (messagesWithRag.length > 0) {
-        const mostRecentRag = messagesWithRag[0].ragDatasource;
-        setRagDatasource(mostRecentRag);
-      } else {
-        setRagDatasource(undefined);
-      }
-    } else {
-      setRagDatasource(undefined);
-    }
-  }, [currentThreadIndex, chatThreads, isRagExplicitlyDeselected]);
-
-  // Handle responsive layout
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;

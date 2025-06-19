@@ -11,6 +11,7 @@ from shared_config.device_config import DeviceConfigurations
 from shared_config.backend_config import backend_config
 from shared_config.setup_config import SetupTypes
 from shared_config.model_type_config import ModelTypes
+from shared_config.model_type_config import ModelTypes
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -326,6 +327,7 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-3B-Instruct",
@@ -335,6 +337,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
         model_type=ModelTypes.CHAT
     ),
     ModelImpl(
@@ -346,6 +349,7 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
+        model_type=ModelTypes.CHAT
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
@@ -355,6 +359,7 @@ model_implmentations_list = [
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
         model_type=ModelTypes.CHAT
     ),
     ModelImpl(

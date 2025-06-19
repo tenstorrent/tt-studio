@@ -7,6 +7,7 @@ import { Clipboard, ThumbsUp, ThumbsDown } from "lucide-react";
 import CustomToaster, { customToast } from "../CustomToaster";
 import InferenceStats from "./InferenceStats";
 import type { InferenceStats as InferenceStatsType } from "./types";
+import type { InferenceStats as InferenceStatsType } from "./types";
 
 interface MessageActionsProps {
   messageId: string;
@@ -15,6 +16,7 @@ interface MessageActionsProps {
   isReRendering: boolean;
   isStreaming: boolean;
   inferenceStats?: InferenceStatsType;
+  messageContent?: string;
   messageContent?: string;
 }
 
@@ -25,6 +27,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   // isReRendering,
   isStreaming,
   inferenceStats,
+  messageContent,
   messageContent,
 }) => {
   const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");

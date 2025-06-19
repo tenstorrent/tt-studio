@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { ChevronDown, Database, File, X, Lock } from "lucide-react";
@@ -112,6 +114,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   // ragDatasource,
   isMobileView = false,
 }) => {
+  // console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [minimizedFiles, setMinimizedFiles] = useState<Set<string>>(new Set());

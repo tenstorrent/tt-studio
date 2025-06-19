@@ -8,6 +8,8 @@ import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
 import type React from "react";
 import { processUploadedFiles } from "./processUploadedFiles";
+import type React from "react";
+import { processUploadedFiles } from "./processUploadedFiles";
 
 export const runInference = async (
   request: InferenceRequest,
