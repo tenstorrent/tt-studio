@@ -60,7 +60,6 @@ interface HeaderProps {
   isHistoryPanelOpen: boolean;
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
   isAgentSelected: boolean;
-  isAgentSelected: boolean;
   setIsAgentSelected: (value: boolean) => void;
   isMobileView?: boolean;
   setIsRagExplicitlyDeselected?: (value: boolean) => void;
@@ -71,11 +70,6 @@ interface HeaderProps {
 interface RagDataSource {
   id: string;
   name: string;
-  metadata?: {
-    created_at?: string;
-    embedding_func_name?: string;
-    last_uploaded_document?: string;
-  };
   metadata?: {
     created_at?: string;
     embedding_func_name?: string;

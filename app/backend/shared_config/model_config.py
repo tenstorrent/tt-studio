@@ -327,7 +327,7 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
-        model_type=ModelTypes.CHAT
+
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-3B-Instruct",
@@ -338,7 +338,7 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
-        model_type=ModelTypes.CHAT
+  
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
@@ -349,7 +349,7 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
-        model_type=ModelTypes.CHAT
+
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
@@ -360,7 +360,7 @@ model_implmentations_list = [
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
-        model_type=ModelTypes.CHAT
+ 
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",

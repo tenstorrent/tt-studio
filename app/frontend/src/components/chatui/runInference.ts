@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-
+import type React from "react";
 import type { InferenceRequest, RagDataSource, ChatMessage, InferenceStats } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
-import type React from "react";
 import { processUploadedFiles } from "./processUploadedFiles";
-import type React from "react";
-import { processUploadedFiles } from "./processUploadedFiles";
+
 
 export const runInference = async (
   request: InferenceRequest,

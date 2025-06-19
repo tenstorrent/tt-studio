@@ -66,7 +66,6 @@ interface DeployedModelInfo {
 export const ModelType = {
   ChatModel: "ChatModel",
   ImageGeneration: "ImageGeneration",
-  ImageGeneration: "ImageGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
 };
