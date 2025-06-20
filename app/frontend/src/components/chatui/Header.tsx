@@ -40,14 +40,12 @@ import {
   Database,
   Search,
   FolderOpen,
-  // Settings as SettingsIcon,
   Sliders,
   Bot,
 } from "lucide-react";
 import logo from "../../assets/logo/tt_logo.svg";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { cn } from "../../lib/utils";
-import ttLogo from "../../assets/logo/tt_logo.svg";
 
 interface HeaderProps {
   modelName: string | null;
@@ -67,6 +65,7 @@ interface HeaderProps {
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
 }
+
 interface RagDataSource {
   id: string;
   name: string;
@@ -76,6 +75,7 @@ interface RagDataSource {
     last_uploaded_document?: string;
   };
 }
+
 const ModelSelector = React.forwardRef<
   HTMLButtonElement,
   {
@@ -232,17 +232,11 @@ export default function Header({
   setIsHistoryPanelOpen,
   setIsAgentSelected,
   isMobileView = false,
-  // setIsRagExplicitlyDeselected,
-  // onOpenSettings,
   isSettingsOpen,
   setIsSettingsOpen,
 }: HeaderProps) {
-  // Log ragDataSources to console to inspect its structure
-  // console.log("RAG Data Sources:", ragDataSources);
-
   const [selectedAIAgent, setSelectedAIAgent] = useState<string | null>(null);
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
-  // const navigate = useNavigate();
 
   // Add the special "All Collections" option to handle querying across all collections
   const allCollectionsOption: RagDataSource = {
@@ -398,7 +392,7 @@ export default function Header({
         )}
       </div>
 
-      {/* Mobile dropdown menu - redesigned to match the screenshot */}
+      {/* Mobile dropdown menu */}
       {isMobileView && showMobileMenu && (
         <div className="mt-2 w-full space-y-2 md:hidden bg-[#1E1E1E] p-3 rounded-md border border-[#7C68FA]/20">
           {/* App Title */}
@@ -562,84 +556,31 @@ export default function Header({
                   }
                 }}
                 ragDataSources={ragDataSources}
+              />
+            </div>
+
+            <div>
+              <span className="text-white text-xs font-medium block mb-1">AI Agent</span>
+              <ForwardedAISelect
+                value={selectedAIAgent || ""}
+                onValueChange={handleAgentSelection}
               >
                 <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
-                  <SelectGroup>
-                    <SelectLabel className="text-gray-500 dark:text-white/70">
-                      Special Options
-                    </SelectLabel>
-                    <SelectItem
-                      value="special-all"
-                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 flex items-center"
-                    >
-                      <Search className="h-4 w-4 mr-2 inline-block" />
-                      <span>All Collections</span>
-                    </SelectItem>
-                  </SelectGroup>
-
-                  <SelectGroup>
-                    <SelectLabel className="text-gray-500 dark:text-white/70 mt-2">
-                      Your Collections
-                    </SelectLabel>
-                    {Array.isArray(ragDataSources) &&
-                      ragDataSources.map((c) => (
-                        <SelectItem
-                          key={c.id}
-                          value={c.name}
-                          className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
-                            ragDatasource?.name === c.name && ragDatasource.id !== "special-all"
-                              ? "bg-[#7C68FA]/10"
-                              : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                            <div className="flex flex-col">
-                              <span className="font-medium">{c.name}</span>
-                              {c.metadata?.last_uploaded_document && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  Last updated: {c.metadata.last_uploaded_document}
-                                </span>
-                              )}
-                              {c.metadata?.embedding_func_name && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  Model: {c.metadata.embedding_func_name}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </SelectItem>
-                      ))}
-                  </SelectGroup>
-
-                  {ragDatasource && (
+                  <SelectItem
+                    value="search-agent"
+                    className="text-white hover:bg-[#7C68FA]/20 text-xs"
+                  >
+                    Search Agent
+                  </SelectItem>
+                  {selectedAIAgent && (
                     <SelectItem
                       value="remove"
-                      className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20 mt-2"
+                      className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
                     >
                       <span className="flex items-center">
                         <X className="mr-2 h-4 w-4" />
-                        Remove RAG context
+                        Remove AI Agent
                       </span>
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </ForwardedSelect>
-            </div>
-
-            {modelsDeployed.length > 0 && (
-              <div>
-                <span className="text-white text-xs font-medium block mb-1">AI Agent</span>
-                <ForwardedAISelect
-                  value={selectedAIAgent || ""}
-                  onValueChange={handleAgentSelection}
-                >
-                  <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
-                    <SelectItem
-                      value="search-agent"
-                      className="text-white hover:bg-[#7C68FA]/20 text-xs"
-                    >
-                      Search Agent
                     </SelectItem>
                   )}
                 </SelectContent>
@@ -794,27 +735,15 @@ export default function Header({
                           Remove AI Agent
                         </span>
                       </SelectItem>
-
-                      {selectedAIAgent && (
-                        <SelectItem
-                          value="remove"
-                          className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
-                        >
-                          <span className="flex items-center">
-                            <X className="mr-2 h-4 w-4" />
-                            Remove AI Agent
-                          </span>
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </ForwardedAISelect>
-                </TooltipTrigger>
-                <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                  <p>{selectedAIAgent ? "Change or remove AI agent" : "Select AI Agent"}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+                    )}
+                  </SelectContent>
+                </ForwardedAISelect>
+              </TooltipTrigger>
+              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                <p>{selectedAIAgent ? "Change or remove AI agent" : "Select AI Agent"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           {/* Settings Button */}
           <TooltipProvider>
