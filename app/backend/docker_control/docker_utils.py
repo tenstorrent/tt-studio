@@ -87,7 +87,7 @@ def run_agent_container(container_name, port_bindings, impl):
     'detach': True,  # Run the container in detached mode
 }
     container = client.containers.run(
-    'ghcr.io/tenstorrent/tt-studio/agent_image:v1.1',
+    'agent_image:v1',
     f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
     auto_remove=True,
     **run_kwargs
@@ -147,28 +147,7 @@ def get_host_port(impl):
     logger.warning("Could not find an unused port in block: 8001-8100")
     return None
 
-def get_host_agent_port():
-    # used fixed block of ports starting at 8101 for agents 
-    agent_containers = get_agent_containers()
-    port_mappings = get_port_mappings(agent_containers)
-    used_host_agent_ports = get_used_host_ports(port_mappings)
-    logger.info(f"used_host_agent_ports={used_host_agent_ports}")
-    BASE_AGENT_PORT = 8201
-    for port in range(BASE_AGENT_PORT, BASE_AGENT_PORT+100):
-        if str(port) not in used_host_agent_ports:
-            return port
-    logger.warning("Could not find an unused port in block: 8201-8300")
 
-def get_agent_containers():
-    """
-    get all containers used by an ai agent 
-    """
-    running_containers = client.containers.list()
-    agent_containers = []
-    for container in running_containers:
-        if "ai_agent_container" in container.name: 
-            agent_containers.append(container)
-    return agent_containers
 
 def get_managed_containers():
     """get containers configured in model_config.py for LLM-studio management"""

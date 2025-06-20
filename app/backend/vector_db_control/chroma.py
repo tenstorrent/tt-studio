@@ -59,13 +59,13 @@ def delete_collection(collection_name: str):
 
 
 def query_collection(
-    collection_name: str, embedding_func_name: str, query_texts: List[str]
+    collection_name: str, embedding_func_name: str, query_texts: List[str], n_results: int = 10
 ):
     embedding_func = get_embedding_function(model_name=embedding_func_name)
     target_collection = ChromaClient().get_collection(
         name=collection_name, embedding_function=embedding_func
     )
-    return target_collection.query(query_texts=query_texts)
+    return target_collection.query(query_texts=query_texts, n_results=n_results)
 
 
 def serialize_collection(collection: Collection):

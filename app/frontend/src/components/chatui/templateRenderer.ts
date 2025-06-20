@@ -16,8 +16,7 @@ export function generatePrompt(
 
   // Get the latest user question
   const latestUserQuestion =
-    chatHistory.length > 0 &&
-    chatHistory[chatHistory.length - 1].sender === "user"
+    chatHistory.length > 0 && chatHistory[chatHistory.length - 1].sender === "user"
       ? chatHistory[chatHistory.length - 1].text
       : "";
 
@@ -65,19 +64,24 @@ Answer: To deploy the application, you'll need to set up the required environmen
   // Add system message first
   messages.push({
     role: "system",
-    content:
-      processedQuery.intent.type === "greeting" || !processedQuery.intent.action
-        ? "You are a friendly AI assistant. Keep responses warm and natural."
-        : `You are a friendly and helpful AI assistant. Start conversations warmly and maintain a conversational tone.
+    content: `You are an assistant embedded in Tenstorrent's AI tool.
 
-GUIDELINES:
-• Be friendly and conversational
-• Provide helpful responses based on available information
-• Ask for clarification if needed
-• Keep responses natural and engaging
+SAFETY GUIDELINES:
+• Only answer if you are confident and the information is in your training or the provided context
+• Do NOT guess or make up answers
+• If unsure, reply with: "I'm not sure — please upload a document or ask a human reviewer"
+• Format replies with markdown, bullet points, and code blocks where applicable
+
+${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
+
+${
+  processedQuery.intent.type === "greeting" || !processedQuery.intent.action
+    ? "Keep responses warm and natural while following safety guidelines."
+    : `Start conversations warmly and maintain a conversational tone while following safety guidelines.
 
 RESPONSE FORMAT:
-${responseFormat}`,
+${responseFormat}`
+}`,
   });
 
   // Add RAG context if available
@@ -100,7 +104,7 @@ ${responseFormat}`,
       })
       .join("\n\n---\n\n");
 
-    // Add context to system message with improved formatting
+    // Add context to system message with improved formatting and instructions
     messages[0].content += `
 
 RELEVANT CONTEXT:
@@ -108,11 +112,12 @@ RELEVANT CONTEXT:
 ${formattedDocuments}
 ----------------
 
-INSTRUCTIONS:
-• Use the provided context to inform your response
-• Cite sources when using specific information
-• If context is insufficient, acknowledge this and provide general guidance
-• Maintain a conversational tone while being accurate`;
+CONTEXT INSTRUCTIONS:
+• Use ONLY the provided context to inform your response
+• Always cite the source file name when using specific information
+• If context is insufficient, acknowledge this and suggest uploading relevant documents
+• Do not make assumptions beyond what's in the context
+• If multiple sources conflict, acknowledge the conflict and explain the different perspectives`;
   }
 
   // Add chat history

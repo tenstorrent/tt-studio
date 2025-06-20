@@ -1,6 +1,11 @@
+import React from "react";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+// File and Media Types
+export interface ImageUrl {
+  url: string;
+  detail?: string;
 // File and Media Types
 export interface ImageUrl {
   url: string;
@@ -9,7 +14,24 @@ export interface ImageUrl {
 
 export interface FileData {
   id?: string;
+export interface FileData {
+  id?: string;
   name: string;
+  type: "text" | "image_url" | "document" | "audio" | "video";
+  size?: number;
+  created_at?: string;
+  blob?: Blob;
+  url?: string;
+  mime_type?: string;
+  duration?: number;
+  thumbnail_url?: string;
+
+  // Type-specific fields
+  text?: string;
+  image_url?: ImageUrl;
+  document_url?: string;
+  audio_url?: string;
+  video_url?: string;
   type: "text" | "image_url" | "document" | "audio" | "video";
   size?: number;
   created_at?: string;
@@ -32,6 +54,7 @@ export interface ChatMessage {
   id: string;
   sender: "user" | "assistant";
   text: string;
+  files?: FileData[];
   files?: FileData[];
   inferenceStats?: InferenceStats;
   ragDatasource?: RagDataSource;

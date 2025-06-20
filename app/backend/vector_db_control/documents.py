@@ -4,22 +4,32 @@
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from .document_processor import DocumentProcessor
 
-
-def chunk_pdf_document(
-    loaded_document, extraction_mode="plain", chunk_size=1000, chunk_overlap=100
+def chunk_document(
+    file_path: str,
+    metadata: dict,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 100
 ):
-    loaded_documents = []
-    metadata = loaded_document.metadata
-    for page in loaded_document.pages:
-        loaded_documents.append(
-            Document(
-                page_content=page.extract_text(extraction_mode=extraction_mode),
-                metadata=metadata,
-            )
-        )
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    """
+    Process and chunk a document based on its file type.
+    
+    Args:
+        file_path (str): Path to the document file
+        metadata (dict): Metadata to attach to the document
+        chunk_size (int): Size of each chunk
+        chunk_overlap (int): Overlap between chunks
+        
+    Returns:
+        List[Document]: List of chunked documents
+    """
+    # Process the document based on its type
+    documents = DocumentProcessor.process_document(file_path, metadata)
+    
+    # Chunk the processed documents
+    return DocumentProcessor.chunk_documents(
+        documents,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap
     )
-    chunked_document = text_splitter.split_documents(loaded_documents)
-    return chunked_document

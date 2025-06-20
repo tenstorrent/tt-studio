@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { ChevronDown, Database, File, X, Lock } from "lucide-react";
@@ -29,6 +31,7 @@ const RagPill: React.FC<{
   <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-TT-slate/30 dark:bg-TT-slate/30 text-xs text-black dark:text-gray-300 mb-2">
     <Database size={12} className="text-black dark:text-gray-300" />
     <span>{ragDatasource.name}</span>
+
     {ragDatasource.metadata?.last_uploaded_document && (
       <span className="text-gray-600 dark:text-gray-400">
         · {ragDatasource.metadata.last_uploaded_document}
@@ -43,10 +46,7 @@ interface FileViewerDialogProps {
   onClose: () => void;
 }
 
-const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
-  file,
-  onClose,
-}) => {
+const FileViewerDialog: React.FC<FileViewerDialogProps> = ({ file, onClose }) => {
   if (!file) return null;
 
   return (
@@ -55,9 +55,7 @@ const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
         <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
         <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-900 rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto z-50">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-white truncate max-w-[80%]">
-              {file.name}
-            </h3>
+            <h3 className="text-lg font-medium text-white truncate max-w-[80%]">{file.name}</h3>
             <Dialog.Close asChild>
               <button className="text-gray-400 hover:text-white">
                 <X className="h-6 w-6" />
@@ -103,9 +101,7 @@ interface ChatHistoryProps {
   ragDatasource?: {
     id: string;
     name: string;
-    metadata?: {
-      /* ... */
-    };
+    metadata?: Record<string, unknown>;
   };
   isMobileView?: boolean;
 }
@@ -118,9 +114,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   onReRender,
   onContinue,
   reRenderingMessageId,
-  ragDatasource,
+  // ragDatasource,
   isMobileView = false,
 }) => {
+  // console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
   const [minimizedFiles, setMinimizedFiles] = useState<Set<string>>(new Set());
@@ -345,8 +342,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const handleFileClick = useCallback((fileUrl: string, fileName: string) => {
     const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
     const extension = fileName.split(".").pop()?.toLowerCase() || "";
-    const isImage =
-      imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
+    const isImage = imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
     setSelectedFile({ url: fileUrl, name: fileName, isImage });
   }, []);
 
@@ -370,16 +366,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} relative overflow-hidden`}
     >
       {chatHistory.length === 0 && !isStreaming ? (
-        <ChatExamples
-          logo={logo}
-          setTextInput={setTextInput}
-          isMobileView={isMobileView}
-        />
+        <ChatExamples logo={logo} setTextInput={setTextInput} isMobileView={isMobileView} />
       ) : (
         <ScrollArea.Root
-          className={`relative flex flex-col flex-grow ${
-            isMobileView ? "h-full touch-pan-y" : ""
-          }`}
+          className={`relative flex flex-col flex-grow ${isMobileView ? "h-full touch-pan-y" : ""}`}
         >
           {/* VIEWPORT */}
           <ScrollArea.Viewport
@@ -407,8 +397,8 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   <div
                     className={`chat-bubble ${
                       message.sender === "user"
-                      ? "bg-TT-green-accent text-white"
-                      : "bg-TT-purple-accent text-white"
+                        ? "bg-TT-green-accent text-white"
+                        : "bg-TT-purple-accent text-white"
                     } p-4 rounded-2xl mb-1 ${
                       isMobileView ? "text-[15px]" : "text-[15px]"
                     } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm leading-relaxed`}
@@ -443,17 +433,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                           <p className="text-white whitespace-pre-wrap break-words">
                             {message.text.split(/(\s+)/).map((segment, i) => {
                               // Split by space, keeping spaces
-                              const isUrl = /^(https?:\/\/|www\.)\S+/i.test(
-                                segment
-                              );
+                              const isUrl = /^(https?:\/\/|www\.)\S+/i.test(segment);
                               if (isUrl) {
-                                const cleanUrl = segment.replace(
-                                  /[.,!?;:]$/,
-                                  ""
-                                );
-                                const punctuation = segment.slice(
-                                  cleanUrl.length
-                                );
+                                const cleanUrl = segment.replace(/[.,!?;:]$/, "");
+                                const punctuation = segment.slice(cleanUrl.length);
                                 return (
                                   <React.Fragment key={i}>
                                     <a
@@ -573,11 +556,33 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
         </Tooltip.Provider>
       )}
 
+      {/* Lock indicator */}
+      {isScrollLocked && (
+        <div className="fixed bottom-24 right-20 z-50">
+          <Tooltip.Provider delayDuration={200}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <div className="h-10 w-10 rounded-full bg-TT-slate/80 flex items-center justify-center shadow-lg">
+                  <Lock className="h-5 w-5 text-white" />
+                </div>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content
+                  className="bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md rounded-md animate-in fade-in-0 zoom-in-95 z-50"
+                  side="left"
+                  sideOffset={5}
+                >
+                  Scroll locked to bottom
+                  <Tooltip.Arrow className="fill-popover" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
+        </div>
+      )}
+
       {/* FILE VIEWER DIALOG */}
-      <FileViewerDialog
-        file={selectedFile}
-        onClose={() => setSelectedFile(null)}
-      />
+      <FileViewerDialog file={selectedFile} onClose={() => setSelectedFile(null)} />
     </div>
   );
 };
