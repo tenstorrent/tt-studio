@@ -379,6 +379,10 @@ export default function NavBar() {
     }
   };
 
+  const handleImageGenerationClick = () => {
+    handleNavigation("/image-generation");
+  };
+
   const toggleHorizontalExpand = (): void => {
     setIsHorizontalExpanded(!isHorizontalExpanded);
   };
