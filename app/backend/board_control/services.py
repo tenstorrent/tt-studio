@@ -114,7 +114,7 @@ class SystemResourceService:
                     # Process device information
                     if "device_info" in tt_data and tt_data["device_info"]:
                         devices = []
-                        board_types = set()
+                        board_types = []
                         
                         for idx, device in enumerate(tt_data["device_info"]):
                             board_info = device.get("board_info", {})
@@ -123,7 +123,7 @@ class SystemResourceService:
                             
                             # Track board types
                             board_type = board_info.get("board_type", "Unknown")
-                            board_types.add(board_type)
+                            board_types.append(board_type)
                             
                             device_data = {
                                 "index": idx,
@@ -147,16 +147,14 @@ class SystemResourceService:
                         
                         # Determine primary board name
                         if board_types:
-                            primary_board = next(iter(board_types))
-                            # Normalize board name (e.g., "n300 L" -> "N300")
-                            if "n150" in primary_board.lower():
+                            if len(board_types) == 1:
                                 system_status["board_name"] = "N150"
-                            elif "n300" in primary_board.lower():
+                            elif len(board_types) == 2:
                                 system_status["board_name"] = "N300"
-                            elif "t3000" in primary_board.lower():
-                                system_status["board_name"] = "T3000"
+                            elif len(board_types) == 8:
+                                system_status["board_name"] = "T3K"
                             else:
-                                system_status["board_name"] = primary_board
+                                system_status["board_name"] = board_types[0]
                 else:
                     # tt-smi failed - indicate potential hardware issue
                     system_status["hardware_status"] = "error"

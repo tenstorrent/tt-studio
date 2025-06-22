@@ -594,35 +594,59 @@ def detect_board_type():
                 
                 if "device_info" in data:
                     logger.info(f"Found {len(data['device_info'])} devices")
-                    if len(data["device_info"]) > 0:
-                        # Get board type from first device
-                        first_device = data["device_info"][0]
-                        logger.info(f"First device keys: {list(first_device.keys())}")
-                        
-                        if "board_info" in first_device:
-                            board_info = first_device["board_info"]
-                            logger.info(f"Board info keys: {list(board_info.keys())}")
-                            board_type = board_info.get("board_type", "unknown")
-                            logger.info(f"Raw board_type: '{board_type}'")
-                            
-                            # Normalize board type (e.g., "n300 L" -> "N300")
-                            if "n150" in board_type.lower():
-                                logger.info("Detected N150 board")
-                                return "N150"
-                            elif "n300" in board_type.lower():
-                                logger.info("Detected N300 board")
-                                return "N300"
-                            elif "t3000" in board_type.lower():
-                                logger.info("Detected T3000 board")
-                                return "T3000"
+                    num_devices = len(data["device_info"])
+                    logger.info(f"num_devices: {num_devices}")
+                    if num_devices > 0:
+                        if num_devices == 1:
+                            first_device = data["device_info"][0]
+                            if "board_info" in first_device:
+                                board_info = first_device["board_info"]
+                                board_type = board_info.get("board_type", "unknown")
+                                logger.info(f"Raw board_type: '{board_type}'")
+                                if "n150" in board_type.lower():
+                                    logger.info("Detected N150 board")
+                                    return "N150"
+                                else:
+                                    logger.warning(f"Unknown board type: {board_type}")
+                                    return "unknown"
                             else:
-                                logger.warning(f"Unknown board type: {board_type}")
+                                logger.warning("No board_info found in first device")
+                                return "unknown"
+                        elif num_devices == 2:
+                            first_device = data["device_info"][0]
+                            if "board_info" in first_device:
+                                board_info = first_device["board_info"]
+                                board_type = board_info.get("board_type", "unknown")
+                                logger.info(f"Raw board_type: '{board_type}'")
+                                if "n300" in board_type.lower():
+                                    logger.info("Detected N300 board")
+                                    return "N300"
+                                else:
+                                    logger.warning(f"Unknown board type: {board_type}")
+                                    return "unknown"
+                            else:
+                                logger.warning("No board_info found in first device")
+                                return "unknown"
+                        elif num_devices == 8:
+                            first_device = data["device_info"][0]
+                            if "board_info" in first_device:
+                                board_info = first_device["board_info"]
+                                board_type = board_info.get("board_type", "unknown")
+                                logger.info(f"Raw board_type: '{board_type}'")
+                                if "n300" in board_type.lower():
+                                    logger.info("Detected T3000 board")
+                                    return "T3K"
+                                else:
+                                    logger.warning(f"Unknown board type: {board_type}")
+                                    return "unknown"
+                            else:
+                                logger.warning("No board_info found in first device")
                                 return "unknown"
                         else:
-                            logger.warning("No board_info found in first device")
+                            logger.warning(f"Unknown number of devices: {num_devices}")
                             return "unknown"
                     else:
-                        logger.warning("Device_info array is empty")
+                        logger.warning("No devices detected")
                         return "unknown"
                 else:
                     logger.warning("No 'device_info' key found in JSON")
