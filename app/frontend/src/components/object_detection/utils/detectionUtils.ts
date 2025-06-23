@@ -35,31 +35,36 @@ export const updateBoxPositions = (
 
       // Calculate the effective displayed dimensions of the video
       // This handles the object-contain scaling that the browser applies
-      const containerAspect = containerRect.width / containerRect.height;
-      const videoAspect = naturalWidth / naturalHeight;
+      const containerAspectRatio = containerRect.width / containerRect.height;
+      const videoAspectRatio = naturalWidth / naturalHeight;
 
       let displayWidth, displayHeight;
+      let horizontalOffset = 0;
+      let verticalOffset = 0;
 
-      if (videoAspect > containerAspect) {
+      if (videoAspectRatio > containerAspectRatio) {
         // Video is wider than container, so it's constrained by width
         displayWidth = mediaRect.width;
-        displayHeight = displayWidth / videoAspect;
+        displayHeight = displayWidth / videoAspectRatio;
+        verticalOffset = (mediaRect.height - displayHeight) / 2;
       } else {
         // Video is taller than container, so it's constrained by height
         displayHeight = mediaRect.height;
-        displayWidth = displayHeight * videoAspect;
+        displayWidth = displayHeight * videoAspectRatio;
+        horizontalOffset = (mediaRect.width - displayWidth) / 2;
       }
 
-      // Calculate the black bars (letterboxing/pillarboxing)
-      const horizontalOffset = (mediaRect.width - displayWidth) / 2;
-      const verticalOffset = (mediaRect.height - displayHeight) / 2;
+      // Calculate scale factors from normalized coordinates to display pixels
+      const scaleX = displayWidth;
+      const scaleY = displayHeight;
 
       // Apply the calculated dimensions to the bounding boxes
       return detections.map((detection) => {
-        const boxLeft = detection.xmin * displayWidth + horizontalOffset;
-        const boxTop = detection.ymin * displayHeight + verticalOffset;
-        const boxWidth = (detection.xmax - detection.xmin) * displayWidth;
-        const boxHeight = (detection.ymax - detection.ymin) * displayHeight;
+        // Convert normalized coordinates (0-1) to pixel coordinates
+        const boxLeft = detection.xmin * scaleX + horizontalOffset;
+        const boxTop = detection.ymin * scaleY + verticalOffset;
+        const boxWidth = (detection.xmax - detection.xmin) * scaleX;
+        const boxHeight = (detection.ymax - detection.ymin) * scaleY;
 
         return {
           ...detection,
