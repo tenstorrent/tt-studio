@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-import React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Button } from "../ui/button";
 import {
   Paperclip,
