@@ -80,7 +80,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                     className={`chat-bubble relative ${
                       message.sender === "user"
                         ? "bg-TT-green-accent text-white text-left"
-                        : "bg-TT-slate dark:bg-TT-slate bg-gray-100 text-gray-900 dark:text-white text-left"
+                        : "dark:bg-TT-slate bg-gray-100 text-gray-900 dark:text-white text-left"
                     } p-3 rounded-lg mb-1`}
                   >
                     <p className={message.sender === "user" ? "text-white" : "text-gray-900 dark:text-white"}>
