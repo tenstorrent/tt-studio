@@ -42,6 +42,7 @@ export const CameraSwitcher: React.FC<CameraSwitcherProps> = ({
     <div className={`flex items-center gap-2 ${className}`}>
       {/* Quick switch button (good for mobile front/back) */}
       <button
+        type="button"
         onClick={handleQuickSwitch}
         className="flex items-center gap-1 px-3 py-2 bg-background/80 hover:bg-background border rounded-md transition-colors text-sm"
         title="Switch Camera"
