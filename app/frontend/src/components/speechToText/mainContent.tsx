@@ -700,7 +700,7 @@ export function MainContent({
                               "flex items-center justify-center relative",
                               theme === "dark" ? "border-2 border-[#1A1A1A]" : "border-2 border-white"
                             )}
-                            style={{ backgroundColor: '#7C68FA' }}
+                            
                           >
                             {/* Pulse animation */}
                             <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse rounded-full"></span>
