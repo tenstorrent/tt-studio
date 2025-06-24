@@ -430,7 +430,7 @@ export default function Header({
 
             {/* Chat UI */}
             <Link
-              to="/chat-ui"
+              to="/chat"
               className="flex items-center p-2 rounded-md bg-[#7C68FA]/50 border-l-4 border-[#7C68FA]"
               onClick={() => setShowMobileMenu(false)}
             >
