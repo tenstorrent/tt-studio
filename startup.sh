@@ -364,7 +364,7 @@ INFERENCE_SERVER_DIR="${TT_STUDIO_ROOT}/tt-inference-server"
 # Clone the repository if it doesn't exist
 if [ ! -d "$INFERENCE_SERVER_DIR" ]; then
     echo "📥 Cloning TT Inference Server repository..."
-    git clone -b atupe/inference-server-fastapi https://github.com/tenstorrent/tt-inference-server.git "$INFERENCE_SERVER_DIR"
+    git clone -b atupe/studio-fastapi-main https://github.com/tenstorrent/tt-inference-server.git "$INFERENCE_SERVER_DIR"
     if [ $? -ne 0 ]; then
         echo "⛔ Error: Failed to clone tt-inference-server repository"
         exit 1
@@ -372,9 +372,9 @@ if [ ! -d "$INFERENCE_SERVER_DIR" ]; then
 else
     echo "📁 TT Inference Server directory already exists, pulling latest changes..."
     cd "$INFERENCE_SERVER_DIR"
-    git fetch origin atupe/inference-server-fastapi
-    git checkout atupe/inference-server-fastapi
-    git pull origin atupe/inference-server-fastapi
+    git fetch origin atupe/studio-fastapi-main
+    git checkout atupe/studio-fastapi-main
+    git pull origin atupe/studio-fastapi-main
     if [ $? -ne 0 ]; then
         echo "⛔ Error: Failed to update tt-inference-server repository"
         exit 1
