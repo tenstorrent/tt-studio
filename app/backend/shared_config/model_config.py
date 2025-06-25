@@ -306,8 +306,8 @@ model_implmentations_list = [
     # 70B models - Only T3000
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
-        image_tag="0.0.5-v0.57.0-rc71-2a8debd",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=T3000_ONLY,  # Only T3000
         docker_config=base_docker_config(),
         shm_size="32G",
@@ -320,8 +320,8 @@ model_implmentations_list = [
     # 1B, 3B, 8B, 11B models - Can run on all boards
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-1B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
-        image_tag="0.0.5-v0.57.0-rc71-2a8debd",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
@@ -331,8 +331,8 @@ model_implmentations_list = [
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-3B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
-        image_tag="0.0.5-v0.57.0-rc71-2a8debd",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
@@ -342,8 +342,8 @@ model_implmentations_list = [
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
-        image_tag="0.0.5-v0.57.0-rc71-2a8debd",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
@@ -353,8 +353,8 @@ model_implmentations_list = [
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
-        image_tag="0.0.5-v0.57.0-rc71-2a8debd",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=ALL_BOARDS,  # Can run on all boards
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
@@ -364,8 +364,8 @@ model_implmentations_list = [
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
-        image_tag="0.0.5-v0.57.0-rc71-2a8debd",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=T3000_ONLY,  # Only T3000
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
@@ -374,8 +374,8 @@ model_implmentations_list = [
     ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-dev-ubuntu-22.04-amd64",
-        image_tag="0.0.5-v0.57.0-rc71-2a8debd",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=T3000_ONLY,  # Only T3000
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
