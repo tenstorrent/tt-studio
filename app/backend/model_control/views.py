@@ -138,7 +138,6 @@ class ModelHealthView(APIView):
             deploy_id = data.get("deploy_id")
             deploy = get_deploy_cache()[deploy_id]
             health_url = "http://" + deploy["health_url"]
-            logger.info(f"health_url:= {health_url}")
             check_passed, health_content = health_check(health_url, json_data=None)
             if check_passed:
                 ret_status = status.HTTP_200_OK

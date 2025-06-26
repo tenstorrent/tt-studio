@@ -118,11 +118,13 @@ class ContainersView(APIView):
             'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
             'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
             'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            'T3K': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
             'unknown': []  # Empty list for unknown board type
         }
         
         # Get the device configurations for current board
         current_board_devices = set(board_to_device_map.get(current_board, []))
+        logger.info(f"Current board devices: {current_board_devices}")
         
         data = []
         for impl_id, impl in model_implmentations.items():
@@ -134,6 +136,7 @@ class ContainersView(APIView):
             else:
                 # Check if any of the current board's device configurations are in the model's configurations
                 is_compatible = bool(current_board_devices.intersection(impl.device_configurations))
+                logger.info(f"Model {impl.model_name}: is_compatible={is_compatible}")
             
             # Get all boards this model can run on
             compatible_boards = []
