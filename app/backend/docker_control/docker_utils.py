@@ -14,6 +14,7 @@ from shared_config.device_config import DeviceConfigurations
 from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
+from shared_config.model_type_config import ModelTypes
 
 
 CONFIG_PATH = "/root/.config/tenstorrent/reset_config.json"
@@ -30,44 +31,101 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
 
 
 def run_container(impl, weights_id):
-    """Run a docker container from an image"""
-    try:
-        logger.info(f"run_container called for {impl.model_name}")
+    """Run a docker container via TT Inference Server API"""
+    if (impl.model_type == ModelTypes.CHAT):
+        # For chat models, we use the TT Inference Server API to run the container
+        try:
+            logger.info(f"Calling TT Inference Server API")
+            logger.info(f"run_container called for {impl.model_name}")
 
-        
-        run_kwargs = copy.deepcopy(impl.docker_config)
-        # handle runtime configuration changes to docker kwargs
-        device_mounts = get_devices_mounts(impl)
-        if device_mounts:
-            run_kwargs.update({"devices": device_mounts})
-        run_kwargs.update({"ports": get_port_mounts(impl)})
-        # add bridge inter-container network
-        run_kwargs.update({"network": backend_config.docker_bridge_network_name})
-        # add unique container name suffixing with host port
-        host_port = list(run_kwargs["ports"].values())[0]
-        run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
-        run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
-        # add environment variables
-        run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
-        # container path, not backend path
-        run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
-            impl.model_container_weights_dir, weights_id
-        )
-        logger.info(f"run_kwargs:= {run_kwargs}")
-        container = client.containers.run(impl.image_version, **run_kwargs)
-        # 
-        verify_container(impl, run_kwargs, container)
-        # on changes to containers, update deploy cache
-        update_deploy_cache()
-        return {
-            "status": "success",
-            "container_id": container.id,
-            "container_name": container.name,
-            "service_route": impl.service_route,
-            "port_bindings": run_kwargs["ports"],
-        }
-    except docker.errors.ContainerError as e:
-        return {"status": "error", "message": str(e)}
+            device = detect_board_type().lower()
+            
+            # Create payload for the API call
+            payload = {
+                "model": impl.model_name,
+                "workflow": "server",  # Default workflow for container runs
+                "device": device,  # Extract device from impl
+                "docker_server": True,
+                "dev_mode": True
+            }
+
+            logger.info(f"API payload: {payload}")
+            
+            # Make POST request to TT Inference Server API
+            import requests
+            api_url = "http://172.18.0.1:8001/run"
+            
+            response = requests.post(
+                api_url,
+                json=payload,
+                timeout=300  # 5 minute timeout for container startup
+            )
+            
+            if response.status_code == 200:
+                api_result = response.json()
+                logger.info(f"API call successful: {api_result}")
+                
+                # Update deploy cache on success
+                update_deploy_cache()
+                
+                return {
+                    "status": "success",
+                    "container_name": api_result["container_name"],
+                    "api_response": api_result
+                }
+            else:
+                error_msg = f"API call failed with status {response.status_code}: {response.text}"
+                logger.error(error_msg)
+                return {"status": "error", "message": error_msg}
+                
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Network error calling TT Inference Server API: {str(e)}"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg}
+        except Exception as e:
+            error_msg = f"Unexpected error in run_container: {str(e)}"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg}
+    else:
+        # For non-chat models, we use the docker client to run the container
+        try:
+            logger.info(f"run_container called for {impl.model_name}")
+
+            
+            run_kwargs = copy.deepcopy(impl.docker_config)
+            # handle runtime configuration changes to docker kwargs
+            device_mounts = get_devices_mounts(impl)
+            if device_mounts:
+                run_kwargs.update({"devices": device_mounts})
+            run_kwargs.update({"ports": get_port_mounts(impl)})
+            # add bridge inter-container network
+            run_kwargs.update({"network": backend_config.docker_bridge_network_name})
+            # add unique container name suffixing with host port
+            host_port = list(run_kwargs["ports"].values())[0]
+            logger.info(f"!!!host_port:= {host_port}")
+            run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
+            run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
+            # add environment variables
+            run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
+            # container path, not backend path
+            run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
+                impl.model_container_weights_dir, weights_id
+            )
+            logger.info(f"run_kwargs:= {run_kwargs}")
+            container = client.containers.run(impl.image_version, **run_kwargs)
+            # 
+            verify_container(impl, run_kwargs, container)
+            # on changes to containers, update deploy cache
+            update_deploy_cache()
+            return {
+                "status": "success",
+                "container_id": container.id,
+                "container_name": container.name,
+                "service_route": impl.service_route,
+                "port_bindings": run_kwargs["ports"],
+            }
+        except docker.errors.ContainerError as e:
+            return {"status": "error", "message": str(e)}
 
 def run_agent_container(container_name, port_bindings, impl):
     # runs agent container after associated llm container runs
@@ -140,7 +198,7 @@ def get_host_port(impl):
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8001
+    BASE_MODEL_PORT = 8002
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
@@ -231,6 +289,7 @@ def update_deploy_cache():
     
     # Get current running container IDs
     current_container_ids = set(data.keys())
+    logger.info(f"!!! current_container_ids:= {current_container_ids}")
     
     # Remove containers from cache that are no longer running
     containers_to_remove = cached_container_ids - current_container_ids
@@ -239,16 +298,29 @@ def update_deploy_cache():
         cache.delete(container_id)
     
     # Add/update current running containers in cache
+    logger.info(f"!!! data.items():= {data.items()}")
     for con_id, con in data.items():
         con_model_id = con['env_vars'].get("MODEL_ID")
+        logger.info(f"!!! con_model_id:= {con_model_id}")
         model_impl = model_implmentations.get(con_model_id)
         if not model_impl:
-            # fallback to finding first impl that uses that container 
+            # find first impl that uses that container name
             model_impl = [
                 v
                 for k, v in model_implmentations.items()
-                if v.image_version == con["image_name"]
+                if v.model_name == con["name"]
             ]
+            if len(model_impl) == 0:
+                # fallback to finding first impl that uses that container image
+                model_impl = [
+                    v
+                    for k, v in model_implmentations.items()
+                    if v.image_version == con["image_name"]
+                ]
+            logger.info(f"Container image name: {con['name']}")
+            logger.info("Available model implementations:")
+            for k, v in model_implmentations.items():
+                logger.info(f"Model ID: {k}, Image Version: {v.model_name}")
             assert (
                 len(model_impl) == 1
             ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
@@ -522,35 +594,59 @@ def detect_board_type():
                 
                 if "device_info" in data:
                     logger.info(f"Found {len(data['device_info'])} devices")
-                    if len(data["device_info"]) > 0:
-                        # Get board type from first device
-                        first_device = data["device_info"][0]
-                        logger.info(f"First device keys: {list(first_device.keys())}")
-                        
-                        if "board_info" in first_device:
-                            board_info = first_device["board_info"]
-                            logger.info(f"Board info keys: {list(board_info.keys())}")
-                            board_type = board_info.get("board_type", "unknown")
-                            logger.info(f"Raw board_type: '{board_type}'")
-                            
-                            # Normalize board type (e.g., "n300 L" -> "N300")
-                            if "n150" in board_type.lower():
-                                logger.info("Detected N150 board")
-                                return "N150"
-                            elif "n300" in board_type.lower():
-                                logger.info("Detected N300 board")
-                                return "N300"
-                            elif "t3000" in board_type.lower():
-                                logger.info("Detected T3000 board")
-                                return "T3000"
+                    num_devices = len(data["device_info"])
+                    logger.info(f"num_devices: {num_devices}")
+                    if num_devices > 0:
+                        if num_devices == 1:
+                            first_device = data["device_info"][0]
+                            if "board_info" in first_device:
+                                board_info = first_device["board_info"]
+                                board_type = board_info.get("board_type", "unknown")
+                                logger.info(f"Raw board_type: '{board_type}'")
+                                if "n150" in board_type.lower():
+                                    logger.info("Detected N150 board")
+                                    return "N150"
+                                else:
+                                    logger.warning(f"Unknown board type: {board_type}")
+                                    return "unknown"
                             else:
-                                logger.warning(f"Unknown board type: {board_type}")
+                                logger.warning("No board_info found in first device")
+                                return "unknown"
+                        elif num_devices == 2:
+                            first_device = data["device_info"][0]
+                            if "board_info" in first_device:
+                                board_info = first_device["board_info"]
+                                board_type = board_info.get("board_type", "unknown")
+                                logger.info(f"Raw board_type: '{board_type}'")
+                                if "n300" in board_type.lower():
+                                    logger.info("Detected N300 board")
+                                    return "N300"
+                                else:
+                                    logger.warning(f"Unknown board type: {board_type}")
+                                    return "unknown"
+                            else:
+                                logger.warning("No board_info found in first device")
+                                return "unknown"
+                        elif num_devices == 8:
+                            first_device = data["device_info"][0]
+                            if "board_info" in first_device:
+                                board_info = first_device["board_info"]
+                                board_type = board_info.get("board_type", "unknown")
+                                logger.info(f"Raw board_type: '{board_type}'")
+                                if "n300" in board_type.lower():
+                                    logger.info("Detected T3000 board")
+                                    return "T3K"
+                                else:
+                                    logger.warning(f"Unknown board type: {board_type}")
+                                    return "unknown"
+                            else:
+                                logger.warning("No board_info found in first device")
                                 return "unknown"
                         else:
-                            logger.warning("No board_info found in first device")
+                            logger.warning(f"Unknown number of devices: {num_devices}")
                             return "unknown"
                     else:
-                        logger.warning("Device_info array is empty")
+                        logger.warning("No devices detected")
                         return "unknown"
                 else:
                     logger.warning("No 'device_info' key found in JSON")

@@ -192,6 +192,27 @@ if [[ "$RUN_CLEANUP" = true ]]; then
         echo -e "${C_RED}⛔ Failed to clean up services.${C_RESET}"
         exit 1
     fi
+    
+    # Clean up FastAPI server if it's running
+    FASTAPI_PID_FILE="${TT_STUDIO_ROOT}/fastapi.pid"
+    if [[ -f "$FASTAPI_PID_FILE" ]]; then
+        FASTAPI_PID=$(cat "$FASTAPI_PID_FILE")
+        if kill -0 "$FASTAPI_PID" 2>/dev/null; then
+            echo "🧹 Stopping FastAPI server (PID: $FASTAPI_PID)..."
+            sudo kill "$FASTAPI_PID"
+            sleep 2
+            if kill -0 "$FASTAPI_PID" 2>/dev/null; then
+                echo "🧹 Force killing FastAPI server..."
+                sudo kill -9 "$FASTAPI_PID"
+            fi
+            echo "✅ FastAPI server stopped."
+        fi
+        rm -f "$FASTAPI_PID_FILE"
+    fi
+    
+    # Clean up log file
+    rm -f "${TT_STUDIO_ROOT}/fastapi.log"
+    
     exit 0
 fi
 
@@ -332,6 +353,180 @@ fi
 echo -e "${C_BOLD}${C_BLUE}🚀 Starting services with selected configuration...${C_RESET}"
 docker compose ${COMPOSE_FILES} up --build -d
 
+# Step 6: Setup TT Inference Server FastAPI
+echo
+echo -e "\e[1;36m=====================================================\e[0m"
+echo -e "\e[1;36m         🔧 Setting up TT Inference Server          \e[0m"
+echo -e "\e[1;36m=====================================================\e[0m"
+
+INFERENCE_SERVER_DIR="${TT_STUDIO_ROOT}/tt-inference-server"
+
+# Clone the repository if it doesn't exist
+if [ ! -d "$INFERENCE_SERVER_DIR" ]; then
+    echo "📥 Cloning TT Inference Server repository..."
+    git clone -b atupe/studio-fastapi-main https://github.com/tenstorrent/tt-inference-server.git "$INFERENCE_SERVER_DIR"
+    if [ $? -ne 0 ]; then
+        echo "⛔ Error: Failed to clone tt-inference-server repository"
+        exit 1
+    fi
+else
+    echo "📁 TT Inference Server directory already exists, pulling latest changes..."
+    cd "$INFERENCE_SERVER_DIR"
+    git fetch origin atupe/studio-fastapi-main
+    git checkout atupe/studio-fastapi-main
+    git pull origin atupe/studio-fastapi-main
+    if [ $? -ne 0 ]; then
+        echo "⛔ Error: Failed to update tt-inference-server repository"
+        exit 1
+    fi
+fi
+
+# Change to the inference server directory
+cd "$INFERENCE_SERVER_DIR"
+
+# Check if port 8001 is already in use
+if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "⚠️  Port 8001 is already in use. Attempting to find and stop existing process..."
+    EXISTING_PID=$(lsof -Pi :8001 -sTCP:LISTEN -t)
+    if [[ -n "$EXISTING_PID" ]]; then
+        echo "🛑 Found existing process on port 8001 (PID: $EXISTING_PID). Stopping it..."
+        sudo kill "$EXISTING_PID" 2>/dev/null || true
+        sleep 2
+        if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then
+            echo "🛑 Force killing process on port 8001..."
+            sudo kill -9 "$EXISTING_PID" 2>/dev/null || true
+            sleep 1
+        fi
+    fi
+fi
+
+# Create virtual environment if it doesn't exist
+if [ ! -d ".venv" ]; then
+    echo "🐍 Creating Python virtual environment..."
+    python3 -m venv .venv
+    if [ $? -ne 0 ]; then
+        echo "⛔ Error: Failed to create virtual environment"
+        exit 1
+    fi
+else
+    echo "🐍 Virtual environment already exists"
+fi
+
+# Install requirements
+echo "📦 Installing Python requirements..."
+.venv/bin/pip install -r requirements-api.txt
+if [ $? -ne 0 ]; then
+    echo "⛔ Error: Failed to install requirements"
+    exit 1
+fi
+
+# Prompt for required environment variables
+echo
+echo -e "\e[1;36m=====================================================\e[0m"
+echo -e "\e[1;36m         🔑 Configuration Required                   \e[0m"
+echo -e "\e[1;36m=====================================================\e[0m"
+echo
+
+# Prompt for JWT_SECRET
+while true; do
+    read -s -p "🔐 Enter JWT_SECRET (for authentication): " JWT_SECRET
+    echo
+    if [[ -n "$JWT_SECRET" ]]; then
+        break
+    else
+        echo "⛔ JWT_SECRET cannot be empty. Please enter a valid JWT secret."
+    fi
+done
+
+# Prompt for HF_TOKEN
+while true; do
+    read -s -p "🤗 Enter HF_TOKEN (Hugging Face token): " HF_TOKEN
+    echo
+    if [[ -n "$HF_TOKEN" ]]; then
+        break
+    else
+        echo "⛔ HF_TOKEN cannot be empty. Please enter a valid Hugging Face token."
+    fi
+done
+
+# Export the environment variables
+export JWT_SECRET
+export HF_TOKEN
+
+echo "✅ Environment variables configured successfully"
+echo
+
+# Start FastAPI server in background with logging
+echo "🚀 Starting FastAPI server on port 8001..."
+echo "🔐 FastAPI server requires sudo privileges. Please enter your password:"
+
+# Prompt for sudo password upfront so it's cached for background process
+sudo -v
+if [ $? -ne 0 ]; then
+    echo "⛔ Error: Failed to authenticate with sudo"
+    exit 1
+fi
+
+echo "✅ Sudo authentication successful. Starting FastAPI server..."
+FASTAPI_LOG_FILE="${TT_STUDIO_ROOT}/fastapi.log"
+# Use a wrapper script to properly capture the uvicorn PID
+sudo JWT_SECRET="$JWT_SECRET" HF_TOKEN="$HF_TOKEN" bash -c "
+    .venv/bin/uvicorn api:app --host 0.0.0.0 --port 8001 > \"$FASTAPI_LOG_FILE\" 2>&1 &
+    echo \$! > \"${TT_STUDIO_ROOT}/fastapi.pid\"
+" &
+FASTAPI_PID=""
+
+# Wait for PID file to be created and read the actual PID
+echo "⏳ Waiting for FastAPI server to start..."
+HEALTH_CHECK_RETRIES=30
+HEALTH_CHECK_DELAY=2
+
+# Wait for PID file to be created
+for ((i=1; i<=10; i++)); do
+    if [[ -f "${TT_STUDIO_ROOT}/fastapi.pid" ]] && [[ -n "$(cat "${TT_STUDIO_ROOT}/fastapi.pid" 2>/dev/null)" ]]; then
+        FASTAPI_PID=$(cat "${TT_STUDIO_ROOT}/fastapi.pid")
+        echo "📋 FastAPI PID: $FASTAPI_PID"
+        break
+    fi
+    echo "⏳ Waiting for PID file (attempt $i/10)..."
+    sleep 1
+done
+
+if [[ -z "$FASTAPI_PID" ]]; then
+    echo "⛔ Error: Failed to get FastAPI PID"
+    exit 1
+fi
+
+for ((i=1; i<=HEALTH_CHECK_RETRIES; i++)); do
+    # Check if process exists (try both regular and sudo)
+    if ! kill -0 "$FASTAPI_PID" 2>/dev/null && ! sudo kill -0 "$FASTAPI_PID" 2>/dev/null; then
+        echo "⛔ Error: FastAPI server process died"
+        echo "📜 Last few lines of FastAPI log:"
+        tail -n 10 "$FASTAPI_LOG_FILE" 2>/dev/null || echo "No log file found"
+        exit 1
+    fi
+    
+    # Check if server is responding to HTTP requests
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/ 2>/dev/null | grep -q "200\|404"; then
+        echo "✅ FastAPI server started successfully (PID: $FASTAPI_PID)"
+        echo "🌐 FastAPI server accessible at: http://localhost:8001"
+        echo "🔐 FastAPI server: ${C_CYAN}http://localhost:8001${C_RESET} (check: curl http://localhost:8001/)"
+        break
+    elif [ $i -eq $HEALTH_CHECK_RETRIES ]; then
+        echo "⛔ Error: FastAPI server failed health check after ${HEALTH_CHECK_RETRIES} attempts"
+        echo "📜 Last few lines of FastAPI log:"
+        tail -n 10 "$FASTAPI_LOG_FILE" 2>/dev/null || echo "No log file found"
+        echo "💡 Try running: curl -v http://localhost:8001/ to debug connection issues"
+        exit 1
+    fi
+    
+    echo "⏳ Health check attempt $i/$HEALTH_CHECK_RETRIES - waiting ${HEALTH_CHECK_DELAY}s..."
+    sleep $HEALTH_CHECK_DELAY
+done
+
+# Return to original directory
+cd "$TT_STUDIO_ROOT"
+
 # Final summary display
 echo
 echo -e "${C_GREEN}✔ Setup Complete!${C_RESET}"
@@ -341,6 +536,8 @@ echo -e "${C_WHITE}${C_BOLD}│                                                 
 echo -e "${C_WHITE}${C_BOLD}│   🚀 Tenstorrent TT Studio is ready!                     │${C_RESET}"
 echo -e "${C_WHITE}${C_BOLD}│                                                            │${C_RESET}"
 echo -e "${C_WHITE}${C_BOLD}│   Access it at: ${C_CYAN}http://localhost:3000${C_RESET}${C_WHITE}${C_BOLD}                    │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│   FastAPI server: ${C_CYAN}http://localhost:8001${C_RESET}${C_WHITE}${C_BOLD}                  │${C_RESET}"
+echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}(Health check: curl http://localhost:8001/)${C_RESET}${C_WHITE}${C_BOLD}           │${C_RESET}"
 if [[ "$OS_NAME" == "Darwin" ]]; then
     echo -e "${C_WHITE}${C_BOLD}│   ${C_YELLOW}(Cmd+Click the link to open in browser)${C_RESET}${C_WHITE}${C_BOLD}                │${C_RESET}"
 else
@@ -383,6 +580,8 @@ fi
 if [[ "$RUN_DEV_MODE" = true ]]; then
     echo -e "${C_YELLOW}📜 Tailing logs in development mode. Press Ctrl+C to stop.${C_RESET}"
     echo
-    cd "${TT_STUDIO_ROOT}/app" && docker compose logs -f
+    cd "${TT_STUDIO_ROOT}/app" && docker compose logs -f &
+    tail -f "$FASTAPI_LOG_FILE" &
+    wait
 fi
 
