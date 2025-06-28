@@ -19,19 +19,6 @@ C_BOLD='\033[1m'
 C_ORANGE='\033[38;5;208m'
 C_TT_PURPLE='\033[38;5;99m' # Corresponds to #7C68FA
 
-# --- Color Definitions ---
-C_RESET='\033[0m'
-C_RED='\033[0;31m'
-C_GREEN='\033[0;32m'
-C_YELLOW='\033[0;33m'
-C_BLUE='\033[0;34m'
-C_MAGENTA='\033[0;35m'
-C_CYAN='\033[0;36m'
-C_WHITE='\033[0;37m'
-C_BOLD='\033[1m'
-C_ORANGE='\033[38;5;208m'
-C_TT_PURPLE='\033[38;5;99m' # Corresponds to #7C68FA
-
 # Define setup script path
 SETUP_SCRIPT="./setup.sh"
 
@@ -195,24 +182,68 @@ if [[ "$RUN_CLEANUP" = true ]]; then
     
     # Clean up FastAPI server if it's running
     FASTAPI_PID_FILE="${TT_STUDIO_ROOT}/fastapi.pid"
-    if [[ -f "$FASTAPI_PID_FILE" ]]; then
-        FASTAPI_PID=$(cat "$FASTAPI_PID_FILE")
-        if kill -0 "$FASTAPI_PID" 2>/dev/null; then
-            echo "🧹 Stopping FastAPI server (PID: $FASTAPI_PID)..."
-            sudo kill "$FASTAPI_PID"
-            sleep 2
+    echo "🧹 Cleaning up FastAPI server..."
+    
+    # Check if port 8001 is in use and kill any process using it
+    if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1 || nc -z localhost 8001 >/dev/null 2>&1; then
+        echo "🧹 Stopping processes on port 8001..."
+        
+        # Try multiple approaches to be thorough
+        # 1. Check PID file
+        if [[ -f "$FASTAPI_PID_FILE" ]]; then
+            FASTAPI_PID=$(cat "$FASTAPI_PID_FILE")
             if kill -0 "$FASTAPI_PID" 2>/dev/null; then
-                echo "🧹 Force killing FastAPI server..."
-                sudo kill -9 "$FASTAPI_PID"
+                echo "🧹 Stopping FastAPI server (PID: $FASTAPI_PID)..."
+                sudo kill "$FASTAPI_PID"
+                sleep 2
+                if kill -0 "$FASTAPI_PID" 2>/dev/null; then
+                    echo "🧹 Force killing FastAPI server..."
+                    sudo kill -9 "$FASTAPI_PID"
+                fi
+                echo "✅ FastAPI server stopped."
             fi
-            echo "✅ FastAPI server stopped."
         fi
-        rm -f "$FASTAPI_PID_FILE"
+        
+        # 2. Try finding process on port 8001 directly
+        PORT_PID=$(lsof -Pi :8001 -sTCP:LISTEN -t 2>/dev/null || echo "")
+        if [[ -n "$PORT_PID" ]]; then
+            echo "🧹 Found additional process on port 8001 (PID: $PORT_PID)..."
+            sudo kill -15 $PORT_PID 2>/dev/null || true
+            sleep 2
+            
+            # Check if process is still running
+            if kill -0 $PORT_PID 2>/dev/null; then
+                echo "⚠️  Process still running. Attempting force kill..."
+                sudo kill -9 $PORT_PID 2>/dev/null || true
+                sleep 1
+            fi
+        fi
+        
+        # 3. OS specific approach for any remaining process
+        if [[ "$OS_NAME" == "Darwin" ]]; then
+            # macOS
+            sudo lsof -i :8001 -sTCP:LISTEN -t | xargs sudo kill -9 2>/dev/null || true
+        else
+            # Linux
+            sudo fuser -k 8001/tcp 2>/dev/null || true
+        fi
+        
+        # Final check
+        if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1 || nc -z localhost 8001 >/dev/null 2>&1; then
+            echo "⚠️ Warning: Could not free port 8001 completely."
+        else
+            echo "✅ Port 8001 has been freed."
+        fi
+    else
+        echo "✅ Port 8001 is already free."
     fi
     
-    # Clean up log file
+    # Clean up PID and log files
+    rm -f "$FASTAPI_PID_FILE"
     rm -f "${TT_STUDIO_ROOT}/fastapi.log"
+    echo "✅ Removed PID and log files."
     
+    echo -e "${C_GREEN}🧹 Cleanup completed successfully.${C_RESET}"
     exit 0
 fi
 
@@ -237,68 +268,468 @@ if [[ ! -f "${ENV_FILE_PATH}" && -f "${ENV_FILE_DEFAULT}" ]]; then
     cp "${ENV_FILE_DEFAULT}" "${ENV_FILE_PATH}"
 fi
 
-# run a simple command to check if /dev/tenstorrent exists 
-if [[ -e "/dev/tenstorrent" ]]; then
-    echo -e "${C_GREEN}🖥️ Tenstorrent device detected at /dev/tenstorrent.${C_RESET}"
-
-    # Prompt user for enabling TT hardware support
-    if [[ "$RUN_TT_HARDWARE" = false ]]; then
-        echo
-        echo -e "${C_RED}❓ QUESTION: Do you want to mount Tenstorrent hardware?${C_RESET}"
-        echo -e "${C_YELLOW}   This will enable direct access to your Tenstorrent device.${C_RESET}"
-        while true; do
-            echo -n -e "${C_CYAN}   Please choose (y/n): ${C_RESET}"
-            read enable_hardware
-            case "$enable_hardware" in
-                [Yy]* ) 
-                    RUN_TT_HARDWARE=true
-                    echo -e "${C_GREEN}Enabling Tenstorrent hardware support...${C_RESET}"
-                    break
-                    ;;
-                [Nn]* ) 
-                    RUN_TT_HARDWARE=false
-                    break
-                    ;;
-                * ) 
-                    echo -e "${C_RED}   ⚠️  Please answer 'y' or 'n'${C_RESET}"
-                    ;;
-            esac
-        done
+# Function to check if a value is a placeholder
+is_placeholder() {
+    local value="$1"
+    # Check for common placeholder patterns
+    if [[ "$value" =~ ^(hf_\*+|tvly-[x]+|\*+|placeholder|your_token|xxx+|default|change_me)$ ]]; then
+        return 0  # Is a placeholder
     fi
-else
-    echo -e "${C_YELLOW}⛔ No Tenstorrent device found at /dev/tenstorrent. Skipping Mounting hardware setup.${C_RESET}"
-fi
+    return 1  # Not a placeholder
+}
 
-# Update TT_STUDIO_ROOT and ENABLE_TT_HARDWARE in the .env file
+# Check for JWT_SECRET and HF_TOKEN in app/.env
+JWT_SECRET=""
+HF_TOKEN=""
+DJANGO_SECRET_KEY=""
+TAVILY_API_KEY=""
+VITE_APP_TITLE="TT Studio"
+VITE_ENABLE_DEPLOYED="false"
+VITE_ENABLE_RAG_ADMIN="false"
+RAG_ADMIN_PASSWORD=""
+    
 if [[ -f "${ENV_FILE_PATH}" ]]; then
-    # Check OS and set sed command accordingly
-    if [[ "$OS_NAME" == "Darwin" ]]; then
-        # macOS sed requires an empty string after -i
-        sed -i '' "s|^TT_STUDIO_ROOT=.*|TT_STUDIO_ROOT=${TT_STUDIO_ROOT}|g" "${ENV_FILE_PATH}"
-
-        if [[ "$RUN_TT_HARDWARE" = true ]]; then
-            sed -i '' "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=true|g" "${ENV_FILE_PATH}"
-            echo -e "${C_BLUE}Enabled TT hardware support in .env file${C_RESET}"
-        else
-            sed -i '' "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=false|g" "${ENV_FILE_PATH}"
-            echo -e "${C_BLUE}Disabled TT hardware support in .env file${C_RESET}"
-        fi
-    else
-        # Linux syntax for sed
-        sed -i "s|^TT_STUDIO_ROOT=.*|TT_STUDIO_ROOT=${TT_STUDIO_ROOT}|g" "${ENV_FILE_PATH}"
-
-        if [[ "$RUN_TT_HARDWARE" = true ]]; then
-            sed -i "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=true|g" "${ENV_FILE_PATH}"
-            echo -e "${C_BLUE}Enabled TT hardware support in .env file${C_RESET}"
-        else
-            sed -i "s|^ENABLE_TT_HARDWARE=.*|ENABLE_TT_HARDWARE=false|g" "${ENV_FILE_PATH}"
-            echo -e "${C_BLUE}Disabled TT hardware support in .env file${C_RESET}"
+    echo "🔍 Checking for credentials in app/.env file..."
+    
+    # Extract environment variables if they exist
+    JWT_SECRET_LINE=$(grep -E "^JWT_SECRET=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$JWT_SECRET_LINE" ]]; then
+        JWT_SECRET=$(echo "$JWT_SECRET_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$JWT_SECRET" ]]; then
+            # Check if it's a placeholder
+            if is_placeholder "$JWT_SECRET"; then
+                echo "⚠️  Found JWT_SECRET in app/.env but it appears to be a placeholder"
+                JWT_SECRET=""
+            else
+                echo "✅ Found JWT_SECRET in app/.env"
+            fi
         fi
     fi
-else
-    echo -e "${C_RED}⛔ Error: .env file does not exist and could not be created.${C_RESET}"
-    exit 1
+    
+    HF_TOKEN_LINE=$(grep -E "^HF_TOKEN=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$HF_TOKEN_LINE" ]]; then
+        HF_TOKEN=$(echo "$HF_TOKEN_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$HF_TOKEN" ]]; then
+            # Check if it's a placeholder - but valid HF tokens actually start with hf_
+            # so only check for obvious placeholder patterns like hf_*** not legitimate tokens
+            if [[ "$HF_TOKEN" =~ ^hf_\*+$ ]] || [[ "$HF_TOKEN" == "hf_***" ]] || is_placeholder "$HF_TOKEN"; then
+                echo "⚠️  Found HF_TOKEN in app/.env but it appears to be a placeholder"
+                HF_TOKEN=""
+            else
+                echo "✅ Found HF_TOKEN in app/.env"
+            fi
+        fi
+    fi
+    
+    DJANGO_SECRET_KEY_LINE=$(grep -E "^DJANGO_SECRET_KEY=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$DJANGO_SECRET_KEY_LINE" ]]; then
+        DJANGO_SECRET_KEY=$(echo "$DJANGO_SECRET_KEY_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$DJANGO_SECRET_KEY" ]]; then
+            # Check if it's a placeholder
+            if is_placeholder "$DJANGO_SECRET_KEY" || [[ "$DJANGO_SECRET_KEY" == "django-insecure-default" ]]; then
+                echo "⚠️  Found DJANGO_SECRET_KEY in app/.env but it appears to be a placeholder"
+                DJANGO_SECRET_KEY=""
+            else
+                echo "✅ Found DJANGO_SECRET_KEY in app/.env"
+            fi
+        fi
+    fi
+    
+    TAVILY_API_KEY_LINE=$(grep -E "^TAVILY_API_KEY=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$TAVILY_API_KEY_LINE" ]]; then
+        TAVILY_API_KEY=$(echo "$TAVILY_API_KEY_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$TAVILY_API_KEY" ]]; then
+            # Check if it's a placeholder - but valid keys start with tvly-
+            # so only check for obvious placeholder patterns like tvly-xxx
+            if [[ "$TAVILY_API_KEY" =~ ^tvly-[x]+$ ]] || [[ "$TAVILY_API_KEY" == "tvly-xxx" ]] || is_placeholder "$TAVILY_API_KEY"; then
+                echo "⚠️  Found TAVILY_API_KEY in app/.env but it appears to be a placeholder"
+                TAVILY_API_KEY=""
+            else
+                echo "✅ Found TAVILY_API_KEY in app/.env"
+            fi
+        fi
+    fi
+    
+    VITE_APP_TITLE_LINE=$(grep -E "^VITE_APP_TITLE=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$VITE_APP_TITLE_LINE" ]]; then
+        VITE_APP_TITLE=$(echo "$VITE_APP_TITLE_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$VITE_APP_TITLE" ]]; then
+            echo "✅ Found VITE_APP_TITLE in app/.env"
+        fi
+    fi
+    
+    VITE_ENABLE_DEPLOYED_LINE=$(grep -E "^VITE_ENABLE_DEPLOYED=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$VITE_ENABLE_DEPLOYED_LINE" ]]; then
+        VITE_ENABLE_DEPLOYED=$(echo "$VITE_ENABLE_DEPLOYED_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$VITE_ENABLE_DEPLOYED" ]]; then
+            echo "✅ Found VITE_ENABLE_DEPLOYED in app/.env"
+        fi
+    fi
+    
+    VITE_ENABLE_RAG_ADMIN_LINE=$(grep -E "^VITE_ENABLE_RAG_ADMIN=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$VITE_ENABLE_RAG_ADMIN_LINE" ]]; then
+        VITE_ENABLE_RAG_ADMIN=$(echo "$VITE_ENABLE_RAG_ADMIN_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$VITE_ENABLE_RAG_ADMIN" ]]; then
+            echo "✅ Found VITE_ENABLE_RAG_ADMIN in app/.env"
+        fi
+    fi
+    
+    RAG_ADMIN_PASSWORD_LINE=$(grep -E "^RAG_ADMIN_PASSWORD=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
+    if [[ -n "$RAG_ADMIN_PASSWORD_LINE" ]]; then
+        RAG_ADMIN_PASSWORD=$(echo "$RAG_ADMIN_PASSWORD_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        if [[ -n "$RAG_ADMIN_PASSWORD" ]]; then
+            # Check if it's a placeholder
+            if is_placeholder "$RAG_ADMIN_PASSWORD" || [[ "$RAG_ADMIN_PASSWORD" == "tt-studio-rag-admin-password" ]]; then
+                echo "⚠️  Found RAG_ADMIN_PASSWORD in app/.env but it appears to be a placeholder"
+                RAG_ADMIN_PASSWORD=""
+            else
+                echo "✅ Found RAG_ADMIN_PASSWORD in app/.env"
+            fi
+        fi
+    fi
 fi
+
+# Prompt for environment variables if not found
+echo
+echo -e "\e[1;36m=====================================================\e[0m"
+echo -e "\e[1;36m         🔑 Configuration Required                   \e[0m"
+echo -e "\e[1;36m=====================================================\e[0m"
+echo
+
+# Prompt for JWT_SECRET if not found
+if [[ -z "$JWT_SECRET" ]]; then
+    while true; do
+        read -s -p "🔐 Enter JWT_SECRET (for authentication): " JWT_SECRET
+        echo
+        if [[ -n "$JWT_SECRET" ]]; then
+            break
+        else
+            echo "⛔ JWT_SECRET cannot be empty. Please enter a valid JWT secret."
+        fi
+    done
+    
+    # Save to app/.env if it exists
+    if [[ -f "${ENV_FILE_PATH}" ]]; then
+        if grep -q "^JWT_SECRET=" "${ENV_FILE_PATH}"; then
+            # Update existing JWT_SECRET
+            if [[ "$OS_NAME" == "Darwin" ]]; then
+                sed -i '' "s|^JWT_SECRET=.*|JWT_SECRET=${JWT_SECRET}|g" "${ENV_FILE_PATH}"
+            else
+                sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${JWT_SECRET}|g" "${ENV_FILE_PATH}"
+            fi
+        else
+            # Add new JWT_SECRET
+            echo "JWT_SECRET=${JWT_SECRET}" >> "${ENV_FILE_PATH}"
+        fi
+        echo "✅ JWT_SECRET saved to app/.env"
+    fi
+fi
+
+# Prompt for HF_TOKEN if not found
+if [[ -z "$HF_TOKEN" ]]; then
+        while true; do
+        read -s -p "🤗 Enter HF_TOKEN (Hugging Face token): " HF_TOKEN
+        echo
+        if [[ -n "$HF_TOKEN" ]]; then
+                    break
+        else
+            echo "⛔ HF_TOKEN cannot be empty. Please enter a valid Hugging Face token."
+        fi
+    done
+    
+    # Save to app/.env if it exists
+    if [[ -f "${ENV_FILE_PATH}" ]]; then
+        if grep -q "^HF_TOKEN=" "${ENV_FILE_PATH}"; then
+            # Update existing HF_TOKEN
+            if [[ "$OS_NAME" == "Darwin" ]]; then
+                sed -i '' "s|^HF_TOKEN=.*|HF_TOKEN=${HF_TOKEN}|g" "${ENV_FILE_PATH}"
+            else
+                sed -i "s|^HF_TOKEN=.*|HF_TOKEN=${HF_TOKEN}|g" "${ENV_FILE_PATH}"
+            fi
+        else
+            # Add new HF_TOKEN
+            echo "HF_TOKEN=${HF_TOKEN}" >> "${ENV_FILE_PATH}"
+        fi
+        echo "✅ HF_TOKEN saved to app/.env"
+    fi
+fi
+
+# Prompt for DJANGO_SECRET_KEY if not found
+if [[ -z "$DJANGO_SECRET_KEY" ]]; then
+    while true; do
+        read -s -p "🔑 Enter DJANGO_SECRET_KEY (for Django security): " DJANGO_SECRET_KEY
+        echo
+        if [[ -n "$DJANGO_SECRET_KEY" ]]; then
+                    break
+        else
+            echo "⛔ DJANGO_SECRET_KEY cannot be empty. Please enter a valid Django secret."
+        fi
+    done
+    
+    # Save to app/.env if it exists
+    if [[ -f "${ENV_FILE_PATH}" ]]; then
+        if grep -q "^DJANGO_SECRET_KEY=" "${ENV_FILE_PATH}"; then
+            # Update existing DJANGO_SECRET_KEY
+            if [[ "$OS_NAME" == "Darwin" ]]; then
+                sed -i '' "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}|g" "${ENV_FILE_PATH}"
+            else
+                sed -i "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}|g" "${ENV_FILE_PATH}"
+    fi
+else
+            # Add new DJANGO_SECRET_KEY
+            echo "DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}" >> "${ENV_FILE_PATH}"
+        fi
+        echo "✅ DJANGO_SECRET_KEY saved to app/.env"
+    fi
+fi
+
+# Prompt for TAVILY_API_KEY if not found
+if [[ -z "$TAVILY_API_KEY" ]]; then
+    while true; do
+        read -s -p "🔍 Enter TAVILY_API_KEY (for search functionality): " TAVILY_API_KEY
+        echo
+        if [[ -n "$TAVILY_API_KEY" ]]; then
+            break
+        else
+            echo "⛔ TAVILY_API_KEY cannot be empty. Please enter a valid Tavily API key."
+        fi
+    done
+    
+    # Save to app/.env if it exists
+if [[ -f "${ENV_FILE_PATH}" ]]; then
+        if grep -q "^TAVILY_API_KEY=" "${ENV_FILE_PATH}"; then
+            # Update existing TAVILY_API_KEY
+    if [[ "$OS_NAME" == "Darwin" ]]; then
+                sed -i '' "s|^TAVILY_API_KEY=.*|TAVILY_API_KEY=${TAVILY_API_KEY}|g" "${ENV_FILE_PATH}"
+            else
+                sed -i "s|^TAVILY_API_KEY=.*|TAVILY_API_KEY=${TAVILY_API_KEY}|g" "${ENV_FILE_PATH}"
+            fi
+        else
+            # Add new TAVILY_API_KEY
+            echo "TAVILY_API_KEY=${TAVILY_API_KEY}" >> "${ENV_FILE_PATH}"
+        fi
+        echo "✅ TAVILY_API_KEY saved to app/.env"
+    fi
+fi
+
+# Prompt for VITE_APP_TITLE if not found
+if [[ -z "$VITE_APP_TITLE" ]]; then
+    read -p "📝 Enter application title (default: TT Studio): " input_title
+    if [[ -n "$input_title" ]]; then
+        VITE_APP_TITLE="$input_title"
+    else
+        VITE_APP_TITLE="TT Studio"
+    fi
+    
+    # Save to app/.env if it exists
+    if [[ -f "${ENV_FILE_PATH}" ]]; then
+        if grep -q "^VITE_APP_TITLE=" "${ENV_FILE_PATH}"; then
+            # Update existing VITE_APP_TITLE
+            if [[ "$OS_NAME" == "Darwin" ]]; then
+                sed -i '' "s|^VITE_APP_TITLE=.*|VITE_APP_TITLE=\"${VITE_APP_TITLE}\"|g" "${ENV_FILE_PATH}"
+            else
+                sed -i "s|^VITE_APP_TITLE=.*|VITE_APP_TITLE=\"${VITE_APP_TITLE}\"|g" "${ENV_FILE_PATH}"
+            fi
+        else
+            # Add new VITE_APP_TITLE
+            echo "VITE_APP_TITLE=\"${VITE_APP_TITLE}\"" >> "${ENV_FILE_PATH}"
+        fi
+        echo "✅ VITE_APP_TITLE saved to app/.env"
+    fi
+fi
+
+# Prompt for VITE_ENABLE_DEPLOYED if not found
+if [[ -z "$VITE_ENABLE_DEPLOYED" || ! "$VITE_ENABLE_DEPLOYED" =~ ^(true|false)$ ]]; then
+    # Debug the value to see what's being detected
+    echo "Current VITE_ENABLE_DEPLOYED value: '$VITE_ENABLE_DEPLOYED'"
+    
+    # Try to clean up the value if it exists but has formatting issues
+    if [[ -n "$VITE_ENABLE_DEPLOYED" ]]; then
+        # Remove quotes and trim whitespace
+        VITE_ENABLE_DEPLOYED=$(echo "$VITE_ENABLE_DEPLOYED" | tr -d "\"'" | xargs)
+        # Convert to lowercase
+        VITE_ENABLE_DEPLOYED=$(echo "$VITE_ENABLE_DEPLOYED" | tr '[:upper:]' '[:lower:]')
+        
+        echo "Cleaned value: '$VITE_ENABLE_DEPLOYED'"
+        
+        # Check if now valid
+        if [[ "$VITE_ENABLE_DEPLOYED" =~ ^(true|false)$ ]]; then
+            echo "✅ Using existing deployed mode setting: $VITE_ENABLE_DEPLOYED"
+        else
+            echo "⚠️ Invalid deployed mode setting detected. Please specify a valid value."
+            VITE_ENABLE_DEPLOYED=""
+        fi
+    fi
+    
+    # Only prompt if still invalid
+    if [[ -z "$VITE_ENABLE_DEPLOYED" || ! "$VITE_ENABLE_DEPLOYED" =~ ^(true|false)$ ]]; then
+        echo "📋 Enable deployed mode? (true/false)"
+        echo "   - Enter 'true' to enable AI playground mode and interact with models deployed elsewhere"
+        echo "   - Enter 'false' to deploy your own local models via TT Studio"
+        while true; do
+            read -p "Enter 'true' or 'false' (default: false): " input_deployed
+            if [[ -z "$input_deployed" ]]; then
+                VITE_ENABLE_DEPLOYED="false"
+                break
+            elif [[ "$input_deployed" =~ ^(true|false)$ ]]; then
+                VITE_ENABLE_DEPLOYED="$input_deployed"
+                break
+            else
+                echo "⛔ Invalid input. Please enter 'true' or 'false'."
+            fi
+        done
+        
+        # Save to app/.env if it exists
+        if [[ -f "${ENV_FILE_PATH}" ]]; then
+            if grep -q "^VITE_ENABLE_DEPLOYED=" "${ENV_FILE_PATH}"; then
+                # Update existing VITE_ENABLE_DEPLOYED
+                if [[ "$OS_NAME" == "Darwin" ]]; then
+                    sed -i '' "s|^VITE_ENABLE_DEPLOYED=.*|VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}|g" "${ENV_FILE_PATH}"
+                else
+                    sed -i "s|^VITE_ENABLE_DEPLOYED=.*|VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}|g" "${ENV_FILE_PATH}"
+                fi
+            else
+                # Add new VITE_ENABLE_DEPLOYED
+                echo "VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}" >> "${ENV_FILE_PATH}"
+            fi
+            echo "✅ VITE_ENABLE_DEPLOYED saved to app/.env"
+        fi
+    fi
+fi
+
+# Prompt for VITE_ENABLE_RAG_ADMIN if not found
+if [[ -z "$VITE_ENABLE_RAG_ADMIN" || ! "$VITE_ENABLE_RAG_ADMIN" =~ ^(true|false)$ ]]; then
+    # Debug the value to see what's being detected
+    echo "Current VITE_ENABLE_RAG_ADMIN value: '$VITE_ENABLE_RAG_ADMIN'"
+    
+    # Try to clean up the value if it exists but has formatting issues
+    if [[ -n "$VITE_ENABLE_RAG_ADMIN" ]]; then
+        # Remove quotes and trim whitespace
+        VITE_ENABLE_RAG_ADMIN=$(echo "$VITE_ENABLE_RAG_ADMIN" | tr -d "\"'" | xargs)
+        # Convert to lowercase
+        VITE_ENABLE_RAG_ADMIN=$(echo "$VITE_ENABLE_RAG_ADMIN" | tr '[:upper:]' '[:lower:]')
+        
+        echo "Cleaned value: '$VITE_ENABLE_RAG_ADMIN'"
+        
+        # Check if now valid
+        if [[ "$VITE_ENABLE_RAG_ADMIN" =~ ^(true|false)$ ]]; then
+            echo "✅ Using existing RAG admin setting: $VITE_ENABLE_RAG_ADMIN"
+        else
+            echo "⚠️ Invalid RAG admin setting detected. Please specify a valid value."
+            VITE_ENABLE_RAG_ADMIN=""
+        fi
+    fi
+    
+    # Only prompt if still invalid
+    if [[ -z "$VITE_ENABLE_RAG_ADMIN" || ! "$VITE_ENABLE_RAG_ADMIN" =~ ^(true|false)$ ]]; then
+        echo "📋 Enable RAG admin functionality? (true/false)"
+        while true; do
+            read -p "Enter 'true' or 'false' (default: false): " input_rag
+            if [[ -z "$input_rag" ]]; then
+                VITE_ENABLE_RAG_ADMIN="false"
+                break
+            elif [[ "$input_rag" =~ ^(true|false)$ ]]; then
+                VITE_ENABLE_RAG_ADMIN="$input_rag"
+                break
+            else
+                echo "⛔ Invalid input. Please enter 'true' or 'false'."
+            fi
+        done
+        
+        # Save to app/.env if it exists
+        if [[ -f "${ENV_FILE_PATH}" ]]; then
+            if grep -q "^VITE_ENABLE_RAG_ADMIN=" "${ENV_FILE_PATH}"; then
+                # Update existing VITE_ENABLE_RAG_ADMIN
+                if [[ "$OS_NAME" == "Darwin" ]]; then
+                    sed -i '' "s|^VITE_ENABLE_RAG_ADMIN=.*|VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}|g" "${ENV_FILE_PATH}"
+                else
+                    sed -i "s|^VITE_ENABLE_RAG_ADMIN=.*|VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}|g" "${ENV_FILE_PATH}"
+                fi
+            else
+                # Add new VITE_ENABLE_RAG_ADMIN
+                echo "VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}" >> "${ENV_FILE_PATH}"
+            fi
+            echo "✅ VITE_ENABLE_RAG_ADMIN saved to app/.env"
+        fi
+    fi
+fi
+
+# Prompt for RAG_ADMIN_PASSWORD if RAG admin is enabled
+if [[ "$VITE_ENABLE_RAG_ADMIN" == "true" ]]; then
+    # Debug output
+    echo "RAG admin is enabled, checking for password..."
+    
+    # Check if we have a value but it might be empty or a placeholder
+    VALID_PASSWORD=false
+    if [[ -n "$RAG_ADMIN_PASSWORD" ]]; then
+        # Remove quotes but keep the content
+        RAG_ADMIN_PASSWORD=$(echo "$RAG_ADMIN_PASSWORD" | sed -e 's/^"\|^'"'"'//g' -e 's/"\$\|'"'"'$//g')
+        
+        # Check if it's a placeholder
+        if [[ "$RAG_ADMIN_PASSWORD" == "tt-studio-rag-admin-password" ]] || [[ "$RAG_ADMIN_PASSWORD" == "test-456" ]] || is_placeholder "$RAG_ADMIN_PASSWORD"; then
+            echo "⚠️  Found RAG_ADMIN_PASSWORD in app/.env but it appears to be a placeholder"
+            RAG_ADMIN_PASSWORD=""
+        elif [[ -n "$RAG_ADMIN_PASSWORD" ]]; then
+            echo "✅ Found valid RAG_ADMIN_PASSWORD in app/.env"
+            VALID_PASSWORD=true
+            # Update in .env file anyway to ensure it's properly formatted (no quotes)
+            if [[ -f "${ENV_FILE_PATH}" ]]; then
+                if grep -q "^RAG_ADMIN_PASSWORD=" "${ENV_FILE_PATH}"; then
+                    # Update existing RAG_ADMIN_PASSWORD
+                    if [[ "$OS_NAME" == "Darwin" ]]; then
+                        sed -i '' "s|^RAG_ADMIN_PASSWORD=.*|RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}|g" "${ENV_FILE_PATH}"
+                    else
+                        sed -i "s|^RAG_ADMIN_PASSWORD=.*|RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}|g" "${ENV_FILE_PATH}"
+                    fi
+                else
+                    echo "RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}" >> "${ENV_FILE_PATH}"
+                fi
+            fi
+        fi
+    fi
+    
+    # Always prompt if RAG admin is enabled and no valid password found
+    if [[ "$VALID_PASSWORD" == "false" ]]; then
+        echo "🔒 RAG admin is enabled. You must set a password."
+        while true; do
+            read -s -p "🔒 Enter RAG_ADMIN_PASSWORD: " RAG_ADMIN_PASSWORD
+            echo
+            if [[ -n "$RAG_ADMIN_PASSWORD" ]]; then
+                break
+            else
+                echo "⛔ RAG_ADMIN_PASSWORD cannot be empty when RAG admin is enabled."
+            fi
+        done
+        
+        # Save to app/.env if it exists
+        if [[ -f "${ENV_FILE_PATH}" ]]; then
+            if grep -q "^RAG_ADMIN_PASSWORD=" "${ENV_FILE_PATH}"; then
+                # Update existing RAG_ADMIN_PASSWORD
+                if [[ "$OS_NAME" == "Darwin" ]]; then
+                    sed -i '' "s|^RAG_ADMIN_PASSWORD=.*|RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}|g" "${ENV_FILE_PATH}"
+                else
+                    sed -i "s|^RAG_ADMIN_PASSWORD=.*|RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}|g" "${ENV_FILE_PATH}"
+                fi
+            else
+                # Add new RAG_ADMIN_PASSWORD
+                echo "RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}" >> "${ENV_FILE_PATH}"
+            fi
+            echo "✅ RAG_ADMIN_PASSWORD saved to app/.env"
+        fi
+    fi
+fi
+
+# Export the environment variables
+export JWT_SECRET
+export HF_TOKEN
+export DJANGO_SECRET_KEY
+export TAVILY_API_KEY
+export VITE_APP_TITLE
+export VITE_ENABLE_DEPLOYED
+export VITE_ENABLE_RAG_ADMIN
+export RAG_ADMIN_PASSWORD
+
+echo "✅ Environment variables configured successfully"
 
 # Step 2: Source env vars, ensure directories
 source "${ENV_FILE_PATH}"
@@ -361,6 +792,15 @@ echo -e "\e[1;36m=====================================================\e[0m"
 
 INFERENCE_SERVER_DIR="${TT_STUDIO_ROOT}/tt-inference-server"
 
+# Prompt for sudo password upfront so it's cached for background process
+echo "🔐 TT Inference Server setup requires sudo privileges. Please enter your password:"
+sudo -v
+if [ $? -ne 0 ]; then
+    echo "⛔ Error: Failed to authenticate with sudo"
+    exit 1
+fi
+echo "✅ Sudo authentication successful."
+
 # Clone the repository if it doesn't exist
 if [ ! -d "$INFERENCE_SERVER_DIR" ]; then
     echo "📥 Cloning TT Inference Server repository..."
@@ -385,19 +825,49 @@ fi
 cd "$INFERENCE_SERVER_DIR"
 
 # Check if port 8001 is already in use
-if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "⚠️  Port 8001 is already in use. Attempting to find and stop existing process..."
-    EXISTING_PID=$(lsof -Pi :8001 -sTCP:LISTEN -t)
-    if [[ -n "$EXISTING_PID" ]]; then
-        echo "🛑 Found existing process on port 8001 (PID: $EXISTING_PID). Stopping it..."
-        sudo kill "$EXISTING_PID" 2>/dev/null || true
+echo "🔍 Checking if port 8001 is already in use..."
+if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1 || nc -z localhost 8001 >/dev/null 2>&1; then
+    echo "⚠️  Port 8001 is already in use. Attempting to free the port..."
+    
+    # Try to find the PID using the port with different methods
+    PORT_PID=$(lsof -Pi :8001 -sTCP:LISTEN -t 2>/dev/null || echo "")
+    if [[ -z "$PORT_PID" ]]; then
+        PORT_PID=$(netstat -anp 2>/dev/null | grep "8001" | grep "LISTEN" | awk '{print $7}' | cut -d/ -f1 2>/dev/null || echo "")
+    fi
+    
+    if [[ -n "$PORT_PID" ]]; then
+        echo "🛑 Found process using port 8001 (PID: $PORT_PID). Stopping it..."
+        sudo kill -15 $PORT_PID 2>/dev/null || true
         sleep 2
-        if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then
-            echo "🛑 Force killing process on port 8001..."
-            sudo kill -9 "$EXISTING_PID" 2>/dev/null || true
+        
+        # Check if process is still running
+        if kill -0 $PORT_PID 2>/dev/null; then
+            echo "⚠️  Process still running. Attempting force kill..."
+            sudo kill -9 $PORT_PID 2>/dev/null || true
             sleep 1
         fi
+    else
+        echo "⚠️  Could not find specific process. Attempting to kill any process on port 8001..."
+        # On macOS, use a different approach
+        if [[ "$OS_NAME" == "Darwin" ]]; then
+            sudo lsof -i :8001 -sTCP:LISTEN -t | xargs sudo kill -9 2>/dev/null || true
+        else
+            sudo fuser -k 8001/tcp 2>/dev/null || true
+        fi
+        sleep 1
     fi
+    
+    # Final check
+    if lsof -Pi :8001 -sTCP:LISTEN -t >/dev/null 2>&1 || nc -z localhost 8001 >/dev/null 2>&1; then
+        echo "❌ Failed to free port 8001. Please manually stop any process using this port."
+        echo "   Try: sudo lsof -i :8001 (to identify the process)"
+        echo "   Then: sudo kill -9 <PID> (to forcibly terminate it)"
+        exit 1
+    else
+        echo "✅ Port 8001 is now available"
+    fi
+else
+    echo "✅ Port 8001 is available"
 fi
 
 # Create virtual environment if it doesn't exist
@@ -420,95 +890,65 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Prompt for required environment variables
-echo
-echo -e "\e[1;36m=====================================================\e[0m"
-echo -e "\e[1;36m         🔑 Configuration Required                   \e[0m"
-echo -e "\e[1;36m=====================================================\e[0m"
-echo
+# Create directories and files that might need sudo access
+FASTAPI_PID_FILE="${TT_STUDIO_ROOT}/fastapi.pid"
+FASTAPI_LOG_FILE="${TT_STUDIO_ROOT}/fastapi.log"
 
-# Prompt for JWT_SECRET
-while true; do
-    read -s -p "🔐 Enter JWT_SECRET (for authentication): " JWT_SECRET
-    echo
-    if [[ -n "$JWT_SECRET" ]]; then
-        break
-    else
-        echo "⛔ JWT_SECRET cannot be empty. Please enter a valid JWT secret."
-    fi
-done
-
-# Prompt for HF_TOKEN
-while true; do
-    read -s -p "🤗 Enter HF_TOKEN (Hugging Face token): " HF_TOKEN
-    echo
-    if [[ -n "$HF_TOKEN" ]]; then
-        break
-    else
-        echo "⛔ HF_TOKEN cannot be empty. Please enter a valid Hugging Face token."
-    fi
-done
-
-# Export the environment variables
-export JWT_SECRET
-export HF_TOKEN
-
-echo "✅ Environment variables configured successfully"
-echo
+# Make sure log and PID files are accessible
+echo "🔧 Setting up log and PID files..."
+sudo touch "$FASTAPI_PID_FILE" "$FASTAPI_LOG_FILE"
+sudo chown $(whoami) "$FASTAPI_PID_FILE" "$FASTAPI_LOG_FILE"
+sudo chmod 644 "$FASTAPI_PID_FILE" "$FASTAPI_LOG_FILE"
 
 # Start FastAPI server in background with logging
 echo "🚀 Starting FastAPI server on port 8001..."
-echo "🔐 FastAPI server requires sudo privileges. Please enter your password:"
 
-# Prompt for sudo password upfront so it's cached for background process
-sudo -v
-if [ $? -ne 0 ]; then
-    echo "⛔ Error: Failed to authenticate with sudo"
+# Use a wrapper script with error handling
+TEMP_SCRIPT=$(mktemp)
+cat > "$TEMP_SCRIPT" << 'EOF'
+#!/bin/bash
+set -e
+cd "$1"
+# Save PID to file first to avoid permission issues
+echo $$ > "$2"
+# Try to start the server with specific error handling
+if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
+    echo "Failed to start FastAPI server. Check logs at $4"
     exit 1
 fi
+EOF
+chmod +x "$TEMP_SCRIPT"
 
-echo "✅ Sudo authentication successful. Starting FastAPI server..."
-FASTAPI_LOG_FILE="${TT_STUDIO_ROOT}/fastapi.log"
-# Use a wrapper script to properly capture the uvicorn PID
-sudo JWT_SECRET="$JWT_SECRET" HF_TOKEN="$HF_TOKEN" bash -c "
-    .venv/bin/uvicorn api:app --host 0.0.0.0 --port 8001 > \"$FASTAPI_LOG_FILE\" 2>&1 &
-    echo \$! > \"${TT_STUDIO_ROOT}/fastapi.pid\"
-" &
-FASTAPI_PID=""
+# Execute the script in the background with environment variables
+sudo JWT_SECRET="$JWT_SECRET" HF_TOKEN="$HF_TOKEN" "$TEMP_SCRIPT" "$INFERENCE_SERVER_DIR" "$FASTAPI_PID_FILE" ".venv" "$FASTAPI_LOG_FILE" &
+PID=$!
 
 # Wait for PID file to be created and read the actual PID
 echo "⏳ Waiting for FastAPI server to start..."
 HEALTH_CHECK_RETRIES=30
 HEALTH_CHECK_DELAY=2
 
-# Wait for PID file to be created
-for ((i=1; i<=10; i++)); do
-    if [[ -f "${TT_STUDIO_ROOT}/fastapi.pid" ]] && [[ -n "$(cat "${TT_STUDIO_ROOT}/fastapi.pid" 2>/dev/null)" ]]; then
-        FASTAPI_PID=$(cat "${TT_STUDIO_ROOT}/fastapi.pid")
-        echo "📋 FastAPI PID: $FASTAPI_PID"
-        break
-    fi
-    echo "⏳ Waiting for PID file (attempt $i/10)..."
-    sleep 1
-done
-
-if [[ -z "$FASTAPI_PID" ]]; then
-    echo "⛔ Error: Failed to get FastAPI PID"
-    exit 1
-fi
-
+# More robust health check
 for ((i=1; i<=HEALTH_CHECK_RETRIES; i++)); do
-    # Check if process exists (try both regular and sudo)
-    if ! kill -0 "$FASTAPI_PID" 2>/dev/null && ! sudo kill -0 "$FASTAPI_PID" 2>/dev/null; then
+    # First check if process is running
+    if ! ps -p $PID > /dev/null; then
         echo "⛔ Error: FastAPI server process died"
         echo "📜 Last few lines of FastAPI log:"
-        tail -n 10 "$FASTAPI_LOG_FILE" 2>/dev/null || echo "No log file found"
+        tail -n 15 "$FASTAPI_LOG_FILE" 2>/dev/null || echo "No log file found"
+        
+        # Check for common errors in the log
+        if grep -q "address already in use" "$FASTAPI_LOG_FILE"; then
+            echo "❌ Error: Port 8001 is still in use by another process."
+            echo "   Please manually stop any process using port 8001:"
+            echo "   1. Run: sudo lsof -i :8001"
+            echo "   2. Run: sudo kill -9 <PID>"
+        fi
         exit 1
     fi
     
     # Check if server is responding to HTTP requests
     if curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/ 2>/dev/null | grep -q "200\|404"; then
-        echo "✅ FastAPI server started successfully (PID: $FASTAPI_PID)"
+        echo "✅ FastAPI server started successfully (PID: $PID)"
         echo "🌐 FastAPI server accessible at: http://localhost:8001"
         echo "🔐 FastAPI server: ${C_CYAN}http://localhost:8001${C_RESET} (check: curl http://localhost:8001/)"
         break
