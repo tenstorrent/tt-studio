@@ -278,6 +278,74 @@ is_placeholder() {
     return 1  # Not a placeholder
 }
 
+# Function to check if configuration is tracked as completed
+is_configured() {
+    local config_name="$1"
+    if [[ -f "${ENV_FILE_PATH}" ]] && grep -q "^${config_name}_CONFIGURED=true" "${ENV_FILE_PATH}"; then
+        return 0  # Already configured
+    fi
+    return 1  # Not configured
+}
+
+# Function to mark a configuration as completed
+mark_as_configured() {
+    local config_name="$1"
+    if [[ -f "${ENV_FILE_PATH}" ]] && ! grep -q "^${config_name}_CONFIGURED=true" "${ENV_FILE_PATH}"; then
+        echo "${config_name}_CONFIGURED=true" >> "${ENV_FILE_PATH}"
+    fi
+}
+
+# Function to standardize environment variable format when writing to file
+write_env_var() {
+    local var_name="$1"
+    local var_value="$2"
+    local is_string="$3"
+    
+    if [[ -f "${ENV_FILE_PATH}" ]]; then
+        # Format the value properly - strings get quoted, booleans don't
+        local formatted_value
+        if [[ "$is_string" == "true" ]]; then
+            # String values get double quotes
+            formatted_value="\"${var_value}\""
+        else
+            # Boolean or numeric values don't get quotes
+            formatted_value="${var_value}"
+        fi
+        
+        # Check if variable already exists in file
+        if grep -q "^${var_name}=" "${ENV_FILE_PATH}"; then
+            # Update existing variable
+            if [[ "$OS_NAME" == "Darwin" ]]; then
+                sed -i '' "s|^${var_name}=.*|${var_name}=${formatted_value}|g" "${ENV_FILE_PATH}"
+            else
+                sed -i "s|^${var_name}=.*|${var_name}=${formatted_value}|g" "${ENV_FILE_PATH}"
+            fi
+        else
+            # Add new variable
+            echo "${var_name}=${formatted_value}" >> "${ENV_FILE_PATH}"
+        fi
+        
+        # Mark as configured
+        mark_as_configured "${var_name}"
+    fi
+}
+
+# Function to parse boolean values from .env file
+parse_boolean_env() {
+    local raw_value="$1"
+    
+    # Remove any quotes
+    raw_value=$(echo "$raw_value" | tr -d "'\"")
+    
+    # Trim whitespace and get first word
+    raw_value=$(echo "$raw_value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | awk '{print $1}')
+    
+    # Convert to lowercase
+    raw_value=$(echo "$raw_value" | tr '[:upper:]' '[:lower:]')
+    
+    echo "$raw_value"
+}
+
 # Check for JWT_SECRET and HF_TOKEN in app/.env
 JWT_SECRET=""
 HF_TOKEN=""
@@ -360,18 +428,24 @@ if [[ -f "${ENV_FILE_PATH}" ]]; then
     
     VITE_ENABLE_DEPLOYED_LINE=$(grep -E "^VITE_ENABLE_DEPLOYED=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
     if [[ -n "$VITE_ENABLE_DEPLOYED_LINE" ]]; then
-        VITE_ENABLE_DEPLOYED=$(echo "$VITE_ENABLE_DEPLOYED_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
-        if [[ -n "$VITE_ENABLE_DEPLOYED" ]]; then
-            echo "✅ Found VITE_ENABLE_DEPLOYED in app/.env"
-        fi
+        # Extract everything after the equals sign
+        raw_value=$(echo "$VITE_ENABLE_DEPLOYED_LINE" | cut -d '=' -f2-)
+        # Use our parsing function for proper cleaning
+        VITE_ENABLE_DEPLOYED=$(parse_boolean_env "$raw_value")
+        
+        echo "Found VITE_ENABLE_DEPLOYED in .env file: '$raw_value'"
+        echo "Parsed as: '$VITE_ENABLE_DEPLOYED'"
     fi
     
     VITE_ENABLE_RAG_ADMIN_LINE=$(grep -E "^VITE_ENABLE_RAG_ADMIN=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
     if [[ -n "$VITE_ENABLE_RAG_ADMIN_LINE" ]]; then
-        VITE_ENABLE_RAG_ADMIN=$(echo "$VITE_ENABLE_RAG_ADMIN_LINE" | cut -d '=' -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
-        if [[ -n "$VITE_ENABLE_RAG_ADMIN" ]]; then
-            echo "✅ Found VITE_ENABLE_RAG_ADMIN in app/.env"
-        fi
+        # Extract everything after the equals sign
+        raw_value=$(echo "$VITE_ENABLE_RAG_ADMIN_LINE" | cut -d '=' -f2-)
+        # Use our parsing function for proper cleaning
+        VITE_ENABLE_RAG_ADMIN=$(parse_boolean_env "$raw_value")
+        
+        echo "Found VITE_ENABLE_RAG_ADMIN in .env file: '$raw_value'"
+        echo "Parsed as: '$VITE_ENABLE_RAG_ADMIN'"
     fi
     
     RAG_ADMIN_PASSWORD_LINE=$(grep -E "^RAG_ADMIN_PASSWORD=" "${ENV_FILE_PATH}" 2>/dev/null || echo "")
@@ -397,7 +471,7 @@ echo -e "\e[1;36m=====================================================\e[0m"
 echo
 
 # Prompt for JWT_SECRET if not found
-if [[ -z "$JWT_SECRET" ]]; then
+if [[ -z "$JWT_SECRET" ]] && ! is_configured "JWT_SECRET"; then
     while true; do
         read -s -p "🔐 Enter JWT_SECRET (for authentication): " JWT_SECRET
         echo
@@ -408,83 +482,47 @@ if [[ -z "$JWT_SECRET" ]]; then
         fi
     done
     
-    # Save to app/.env if it exists
-    if [[ -f "${ENV_FILE_PATH}" ]]; then
-        if grep -q "^JWT_SECRET=" "${ENV_FILE_PATH}"; then
-            # Update existing JWT_SECRET
-            if [[ "$OS_NAME" == "Darwin" ]]; then
-                sed -i '' "s|^JWT_SECRET=.*|JWT_SECRET=${JWT_SECRET}|g" "${ENV_FILE_PATH}"
-            else
-                sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${JWT_SECRET}|g" "${ENV_FILE_PATH}"
-            fi
-        else
-            # Add new JWT_SECRET
-            echo "JWT_SECRET=${JWT_SECRET}" >> "${ENV_FILE_PATH}"
-        fi
-        echo "✅ JWT_SECRET saved to app/.env"
-    fi
+    # Save to app/.env using standardized format
+    write_env_var "JWT_SECRET" "${JWT_SECRET}" "true"
+    echo "✅ JWT_SECRET saved to app/.env"
 fi
 
 # Prompt for HF_TOKEN if not found
-if [[ -z "$HF_TOKEN" ]]; then
-        while true; do
+if [[ -z "$HF_TOKEN" ]] && ! is_configured "HF_TOKEN"; then
+    while true; do
         read -s -p "🤗 Enter HF_TOKEN (Hugging Face token): " HF_TOKEN
         echo
         if [[ -n "$HF_TOKEN" ]]; then
-                    break
+            break
         else
             echo "⛔ HF_TOKEN cannot be empty. Please enter a valid Hugging Face token."
         fi
     done
     
-    # Save to app/.env if it exists
-    if [[ -f "${ENV_FILE_PATH}" ]]; then
-        if grep -q "^HF_TOKEN=" "${ENV_FILE_PATH}"; then
-            # Update existing HF_TOKEN
-            if [[ "$OS_NAME" == "Darwin" ]]; then
-                sed -i '' "s|^HF_TOKEN=.*|HF_TOKEN=${HF_TOKEN}|g" "${ENV_FILE_PATH}"
-            else
-                sed -i "s|^HF_TOKEN=.*|HF_TOKEN=${HF_TOKEN}|g" "${ENV_FILE_PATH}"
-            fi
-        else
-            # Add new HF_TOKEN
-            echo "HF_TOKEN=${HF_TOKEN}" >> "${ENV_FILE_PATH}"
-        fi
-        echo "✅ HF_TOKEN saved to app/.env"
-    fi
+    # Save to app/.env using standardized format
+    write_env_var "HF_TOKEN" "${HF_TOKEN}" "true"
+    echo "✅ HF_TOKEN saved to app/.env"
 fi
 
 # Prompt for DJANGO_SECRET_KEY if not found
-if [[ -z "$DJANGO_SECRET_KEY" ]]; then
+if [[ -z "$DJANGO_SECRET_KEY" ]] && ! is_configured "DJANGO_SECRET_KEY"; then
     while true; do
         read -s -p "🔑 Enter DJANGO_SECRET_KEY (for Django security): " DJANGO_SECRET_KEY
         echo
         if [[ -n "$DJANGO_SECRET_KEY" ]]; then
-                    break
+            break
         else
             echo "⛔ DJANGO_SECRET_KEY cannot be empty. Please enter a valid Django secret."
         fi
     done
     
-    # Save to app/.env if it exists
-    if [[ -f "${ENV_FILE_PATH}" ]]; then
-        if grep -q "^DJANGO_SECRET_KEY=" "${ENV_FILE_PATH}"; then
-            # Update existing DJANGO_SECRET_KEY
-            if [[ "$OS_NAME" == "Darwin" ]]; then
-                sed -i '' "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}|g" "${ENV_FILE_PATH}"
-            else
-                sed -i "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}|g" "${ENV_FILE_PATH}"
-    fi
-else
-            # Add new DJANGO_SECRET_KEY
-            echo "DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}" >> "${ENV_FILE_PATH}"
-        fi
-        echo "✅ DJANGO_SECRET_KEY saved to app/.env"
-    fi
+    # Save to app/.env using standardized format
+    write_env_var "DJANGO_SECRET_KEY" "${DJANGO_SECRET_KEY}" "true"
+    echo "✅ DJANGO_SECRET_KEY saved to app/.env"
 fi
 
 # Prompt for TAVILY_API_KEY if not found
-if [[ -z "$TAVILY_API_KEY" ]]; then
+if [[ -z "$TAVILY_API_KEY" ]] && ! is_configured "TAVILY_API_KEY"; then
     while true; do
         read -s -p "🔍 Enter TAVILY_API_KEY (for search functionality): " TAVILY_API_KEY
         echo
@@ -495,25 +533,13 @@ if [[ -z "$TAVILY_API_KEY" ]]; then
         fi
     done
     
-    # Save to app/.env if it exists
-if [[ -f "${ENV_FILE_PATH}" ]]; then
-        if grep -q "^TAVILY_API_KEY=" "${ENV_FILE_PATH}"; then
-            # Update existing TAVILY_API_KEY
-    if [[ "$OS_NAME" == "Darwin" ]]; then
-                sed -i '' "s|^TAVILY_API_KEY=.*|TAVILY_API_KEY=${TAVILY_API_KEY}|g" "${ENV_FILE_PATH}"
-            else
-                sed -i "s|^TAVILY_API_KEY=.*|TAVILY_API_KEY=${TAVILY_API_KEY}|g" "${ENV_FILE_PATH}"
-            fi
-        else
-            # Add new TAVILY_API_KEY
-            echo "TAVILY_API_KEY=${TAVILY_API_KEY}" >> "${ENV_FILE_PATH}"
-        fi
-        echo "✅ TAVILY_API_KEY saved to app/.env"
-    fi
+    # Save to app/.env using standardized format
+    write_env_var "TAVILY_API_KEY" "${TAVILY_API_KEY}" "true"
+    echo "✅ TAVILY_API_KEY saved to app/.env"
 fi
 
 # Prompt for VITE_APP_TITLE if not found
-if [[ -z "$VITE_APP_TITLE" ]]; then
+if [[ -z "$VITE_APP_TITLE" ]] && ! is_configured "VITE_APP_TITLE"; then
     read -p "📝 Enter application title (default: TT Studio): " input_title
     if [[ -n "$input_title" ]]; then
         VITE_APP_TITLE="$input_title"
@@ -521,141 +547,57 @@ if [[ -z "$VITE_APP_TITLE" ]]; then
         VITE_APP_TITLE="TT Studio"
     fi
     
-    # Save to app/.env if it exists
-    if [[ -f "${ENV_FILE_PATH}" ]]; then
-        if grep -q "^VITE_APP_TITLE=" "${ENV_FILE_PATH}"; then
-            # Update existing VITE_APP_TITLE
-            if [[ "$OS_NAME" == "Darwin" ]]; then
-                sed -i '' "s|^VITE_APP_TITLE=.*|VITE_APP_TITLE=\"${VITE_APP_TITLE}\"|g" "${ENV_FILE_PATH}"
-            else
-                sed -i "s|^VITE_APP_TITLE=.*|VITE_APP_TITLE=\"${VITE_APP_TITLE}\"|g" "${ENV_FILE_PATH}"
-            fi
-        else
-            # Add new VITE_APP_TITLE
-            echo "VITE_APP_TITLE=\"${VITE_APP_TITLE}\"" >> "${ENV_FILE_PATH}"
-        fi
-        echo "✅ VITE_APP_TITLE saved to app/.env"
-    fi
+    # Save to app/.env using standardized format
+    write_env_var "VITE_APP_TITLE" "${VITE_APP_TITLE}" "true"
+    echo "✅ VITE_APP_TITLE saved to app/.env"
 fi
 
-# Prompt for VITE_ENABLE_DEPLOYED if not found
-if [[ -z "$VITE_ENABLE_DEPLOYED" || ! "$VITE_ENABLE_DEPLOYED" =~ ^(true|false)$ ]]; then
-    # Debug the value to see what's being detected
-    echo "Current VITE_ENABLE_DEPLOYED value: '$VITE_ENABLE_DEPLOYED'"
-    
-    # Try to clean up the value if it exists but has formatting issues
-    if [[ -n "$VITE_ENABLE_DEPLOYED" ]]; then
-        # Remove quotes and trim whitespace
-        VITE_ENABLE_DEPLOYED=$(echo "$VITE_ENABLE_DEPLOYED" | tr -d "\"'" | xargs)
-        # Convert to lowercase
-        VITE_ENABLE_DEPLOYED=$(echo "$VITE_ENABLE_DEPLOYED" | tr '[:upper:]' '[:lower:]')
-        
-        echo "Cleaned value: '$VITE_ENABLE_DEPLOYED'"
-        
-        # Check if now valid
-        if [[ "$VITE_ENABLE_DEPLOYED" =~ ^(true|false)$ ]]; then
-            echo "✅ Using existing deployed mode setting: $VITE_ENABLE_DEPLOYED"
+# Prompt for VITE_ENABLE_DEPLOYED if not found or invalid
+if [[ -z "$VITE_ENABLE_DEPLOYED" || ! "$VITE_ENABLE_DEPLOYED" =~ ^(true|false)$ ]] && ! is_configured "VITE_ENABLE_DEPLOYED"; then
+    echo "📋 Enable deployed mode? (true/false)"
+    echo "   - Enter 'true' to enable AI playground mode and interact with models deployed elsewhere"
+    echo "   - Enter 'false' to deploy your own local models via TT Studio"
+    while true; do
+        read -p "Enter 'true' or 'false' (default: false): " input_deployed
+        if [[ -z "$input_deployed" ]]; then
+            VITE_ENABLE_DEPLOYED="false"
+            break
+        elif [[ "$input_deployed" =~ ^(true|false)$ ]]; then
+            VITE_ENABLE_DEPLOYED="$input_deployed"
+            break
         else
-            echo "⚠️ Invalid deployed mode setting detected. Please specify a valid value."
-            VITE_ENABLE_DEPLOYED=""
+            echo "⛔ Invalid input. Please enter 'true' or 'false'."
         fi
-    fi
+    done
     
-    # Only prompt if still invalid
-    if [[ -z "$VITE_ENABLE_DEPLOYED" || ! "$VITE_ENABLE_DEPLOYED" =~ ^(true|false)$ ]]; then
-        echo "📋 Enable deployed mode? (true/false)"
-        echo "   - Enter 'true' to enable AI playground mode and interact with models deployed elsewhere"
-        echo "   - Enter 'false' to deploy your own local models via TT Studio"
-        while true; do
-            read -p "Enter 'true' or 'false' (default: false): " input_deployed
-            if [[ -z "$input_deployed" ]]; then
-                VITE_ENABLE_DEPLOYED="false"
-                break
-            elif [[ "$input_deployed" =~ ^(true|false)$ ]]; then
-                VITE_ENABLE_DEPLOYED="$input_deployed"
-                break
-            else
-                echo "⛔ Invalid input. Please enter 'true' or 'false'."
-            fi
-        done
-        
-        # Save to app/.env if it exists
-        if [[ -f "${ENV_FILE_PATH}" ]]; then
-            if grep -q "^VITE_ENABLE_DEPLOYED=" "${ENV_FILE_PATH}"; then
-                # Update existing VITE_ENABLE_DEPLOYED
-                if [[ "$OS_NAME" == "Darwin" ]]; then
-                    sed -i '' "s|^VITE_ENABLE_DEPLOYED=.*|VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}|g" "${ENV_FILE_PATH}"
-                else
-                    sed -i "s|^VITE_ENABLE_DEPLOYED=.*|VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}|g" "${ENV_FILE_PATH}"
-                fi
-            else
-                # Add new VITE_ENABLE_DEPLOYED
-                echo "VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}" >> "${ENV_FILE_PATH}"
-            fi
-            echo "✅ VITE_ENABLE_DEPLOYED saved to app/.env"
-        fi
-    fi
+    # Save to app/.env using standardized format
+    write_env_var "VITE_ENABLE_DEPLOYED" "${VITE_ENABLE_DEPLOYED}" "false"
+    echo "✅ VITE_ENABLE_DEPLOYED saved to app/.env"
 fi
 
-# Prompt for VITE_ENABLE_RAG_ADMIN if not found
-if [[ -z "$VITE_ENABLE_RAG_ADMIN" || ! "$VITE_ENABLE_RAG_ADMIN" =~ ^(true|false)$ ]]; then
-    # Debug the value to see what's being detected
-    echo "Current VITE_ENABLE_RAG_ADMIN value: '$VITE_ENABLE_RAG_ADMIN'"
-    
-    # Try to clean up the value if it exists but has formatting issues
-    if [[ -n "$VITE_ENABLE_RAG_ADMIN" ]]; then
-        # Remove quotes and trim whitespace
-        VITE_ENABLE_RAG_ADMIN=$(echo "$VITE_ENABLE_RAG_ADMIN" | tr -d "\"'" | xargs)
-        # Convert to lowercase
-        VITE_ENABLE_RAG_ADMIN=$(echo "$VITE_ENABLE_RAG_ADMIN" | tr '[:upper:]' '[:lower:]')
-        
-        echo "Cleaned value: '$VITE_ENABLE_RAG_ADMIN'"
-        
-        # Check if now valid
-        if [[ "$VITE_ENABLE_RAG_ADMIN" =~ ^(true|false)$ ]]; then
-            echo "✅ Using existing RAG admin setting: $VITE_ENABLE_RAG_ADMIN"
+# Prompt for VITE_ENABLE_RAG_ADMIN if not found or invalid
+if [[ -z "$VITE_ENABLE_RAG_ADMIN" || ! "$VITE_ENABLE_RAG_ADMIN" =~ ^(true|false)$ ]] && ! is_configured "VITE_ENABLE_RAG_ADMIN"; then
+    echo "📋 Enable RAG admin functionality? (true/false)"
+    while true; do
+        read -p "Enter 'true' or 'false' (default: false): " input_rag
+        if [[ -z "$input_rag" ]]; then
+            VITE_ENABLE_RAG_ADMIN="false"
+            break
+        elif [[ "$input_rag" =~ ^(true|false)$ ]]; then
+            VITE_ENABLE_RAG_ADMIN="$input_rag"
+            break
         else
-            echo "⚠️ Invalid RAG admin setting detected. Please specify a valid value."
-            VITE_ENABLE_RAG_ADMIN=""
+            echo "⛔ Invalid input. Please enter 'true' or 'false'."
         fi
-    fi
+    done
     
-    # Only prompt if still invalid
-    if [[ -z "$VITE_ENABLE_RAG_ADMIN" || ! "$VITE_ENABLE_RAG_ADMIN" =~ ^(true|false)$ ]]; then
-        echo "📋 Enable RAG admin functionality? (true/false)"
-        while true; do
-            read -p "Enter 'true' or 'false' (default: false): " input_rag
-            if [[ -z "$input_rag" ]]; then
-                VITE_ENABLE_RAG_ADMIN="false"
-                break
-            elif [[ "$input_rag" =~ ^(true|false)$ ]]; then
-                VITE_ENABLE_RAG_ADMIN="$input_rag"
-                break
-            else
-                echo "⛔ Invalid input. Please enter 'true' or 'false'."
-            fi
-        done
-        
-        # Save to app/.env if it exists
-        if [[ -f "${ENV_FILE_PATH}" ]]; then
-            if grep -q "^VITE_ENABLE_RAG_ADMIN=" "${ENV_FILE_PATH}"; then
-                # Update existing VITE_ENABLE_RAG_ADMIN
-                if [[ "$OS_NAME" == "Darwin" ]]; then
-                    sed -i '' "s|^VITE_ENABLE_RAG_ADMIN=.*|VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}|g" "${ENV_FILE_PATH}"
-                else
-                    sed -i "s|^VITE_ENABLE_RAG_ADMIN=.*|VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}|g" "${ENV_FILE_PATH}"
-                fi
-            else
-                # Add new VITE_ENABLE_RAG_ADMIN
-                echo "VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}" >> "${ENV_FILE_PATH}"
-            fi
-            echo "✅ VITE_ENABLE_RAG_ADMIN saved to app/.env"
-        fi
-    fi
+    # Save to app/.env using standardized format
+    write_env_var "VITE_ENABLE_RAG_ADMIN" "${VITE_ENABLE_RAG_ADMIN}" "false"
+    echo "✅ VITE_ENABLE_RAG_ADMIN saved to app/.env"
 fi
 
 # Prompt for RAG_ADMIN_PASSWORD if RAG admin is enabled
-if [[ "$VITE_ENABLE_RAG_ADMIN" == "true" ]]; then
+if [[ "$VITE_ENABLE_RAG_ADMIN" == "true" ]] && [[ -z "$RAG_ADMIN_PASSWORD" ]] && ! is_configured "RAG_ADMIN_PASSWORD"; then
     # Debug output
     echo "RAG admin is enabled, checking for password..."
     
@@ -684,6 +626,8 @@ if [[ "$VITE_ENABLE_RAG_ADMIN" == "true" ]]; then
                 else
                     echo "RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}" >> "${ENV_FILE_PATH}"
                 fi
+                # Mark as configured
+                mark_as_configured "RAG_ADMIN_PASSWORD"
             fi
         fi
     fi
@@ -701,21 +645,9 @@ if [[ "$VITE_ENABLE_RAG_ADMIN" == "true" ]]; then
             fi
         done
         
-        # Save to app/.env if it exists
-        if [[ -f "${ENV_FILE_PATH}" ]]; then
-            if grep -q "^RAG_ADMIN_PASSWORD=" "${ENV_FILE_PATH}"; then
-                # Update existing RAG_ADMIN_PASSWORD
-                if [[ "$OS_NAME" == "Darwin" ]]; then
-                    sed -i '' "s|^RAG_ADMIN_PASSWORD=.*|RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}|g" "${ENV_FILE_PATH}"
-                else
-                    sed -i "s|^RAG_ADMIN_PASSWORD=.*|RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}|g" "${ENV_FILE_PATH}"
-                fi
-            else
-                # Add new RAG_ADMIN_PASSWORD
-                echo "RAG_ADMIN_PASSWORD=${RAG_ADMIN_PASSWORD}" >> "${ENV_FILE_PATH}"
-            fi
-            echo "✅ RAG_ADMIN_PASSWORD saved to app/.env"
-        fi
+        # Save to app/.env using standardized format
+        write_env_var "RAG_ADMIN_PASSWORD" "${RAG_ADMIN_PASSWORD}" "true"
+        echo "✅ RAG_ADMIN_PASSWORD saved to app/.env"
     fi
 fi
 
@@ -766,6 +698,19 @@ docker compose version
 
 # Step 4: Run Docker Compose with appropriate configuration
 COMPOSE_FILES="-f ${TT_STUDIO_ROOT}/app/docker-compose.yml"
+
+# Detect TT hardware automatically
+echo -e "${C_BLUE}🔍 Checking for Tenstorrent hardware...${C_RESET}"
+if [ -e "/dev/tenstorrent" ] || [ -d "/dev/tenstorrent" ]; then
+    echo -e "${C_GREEN}✅ Tenstorrent hardware detected - enabling hardware support automatically${C_RESET}"
+    RUN_TT_HARDWARE=true
+else
+    echo -e "${C_YELLOW}⚠️ No Tenstorrent hardware detected${C_RESET}"
+    # Still respect manual flag if set
+    if [[ "$RUN_TT_HARDWARE" = true ]]; then
+        echo -e "${C_BLUE}🔧 Hardware support enabled manually via --tt-hardware flag${C_RESET}"
+    fi
+fi
 
 if [[ "$RUN_DEV_MODE" = true ]]; then
     echo -e "${C_MAGENTA}🚀 Running Docker Compose in development mode...${C_RESET}"
