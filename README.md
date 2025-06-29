@@ -8,24 +8,34 @@ TT-Studio enables rapid deployment of TT Inference servers locally and is optimi
 2. [Overview](#overview)
 3. [Quick Start](#quick-start)  
    - [For General Users](#for-general-users)  
-      - Clone the Repository
-      - Set Up the Model Weights.
-      - Run the App via `startup.sh`
    - [For Developers](#for-developers)
 4. [Using `startup.sh`](#using-startupsh)
    - [Basic Usage](#basic-usage)
    - [Command-Line Options](#command-line-options)
    - [Automatic Tenstorrent Hardware Detection](#automatic-tenstorrent-hardware-detection)
    - [Authentication Requirements](#authentication-requirements)
-5. [Documentation](#documentation)
+5. [Troubleshooting](#troubleshooting)
+   - [Hardware Detection Issues](#hardware-detection-issues)
+   - [Common Errors](#common-errors)
+6. [Documentation](#documentation)
    - [Frontend Documentation](#frontend-documentation)
    - [Backend API Documentation](#backend-api-documentation)
    - [Running vLLM Models in TT-Studio](#running-vllm-models-and-mock-vllm-model-in-tt-studio)  
-   - [Running AI Agent with Chat LLM Models in TT-Studio](#running-ai-agent-in-tt-studio)  
+   - [Running AI Agent with Chat LLM Models in TT-Studio](#running-ai-agent-in-tt-studio)
 
 ---
 ## Prerequisites
 1. Docker: Ensure that Docker is installed on your machine. You can refer to the installation guide [here](https://docs.docker.com/engine/install/).
+2. Tenstorrent Hardware (optional): TT-Studio will automatically detect and use available Tenstorrent hardware.
+
+## Overview
+TT-Studio is a comprehensive environment for deploying and interacting with Tenstorrent models. It consists of:
+
+- **Frontend Interface**: A modern React-based UI for model interaction
+- **Backend API**: Django-based service for model management and deployment
+- **TT Inference Server**: FastAPI server for handling model inference requests
+- **Docker Containers**: For isolation and easy deployment
+- **Automatic Hardware Detection**: Seamless integration with Tenstorrent devices
 
 ---
 ## Quick Start
@@ -50,18 +60,21 @@ To set up TT-Studio:
 
    ```bash
    ./startup.sh
-   ```abcd1234!
-   
+   ```
 
    You'll be prompted to provide:
    - JWT_SECRET for authentication
    - HF_TOKEN (Hugging Face token) for accessing models
+   - DJANGO_SECRET_KEY for backend security
+   - TAVILY_API_KEY for search functionality
+   - Other optional configuration options
 
    #### See this [section](#command-line-options) for more information on command-line arguments available within the startup script.
 
 4. **Access the Application**:
 
    The app will be available at [http://localhost:3000](http://localhost:3000).
+   The FastAPI server runs on [http://localhost:8001](http://localhost:8001).
 
 5. **Cleanup**:
    - To stop and remove Docker services, run:
@@ -79,7 +92,7 @@ To set up TT-Studio:
    ssh -L 3000:localhost:3000 -L 8001:localhost:8001 <username>@<remote_server>
    ```
 
-> ⚠️ **Note**: To use Tenstorrent hardware, during the run of `startup.sh` script, select "yes" when prompted to mount hardware. This will automatically configure the necessary settings, eliminating manual edits to docker compose files.
+> ⚠️ **Note**: Tenstorrent hardware is now automatically detected and enabled. The script will automatically mount `/dev/tenstorrent` when present, eliminating the need for manual configuration.
 ---
 
 ## Running in Development Mode
@@ -139,7 +152,7 @@ To use the startup script, run:
 | `--help`        | Display help message with usage details.                                     |
 | `--cleanup`     | Stop and remove all Docker services.                                         |
 | `--dev`         | Run in development mode with live code reloading.                            |
-| `--tt-hardware` | Run with Tenstorrent hardware support enabled.                               |
+| `--tt-hardware` | Explicitly enable Tenstorrent hardware support (usually not needed due to auto-detection). |
 
 To display the same help section in the terminal, one can run:
 
@@ -149,7 +162,13 @@ To display the same help section in the terminal, one can run:
 
 ### Automatic Tenstorrent Hardware Detection
 
-If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt you to mount it. Alternatively, you can use the `--tt-hardware` flag to explicitly enable hardware support.
+The startup script now automatically detects Tenstorrent hardware by checking for `/dev/tenstorrent`. When hardware is detected:
+
+1. The appropriate Docker configuration is applied automatically
+2. Container access to hardware is configured
+3. A confirmation message is displayed during startup
+
+You can still use the `--tt-hardware` flag to explicitly enable hardware support if needed.
 
 ### Authentication Requirements
 
@@ -164,12 +183,71 @@ When running the startup script, you'll need to provide the following credential
    - Obtain this token by signing up at [Hugging Face](https://huggingface.co/settings/tokens).
    - Make sure your token has appropriate permissions to access the models you need.
 
-3. **Sudo Access**:
+3. **DJANGO_SECRET_KEY**:
+   - Used by the Django backend for cryptographic operations.
+   - Automatically generated if not provided.
+
+4. **TAVILY_API_KEY**:
+   - Required for web search capabilities in AI agents.
+   - You can obtain a free key from [Tavily](https://tavily.com/).
+
+5. **Sudo Access**:
    - The FastAPI server requires sudo privileges to run on port 8001.
    - You'll be prompted for your sudo password during startup.
    - This is necessary for proper communication between components and hardware access.
 
 These credentials are securely used by the TT Inference Server to authenticate requests, access model repositories, and interact with hardware when available.
+
+---
+
+## Troubleshooting
+
+### Hardware Detection Issues
+
+If you see a "TT Board (Error)" message:
+
+1. Check if `/dev/tenstorrent` is available and readable:
+   ```bash
+   ls -la /dev/tenstorrent
+   ```
+
+2. Verify the hardware is detected by running:
+   ```bash
+   tt-smi -s
+   ```
+
+3. Reset the board if necessary:
+   ```bash
+   tt-smi --softreset
+   ```
+
+4. Restart TT-Studio with explicit hardware support:
+   ```bash
+   ./startup.sh --cleanup
+   ./startup.sh --tt-hardware
+   ```
+
+5. Verify container access to hardware:
+   ```bash
+   docker exec -it tt_studio_backend_api ls -la /dev/tenstorrent
+   ```
+
+### Common Errors
+
+1. **Port 8001 already in use**:
+   ```bash
+   ./startup.sh --cleanup
+   ```
+   Then try starting again.
+
+2. **Docker network issues**:
+   ```bash
+   docker network prune
+   ```
+   Then restart TT-Studio.
+
+3. **FastAPI server fails to start**:
+   Check the logs in `fastapi.log` for specific errors.
 
 ---
 
