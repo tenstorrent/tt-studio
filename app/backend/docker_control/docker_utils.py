@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
-import socket, os, subprocess, json, signal
+import socket, os, subprocess, json, signal, time
 import copy
 from pathlib import Path
 
@@ -439,22 +439,76 @@ def perform_reset():
                 )
                 return {"status": "success", "output": "".join(output)}
 
-        # Step 1: Check if the reset config JSON already exists
-        if not os.path.exists(CONFIG_PATH):
-            generate_result = stream_command_output(["tt-smi", "--generate_reset_json"])
-            if generate_result.get("status") == "error":
-                return generate_result
-
-        # Step 2: Run the reset using the generated JSON
-        reset_result = stream_command_output(["tt-smi", "-r", CONFIG_PATH])
-        if reset_result.get("status") == "error":
-            return reset_result
-        return reset_result or {
-            "status": "error",
-            "message": "tt-smi reset failed with no output. Please check device connection and try again.",
-            "output": "No output from reset command",
-            "http_status": 500
-        }
+        # Attempt software resets first (up to MAX_RESET_ATTEMPTS)
+        MAX_RESET_ATTEMPTS = 3
+        reset_attempts = 0
+        reset_success = False
+        cumulative_output = []
+        
+        # Step 1: Try software resets first
+        while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
+            reset_attempts += 1
+            logger.info(f"Software reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
+            cumulative_output.append(f"Attempting software reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
+            
+            # Check if the reset config JSON already exists
+            if not os.path.exists(CONFIG_PATH):
+                generate_result = stream_command_output(["tt-smi", "--generate_reset_json"])
+                if generate_result.get("status") == "error":
+                    cumulative_output.append(f"Error generating reset config: {generate_result.get('message')}\n")
+                    cumulative_output.append(generate_result.get('output', '') + "\n")
+                else:
+                    cumulative_output.append("Generated reset configuration successfully.\n")
+            
+            # Perform software reset
+            soft_reset_result = stream_command_output(["tt-smi", "--softreset"])
+            cumulative_output.append(soft_reset_result.get('output', '') + "\n")
+            
+            if soft_reset_result.get("status") == "success":
+                logger.info(f"Software reset attempt {reset_attempts} succeeded")
+                reset_success = True
+                break
+            
+            logger.warning(f"Software reset attempt {reset_attempts} failed")
+            # Small delay between attempts
+            time.sleep(2)
+        
+        # If software resets didn't work, try tt-smi reset
+        if not reset_success:
+            logger.warning(f"All {MAX_RESET_ATTEMPTS} software reset attempts failed. Trying tt-smi reset...")
+            cumulative_output.append(f"Software reset attempts exhausted. Trying tt-smi reset...\n")
+            
+            # Step 2: Run the tt-smi reset using the generated JSON
+            reset_result = stream_command_output(["tt-smi", "-r", CONFIG_PATH])
+            cumulative_output.append(reset_result.get('output', '') + "\n")
+            
+            if reset_result.get("status") == "error":
+                all_output = "".join(cumulative_output)
+                logger.error("tt-smi reset also failed")
+                return {
+                    "status": "error",
+                    "message": f"All reset attempts failed. Last error: {reset_result.get('message')}",
+                    "output": all_output,
+                    "http_status": 500
+                }
+            else:
+                reset_success = True
+        
+        all_output = "".join(cumulative_output)
+        if reset_success:
+            return {
+                "status": "success",
+                "message": f"Reset successful after {reset_attempts} attempt(s)",
+                "output": all_output,
+                "http_status": 200
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "All reset attempts failed with no specific error",
+                "output": all_output,
+                "http_status": 500
+            }
 
     except Exception as e:
         logger.exception("Exception occurred during reset operation.")
