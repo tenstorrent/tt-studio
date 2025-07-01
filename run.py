@@ -632,60 +632,48 @@ def kill_process_on_port(port):
         return False
 
 def setup_tt_inference_server():
-    """Set up TT Inference Server by cloning repository and preparing environment."""
+    """Set up TT Inference Server by preparing environment (submodule expected)."""
     print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server          {C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     
-    # Check if git is available
-    if not shutil.which("git"):
-        print(f"{C_RED}⛔ Error: Git is not installed. Please install git to clone the TT Inference Server.{C_RESET}")
-        return False
-    
-    # Clone or update the repository (like startup.sh)
+    # Check if the directory exists (submodule expected)
     if not os.path.exists(INFERENCE_SERVER_DIR):
-        print(f"📥 Cloning TT Inference Server repository...")
-        print(f"   Target directory: {INFERENCE_SERVER_DIR}")
-        print(f"   Branch: {INFERENCE_SERVER_BRANCH}")
+        print(f"📁 TT Inference Server directory not found at {INFERENCE_SERVER_DIR}")
+        print(f"🔧 Attempting to initialize submodules automatically...")
+        
+        # Check if we're in a git repository
+        if not os.path.exists(".git"):
+            print(f"{C_RED}⛔ Error: Not in a git repository. Cannot initialize submodules.{C_RESET}")
+            print(f"   Please ensure you cloned the repository with: git clone https://github.com/tenstorrent/tt-studio.git")
+            return False
+        
+        # Check if .gitmodules exists
+        if not os.path.exists(".gitmodules"):
+            print(f"{C_RED}⛔ Error: .gitmodules file not found. Cannot initialize submodules.{C_RESET}")
+            print(f"   Please ensure you have the complete repository.")
+            return False
+        
         try:
-            # Clone the entire repository with the specific branch and target directory
-            # This matches exactly what startup.sh does
-            clone_cmd = [
-                "git", "clone", "-b", INFERENCE_SERVER_BRANCH,
-                "https://github.com/tenstorrent/tt-inference-server.git",
-                INFERENCE_SERVER_DIR
-            ]
-            print(f"   Running: {' '.join(clone_cmd)}")
-            run_command(clone_cmd, check=True)
+            # Initialize submodules
+            print(f"📦 Initializing git submodules...")
+            run_command(["git", "submodule", "update", "--init", "--recursive"], check=True)
             
-            # Verify the clone was successful
+            # Check again if the directory exists
             if os.path.exists(INFERENCE_SERVER_DIR):
-                print(f"✅ Successfully cloned TT Inference Server to {INFERENCE_SERVER_DIR}")
+                print(f"✅ Successfully initialized TT Inference Server submodule")
+                print(f"📁 TT Inference Server directory found at {INFERENCE_SERVER_DIR}")
             else:
-                print(f"{C_RED}⛔ Error: Clone completed but directory not found{C_RESET}")
+                print(f"{C_RED}⛔ Error: Failed to initialize submodules.{C_RESET}")
+                print(f"   Please try manually: git submodule update --init --recursive")
                 return False
                 
-        except (subprocess.CalledProcessError, SystemExit):
-            print(f"{C_RED}⛔ Error: Failed to clone tt-inference-server repository{C_RESET}")
+        except (subprocess.CalledProcessError, SystemExit) as e:
+            print(f"{C_RED}⛔ Error: Failed to initialize submodules: {e}{C_RESET}")
+            print(f"   Please try manually: git submodule update --init --recursive")
             return False
     else:
-        print(f"📁 TT Inference Server directory already exists, pulling latest changes...")
-        print(f"   Directory: {INFERENCE_SERVER_DIR}")
-        try:
-            # Change to the inference server directory for git operations (like startup.sh)
-            original_dir = os.getcwd()
-            os.chdir(INFERENCE_SERVER_DIR)
-            
-            # Fetch, checkout, and pull the specific branch (like startup.sh)
-            run_command(["git", "fetch", "origin", INFERENCE_SERVER_BRANCH], check=True)
-            run_command(["git", "checkout", INFERENCE_SERVER_BRANCH], check=True)
-            run_command(["git", "pull", "origin", INFERENCE_SERVER_BRANCH], check=True)
-            
-            # Return to original directory
-            os.chdir(original_dir)
-        except (subprocess.CalledProcessError, SystemExit):
-            print(f"{C_RED}⛔ Error: Failed to update tt-inference-server repository{C_RESET}")
-            return False
+        print(f"📁 TT Inference Server directory found at {INFERENCE_SERVER_DIR}")
     
     return True
 
