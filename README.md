@@ -1,22 +1,14 @@
 # TT-Studio
-
-TT-Studio enables rapid deployment of TT Inference servers locally and is optimized for Tenstorrent hardware. This guide explains how to set up and use TT-Studio in both standard and development modes.
+TT-Studio is a comprehensive platform for deploying and managing TT-Metal based models in TT-Inference Server-ized Docker containers optimized for Tenstorrent hardware. It combines [TT Inference Server's](https://github.com/tenstorrent/tt-inference-server) core packaging setup, containerization, and deployment automation with [TT-Metal's](https://github.com/tenstorrent-metal/tt-metal) model execution framework specifically optimized for Tenstorrent hardware and provides an intuitive GUI for model management and interaction. This guide explains how to use TT-Studio in both standard and development environments.
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
 2. [Overview](#overview)
 3. [Quick Start](#quick-start)  
-   - [For General Users](#for-general-users)  
-   - [For Developers](#for-developers)
-4. [Using `startup.sh`](#using-startupsh)
-   - [Basic Usage](#basic-usage)
-   - [Command-Line Options](#command-line-options)
-   - [Automatic Tenstorrent Hardware Detection](#automatic-tenstorrent-hardware-detection)
-   - [Authentication Requirements](#authentication-requirements)
+   - [For General Users](#for-general-users)
+4. [Running in Development Mode](#running-in-development-mode)
 5. [Troubleshooting](#troubleshooting)
-   - [Hardware Detection Issues](#hardware-detection-issues)
-   - [Common Errors](#common-errors)
 6. [Documentation](#documentation)
    - [Frontend Documentation](#frontend-documentation)
    - [Backend API Documentation](#backend-api-documentation)
@@ -25,8 +17,9 @@ TT-Studio enables rapid deployment of TT Inference servers locally and is optimi
 
 ---
 ## Prerequisites
-1. Docker: Ensure that Docker is installed on your machine. You can refer to the installation guide [here](https://docs.docker.com/engine/install/).
-2. Tenstorrent Hardware (optional): TT-Studio will automatically detect and use available Tenstorrent hardware.
+1. Python 3.8 or higher: Required to run the setup script. You can download Python from [python.org](https://www.python.org/downloads/).
+2. Docker: Ensure that Docker is installed on your machine. You can refer to the installation guide [here](https://docs.docker.com/engine/install/).
+3. Tenstorrent Hardware (optional): TT-Studio will automatically detect and use available Tenstorrent hardware.
 
 ## Overview
 TT-Studio is a comprehensive environment for deploying and interacting with Tenstorrent models. It consists of:
@@ -36,6 +29,19 @@ TT-Studio is a comprehensive environment for deploying and interacting with Tens
 - **TT Inference Server**: FastAPI server for handling model inference requests
 - **Docker Containers**: For isolation and easy deployment
 - **Automatic Hardware Detection**: Seamless integration with Tenstorrent devices
+- **Automated Setup**: Complete environment configuration and model setup automation
+
+### Using TT-Studio as a Model Interface
+
+TT-Studio provides a unified frontend interface for interacting with various AI models including:
+- Chat-based Language Models (LLMs)
+- Computer Vision (YOLO)
+- Speech Recognition (Whisper)
+- Image Generation (Stable Diffusion)
+
+For detailed instructions on setting up and using these models, see our [Model Interface Guide](docs/model-interface.md).
+
+> ⚠️ **Note**: The `startup.sh` script is deprecated and will be removed soon. Please use `python run.py` for all setup and management operations.
 
 ---
 ## Quick Start
@@ -50,38 +56,50 @@ To set up TT-Studio:
    git clone https://github.com/tenstorrent/tt-studio.git
    cd tt-studio
    ```
-2. **Choose and Set Up the Model**:
 
-   Select your desired model and configure its corresponding weights by following the instructions in [HowToRun_vLLM_Models.md](./docs/HowToRun_vLLM_Models.md).
+2. **Run the Setup Script**:
 
-3. **Run the Startup Script**:
-
-   Run the `startup.sh` script:
+   Run the `run.py` script:
 
    ```bash
-   ./startup.sh
+   # On Linux
+   python run.py
+   
+   # On macOS
+   python3 run.py
    ```
 
-   You'll be prompted to provide:
+   The script will guide you through all configuration options and set up everything automatically. You'll be prompted to provide:
    - JWT_SECRET for authentication
    - HF_TOKEN (Hugging Face token) for accessing models
    - DJANGO_SECRET_KEY for backend security
-   - TAVILY_API_KEY for search functionality
+   - TAVILY_API_KEY for search functionality (optional)
    - Other optional configuration options
 
-   #### See this [section](#command-line-options) for more information on command-line arguments available within the startup script.
+   > **Note**: The setup script automatically handles submoduling of the TT Inference Server. If submodule initialization fails during setup, you can manually initialize the submodules using:
+   > ```bash
+   > git submodule update --init --recursive
+   > ```
+   > This will clone the TT Inference Server repository as a submodule, which is required for the running vLLM based models on a Tenstorrent device.
 
-4. **Access the Application**:
+   #### See this [section](#command-line-options) for more information on command-line arguments available within the setup script.
+
+3. **Access the Application**:
 
    The app will be available at [http://localhost:3000](http://localhost:3000).
    The FastAPI server runs on [http://localhost:8001](http://localhost:8001).
 
-5. **Cleanup**:
+4. **Cleanup**:
    - To stop and remove Docker services, run:
      ```bash
-     ./startup.sh --cleanup
+     # On Linux
+     python run.py --cleanup
+     
+     # On macOS
+     python3 run.py --cleanup
      ```
-6. Running on a Remote Machine
+
+5. **Running on a Remote Machine**:
 
    To forward traffic between your local machine and a remote server, enabling you to access the frontend application in your local browser, follow these steps:
 
@@ -101,10 +119,14 @@ Developers can run the app with live code reloading for easier development.
 
 1. **Start the Application in Dev Mode**:
 
-   Run the `startup.sh` script with the dev flag:
+   Run the `run.py` script with the dev flag:
 
    ```bash
-   ./startup.sh --dev
+   # On Linux
+   python run.py --dev
+   
+   # On macOS
+   python3 run.py --dev
    ```
 
    In development mode, the frontend and backend code will be mounted inside the container. Any changes in code will be reflected inside the container automatically.
@@ -123,131 +145,21 @@ Developers can run the app with live code reloading for easier development.
 
    To shut down the application and remove running containers:
    ```bash
-   ./startup.sh --cleanup
+   # On Linux
+   python run.py --cleanup
+   
+   # On macOS
+   python3 run.py --cleanup
    ```
 
-4. **Using the Mock vLLM Model**:
+4. **Model Deployment**:
 
-   - For local testing, you can use the `Mock vLLM` model, which generates a random set of characters as output.
-   - Instructions to run it are available in the [HowToRun_vLLM_Models.md](./docs/HowToRun_vLLM_Models.md) guide.
+   - Models are automatically set up and deployed through the TT-Studio interface.
+   - No manual model configuration is required - the FastAPI server handles all model setup automatically.
 
 ---
 
-## Using `startup.sh`
-
-The `startup.sh` script automates the TT-Studio setup process, including the TT Inference Server setup.
-
-### Basic Usage
-
-To use the startup script, run:
-
-```bash
-./startup.sh [options]
-```
-
-### Command-Line Options
-
-| Option          | Description                                                                  |
-| --------------- | ---------------------------------------------------------------------------- |
-| `--help`        | Display help message with usage details.                                     |
-| `--cleanup`     | Stop and remove all Docker services.                                         |
-| `--dev`         | Run in development mode with live code reloading.                            |
-| `--tt-hardware` | Explicitly enable Tenstorrent hardware support (usually not needed due to auto-detection). |
-
-To display the same help section in the terminal, one can run:
-
-```bash
-./startup.sh --help
-```
-
-### Automatic Tenstorrent Hardware Detection
-
-The startup script now automatically detects Tenstorrent hardware by checking for `/dev/tenstorrent`. When hardware is detected:
-
-1. The appropriate Docker configuration is applied automatically
-2. Container access to hardware is configured
-3. A confirmation message is displayed during startup
-
-You can still use the `--tt-hardware` flag to explicitly enable hardware support if needed.
-
-### Authentication Requirements
-
-When running the startup script, you'll need to provide the following credentials:
-
-1. **JWT_SECRET**: A secret key used for JWT token authentication.
-   - This is required for secure API communication between components.
-   - You can use any strong secret string of your choice.
-
-2. **HF_TOKEN**: Your Hugging Face API token.
-   - Required for downloading models from the Hugging Face Hub.
-   - Obtain this token by signing up at [Hugging Face](https://huggingface.co/settings/tokens).
-   - Make sure your token has appropriate permissions to access the models you need.
-
-3. **DJANGO_SECRET_KEY**:
-   - Used by the Django backend for cryptographic operations.
-   - Automatically generated if not provided.
-
-4. **TAVILY_API_KEY**:
-   - Required for web search capabilities in AI agents.
-   - You can obtain a free key from [Tavily](https://tavily.com/).
-
-5. **Sudo Access**:
-   - The FastAPI server requires sudo privileges to run on port 8001.
-   - You'll be prompted for your sudo password during startup.
-   - This is necessary for proper communication between components and hardware access.
-
-These credentials are securely used by the TT Inference Server to authenticate requests, access model repositories, and interact with hardware when available.
-
----
-
-## Troubleshooting
-
-### Hardware Detection Issues
-
-If you see a "TT Board (Error)" message:
-
-1. Check if `/dev/tenstorrent` is available and readable:
-   ```bash
-   ls -la /dev/tenstorrent
-   ```
-
-2. Verify the hardware is detected by running:
-   ```bash
-   tt-smi -s
-   ```
-
-3. Reset the board if necessary:
-   ```bash
-   tt-smi --softreset
-   ```
-
-4. Restart TT-Studio with explicit hardware support:
-   ```bash
-   ./startup.sh --cleanup
-   ./startup.sh --tt-hardware
-   ```
-
-5. Verify container access to hardware:
-   ```bash
-   docker exec -it tt_studio_backend_api ls -la /dev/tenstorrent
-   ```
-
-### Common Errors
-
-1. **Port 8001 already in use**:
-   ```bash
-   ./startup.sh --cleanup
-   ```
-   Then try starting again.
-
-2. **Docker network issues**:
-   ```bash
-   docker network prune
-   ```
-   Then restart TT-Studio.
-
-3. **FastAPI server fails to start**:
-   Check the logs in `fastapi.log` for specific errors.
+For detailed information about using the `run.py` script, including all command-line options, authentication requirements, and advanced usage scenarios, see our [Complete `run.py` Guide](docs/run-py-guide.md).
 
 ---
 
@@ -259,14 +171,19 @@ If you see a "TT Board (Error)" message:
 - **Backend API Documentation**: [app/backend/README.md](app/backend/README.md)  
   Information on the backend API, including available endpoints and integration details.
 
-- **Running vLLM Models and Mock vLLM Model in TT-Studio**: [docs/HowToRun_vLLM_Models.md](docs/HowToRun_vLLM_Models.md)  
-  Step-by-step instructions on how to configure and run the vLLM model(s) using TT-Studio.
+- **Running vLLM Models in TT-Studio**: Models are automatically set up and deployed through the TT-Studio interface. No manual configuration is required.
 
 - **Running AI Agent in TT-Studio**: [app/agent/README.md](app/agent/README.md)
    Instructions on how to run AI Agent by providing an API Key. 
 
 - **Contribution Guide**: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)  
   If you're interested in contributing to the project, please refer to our contribution guidelines.
+
+- **Complete `run.py` Guide**: [docs/run-py-guide.md](docs/run-py-guide.md)  
+  Detailed documentation for using the `run.py` script, including all command-line options and authentication requirements.
+
+- **Troubleshooting Guide**: [docs/troubleshooting.md](docs/troubleshooting.md)  
+  Comprehensive solutions for common issues you might encounter with TT-Studio.
 
 - **Frequently Asked Questions (FAQ)**: [docs/FAQ.md](docs/FAQ.md)  
   A compilation of frequently asked questions to help users quickly solve common issues.
