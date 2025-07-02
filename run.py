@@ -199,27 +199,87 @@ def ask_overwrite_preference(existing_vars):
         print(f"{C_YELLOW}All existing variables appear to be placeholders. Will configure all values.{C_RESET}")
         return True
     
-    print(f"\n{C_CYAN}Found {len(real_vars)} already configured environment variables:{C_RESET}")
-    for var_name, var_value in real_vars.items():
-        # Mask sensitive values
-        if any(sensitive in var_name.lower() for sensitive in ['secret', 'token', 'password', 'key']):
-            display_value = "***masked***"
-        else:
-            display_value = var_value[:50] + "..." if len(var_value) > 50 else var_value
-        print(f"  • {var_name}: {display_value}")
+    print(f"\n{C_CYAN}{C_BOLD}🔍 Configuration Status Check{C_RESET}")
+    print(f"{C_GREEN}✅ Found an existing TT Studio configuration with {len(real_vars)} configured variables:{C_RESET}")
+    print()
     
-    print(f"\n{C_YELLOW}Do you want to overwrite these existing values?{C_RESET}")
-    print(f"  {C_GREEN}y{C_RESET} - Yes, reconfigure all values")
-    print(f"  {C_BLUE}n{C_RESET} - No, keep existing values and only configure missing/placeholder values")
+    # Group variables by category for better display
+    core_vars = ["TT_STUDIO_ROOT", "HOST_PERSISTENT_STORAGE_VOLUME", "INTERNAL_PERSISTENT_STORAGE_VOLUME", "BACKEND_API_HOSTNAME"]
+    security_vars = ["JWT_SECRET", "DJANGO_SECRET_KEY", "HF_TOKEN", "TAVILY_API_KEY", "RAG_ADMIN_PASSWORD"]
+    app_vars = ["VITE_APP_TITLE", "VITE_ENABLE_DEPLOYED", "VITE_ENABLE_RAG_ADMIN"]
+    cloud_vars = [k for k in real_vars.keys() if k.startswith("CLOUD_")]
+    
+    def display_vars(category_name, var_list, emoji):
+        category_vars = {k: v for k, v in real_vars.items() if k in var_list}
+        if category_vars:
+            print(f"{C_BOLD}{emoji} {category_name}:{C_RESET}")
+            for var_name, var_value in category_vars.items():
+                # Mask sensitive values
+                if any(sensitive in var_name.lower() for sensitive in ['secret', 'token', 'password', 'key']):
+                    display_value = "***configured***"
+                else:
+                    display_value = var_value[:50] + "..." if len(var_value) > 50 else var_value
+                print(f"    {C_YELLOW}•{C_RESET} {var_name}: {C_CYAN}{display_value}{C_RESET}")
+            print()
+    
+    display_vars("📁 Core Configuration", core_vars, "📁")
+    display_vars("🔐 Security Credentials", security_vars, "🔐")
+    display_vars("⚙️ Application Settings", app_vars, "⚙️")
+    display_vars("☁️ Cloud Model APIs", cloud_vars, "☁️")
+    
+    # Add visual separator
+    print(f"{C_TT_PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}")
+    
+    print(f"{C_YELLOW}{C_BOLD}❓ What would you like to do?{C_RESET}")
+    print()
+    print(f"  {C_GREEN}{C_BOLD}Option 1 - Keep Existing Configuration{C_RESET}")
+    print(f"    {C_CYAN}•{C_RESET} Keep all current values as they are")
+    print(f"    {C_CYAN}•{C_RESET} Only configure any missing or placeholder values")
+    print(f"    {C_CYAN}•{C_RESET} Recommended for normal startup")
+    print()
+    print(f"  {C_ORANGE}{C_BOLD}Option 2 - Reconfigure Everything{C_RESET}")
+    print(f"    {C_CYAN}•{C_RESET} Go through setup prompts for ALL variables")
+    print(f"    {C_CYAN}•{C_RESET} Replace existing values with new ones")
+    print(f"    {C_CYAN}•{C_RESET} Use this if you want to change your configuration")
+    print()
+    
+    # Add another visual separator before input
+    print(f"{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}")
     
     while True:
-        choice = input(f"\nEnter your choice (y/n): ").lower().strip()
-        if choice in ['y', 'yes']:
-            return True
-        elif choice in ['n', 'no']:
+        print(f"{C_WHITE}{C_BOLD}Choose an option:{C_RESET}")
+        print(f"  {C_GREEN}k{C_RESET} - Keep existing configuration (recommended)")
+        print(f"  {C_ORANGE}r{C_RESET} - Reconfigure everything")
+        print()
+        try:
+            choice = input(f"Enter your choice (k/r): ").lower().strip()
+        except KeyboardInterrupt:
+            print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
+            
+            # Build the original command with flags for resume suggestion
+            original_cmd = "python run.py"
+            if 'args' in locals():
+                if args.dev:
+                    original_cmd += " --dev"
+                if args.skip_fastapi:
+                    original_cmd += " --skip-fastapi"
+                if args.no_sudo:
+                    original_cmd += " --no-sudo"
+            
+            print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
+            print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
+            print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
+            sys.exit(0)
+        
+        if choice in ['k', 'keep']:
+            print(f"\n{C_GREEN}✅ Keeping existing configuration. Only missing values will be configured.{C_RESET}")
             return False
+        elif choice in ['r', 'reconfigure', 'reconfig']:
+            print(f"\n{C_ORANGE}🔄 Will reconfigure all environment variables.{C_RESET}")
+            return True
         else:
-            print(f"{C_RED}Please enter 'y' or 'n'{C_RESET}")
+            print(f"{C_RED}❌ Please enter 'k' to keep existing config or 'r' to reconfigure everything.{C_RESET}")
+            print()
 
 def configure_environment_sequentially(dev_mode=False):
     """
@@ -235,36 +295,37 @@ def configure_environment_sequentially(dev_mode=False):
     
     if not env_file_exists:
         if os.path.exists(ENV_FILE_DEFAULT):
-            print(f"{C_BLUE}No .env file found. Creating one from the default template...{C_RESET}")
+            print(f"{C_BLUE}📄 No .env file found. Creating one from the default template...{C_RESET}")
             shutil.copy(ENV_FILE_DEFAULT, ENV_FILE_PATH)
         else:
-            print(f"{C_YELLOW}Warning: .env.default not found. Creating an empty .env file.{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Warning: .env.default not found. Creating an empty .env file.{C_RESET}")
             open(ENV_FILE_PATH, 'w').close()
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
     
-    print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🛠️  Configuring Environment  ---{C_RESET}")
+    print(f"\n{C_TT_PURPLE}{C_BOLD}🛠️  TT Studio Environment Configuration{C_RESET}")
     
     if dev_mode:
-        print(f"{C_YELLOW}🚀 Development mode enabled - you can use suggested defaults{C_RESET}")
+        print(f"{C_YELLOW}🚀 Development Mode: You can use suggested defaults for quick setup{C_RESET}")
+        print(f"{C_CYAN}   Note: Development defaults are NOT secure for production use{C_RESET}")
+    else:
+        print(f"{C_CYAN}🏭 Production Mode: You'll be prompted for secure, production-ready values{C_RESET}")
     
     # Get existing variables
     existing_vars = get_existing_env_vars()
     
     # Only ask about overwrite preference if .env file existed before
     if env_file_exists and existing_vars:
-        print(f"{C_CYAN}Found {len(existing_vars)} existing environment variables.{C_RESET}")
         FORCE_OVERWRITE = ask_overwrite_preference(existing_vars)
-        if FORCE_OVERWRITE:
-            print(f"{C_YELLOW}Will reconfigure all environment variables.{C_RESET}")
-        else:
-            print(f"{C_GREEN}Will keep existing values and only configure missing/placeholder values.{C_RESET}")
     else:
         # No need to ask, we're configuring everything
-        print(f"{C_CYAN}No existing configuration found. Will configure all environment variables.{C_RESET}")
+        if not env_file_exists:
+            print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
+        else:
+            print(f"\n{C_CYAN}📝 No existing configuration found. Will configure all environment variables.{C_RESET}")
         FORCE_OVERWRITE = True
 
-    print(f"{C_CYAN}Setting core application paths...{C_RESET}")
+    print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
     write_env_var("TT_STUDIO_ROOT", TT_STUDIO_ROOT, quote_value=False)
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
@@ -440,11 +501,16 @@ def display_welcome_banner():
     """Display welcome banner"""
     # Clear screen for a clean splash screen effect
     os.system('cls' if OS_NAME == 'Windows' else 'clear')
-    print(f"{C_TT_PURPLE}")
-    print("┌──────────────────────────────────┐")
-    print("│      ✨ Welcome to TT Studio     │")
-    print("└──────────────────────────────────┘")
-    print("")
+    
+    # Top border with gradient effect
+    print(f"{C_TT_PURPLE}{C_BOLD}")
+    print("╔" + "═" * 66 + "╗")
+    print("║" + " " * 18 + "✨ Welcome to TT Studio ✨" + " " * 18 + "║")
+    print("║" + " " * 12 + "🚀 Tenstorrent AI Development Platform 🚀" + " " * 12 + "║")
+    print("╚" + "═" * 66 + "╝")
+    print()
+    
+    # ASCII Art with enhanced styling
     print("████████╗████████╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ ")
     print("╚══██╔══╝╚══██╔══╝    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗")
     print("   ██║      ██║       ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║")
@@ -452,13 +518,27 @@ def display_welcome_banner():
     print("   ██║      ██║       ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝")
     print("   ╚═╝      ╚═╝       ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ ")
     print(f"{C_RESET}")
-    print("")
-    # An extra newline for spacing
+    
+    # Subtitle with version info
+    print(f"{C_CYAN}{C_BOLD}" + " " * 15 + "🔧 AI Model Development & Deployment Made Easy 🔧" + f"{C_RESET}")
+    print()
+    
+    # Feature highlights
+    print(f"{C_GREEN}🌟 Features:{C_RESET}")
+    print(f"  {C_YELLOW}•{C_RESET} Interactive environment setup")
+    print(f"  {C_YELLOW}•{C_RESET} Docker orchestration & management") 
+    print(f"  {C_YELLOW}•{C_RESET} TT Inference Server integration")
+    print(f"  {C_YELLOW}•{C_RESET} Hardware detection & optimization")
+    print(f"  {C_YELLOW}•{C_RESET} AI Playground for cloud models")
+    print()
+    
+    # Bottom decorative line
+    print(f"{C_TT_PURPLE}" + "─" * 68 + f"{C_RESET}")
     print()
 
 def cleanup_resources(args):
     """Clean up Docker resources"""
-    print(f"{C_YELLOW}🧹 Cleaning up TT Studio resources...{C_RESET}")
+    print(f"\n{C_TT_PURPLE}{C_BOLD}🧹 Cleaning up TT Studio resources...{C_RESET}")
     
     # Build Docker Compose command for cleanup (use same logic as startup)
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
@@ -466,44 +546,74 @@ def cleanup_resources(args):
     
     # Stop and remove containers
     try:
+        print(f"{C_BLUE}🛑 Stopping Docker containers...{C_RESET}")
         run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
+        print(f"{C_GREEN}✅ Docker containers stopped successfully.{C_RESET}")
     except:
-        print(f"{C_YELLOW}No running containers to stop.{C_RESET}")
+        print(f"{C_YELLOW}⚠️  No running containers to stop.{C_RESET}")
     
     # Remove network if it exists
     try:
+        print(f"{C_BLUE}🌐 Removing Docker network...{C_RESET}")
         run_command(["docker", "network", "rm", "tt_studio_network"])
-        print(f"{C_GREEN}Removed network 'tt_studio_network'.{C_RESET}")
+        print(f"{C_GREEN}✅ Removed network 'tt_studio_network'.{C_RESET}")
     except:
-        print(f"{C_YELLOW}Network 'tt_studio_network' doesn't exist or couldn't be removed.{C_RESET}")
+        print(f"{C_YELLOW}⚠️  Network 'tt_studio_network' doesn't exist or couldn't be removed.{C_RESET}")
     
     # Clean up FastAPI server
+    print(f"{C_BLUE}🔧 Cleaning up FastAPI server...{C_RESET}")
     cleanup_fastapi_server(no_sudo=args.no_sudo)
     
     if args.cleanup_all:
+        print(f"\n{C_ORANGE}{C_BOLD}🗑️  Performing complete cleanup (--cleanup-all)...{C_RESET}")
+        
         # Remove persistent volume
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
         if os.path.exists(host_persistent_volume):
-            confirm = input(f"Remove persistent storage at {host_persistent_volume}? (y/N): ")
+            try:
+                confirm = input(f"{C_YELLOW}📁 Remove persistent storage at {host_persistent_volume}? (y/N): {C_RESET}")
+            except KeyboardInterrupt:
+                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Persistent storage kept.{C_RESET}")
+                print(f"{C_GREEN}✅ Basic cleanup completed successfully.{C_RESET}")
+                return
+            
             if confirm.lower() in ['y', 'yes']:
                 shutil.rmtree(host_persistent_volume)
-                print(f"{C_GREEN}Removed persistent storage.{C_RESET}")
+                print(f"{C_GREEN}✅ Removed persistent storage.{C_RESET}")
+            else:
+                print(f"{C_CYAN}📁 Keeping persistent storage.{C_RESET}")
         
         # Remove .env file
         if os.path.exists(ENV_FILE_PATH):
-            confirm = input("Remove .env configuration file? (y/N): ")
+            try:
+                confirm = input(f"{C_YELLOW}⚙️  Remove .env configuration file? (y/N): {C_RESET}")
+            except KeyboardInterrupt:
+                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Configuration file kept.{C_RESET}")
+                print(f"{C_GREEN}✅ Partial cleanup completed.{C_RESET}")
+                return
+            
             if confirm.lower() in ['y', 'yes']:
                 os.remove(ENV_FILE_PATH)
-                print(f"{C_GREEN}Removed .env file.{C_RESET}")
+                print(f"{C_GREEN}✅ Removed .env file.{C_RESET}")
+            else:
+                print(f"{C_CYAN}⚙️  Keeping .env file.{C_RESET}")
         
         # Remove TT Inference Server directory
         if os.path.exists(INFERENCE_SERVER_DIR):
-            confirm = input(f"Remove TT Inference Server directory at {INFERENCE_SERVER_DIR}? (y/N): ")
+            try:
+                confirm = input(f"{C_YELLOW}🔧 Remove TT Inference Server directory at {INFERENCE_SERVER_DIR}? (y/N): {C_RESET}")
+            except KeyboardInterrupt:
+                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. TT Inference Server directory kept.{C_RESET}")
+                print(f"{C_GREEN}✅ Partial cleanup completed.{C_RESET}")
+                return
+            
             if confirm.lower() in ['y', 'yes']:
                 shutil.rmtree(INFERENCE_SERVER_DIR)
-                print(f"{C_GREEN}Removed TT Inference Server directory.{C_RESET}")
+                print(f"{C_GREEN}✅ Removed TT Inference Server directory.{C_RESET}")
+            else:
+                print(f"{C_CYAN}🔧 Keeping TT Inference Server directory.{C_RESET}")
     
-    print(f"{C_GREEN}✅ Cleanup complete.{C_RESET}")
+    print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
 
 def detect_tt_hardware():
     """Detect if Tenstorrent hardware is available."""
@@ -957,206 +1067,277 @@ def request_sudo_authentication():
 
 def main():
     """Main function to orchestrate the script."""
-    parser = argparse.ArgumentParser(description="TT Studio Setup Script")
-    parser.add_argument("--dev", action="store_true", help="Development mode - show suggested defaults but still prompt for all values")
-    parser.add_argument("--cleanup", action="store_true", help="Clean up Docker containers and networks")
-    parser.add_argument("--cleanup-all", action="store_true", help="Clean up everything including persistent data and .env file")
-    parser.add_argument("--help-env", action="store_true", help="Show help for environment variables")
-    parser.add_argument("--skip-fastapi", action="store_true", help="Skip TT Inference Server FastAPI setup (clones tt-inference-server repo and starts FastAPI on port 8001)")
-    parser.add_argument("--no-sudo", action="store_true", help="Skip sudo usage for FastAPI setup (may not work if port 8001 requires elevated privileges)")
-    
-    args = parser.parse_args()
-    
-    if args.help_env:
-        print(f"""
-{C_TT_PURPLE}{C_BOLD}TT Studio Environment Variables Help{C_RESET}
+    try:
+        parser = argparse.ArgumentParser(
+            description=f"""
+{C_TT_PURPLE}{C_BOLD}🚀 TT Studio Setup Script{C_RESET}
 
-{C_BOLD}Core Configuration:{C_RESET}
-  TT_STUDIO_ROOT                    - Root directory of the repository
-  HOST_PERSISTENT_STORAGE_VOLUME    - Host path for persistent storage
-  INTERNAL_PERSISTENT_STORAGE_VOLUME - Container path for persistent storage
-  BACKEND_API_HOSTNAME             - Backend API hostname
+{C_CYAN}A comprehensive setup tool for Tenstorrent TT Studio that handles:{C_RESET}
+• Environment configuration with interactive prompts
+• Docker services orchestration  
+• TT Inference Server FastAPI setup
+• Hardware detection and optimization
 
-{C_BOLD}Security (Required):{C_RESET}
-  JWT_SECRET                       - JWT authentication secret
-  DJANGO_SECRET_KEY               - Django application secret key
-  HF_TOKEN                        - Hugging Face API token
+{C_YELLOW}For detailed environment variable help, use: {C_CYAN}--help-env{C_RESET}
+        """,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"""
+{C_GREEN}{C_BOLD}Examples:{C_RESET}
+  {C_CYAN}python run.py{C_RESET}                   🚀 Normal interactive setup
+  {C_CYAN}python run.py --dev{C_RESET}             🛠️  Development mode with suggested defaults
+  {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
+  {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
+  {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup
+  {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
-{C_BOLD}Optional Services:{C_RESET}
-  TAVILY_API_KEY                  - Tavily search API key (optional)
+{C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
+        """
+        )
+        parser.add_argument("--dev", action="store_true", 
+                           help="🛠️  Development mode - show suggested defaults but still prompt for all values")
+        parser.add_argument("--cleanup", action="store_true", 
+                           help="🧹 Clean up Docker containers and networks")
+        parser.add_argument("--cleanup-all", action="store_true", 
+                           help="🗑️  Clean up everything including persistent data and .env file")
+        parser.add_argument("--help-env", action="store_true", 
+                           help="📚 Show detailed help for environment variables")
+        parser.add_argument("--skip-fastapi", action="store_true", 
+                           help="⏭️  Skip TT Inference Server FastAPI setup")
+        parser.add_argument("--no-sudo", action="store_true", 
+                           help="🚫 Skip sudo usage for FastAPI setup (may limit functionality)")
+        
+        args = parser.parse_args()
+        
+        if args.help_env:
+            print(f"""
+{C_TT_PURPLE}{C_BOLD}🔧 TT Studio Environment Variables Help{C_RESET}
 
-{C_BOLD}Application Modes:{C_RESET}
-  VITE_APP_TITLE                  - Application title
-  VITE_ENABLE_DEPLOYED            - Enable AI Playground mode (true/false)
-  VITE_ENABLE_RAG_ADMIN          - Enable RAG admin interface (true/false)
-  RAG_ADMIN_PASSWORD             - RAG admin password (required if RAG enabled)
+{C_CYAN}{C_BOLD}📁 Core Configuration:{C_RESET}
+{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+  {C_YELLOW}TT_STUDIO_ROOT{C_RESET}                      📂 Root directory of the repository
+  {C_YELLOW}HOST_PERSISTENT_STORAGE_VOLUME{C_RESET}      💾 Host path for persistent storage
+  {C_YELLOW}INTERNAL_PERSISTENT_STORAGE_VOLUME{C_RESET}  🗂️  Container path for persistent storage
+  {C_YELLOW}BACKEND_API_HOSTNAME{C_RESET}                🌐 Backend API hostname
 
-{C_BOLD}Cloud Models (Only when AI Playground is enabled):{C_RESET}
-  CLOUD_CHAT_UI_URL              - Llama Chat UI endpoint
-  CLOUD_CHAT_UI_AUTH_TOKEN       - Llama Chat UI authentication token
-  CLOUD_YOLOV4_API_URL           - YOLOv4 API endpoint
-  CLOUD_YOLOV4_API_AUTH_TOKEN    - YOLOv4 API authentication token
-  CLOUD_SPEECH_RECOGNITION_URL   - Whisper API endpoint
-  CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN - Whisper API authentication token
-  CLOUD_STABLE_DIFFUSION_URL     - Stable Diffusion API endpoint
-  CLOUD_STABLE_DIFFUSION_AUTH_TOKEN - Stable Diffusion API authentication token
+{C_RED}{C_BOLD}🔐 Security (Required):{C_RESET}
+{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+  {C_YELLOW}JWT_SECRET{C_RESET}                          🔑 JWT authentication secret
+  {C_YELLOW}DJANGO_SECRET_KEY{C_RESET}                   🛡️  Django application secret key
+  {C_YELLOW}HF_TOKEN{C_RESET}                            🤗 Hugging Face API token
+
+{C_YELLOW}{C_BOLD}🔍 Optional Services:{C_RESET}
+{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+  {C_YELLOW}TAVILY_API_KEY{C_RESET}                      🔍 Tavily search API key (optional)
+
+{C_GREEN}{C_BOLD}⚙️  Application Modes:{C_RESET}
+{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+  {C_YELLOW}VITE_APP_TITLE{C_RESET}                      📝 Application title
+  {C_YELLOW}VITE_ENABLE_DEPLOYED{C_RESET}                ☁️  Enable AI Playground mode (true/false)
+  {C_YELLOW}VITE_ENABLE_RAG_ADMIN{C_RESET}               📚 Enable RAG admin interface (true/false)
+  {C_YELLOW}RAG_ADMIN_PASSWORD{C_RESET}                  🔒 RAG admin password (required if RAG enabled)
+
+{C_BLUE}{C_BOLD}☁️  Cloud Models (Only when AI Playground is enabled):{C_RESET}
+{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+  {C_YELLOW}CLOUD_CHAT_UI_URL{C_RESET}                   🦙 Llama Chat UI endpoint
+  {C_YELLOW}CLOUD_CHAT_UI_AUTH_TOKEN{C_RESET}            🔑 Llama Chat UI authentication token
+  {C_YELLOW}CLOUD_YOLOV4_API_URL{C_RESET}                👁️  YOLOv4 API endpoint
+  {C_YELLOW}CLOUD_YOLOV4_API_AUTH_TOKEN{C_RESET}         🔑 YOLOv4 API authentication token
+  {C_YELLOW}CLOUD_SPEECH_RECOGNITION_URL{C_RESET}        🎤 Whisper API endpoint
+  {C_YELLOW}CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN{C_RESET} 🔑 Whisper API authentication token
+  {C_YELLOW}CLOUD_STABLE_DIFFUSION_URL{C_RESET}          🎨 Stable Diffusion API endpoint
+  {C_YELLOW}CLOUD_STABLE_DIFFUSION_AUTH_TOKEN{C_RESET}   🔑 Stable Diffusion API authentication token
+
+{C_MAGENTA}{C_BOLD}💡 Usage Examples:{C_RESET}
+{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+  {C_CYAN}python run.py{C_RESET}                        🚀 Normal setup with prompts
+  {C_CYAN}python run.py --dev{C_RESET}                  🛠️  Development mode with defaults
+  {C_CYAN}python run.py --cleanup{C_RESET}              🧹 Clean up containers only
+  {C_CYAN}python run.py --cleanup-all{C_RESET}          🗑️  Complete cleanup (data + config)
+  {C_CYAN}python run.py --skip-fastapi{C_RESET}         ⏭️  Skip FastAPI server setup
+  {C_CYAN}python run.py --no-sudo{C_RESET}              🚫 Skip sudo usage (may limit functionality)
+
+{C_TT_PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+{C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
         """)
-        return
-    
-    if args.cleanup or args.cleanup_all:
-        cleanup_resources(args)
-        return
-    
-    display_welcome_banner()
-    check_docker_installation()
-    configure_environment_sequentially(dev_mode=args.dev)
-
-    # Create persistent storage directory
-    host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME")
-    if host_persistent_volume and not os.path.isdir(host_persistent_volume):
-        print(f"\n{C_BLUE}Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
-        os.makedirs(host_persistent_volume, exist_ok=True)
-
-    # Create Docker network
-    print(f"\n{C_BLUE}Checking for Docker network 'tt_studio_network'...{C_RESET}")
-    result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True)
-    if "tt_studio_network" not in result.stdout:
-        run_command(["docker", "network", "create", "tt_studio_network"])
-        print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
-    else:
-        print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
-
-    # Start Docker services
-    print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
-    
-    # Set up the Docker Compose command
-    docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev)
-    
-    # Add the up command and flags
-    docker_compose_cmd.extend(["up", "--build", "-d"])
-    
-    # Run the Docker Compose command
-    run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
-    
-    # Setup TT Inference Server FastAPI (unless skipped)
-    if not args.skip_fastapi:
-        # Store original directory to return to later
-        original_dir = os.getcwd()
+            return
         
-        # Request sudo authentication upfront (unless --no-sudo is specified)
-        if not args.no_sudo:
-            if not request_sudo_authentication():
-                print(f"{C_RED}⛔ Cannot proceed without sudo access. Use --no-sudo to skip sudo usage.{C_RESET}")
-                return
+        if args.cleanup or args.cleanup_all:
+            cleanup_resources(args)
+            return
+        
+        display_welcome_banner()
+        check_docker_installation()
+        configure_environment_sequentially(dev_mode=args.dev)
+
+        # Create persistent storage directory
+        host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
+        if host_persistent_volume and not os.path.isdir(host_persistent_volume):
+            print(f"\n{C_BLUE}📁 Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
+            os.makedirs(host_persistent_volume, exist_ok=True)
+
+        # Create Docker network
+        print(f"\n{C_BLUE}Checking for Docker network 'tt_studio_network'...{C_RESET}")
+        result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True)
+        if "tt_studio_network" not in result.stdout:
+            run_command(["docker", "network", "create", "tt_studio_network"])
+            print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
         else:
-            print(f"{C_YELLOW}⚠️  Skipping sudo authentication (--no-sudo flag used){C_RESET}")
-            print(f"{C_YELLOW}   Note: Some operations may fail if elevated privileges are required{C_RESET}")
+            print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
+
+        # Start Docker services
+        print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
         
-        try:
-            # Setup TT Inference Server
-            if not setup_tt_inference_server():
-                print(f"{C_RED}⛔ Failed to setup TT Inference Server. Continuing without FastAPI server.{C_RESET}")
+        # Set up the Docker Compose command
+        docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev)
+        
+        # Add the up command and flags
+        docker_compose_cmd.extend(["up", "--build", "-d"])
+        
+        # Run the Docker Compose command
+        run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
+        
+        # Setup TT Inference Server FastAPI (unless skipped)
+        if not args.skip_fastapi:
+            # Store original directory to return to later
+            original_dir = os.getcwd()
+            
+            # Request sudo authentication upfront (unless --no-sudo is specified)
+            if not args.no_sudo:
+                if not request_sudo_authentication():
+                    print(f"{C_RED}⛔ Cannot proceed without sudo access. Use --no-sudo to skip sudo usage.{C_RESET}")
+                    return
             else:
-                # Setup FastAPI environment
-                if not setup_fastapi_environment():
-                    print(f"{C_RED}⛔ Failed to setup FastAPI environment. Continuing without FastAPI server.{C_RESET}")
+                print(f"{C_YELLOW}⚠️  Skipping sudo authentication (--no-sudo flag used){C_RESET}")
+                print(f"{C_YELLOW}   Note: Some operations may fail if elevated privileges are required{C_RESET}")
+            
+            try:
+                # Setup TT Inference Server
+                if not setup_tt_inference_server():
+                    print(f"{C_RED}⛔ Failed to setup TT Inference Server. Continuing without FastAPI server.{C_RESET}")
                 else:
-                    # Start FastAPI server
-                    if not start_fastapi_server(no_sudo=args.no_sudo):
-                        print(f"{C_RED}⛔ Failed to start FastAPI server. Continuing without FastAPI server.{C_RESET}")
-        finally:
-            # Return to original directory
-            os.chdir(original_dir)
-    else:
-        print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
-    
-    print(f"\n{C_GREEN}✔ Setup Complete!{C_RESET}")
-    print()
-    print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}│   🚀 Tenstorrent TT Studio is ready!                     │{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}│   Access it at: {C_CYAN}http://localhost:3000{C_RESET}{C_WHITE}{C_BOLD}                    │{C_RESET}")
-    if not args.skip_fastapi and os.path.exists(FASTAPI_PID_FILE):
-        print(f"{C_WHITE}{C_BOLD}│   FastAPI server: {C_CYAN}http://localhost:8001{C_RESET}{C_WHITE}{C_BOLD}                  │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Health check: curl http://localhost:8001/){C_RESET}{C_WHITE}{C_BOLD}           │{C_RESET}")
-    if OS_NAME == "Darwin":
-        print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Cmd+Click the link to open in browser){C_RESET}{C_WHITE}{C_BOLD}                │{C_RESET}")
-    else:
-        print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Ctrl+Click the link to open in browser){C_RESET}{C_WHITE}{C_BOLD}               │{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
-    print()
-    
-    # Display info about special modes if they are enabled (like startup.sh)
-    if args.dev or detect_tt_hardware():
+                    # Setup FastAPI environment
+                    if not setup_fastapi_environment():
+                        print(f"{C_RED}⛔ Failed to setup FastAPI environment. Continuing without FastAPI server.{C_RESET}")
+                    else:
+                        # Start FastAPI server
+                        if not start_fastapi_server(no_sudo=args.no_sudo):
+                            print(f"{C_RED}⛔ Failed to start FastAPI server. Continuing without FastAPI server.{C_RESET}")
+            finally:
+                # Return to original directory
+                os.chdir(original_dir)
+        else:
+            print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
+        
+        print(f"\n{C_GREEN}✔ Setup Complete!{C_RESET}")
+        print()
         print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│                    {C_YELLOW}Active Modes{C_WHITE}{C_BOLD}                            │{C_RESET}")
-        if args.dev:
-            print(f"{C_WHITE}{C_BOLD}│   {C_CYAN}💻 Development Mode: ENABLED{C_WHITE}{C_BOLD}                           │{C_RESET}")
-        if detect_tt_hardware():
-            print(f"{C_WHITE}{C_BOLD}│   {C_CYAN}🔧 Tenstorrent Device: MOUNTED{C_WHITE}{C_BOLD}                         │{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}│   🚀 Tenstorrent TT Studio is ready!                     │{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}│   Access it at: {C_CYAN}http://localhost:3000{C_RESET}{C_WHITE}{C_BOLD}                    │{C_RESET}")
+        if not args.skip_fastapi and os.path.exists(FASTAPI_PID_FILE):
+            print(f"{C_WHITE}{C_BOLD}│   FastAPI server: {C_CYAN}http://localhost:8001{C_RESET}{C_WHITE}{C_BOLD}                  │{C_RESET}")
+            print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Health check: curl http://localhost:8001/){C_RESET}{C_WHITE}{C_BOLD}           │{C_RESET}")
+        if OS_NAME == "Darwin":
+            print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Cmd+Click the link to open in browser){C_RESET}{C_WHITE}{C_BOLD}                │{C_RESET}")
+        else:
+            print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Ctrl+Click the link to open in browser){C_RESET}{C_WHITE}{C_BOLD}               │{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
         print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
         print()
-    
-    print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}🧹 To stop all services, run:{C_RESET}{C_WHITE}{C_BOLD}                           │{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}│   {C_MAGENTA}python run.py --cleanup{C_RESET}{C_WHITE}{C_BOLD}                                │{C_RESET}")
-    print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
-    print()
-    
-    # Display final summary
-    is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
-    is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
-    
-    print(f"{C_BOLD}📋 Configuration Summary:{C_RESET}")
-    print(f"  • AI Playground Mode: {'✅ Enabled' if is_deployed_mode else '❌ Disabled'}")
-    print(f"  • RAG Admin Interface: {'✅ Enabled' if is_rag_admin_enabled else '❌ Disabled'}")
-    print(f"  • Persistent Storage: {host_persistent_volume}")
-    print(f"  • Development Mode: {'✅ Enabled' if args.dev else '❌ Disabled'}")
-    print(f"  • TT Hardware Support: {'✅ Enabled' if detect_tt_hardware() else '❌ Disabled'}")
-    print(f"  • FastAPI Server: {'✅ Enabled' if not args.skip_fastapi and os.path.exists(FASTAPI_PID_FILE) else '❌ Disabled'}")
-    
-    if is_deployed_mode:
-        print(f"\n{C_BLUE}🌐 Your TT Studio is running in AI Playground mode with cloud model integrations.{C_RESET}")
-    
-    # Try to open the browser automatically
-    try:
-        webbrowser.open("http://localhost:3000")
-    except:
-        print(f"{C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually{C_RESET}")
-    
-    # If in dev mode, show logs similar to startup.sh
-    if args.dev:
-        print(f"\n{C_YELLOW}📜 Tailing logs in development mode. Press Ctrl+C to stop.{C_RESET}")
         
-        # Build the same Docker Compose command for logs
-        docker_logs_cmd = build_docker_compose_command(dev_mode=args.dev)
-        docker_logs_cmd.extend(["logs", "-f"])
+        # Display info about special modes if they are enabled (like startup.sh)
+        if args.dev or detect_tt_hardware():
+            print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
+            print(f"{C_WHITE}{C_BOLD}│                    {C_YELLOW}Active Modes{C_WHITE}{C_BOLD}                            │{C_RESET}")
+            if args.dev:
+                print(f"{C_WHITE}{C_BOLD}│   {C_CYAN}💻 Development Mode: ENABLED{C_WHITE}{C_BOLD}                           │{C_RESET}")
+            if detect_tt_hardware():
+                print(f"{C_WHITE}{C_BOLD}│   {C_CYAN}🔧 Tenstorrent Device: MOUNTED{C_WHITE}{C_BOLD}                         │{C_RESET}")
+            print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
+            print()
         
-        # Start Docker Compose logs in background
-        docker_logs_process = subprocess.Popen(
-            docker_logs_cmd,
-            cwd=os.path.join(TT_STUDIO_ROOT, "app")
-        )
+        print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}🧹 To stop all services, run:{C_RESET}{C_WHITE}{C_BOLD}                           │{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}│   {C_MAGENTA}python run.py --cleanup{C_RESET}{C_WHITE}{C_BOLD}                                │{C_RESET}")
+        print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
+        print()
         
-        # Also check for FastAPI server logs
-        fastapi_logs_process = None
-        if not args.skip_fastapi and os.path.exists(FASTAPI_LOG_FILE):
-            fastapi_logs_process = subprocess.Popen(["tail", "-f", FASTAPI_LOG_FILE])
+        # Display final summary
+        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
+        is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
         
+        print(f"{C_BOLD}📋 Configuration Summary:{C_RESET}")
+        print(f"  • AI Playground Mode: {'✅ Enabled' if is_deployed_mode else '❌ Disabled'}")
+        print(f"  • RAG Admin Interface: {'✅ Enabled' if is_rag_admin_enabled else '❌ Disabled'}")
+        print(f"  • Persistent Storage: {host_persistent_volume}")
+        print(f"  • Development Mode: {'✅ Enabled' if args.dev else '❌ Disabled'}")
+        print(f"  • TT Hardware Support: {'✅ Enabled' if detect_tt_hardware() else '❌ Disabled'}")
+        print(f"  • FastAPI Server: {'✅ Enabled' if not args.skip_fastapi and os.path.exists(FASTAPI_PID_FILE) else '❌ Disabled'}")
+        
+        if is_deployed_mode:
+            print(f"\n{C_BLUE}🌐 Your TT Studio is running in AI Playground mode with cloud model integrations.{C_RESET}")
+        
+        # Try to open the browser automatically
         try:
-            # Wait for Ctrl+C
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print(f"\n{C_YELLOW}Stopping log tailing...{C_RESET}")
-        finally:
-            # Clean up processes
-            if docker_logs_process:
-                docker_logs_process.terminate()
-            if fastapi_logs_process:
-                fastapi_logs_process.terminate()
+            webbrowser.open("http://localhost:3000")
+        except:
+            print(f"{C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually{C_RESET}")
+        
+        # If in dev mode, show logs similar to startup.sh
+        if args.dev:
+            print(f"\n{C_YELLOW}📜 Tailing logs in development mode. Press Ctrl+C to stop.{C_RESET}")
+            
+            # Build the same Docker Compose command for logs
+            docker_logs_cmd = build_docker_compose_command(dev_mode=args.dev)
+            docker_logs_cmd.extend(["logs", "-f"])
+            
+            # Start Docker Compose logs in background
+            docker_logs_process = subprocess.Popen(
+                docker_logs_cmd,
+                cwd=os.path.join(TT_STUDIO_ROOT, "app")
+            )
+            
+            # Also check for FastAPI server logs
+            fastapi_logs_process = None
+            if not args.skip_fastapi and os.path.exists(FASTAPI_LOG_FILE):
+                fastapi_logs_process = subprocess.Popen(["tail", "-f", FASTAPI_LOG_FILE])
+            
+            try:
+                # Wait for Ctrl+C
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print(f"\n{C_YELLOW}📜 Stopping log tailing...{C_RESET}")
+            finally:
+                # Clean up processes
+                if docker_logs_process:
+                    docker_logs_process.terminate()
+                if fastapi_logs_process:
+                    fastapi_logs_process.terminate()
+
+    except KeyboardInterrupt:
+        print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
+        
+        # Build the original command with flags for resume suggestion
+        original_cmd = "python run.py"
+        if 'args' in locals():
+            if args.dev:
+                original_cmd += " --dev"
+            if args.skip_fastapi:
+                original_cmd += " --skip-fastapi"
+            if args.no_sudo:
+                original_cmd += " --no-sudo"
+        
+        print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
+        print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
+        print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n{C_RED}❌ An unexpected error occurred: {e}{C_RESET}")
+        print(f"{C_CYAN}💡 For help: {C_WHITE}python run.py --help{C_RESET}")
+        print(f"{C_CYAN}💡 To clean up: {C_WHITE}python run.py --cleanup{C_RESET}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
