@@ -1,5 +1,5 @@
 #!/bin/bash
-# ⚠️ DEPRECIATION WARNING ⚠️
+# ⚠️ DEPRECATION WARNING ⚠️
 # [DEPRECATED]
 # This script is deprecated and will not be maintained.
 # Please use the `run.py` script instead.
