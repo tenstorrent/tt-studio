@@ -1,3 +1,9 @@
+# ⚠️ DEPRECATION WARNING ⚠️
+
+> **Important**: The `setup.sh` script from `tt-inference-server` is **no longer supported**. Instead, use `run.py` and let TT-Studio handle all the setup automatically. This provides a more streamlined and user-friendly experience.
+
+---
+
 # Running Llama and Mock vLLM Models in TT-Studio
 
 This guide walks you through setting up vLLM Llama models and vLLM Mock models via the TT-Inference-Server, and then deploying them via TT-Studio.

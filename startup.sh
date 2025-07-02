@@ -1,4 +1,10 @@
 #!/bin/bash
+# ⚠️ DEPRECATION WARNING ⚠️
+# [DEPRECATED]
+# This script is deprecated and will not be maintained.
+# Please use the `run.py` script instead.
+# The `run.py` script is the new entry point for the TT-Studio project.
+# It is located in the `app` directory.
 
 # SPDX-License-Identifier: Apache-2.0
 # 
@@ -584,4 +590,3 @@ if [[ "$RUN_DEV_MODE" = true ]]; then
     tail -f "$FASTAPI_LOG_FILE" &
     wait
 fi
-

@@ -42,3 +42,5 @@ db.sqlite3
 
 app/frontend/src/assets/*
 
+fastapi.pid
+fastapi.log
