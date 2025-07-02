@@ -5,7 +5,6 @@
 # Please use the `run.py` script instead.
 # The `run.py` script is the new entry point for the TT-Studio project.
 # It is located in the `app` directory.
-# The `run.py` script is the new entry point for the TT-Studio project.
 
 # SPDX-License-Identifier: Apache-2.0
 # 
