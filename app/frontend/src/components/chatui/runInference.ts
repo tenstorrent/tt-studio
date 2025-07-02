@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-
-import type {
-  InferenceRequest,
-  RagDataSource,
-  ChatMessage,
-  InferenceStats,
-} from "./types";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import type React from "react";
+import type { InferenceRequest, RagDataSource, ChatMessage, InferenceStats } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
-import type React from "react";
 import { processUploadedFiles } from "./processUploadedFiles";
+
 
 export const runInference = async (
   request: InferenceRequest,
@@ -20,17 +16,21 @@ export const runInference = async (
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
   isAgentSelected: boolean,
-  threadId: number
+  threadId: number,
+  abortController?: AbortController
 ) => {
   try {
     setIsStreaming(true);
 
     console.log("Uploaded files:", request.files);
+    console.log("RAG Datasource:", ragDatasource);
 
     let ragContext: { documents: string[] } | null = null;
 
     if (ragDatasource) {
-      console.log("Fetching RAG context for the given request...");
+      console.log(
+        `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
+      );
       ragContext = await getRagContext(request, ragDatasource);
       console.log("RAG context fetched:", ragContext);
     }
@@ -53,10 +53,7 @@ export const runInference = async (
 
         // Merge with existing RAG context if any
         if (ragContext) {
-          ragContext.documents = [
-            ...ragContext.documents,
-            ...fileRagContext.documents,
-          ];
+          ragContext.documents = [...ragContext.documents, ...fileRagContext.documents];
         } else {
           ragContext = fileRagContext;
         }
@@ -68,10 +65,7 @@ export const runInference = async (
           ragContext
         );
       } else if (file.image_url?.url || file) {
-        console.log(
-          "Image file detected, using image_url message structure",
-          file.image_url?.url
-        );
+        console.log("Image file detected, using image_url message structure", file.image_url?.url);
         messages = [
           {
             role: "user",
@@ -132,56 +126,85 @@ export const runInference = async (
     console.log("Generated messages:", messages);
     console.log("Thread ID: ", threadId);
 
+    const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
+
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
-      : import.meta.env.VITE_API_URL || "/models-api/inference/";
+      : apiUrlDefined
+        ? "/models-api/inference_cloud/"
+        : "/models-api/inference/";
 
-    const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN || "";
+    console.log("API URL:", API_URL);
+
+    const AUTH_TOKEN = import.meta.env.VITE_LLAMA_AUTH_TOKEN || "";
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
     };
     if (AUTH_TOKEN) {
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
 
     let requestBody;
-    let threadIdStr = threadId.toString();
+    const threadIdStr = threadId.toString();
 
     if (!isAgentSelected) {
       requestBody = {
-        deploy_id: request.deploy_id,
-        // model: "meta-llama/Llama-3.1-70B-Instruct",
+        ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
+        ...(apiUrlDefined ? { model: "meta-llama/Llama-3.3-70B-Instruct" } : {}),
         messages: messages,
-        max_tokens: 512,
+        temperature: request.temperature,
+        top_k: request.top_k,
+        top_p: request.top_p,
+        max_tokens: request.max_tokens,
         stream: true,
         stream_options: {
           include_usage: true,
+          continuous_usage_stats: true,
         },
       };
     } else {
       requestBody = {
         deploy_id: request.deploy_id,
-        // model: "meta-llama/Llama-3.1-70B-Instruct",
         messages: messages,
-        max_tokens: 512,
+        temperature: request.temperature,
+        top_k: request.top_k,
+        top_p: request.top_p,
+        max_tokens: request.max_tokens,
         stream: true,
         stream_options: {
           include_usage: true,
+          continuous_usage_stats: true,
         },
-        thread_id: threadIdStr, // Add thread_id to the request body
+        thread_id: threadIdStr,
       };
     }
 
-    console.log(
-      "Sending request to model:",
-      JSON.stringify(requestBody, null, 2)
-    );
+    // Log the complete request body with model parameters
+    console.log("=== Sending Request to Backend ===");
+    console.log("Request Body:", JSON.stringify(requestBody, null, 2));
+    console.log("Model Parameters:");
+    console.log("- Temperature:", requestBody.temperature);
+    console.log("- Top K:", requestBody.top_k);
+    console.log("- Top P:", requestBody.top_p);
+    console.log("- Max Tokens:", requestBody.max_tokens);
+    console.log("================================");
+
+    // Create an AbortController if not provided
+    const controller = abortController || new AbortController();
+    const signal = controller.signal;
+
+    // Add abort signal to headers
+    signal.addEventListener("abort", () => {
+      headers["X-Abort-Requested"] = "true";
+    });
 
     const response = await fetch(API_URL, {
       method: "POST",
       headers: headers,
       body: JSON.stringify(requestBody),
+      signal, // Add the signal to the fetch request
     });
 
     if (!response.ok) {
@@ -205,70 +228,89 @@ export const runInference = async (
     let inferenceStats: InferenceStats | undefined;
 
     if (reader) {
-      while (true) {
-        const { done, value } = await reader.read();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
 
-        if (done) {
-          console.log("Stream complete");
-          break;
-        }
+          if (done) {
+            console.log("Stream complete");
+            break;
+          }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith("data: ")) {
-            if (trimmedLine === "data: [DONE]") {
-              console.log("Received [DONE] signal");
-              continue;
-            }
-
-            if (trimmedLine.startsWith("data: <<END_OF_STREAM>>")) {
-              console.log("End of stream marker received");
-              continue;
-            }
-
-            try {
-              const jsonData = JSON.parse(trimmedLine.slice(5));
-
-              if (!isAgentSelected) {
-                // // Handle statistics separately after [DONE]
-                if (jsonData.ttft && jsonData.tpot) {
-                  inferenceStats = {
-                    user_ttft_s: jsonData.ttft,
-                    user_tpot: jsonData.tpot,
-                    tokens_decoded: jsonData.tokens_decoded,
-                    tokens_prefilled: jsonData.tokens_prefilled,
-                    context_length: jsonData.context_length,
-                  };
-                  console.log(
-                    "Final Inference Stats received:",
-                    inferenceStats
-                  );
-                  continue;
-                }
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith("data: ")) {
+              if (trimmedLine === "data: [DONE]") {
+                console.log("Received [DONE] signal");
+                continue;
               }
-              // Handle the generated text
-              const content = jsonData.choices[0]?.delta?.content || "";
-              if (content) {
-                accumulatedText += content;
-                setChatHistory((prevHistory) => {
-                  const updatedHistory = [...prevHistory];
-                  const lastMessage = updatedHistory[updatedHistory.length - 1];
-                  if (lastMessage.id === newMessageId) {
-                    lastMessage.text = accumulatedText;
+
+              if (trimmedLine.startsWith("data: <<END_OF_STREAM>>")) {
+                console.log("End of stream marker received");
+                continue;
+              }
+
+              try {
+                const jsonData = JSON.parse(trimmedLine.slice(5));
+
+                if (!isAgentSelected) {
+                  // Handle statistics separately after [DONE]
+                  if (jsonData.ttft && jsonData.tpot) {
+                    inferenceStats = {
+                      user_ttft_s: jsonData.ttft,
+                      user_tpot: jsonData.tpot,
+                      tokens_decoded: jsonData.tokens_decoded,
+                      tokens_prefilled: jsonData.tokens_prefilled,
+                      context_length: jsonData.context_length,
+                    };
+                    console.log("Final Inference Stats received:", inferenceStats);
+                    continue; // Skip processing this chunk as part of the generated text
                   }
-                  return updatedHistory;
-                });
+                }
+                // Handle the generated text
+                const content = jsonData.choices[0]?.delta?.content || "";
+                if (content) {
+                  accumulatedText += content;
+                  setChatHistory((prevHistory) => {
+                    const updatedHistory = [...prevHistory];
+                    const lastMessage = updatedHistory[updatedHistory.length - 1];
+                    if (lastMessage.id === newMessageId) {
+                      lastMessage.text = accumulatedText;
+                    }
+                    return updatedHistory;
+                  });
+                }
+              } catch (error) {
+                console.error("Failed to parse JSON:", error);
+                console.error("Problematic JSON string:", trimmedLine.slice(5));
               }
-            } catch (error) {
-              console.error("Failed to parse JSON:", error);
-              console.error("Problematic JSON string:", trimmedLine.slice(5));
             }
           }
         }
+      } catch (error: any) {
+        // Check if this is an abort error
+        if (error.name === "AbortError") {
+          console.log("Fetch aborted by user");
+          // Add a note to the message indicating it was stopped
+          setChatHistory((prevHistory) => {
+            const updatedHistory = [...prevHistory];
+            const lastMessage = updatedHistory[updatedHistory.length - 1];
+            if (lastMessage.id === newMessageId) {
+              lastMessage.text = accumulatedText;
+              lastMessage.isStopped = true;
+            }
+            return updatedHistory;
+          });
+        } else {
+          // Re-throw other errors
+          throw error;
+        }
+      } finally {
+        reader.releaseLock();
       }
     }
 
@@ -276,10 +318,7 @@ export const runInference = async (
     setIsStreaming(false);
 
     if (inferenceStats) {
-      console.log(
-        "Updating chat history with inference stats:",
-        inferenceStats
-      );
+      console.log("Updating chat history with inference stats:", inferenceStats);
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];
@@ -293,4 +332,16 @@ export const runInference = async (
     console.error("Error running inference:", error);
     setIsStreaming(false);
   }
+};
+
+// Function to create and expose a method to stop inference
+export const createInferenceController = () => {
+  const controller = new AbortController();
+  return {
+    controller,
+    stopInference: () => {
+      console.log("Stopping inference...");
+      controller.abort();
+    },
+  };
 };

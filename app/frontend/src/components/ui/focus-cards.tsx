@@ -18,26 +18,26 @@ const Card = React.memo(
     index,
     hovered,
     setHovered,
+    onCardClick,
   }: {
     card: Card;
     index: number;
     hovered: number | null;
     setHovered: React.Dispatch<React.SetStateAction<number | null>>;
+    onCardClick?: (card: Card) => void;
   }) => (
     <div
       onMouseEnter={() => setHovered(index)}
       onMouseLeave={() => setHovered(null)}
+      onClick={() => onCardClick && onCardClick(card)}
       className={cn(
-        "rounded-2xl relative bg-gray-100 dark:bg-neutral-900 overflow-hidden aspect-[3/4] transition-all duration-300 ease-out h-full transform",
+        "rounded-2xl relative bg-gray-100 dark:bg-neutral-900 overflow-hidden aspect-[3/4] transition-all duration-300 ease-out h-full transform cursor-pointer group",
         hovered !== null && hovered !== index && "blur-sm scale-[0.98]",
         index % 2 === 0 ? "rotate-2" : "-rotate-2"
       )}
+      style={{ cursor: onCardClick ? "pointer" : "default" }}
     >
-      <img
-        src={card.src}
-        alt={card.title}
-        className="object-cover w-full h-full"
-      />
+      <img src={card.src} alt={card.title} className="object-cover w-full h-full" />
       <div
         className={cn(
           "absolute inset-0 bg-black/50 flex items-end py-4 px-4 transition-opacity duration-300",
@@ -48,13 +48,34 @@ const Card = React.memo(
           {card.title}
         </div>
       </div>
+      {/* Overlay button */}
+      <button
+        className={cn(
+          "absolute inset-0 flex items-center justify-center transition-opacity duration-300 bg-black/30 text-white font-semibold text-lg opacity-0 group-hover:opacity-100 hover:opacity-100 z-10",
+          hovered === index ? "opacity-100" : ""
+        )}
+        style={{ pointerEvents: "auto" }}
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onCardClick) onCardClick(card);
+        }}
+      >
+        Use this prompt
+      </button>
     </div>
   )
 );
 
 Card.displayName = "Card";
 
-export function FocusCards({ cards }: { cards: Card[] }) {
+export function FocusCards({
+  cards,
+  onCardClick,
+}: {
+  cards: Card[];
+  onCardClick?: (card: Card) => void;
+}) {
   const [hovered, setHovered] = useState<number | null>(null);
 
   return (
@@ -66,6 +87,7 @@ export function FocusCards({ cards }: { cards: Card[] }) {
             index={index}
             hovered={hovered}
             setHovered={setHovered}
+            onCardClick={onCardClick}
           />
         </div>
       ))}

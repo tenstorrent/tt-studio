@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-/* eslint-disable @typescript-eslint/no-unused-vars */
+
 import { defineConfig, HttpProxy, ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -14,6 +14,7 @@ const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {
   "app-api": "app",
   "collections-api": "collections",
   "logs-api": "logs",
+  "board-api": "board",
 };
 
 const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
@@ -23,43 +24,43 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
       target: VITE_BACKEND_URL,
       changeOrigin: true,
       secure: true,
+      // Ensure proper timeout handling for long-running requests
+      timeout: 0,
       // debug logging
       configure: (proxy: HttpProxy.Server) => {
-        proxy.on(
-          "error",
-          (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
-            console.log("proxy error", err);
-          },
-        );
+        proxy.on("error", (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
+          console.log("proxy error", err);
+        });
         proxy.on(
           "proxyReq",
-          (
-            proxyReq: ClientRequest,
-            req: IncomingMessage,
-            _res: ServerResponse,
-          ) => {
+          (proxyReq: ClientRequest, req: IncomingMessage, _res: ServerResponse) => {
             console.log("Sending Request to the Target:", req.method, req.url);
-          },
+
+            // Ensure proper headers for SSE requests
+            if (req.headers.accept?.includes("text/event-stream")) {
+              proxyReq.setHeader("Cache-Control", "no-cache");
+              proxyReq.setHeader("Connection", "keep-alive");
+            }
+          }
         );
         proxy.on(
           "proxyRes",
-          (
-            proxyRes: IncomingMessage,
-            req: IncomingMessage,
-            _res: ServerResponse,
-          ) => {
-            console.log(
-              "Received Response from the Target:",
-              proxyRes.statusCode,
-              req.url,
-            );
-          },
+          (proxyRes: IncomingMessage, req: IncomingMessage, res: ServerResponse) => {
+            console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
+
+            // Handle SSE responses properly
+            if (proxyRes.headers["content-type"]?.includes("text/event-stream")) {
+              res.setHeader("Cache-Control", "no-cache");
+              res.setHeader("Connection", "keep-alive");
+              res.setHeader("Access-Control-Allow-Origin", "*");
+              res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
+            }
+          }
         );
       },
-      rewrite: (path: string) =>
-        path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
+      rewrite: (path: string) => path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
     },
-  ]),
+  ])
 );
 
 // Add specific proxy configuration for the /reset-board endpoint
@@ -75,11 +76,7 @@ proxyConfig["/reset-board"] = {
       console.log("Sending Request to the Target:", req.method, req.url);
     });
     proxy.on("proxyRes", (proxyRes, req) => {
-      console.log(
-        "Received Response from the Target:",
-        proxyRes.statusCode,
-        req.url,
-      );
+      console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
     });
   },
 };
@@ -100,5 +97,6 @@ export default defineConfig({
     },
     hmr: { clientPort: 3000 }, // Adjust HMR client port to match the server port
     proxy: proxyConfig,
+    allowedHosts: ["localhost", "playground.tenstorrent.com"],
   },
 });

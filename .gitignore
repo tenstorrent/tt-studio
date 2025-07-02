@@ -1,5 +1,4 @@
 # IDE
-.vscode
 .DS_Store
 
 # Python
@@ -41,3 +40,7 @@ db.sqlite3
 !app/frontend/third-party-licenses.txt
 !requirements-dev.txt
 
+app/frontend/src/assets/*
+
+fastapi.pid
+fastapi.log
