@@ -3,7 +3,7 @@
 "use client";
 
 import axios from "axios";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Step, Stepper } from "./ui/stepper";
@@ -14,7 +14,8 @@ import { StepperFormActions } from "./StepperFormActions";
 import { WeightForm } from "./WeightForm";
 import { SecondStepForm } from "./SecondStepForm";
 import { FirstStepForm } from "./FirstStepForm";
-import { UseFormReturn } from "react-hook-form";
+// import { UseFormReturn } from "react-hook-form";
+import { DockerStepForm } from "./DockerStepForm";
 
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
@@ -32,6 +33,10 @@ export interface SecondStepFormProps {
 export interface Model {
   id: string;
   name: string;
+  is_compatible: boolean | null; // null means unknown compatibility
+  compatible_boards: string[]; // List of boards this model can run on
+  model_type: string; // Type of model (e.g., CHAT, IMAGE_GENERATION, etc.)
+  current_board: string; // The detected board type
 }
 
 export interface Weight {
@@ -40,8 +45,12 @@ export interface Weight {
 }
 
 export default function StepperDemo() {
+  // Remove unused destructured elements from useStepper
+  // const { prevStep, nextStep, resetSteps, isDisabledStep, hasCompletedAllSteps, isOptionalStep, activeStep, steps: stepperSteps } = useStepper();
+
   const [steps, setSteps] = useState([
     { label: "Step 1", description: "Model Selection" },
+    { label: "Docker Step", description: "Pull Docker Image" },
     { label: "Step 2", description: "Model Weight Selection" },
     { label: "Final Step", description: "Deploy Model" },
   ]);
@@ -51,11 +60,16 @@ export default function StepperDemo() {
   const [customWeight, setCustomWeight] = useState<Weight | null>(null);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
+  const [imageStatus, setImageStatus] = useState<{
+    exists: boolean;
+    size: string;
+    status: string;
+  } | null>(null);
+  const [pullingImage, setPullingImage] = useState(false);
 
   const addCustomStep = () => {
     setSteps((prevSteps) => {
-      const customStepIndex =
-        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const customStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const customStep = {
         label: "Custom Step",
         description: "Upload Custom Weights",
@@ -73,8 +87,7 @@ export default function StepperDemo() {
 
   const addFineTuneStep = () => {
     setSteps((prevSteps) => {
-      const fineTuneStepIndex =
-        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const fineTuneStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const fineTuneStep = {
         label: "Fine-Tune Step",
         description: "Link to Fine Tuner",
@@ -92,12 +105,71 @@ export default function StepperDemo() {
 
   const removeDynamicSteps = () => {
     setSteps((prevSteps) =>
-      prevSteps.filter(
-        (step) =>
-          step.label !== "Custom Step" && step.label !== "Fine-Tune Step",
-      ),
+      prevSteps.filter((step) => step.label !== "Custom Step" && step.label !== "Fine-Tune Step")
     );
   };
+
+  const checkImageStatus = async (modelId: string) => {
+    try {
+      const response = await axios.get(`${dockerAPIURL}docker/image_status/${modelId}/`);
+      console.log("Image status response:", response.data);
+      setImageStatus(response.data);
+    } catch (error) {
+      console.error("Error checking image status:", error);
+      customToast.error("Failed to check image status");
+    }
+  };
+
+  const pullImage = async (modelId: string) => {
+    setPullingImage(true);
+    try {
+      const response = await axios.post(
+        `${dockerAPIURL}docker/pull_image/`,
+        { model_id: modelId },
+        {
+          headers: {
+            Accept: "text/event-stream",
+          },
+          responseType: "text",
+        }
+      );
+
+      // Parse the SSE response manually
+      const lines = response.data.split("\n");
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            console.log("Pull image response:", data);
+            if (data.status === "success") {
+              customToast.success("Image pulled successfully!");
+              await checkImageStatus(modelId);
+              setPullingImage(false);
+              return;
+            } else if (data.status === "error") {
+              customToast.error(`Pull failed: ${data.message}`);
+              setPullingImage(false);
+              return;
+            }
+          } catch (parseError) {
+            console.warn("Failed to parse SSE data:", line);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error pulling image:", error);
+      customToast.error("Failed to pull image");
+    } finally {
+      setPullingImage(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedModel) {
+      checkImageStatus(selectedModel);
+    }
+  }, [selectedModel]);
 
   const handleDeploy = async (): Promise<boolean> => {
     setLoading(true);
@@ -107,9 +179,7 @@ export default function StepperDemo() {
 
     const model_id = selectedModel || "0";
     const weights_id =
-      selectedWeight === "Default Weights"
-        ? ""
-        : customWeight?.weights_id || selectedWeight;
+      selectedWeight === "Default Weights" ? "" : customWeight?.weights_id || selectedWeight;
 
     const payload = JSON.stringify({
       model_id,
@@ -143,75 +213,65 @@ export default function StepperDemo() {
           steps={steps}
           state={loading ? "loading" : formError ? "error" : undefined}
         >
-          {steps.map((stepProps) => {
-            switch (stepProps.label) {
-              case "Step 1":
-                return (
-                  <Step key={stepProps.label} {...stepProps} className="mb-8">
-                    <FirstStepForm
-                      setSelectedModel={setSelectedModel}
-                      setFormError={setFormError}
-                    />
-                  </Step>
-                );
-              case "Step 2":
-                return (
-                  <Step key={stepProps.label} {...stepProps} className="mb-8">
-                    <SecondStepForm
-                      selectedModel={selectedModel}
-                      setSelectedWeight={setSelectedWeight}
-                      addCustomStep={addCustomStep}
-                      addFineTuneStep={addFineTuneStep}
-                      removeDynamicSteps={removeDynamicSteps}
-                      setFormError={setFormError}
-                    />
-                  </Step>
-                );
-              case "Custom Step":
-                return (
-                  <Step key={stepProps.label} {...stepProps}>
-                    <div className="py-8 px-16">
-                      <WeightForm
-                        selectedModel={selectedModel}
-                        setCustomWeight={setCustomWeight}
-                        setFormError={setFormError}
-                      />
-                    </div>
-                  </Step>
-                );
-              case "Fine-Tune Step":
-                return (
-                  <Step key={stepProps.label} {...stepProps}>
-                    <div className="flex flex-col items-center w-full justify-center p-10">
-                      <Button
-                        onClick={() =>
-                          customToast.success("Link to Fine Tuner activated")
-                        }
-                      >
-                        Link to Fine Tuner
-                      </Button>
-                    </div>
-                    <StepperFormActions
-                      form={{} as UseFormReturn<FormData, unknown>}
-                      removeDynamicSteps={removeDynamicSteps}
-                    />
-                  </Step>
-                );
-              case "Final Step":
-                return (
-                  <Step key={stepProps.label} {...stepProps}>
-                    <DeployModelStep
-                      selectedModel={selectedModel}
-                      selectedWeight={selectedWeight}
-                      customWeight={customWeight}
-                      handleDeploy={handleDeploy}
-                    />
-                  </Step>
-                );
-              default:
-                return null;
-            }
-          })}
+          {steps.map((step, _idx) => (
+            <Step
+              key={step.label}
+              label={step.label}
+              description={step.description}
+              className="mb-8"
+            >
+              {step.label === "Step 1" && (
+                <FirstStepForm setSelectedModel={setSelectedModel} setFormError={setFormError} />
+              )}
+              {step.label === "Docker Step" && (
+                <DockerStepForm
+                  selectedModel={selectedModel}
+                  imageStatus={imageStatus}
+                  pullingImage={pullingImage}
+                  pullImage={pullImage}
+                  removeDynamicSteps={removeDynamicSteps}
+                  disableNext={!imageStatus?.exists}
+                />
+              )}
+              {step.label === "Step 2" && (
+                <SecondStepForm
+                  selectedModel={selectedModel}
+                  setSelectedWeight={setSelectedWeight}
+                  addCustomStep={addCustomStep}
+                  addFineTuneStep={addFineTuneStep}
+                  removeDynamicSteps={removeDynamicSteps}
+                  setFormError={setFormError}
+                />
+              )}
+              {step.label === "Custom Step" && (
+                <div className="py-8 px-16">
+                  <WeightForm
+                    selectedModel={selectedModel}
+                    setCustomWeight={setCustomWeight}
+                    setFormError={setFormError}
+                  />
+                </div>
+              )}
+              {step.label === "Fine-Tune Step" && (
+                <>
+                  <div className="flex flex-col items-center w-full justify-center p-10">
+                    <Button onClick={() => customToast.success("Link to Fine Tuner activated")}>
+                      Link to Fine Tuner
+                    </Button>
+                  </div>
+                  <StepperFormActions removeDynamicSteps={removeDynamicSteps} />
+                </>
+              )}
+              {step.label === "Final Step" && (
+                <DeployModelStep
+                  selectedModel={selectedModel}
+                  selectedWeight={selectedWeight}
+                  customWeight={customWeight}
+                  handleDeploy={handleDeploy}
+                />
+              )}
+            </Step>
+          ))}
           <div className="py-12">
             <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>

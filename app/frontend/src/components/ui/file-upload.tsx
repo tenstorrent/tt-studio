@@ -209,6 +209,186 @@ export const FileUpload = ({
   );
 };
 
+export const CustomFileUpload = ({
+  onChange,
+  icon: CustomIcon = IconUpload,
+  iconSize = 4,
+}: {
+  onChange?: (files: File[]) => void;
+  onClose?: () => void;
+  icon?: React.ComponentType<{ className?: string }>;
+  iconSize?: number;
+}) => {
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (newFiles: File[]) => {
+    setFiles((prevFiles) => [...prevFiles, ...newFiles]);
+    onChange && onChange(newFiles);
+  };
+
+  const handleClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const { getRootProps, isDragActive } = useDropzone({
+    multiple: true,
+    noClick: true,
+    onDrop: handleFileChange,
+    onDropRejected: (error) => {
+      console.log(error);
+    },
+  });
+
+  const lastFile = files[files.length - 1];
+  const otherFiles = files.slice(0, -1);
+
+  return (
+    <div className="w-full" {...getRootProps()}>
+      <motion.div
+        onClick={handleClick}
+        whileHover="animate"
+        className="p-10 group/file block rounded-lg cursor-pointer w-full relative overflow-hidden"
+      >
+        <input
+          ref={fileInputRef}
+          id="file-upload-handle"
+          type="file"
+          onChange={(e) => handleFileChange(Array.from(e.target.files || []))}
+          className="hidden"
+          multiple
+        />
+        <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,white,transparent)]">
+          <GridPattern />
+        </div>
+        <div className="flex flex-col items-center justify-center">
+          <p className="relative z-20 font-sans font-bold text-neutral-700 dark:text-neutral-300 text-base">
+            Upload file
+          </p>
+          <p className="relative z-20 font-sans font-normal text-neutral-400 dark:text-neutral-400 text-base mt-2">
+            Drag or drop your files here or click to upload
+          </p>
+          <div className="relative w-full mt-10 max-w-xl mx-auto space-y-4 p-4">
+            <motion.div
+              layoutId="upload-icon"
+              variants={mainVariant}
+              transition={{
+                type: "spring",
+                stiffness: 300,
+                damping: 20,
+              }}
+              className={cn(
+                "relative group-hover/file:shadow-2xl z-40 bg-white dark:bg-neutral-900 flex items-center justify-center h-32 w-full max-w-[8rem] mx-auto rounded-md",
+                "shadow-[0px_10px_50px_rgba(0,0,0,0.1)]"
+              )}
+            >
+              {isDragActive ? (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-neutral-600 flex flex-col items-center"
+                >
+                  Drop it
+                  <CustomIcon
+                    className={`h-${iconSize} w-${iconSize} text-neutral-600 dark:text-neutral-400`}
+                  />
+                </motion.p>
+              ) : (
+                <CustomIcon
+                  className={`h-${iconSize} w-${iconSize} text-neutral-600 dark:text-neutral-300`}
+                />
+              )}
+            </motion.div>
+
+            <AnimatePresence>
+              {lastFile && (
+                <motion.div
+                  key="last-file"
+                  layoutId="file-upload"
+                  className={cn(
+                    "relative overflow-hidden z-40 bg-white dark:bg-neutral-900 flex flex-col items-start justify-start md:h-24 p-4 w-full mx-auto rounded-md",
+                    "shadow-sm"
+                  )}
+                >
+                  <div className="flex justify-between w-full items-center gap-4 p-2">
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      layout
+                      className="text-base text-neutral-700 dark:text-neutral-300 truncate max-w-xs"
+                    >
+                      {lastFile.name}
+                    </motion.p>
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      layout
+                      className="rounded-lg px-2 py-1 w-fit flex-shrink-0 text-sm text-neutral-600 dark:bg-neutral-800 dark:text-white shadow-input"
+                    >
+                      {(lastFile.size / (1024 * 1024)).toFixed(2)} MB
+                    </motion.p>
+                  </div>
+
+                  <div className="flex text-sm md:flex-row flex-col items-start md:items-center w-full mt-2 justify-between text-neutral-600 dark:text-neutral-400">
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      layout
+                      className="px-1 py-0.5 rounded-md bg-gray-100 dark:bg-neutral-800 "
+                    >
+                      {lastFile.type}
+                    </motion.p>
+
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      layout
+                    >
+                      modified{" "}
+                      {new Date(lastFile.lastModified).toLocaleDateString()}
+                    </motion.p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {otherFiles.length > 0 && (
+              <div className="w-full pt-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full">
+                      {otherFiles.length} more file
+                      {otherFiles.length > 1 ? "s" : ""}{" "}
+                      <IconChevronDown className="ml-2 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-full">
+                    {otherFiles.map((file, index) => (
+                      <DropdownMenuItem key={index}>
+                        <div className="flex justify-between w-full items-center">
+                          <span className="truncate max-w-xs">{file.name}</span>
+                          <span className="ml-2 text-sm text-neutral-500">
+                            {(file.size / (1024 * 1024)).toFixed(2)} MB
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+
+            <motion.div
+              variants={secondaryVariant}
+              className="absolute opacity-0 border border-dashed border-TT-purple-accent inset-0 z-30 bg-transparent flex items-center justify-center h-32 w-full max-w-[8rem] mx-auto rounded-md"
+            ></motion.div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 export function GridPattern() {
   const columns = 41;
   const rows = 11;

@@ -1,3 +1,4 @@
+import React from "react";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 export interface Detection {
@@ -21,19 +22,18 @@ export interface DetectionMetadata {
 }
 
 export interface WebcamPickerProps {
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void;
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
   setLiveMode: (mode: boolean) => void;
-  videoRef: React.RefObject<HTMLVideoElement>;
   setIsLoading: (isLoading: boolean) => void;
   setIsStreaming: (isStreaming: boolean) => void;
   setIsCameraOn: (isCameraOn: boolean) => void;
-  modelID: string;
+  modelID: string | null;
+  setExternalControls?: (controls: React.ReactNode) => void;
+  videoOnly?: boolean;
+  hoveredIndex?: number | null;
+  videoRef?: React.RefObject<HTMLVideoElement>;
 }
-
 export interface InferenceRequest {
-  deploy_id: string;
+  deploy_id: string | null;
   imageSource: Blob | File;
 }

@@ -26,10 +26,16 @@ export const generateImage = async (
   modelID: string,
   options: ImageGenerationOptions = {}
 ): Promise<string> => {
-  const { useLocalModel = true, localModelUrl = "/models-api/image-generation/" } =
-    options;
+  const { useLocalModel = true, localModelUrl = "/models-api/image-generation/" } = options;
+
+  // Check if we should use cloud endpoints
+  const useCloud = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
   if (useLocalModel) {
+    // If using cloud endpoints, use the cloud URL
+    if (useCloud) {
+      return generateImageLocal(prompt, "null", "/models-api/image-generation-cloud/");
+    }
     return generateImageLocal(prompt, modelID, localModelUrl);
   } else {
     ///* this is currently using Stability AI, but you can modify this to use any local server
@@ -49,25 +55,22 @@ const generateImageStabilityAI = async (prompt: string): Promise<string> => {
   }
 
   try {
-    const response = await fetch(
-      `${apiHost}/v1/generation/${engineId}/text-to-image`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          text_prompts: [{ text: prompt }],
-          cfg_scale: 7,
-          height: 1024,
-          width: 1024,
-          samples: 1,
-          steps: 30,
-        }),
-      }
-    );
+    const response = await fetch(`${apiHost}/v1/generation/${engineId}/text-to-image`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        text_prompts: [{ text: prompt }],
+        cfg_scale: 7,
+        height: 1024,
+        width: 1024,
+        samples: 1,
+        steps: 30,
+      }),
+    });
 
     if (!response.ok) {
       throw new Error(`Stability AI API error: ${response.statusText}`);
@@ -98,14 +101,10 @@ const generateImageLocal = async (
     formData.append("deploy_id", modelID);
     formData.append("prompt", prompt);
 
-    const response = await axios.post(
-      localModelUrl,
-      formData,
-      {
-        headers: { "Content-Type": "multipart/form-data" },
-        responseType: "blob",
-      },
-    );
+    const response = await axios.post(localModelUrl, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      responseType: "blob",
+    });
 
     if (response.status < 200 && response.status > 299) {
       throw new Error(`Local model API error: ${response.statusText}`);
@@ -115,7 +114,6 @@ const generateImageLocal = async (
     const data = await response.data;
     const imageURL = URL.createObjectURL(data);
     return imageURL;
-
   } catch (error) {
     console.error("Error generating image with local model:", error);
     throw new Error("Failed to generate image with local model");

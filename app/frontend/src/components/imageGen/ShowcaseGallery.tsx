@@ -13,6 +13,7 @@ import swissAlpsImage from "../../assets/SD1.4/generated-image-1738772998942.jpg
 
 interface ShowcaseGalleryProps {
   onStartGenerating: () => void;
+  onImageClick?: (prompt: string) => void;
 }
 
 //!!
@@ -50,13 +51,18 @@ const showcaseImages = [
   },
 ];
 
-const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({
-  onStartGenerating,
-}) => {
+const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({ onStartGenerating, onImageClick }) => {
+  const handleImageClick = (prompt: string) => {
+    if (onImageClick) {
+      onImageClick(prompt);
+    }
+    onStartGenerating();
+  };
+
   return (
     <div className="flex flex-col items-center w-full h-full overflow-x-hidden">
       <div className="w-full flex-grow overflow-y-auto">
-        <FocusCards cards={showcaseImages} />
+        <FocusCards cards={showcaseImages} onCardClick={(card) => handleImageClick(card.title)} />
       </div>
       <div className="w-full py-6 px-4 bg-gradient-to-t from-background to-transparent">
         <Button

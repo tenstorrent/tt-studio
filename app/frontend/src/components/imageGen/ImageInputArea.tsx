@@ -66,7 +66,7 @@ export default function ImageInputArea({
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           placeholder="Describe the image you want to generate..."
-          className="w-full bg-transparent text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/70 border-none focus:outline-none resize-none font-rmMono text-base overflow-y-auto"
+          className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base overflow-y-auto"
           disabled={isGenerating}
           style={{
             minHeight: "24px",
