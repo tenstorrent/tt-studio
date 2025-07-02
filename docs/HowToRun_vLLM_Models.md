@@ -1,4 +1,4 @@
-# ⚠️ DEPRECIATION WARNING ⚠️
+# ⚠️ DEPRECATION WARNING ⚠️
 
 > **Important**: The `setup.sh` script from `tt-inference-server` is **no longer supported**. Instead, use `run.py` and let TT-Studio handle all the setup automatically. This provides a more streamlined and user-friendly experience.
 
