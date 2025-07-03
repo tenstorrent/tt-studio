@@ -48,11 +48,12 @@ services:
       - GITHUB_USERNAME
       - GITHUB_PAT
       - VITE_ENABLE_DEPLOYED
-
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
+      # Mount the local api directory for live code changes
+      - ./backend:/backend
 
     healthcheck:
       # On first application load resources for transformers/etc
@@ -66,7 +67,7 @@ services:
   tt_studio_frontend:
     container_name: tt_studio_frontend
     hostname: tt-studio-frontend
-    image: ghcr.io/tenstorrent/tt-studio/frontend:v0.0.0
+    image: ghcr.io/tenstorrent/tt-studio/frontend:v0.1.0
     build: ./frontend
     depends_on:
       tt_studio_backend:
@@ -81,8 +82,6 @@ services:
       - VITE_ENABLE_RAG_ADMIN
       - VITE_TEST_AUDIO_URL
       - VITE_TEST_AUDIO_AUTH
-    # command: sh
-    command: bash -c "npm i && npm run dev"
 
   tt_studio_agent:
     container_name: tt_studio_agent

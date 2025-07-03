@@ -16,3 +16,5 @@ services:
     volumes:
       # Mount the local frontend directory for live code changes
       - ./frontend:/frontend
+      # Mount node_modules locally for IDE support (shared between host and container)
+      - ./frontend/node_modules:/frontend/node_modules
