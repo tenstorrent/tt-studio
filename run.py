@@ -7,6 +7,7 @@ TT Studio Setup Script
 
 This script sets up the TT Studio environment including:
 - Environment configuration
+- Frontend dependencies installation (node_modules)
 - Docker services setup
 - TT Inference Server FastAPI setup (clones tt-inference-server repo and starts FastAPI on port 8001)
 
@@ -545,6 +546,7 @@ def display_welcome_banner():
     # Feature highlights
     print(f"{C_GREEN}Features:{C_RESET}")
     print(f"  • Interactive environment setup")
+    print(f"  • Frontend dependencies management")
     print(f"  • Docker orchestration & management") 
     print(f"  • TT Inference Server integration")
     print(f"  • Hardware detection & optimization")
@@ -1196,6 +1198,54 @@ def request_sudo_authentication():
         print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
         return False
 
+def ensure_frontend_dependencies():
+    """Ensure frontend dependencies are installed before starting Docker services."""
+    frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
+    node_modules_dir = os.path.join(frontend_dir, "node_modules")
+    package_json_path = os.path.join(frontend_dir, "package.json")
+    
+    if not os.path.exists(package_json_path):
+        print(f"{C_RED}⛔ Error: package.json not found in {frontend_dir}{C_RESET}")
+        return False
+    
+    print(f"\n{C_BLUE}📦 Checking frontend dependencies...{C_RESET}")
+    
+    # Check if node_modules exists and is not empty
+    if os.path.exists(node_modules_dir) and os.listdir(node_modules_dir):
+        print(f"{C_GREEN}✅ Frontend dependencies already installed{C_RESET}")
+        return True
+    
+    if not os.path.exists(node_modules_dir):
+        print(f"{C_YELLOW}📦 node_modules directory not found - this is needed for development mode{C_RESET}")
+    else:
+        print(f"{C_YELLOW}📦 node_modules directory is empty - dependencies need to be installed{C_RESET}")
+    
+    # Check if npm is available
+    if not shutil.which("npm"):
+        print(f"{C_YELLOW}⚠️  npm not found locally. Dependencies will be installed in Docker container.{C_RESET}")
+        return True
+    
+    print(f"{C_BLUE}📦 Installing frontend dependencies...{C_RESET}")
+    print(f"{C_CYAN}   This ensures node_modules are available for development mode{C_RESET}")
+    
+    try:
+        # Change to frontend directory and install dependencies
+        original_dir = os.getcwd()
+        os.chdir(frontend_dir)
+        
+        # Install dependencies
+        run_command(["npm", "install"], check=True)
+        
+        print(f"{C_GREEN}✅ Frontend dependencies installed successfully{C_RESET}")
+        return True
+        
+    except (subprocess.CalledProcessError, SystemExit) as e:
+        print(f"{C_YELLOW}⚠️  Warning: Failed to install frontend dependencies locally: {e}{C_RESET}")
+        print(f"{C_CYAN}   Dependencies will be installed in Docker container instead{C_RESET}")
+        return True
+    finally:
+        os.chdir(original_dir)
+
 def main():
     """Main function to orchestrate the script."""
     try:
@@ -1205,6 +1255,7 @@ def main():
 
 {C_CYAN}A comprehensive setup tool for Tenstorrent TT Studio that handles:{C_RESET}
 • Environment configuration with interactive prompts
+• Frontend dependencies installation (node_modules)
 • Docker services orchestration  
 • TT Inference Server FastAPI setup
 • Hardware detection and optimization
@@ -1314,6 +1365,9 @@ def main():
             print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
         else:
             print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
+
+        # Ensure frontend dependencies are installed
+        ensure_frontend_dependencies()
 
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
