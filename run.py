@@ -760,67 +760,85 @@ def kill_process_on_port(port):
         print(f"{C_YELLOW}Warning: Could not kill process on port {port}: {e}{C_RESET}")
         return False
 
+def initialize_submodules():
+    """Initialize git submodules if they don't exist or are not properly set up."""
+    print(f"🔧 Checking and initializing git submodules...")
+    
+    # Check if we're in a git repository
+    if not os.path.exists(".git"):
+        print(f"{C_RED}⛔ Error: Not in a git repository. Cannot initialize submodules.{C_RESET}")
+        print(f"   Please ensure you cloned the repository with: git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git")
+        return False
+    
+    # Check if .gitmodules exists
+    if not os.path.exists(".gitmodules"):
+        print(f"{C_RED}⛔ Error: .gitmodules file not found. Cannot initialize submodules.{C_RESET}")
+        print(f"   Please ensure you have the complete repository.")
+        return False
+    
+    try:
+        # Always update submodules to ensure they're properly initialized and on correct branches
+        print(f"📦 Initializing and updating git submodules...")
+        run_command(["git", "submodule", "update", "--init", "--recursive"], check=True)
+        
+        # Additional step: ensure submodules are on the correct branch as specified in .gitmodules
+        print(f"🌿 Ensuring submodules are on correct branches...")
+        run_command(["git", "submodule", "foreach", "--recursive", "git checkout $(git config -f $toplevel/.gitmodules submodule.$name.branch || echo main)"], check=True)
+        
+        print(f"✅ Successfully initialized and updated git submodules")
+        return True
+        
+    except (subprocess.CalledProcessError, SystemExit) as e:
+        print(f"{C_RED}⛔ Error: Failed to initialize submodules: {e}{C_RESET}")
+        print(f"   Please try manually: git submodule update --init --recursive")
+        return False
+
 def setup_tt_inference_server():
     """Set up TT Inference Server by preparing environment (submodule expected)."""
     print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server          {C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     
-    # Check if the directory exists (submodule expected)
+    # Always ensure submodules are properly initialized
+    if not initialize_submodules():
+        return False
+    
+    # Check if the directory exists after submodule initialization
     if not os.path.exists(INFERENCE_SERVER_DIR):
-        print(f"📁 TT Inference Server directory not found at {INFERENCE_SERVER_DIR}")
-        print(f"🔧 Attempting to initialize submodules automatically...")
-        
-        # Check if we're in a git repository
-        if not os.path.exists(".git"):
-            print(f"{C_RED}⛔ Error: Not in a git repository. Cannot initialize submodules.{C_RESET}")
-            print(f"   Please ensure you cloned the repository with: git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git")
-            return False
-        
-        # Check if .gitmodules exists
-        if not os.path.exists(".gitmodules"):
-            print(f"{C_RED}⛔ Error: .gitmodules file not found. Cannot initialize submodules.{C_RESET}")
-            print(f"   Please ensure you have the complete repository.")
-            return False
-        
-        try:
-            # Initialize submodules
-            print(f"📦 Initializing git submodules...")
-            run_command(["git", "submodule", "update", "--init", "--recursive"], check=True)
-            
-            # Check again if the directory exists
-            if os.path.exists(INFERENCE_SERVER_DIR):
-                print(f"✅ Successfully initialized TT Inference Server submodule")
-                print(f"📁 TT Inference Server directory found at {INFERENCE_SERVER_DIR}")
-            else:
-                print(f"{C_RED}⛔ Error: Failed to initialize submodules.{C_RESET}")
-                print(f"   Please try manually: git submodule update --init --recursive")
-                return False
-                
-        except (subprocess.CalledProcessError, SystemExit) as e:
-            print(f"{C_RED}⛔ Error: Failed to initialize submodules: {e}{C_RESET}")
-            print(f"   Please try manually: git submodule update --init --recursive")
-            return False
+        print(f"{C_RED}⛔ Error: TT Inference Server directory still not found at {INFERENCE_SERVER_DIR}{C_RESET}")
+        print(f"   This suggests the submodule configuration may be incorrect.")
+        return False
     else:
         print(f"📁 TT Inference Server directory found at {INFERENCE_SERVER_DIR}")
     
-    # Ensure the submodule is on the correct branch
+    # Ensure the submodule is on the correct branch and up to date
     try:
-        print(f"🔧 Ensuring TT Inference Server is on the correct branch...")
+        print(f"🔧 Ensuring TT Inference Server is on the correct branch and up to date...")
         original_dir = os.getcwd()
         os.chdir(INFERENCE_SERVER_DIR)
         
-        # Fetch the latest changes from remote
-        print(f"📥 Fetching latest changes from remote...")
-        run_command(["git", "fetch", "origin"], check=True)
+        # Check current branch/status
+        result = subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True, check=False)
+        current_branch = result.stdout.strip()
         
-        # Check out the correct branch as specified in .gitmodules
-        print(f"🌿 Checking out branch: {INFERENCE_SERVER_BRANCH}")
-        run_command(["git", "checkout", INFERENCE_SERVER_BRANCH], check=True)
-        
-        # Pull the latest changes
-        print(f"📥 Pulling latest changes...")
-        run_command(["git", "pull", "origin", INFERENCE_SERVER_BRANCH], check=True)
+        if current_branch != INFERENCE_SERVER_BRANCH:
+            print(f"🌿 Current branch: {current_branch or 'detached HEAD'}, switching to: {INFERENCE_SERVER_BRANCH}")
+            
+            # Fetch the latest changes from remote
+            print(f"📥 Fetching latest changes from remote...")
+            run_command(["git", "fetch", "origin"], check=True)
+            
+            # Check out the correct branch as specified in .gitmodules
+            run_command(["git", "checkout", INFERENCE_SERVER_BRANCH], check=True)
+            
+            # Pull the latest changes
+            print(f"📥 Pulling latest changes...")
+            run_command(["git", "pull", "origin", INFERENCE_SERVER_BRANCH], check=True)
+        else:
+            print(f"✅ Already on correct branch: {INFERENCE_SERVER_BRANCH}")
+            # Still pull latest changes
+            print(f"📥 Pulling latest changes...")
+            run_command(["git", "pull", "origin", INFERENCE_SERVER_BRANCH], check=True)
         
         print(f"✅ TT Inference Server is now on the correct branch: {INFERENCE_SERVER_BRANCH}")
         
