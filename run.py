@@ -774,7 +774,7 @@ def setup_tt_inference_server():
         # Check if we're in a git repository
         if not os.path.exists(".git"):
             print(f"{C_RED}⛔ Error: Not in a git repository. Cannot initialize submodules.{C_RESET}")
-            print(f"   Please ensure you cloned the repository with: git clone https://github.com/tenstorrent/tt-studio.git")
+            print(f"   Please ensure you cloned the repository with: git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git")
             return False
         
         # Check if .gitmodules exists
