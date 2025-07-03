@@ -98,7 +98,7 @@ def is_placeholder(value):
         return True
     
     placeholder_patterns = [
-        'test-secret-456', 'django-insecure-default', 'tvly-xxx', 'hf_***',
+        'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
         '<PATH_TO_ROOT_OF_REPO>', 'true or flase to enable deployed mode',
@@ -176,15 +176,15 @@ def should_configure_var(var_name, current_value):
     """
     global FORCE_OVERWRITE
     
-    # If it's a placeholder, always configure
-    if is_placeholder(current_value):
-        return True
-    
     # If we're forcing overwrite, always configure
     if FORCE_OVERWRITE:
         return True
     
-    # Otherwise, skip configuration
+    # If it's a placeholder, we should configure it (placeholders should always be replaced)
+    if is_placeholder(current_value):
+        return True
+    
+    # Otherwise, skip configuration (keep existing non-placeholder value)
     return False
 
 def ask_overwrite_preference(existing_vars):
@@ -194,6 +194,11 @@ def ask_overwrite_preference(existing_vars):
     """
     # Filter out placeholder values to show only real configured values
     real_vars = {k: v for k, v in existing_vars.items() if not is_placeholder(v)}
+    
+    # Debug: Show what variables are being filtered
+    placeholder_vars = {k: v for k, v in existing_vars.items() if is_placeholder(v)}
+    if placeholder_vars:
+        print(f"{C_YELLOW}📋 Found placeholder values that will be configured: {list(placeholder_vars.keys())}{C_RESET}")
     
     if not real_vars:
         print(f"{C_YELLOW}All existing variables appear to be placeholders. Will configure all values.{C_RESET}")
@@ -214,37 +219,41 @@ def ask_overwrite_preference(existing_vars):
         if category_vars:
             print(f"{C_BOLD}{emoji} {category_name}:{C_RESET}")
             for var_name, var_value in category_vars.items():
-                # Mask sensitive values
+                # Mask sensitive values only if they're not placeholders
                 if any(sensitive in var_name.lower() for sensitive in ['secret', 'token', 'password', 'key']):
-                    display_value = "***configured***"
+                    # Don't mask placeholder values - show them so users know they're placeholders
+                    if is_placeholder(var_value):
+                        display_value = f"[PLACEHOLDER: {var_value}]"
+                    else:
+                        display_value = "***configured***"
                 else:
                     display_value = var_value[:50] + "..." if len(var_value) > 50 else var_value
-                print(f"    {C_YELLOW}•{C_RESET} {var_name}: {C_CYAN}{display_value}{C_RESET}")
+                print(f"    • {var_name}: {C_CYAN}{display_value}{C_RESET}")
             print()
     
-    display_vars("📁 Core Configuration", core_vars, "📁")
-    display_vars("🔐 Security Credentials", security_vars, "🔐")
-    display_vars("⚙️ Application Settings", app_vars, "⚙️")
-    display_vars("☁️ Cloud Model APIs", cloud_vars, "☁️")
+    display_vars("Core Configuration", core_vars, "📁")
+    display_vars("Security Credentials", security_vars, "🔐")
+    display_vars("Application Settings", app_vars, "⚙️")
+    display_vars("Cloud Model APIs", cloud_vars, "☁️")
     
     # Add visual separator
-    print(f"{C_TT_PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}")
+    print("=" * 80)
     
-    print(f"{C_YELLOW}{C_BOLD}❓ What would you like to do?{C_RESET}")
+    print(f"{C_YELLOW}{C_BOLD}What would you like to do?{C_RESET}")
     print()
     print(f"  {C_GREEN}{C_BOLD}Option 1 - Keep Existing Configuration{C_RESET}")
-    print(f"    {C_CYAN}•{C_RESET} Keep all current values as they are")
-    print(f"    {C_CYAN}•{C_RESET} Only configure any missing or placeholder values")
-    print(f"    {C_CYAN}•{C_RESET} Recommended for normal startup")
+    print(f"    • Keep all current values as they are")
+    print(f"    • Only configure any missing or placeholder values")
+    print(f"    • Recommended for normal startup")
     print()
     print(f"  {C_ORANGE}{C_BOLD}Option 2 - Reconfigure Everything{C_RESET}")
-    print(f"    {C_CYAN}•{C_RESET} Go through setup prompts for ALL variables")
-    print(f"    {C_CYAN}•{C_RESET} Replace existing values with new ones")
-    print(f"    {C_CYAN}•{C_RESET} Use this if you want to change your configuration")
+    print(f"    • Go through setup prompts for ALL variables")
+    print(f"    • Replace existing values with new ones")
+    print(f"    • Use this if you want to change your configuration")
     print()
     
     # Add another visual separator before input
-    print(f"{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}")
+    print("=" * 80)
     
     while True:
         print(f"{C_WHITE}{C_BOLD}Choose an option:{C_RESET}")
@@ -273,6 +282,13 @@ def ask_overwrite_preference(existing_vars):
         
         if choice in ['k', 'keep']:
             print(f"\n{C_GREEN}✅ Keeping existing configuration. Only missing values will be configured.{C_RESET}")
+            # Show which placeholder values will still need to be configured
+            placeholder_vars = {k: v for k, v in existing_vars.items() if is_placeholder(v)}
+            if placeholder_vars:
+                print(f"{C_CYAN}📝 Note: Placeholder values will still be prompted for configuration:{C_RESET}")
+                for var_name in placeholder_vars.keys():
+                    print(f"    • {var_name}")
+                print()
             return False
         elif choice in ['r', 'reconfigure', 'reconfig']:
             print(f"\n{C_ORANGE}🔄 Will reconfigure all environment variables.{C_RESET}")
@@ -303,13 +319,13 @@ def configure_environment_sequentially(dev_mode=False):
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
     
-    print(f"\n{C_TT_PURPLE}{C_BOLD}🛠️  TT Studio Environment Configuration{C_RESET}")
+    print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
     
     if dev_mode:
-        print(f"{C_YELLOW}🚀 Development Mode: You can use suggested defaults for quick setup{C_RESET}")
+        print(f"{C_YELLOW}Development Mode: You can use suggested defaults for quick setup{C_RESET}")
         print(f"{C_CYAN}   Note: Development defaults are NOT secure for production use{C_RESET}")
     else:
-        print(f"{C_CYAN}🏭 Production Mode: You'll be prompted for secure, production-ready values{C_RESET}")
+        print(f"{C_CYAN}Production Mode: You'll be prompted for secure, production-ready values{C_RESET}")
     
     # Get existing variables
     existing_vars = get_existing_env_vars()
@@ -336,6 +352,8 @@ def configure_environment_sequentially(dev_mode=False):
     # JWT_SECRET
     current_jwt = get_env_var("JWT_SECRET")
     if should_configure_var("JWT_SECRET", current_jwt):
+        if is_placeholder(current_jwt):
+            print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
         dev_default = "dev-jwt-secret-12345-not-for-production" if dev_mode else ""
         prompt_text = f"🔐 Enter JWT_SECRET (for authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
@@ -354,6 +372,8 @@ def configure_environment_sequentially(dev_mode=False):
     # DJANGO_SECRET_KEY
     current_django = get_env_var("DJANGO_SECRET_KEY")
     if should_configure_var("DJANGO_SECRET_KEY", current_django):
+        if is_placeholder(current_django):
+            print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
         dev_default = "django-dev-secret-key-not-for-production-12345" if dev_mode else ""
         prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
@@ -502,38 +522,37 @@ def display_welcome_banner():
     # Clear screen for a clean splash screen effect
     os.system('cls' if OS_NAME == 'Windows' else 'clear')
     
-    # Top border with gradient effect
+    # Simple, clean banner without complex Unicode characters
     print(f"{C_TT_PURPLE}{C_BOLD}")
-    print("╔" + "═" * 66 + "╗")
-    print("║" + " " * 18 + "✨ Welcome to TT Studio ✨" + " " * 18 + "║")
-    print("║" + " " * 12 + "🚀 Tenstorrent AI Development Platform 🚀" + " " * 12 + "║")
-    print("╚" + "═" * 66 + "╝")
-    print()
-    
-    # ASCII Art with enhanced styling
-    print("████████╗████████╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ ")
-    print("╚══██╔══╝╚══██╔══╝    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗")
-    print("   ██║      ██║       ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║")
-    print("   ██║      ██║       ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║")
-    print("   ██║      ██║       ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝")
-    print("   ╚═╝      ╚═╝       ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ ")
+    print("=" * 68)
+    print("                   Welcome to TT Studio")
+    print("=" * 68)
     print(f"{C_RESET}")
     
-    # Subtitle with version info
-    print(f"{C_CYAN}{C_BOLD}" + " " * 15 + "🔧 AI Model Development & Deployment Made Easy 🔧" + f"{C_RESET}")
+    # Simple ASCII Art
+    print(f"{C_TT_PURPLE}{C_BOLD}")
+    print("  ████████ ████████      ███████ ████████ ██   ██ ██████  ██  ██████  ")
+    print("     ██       ██         ██         ██    ██   ██ ██   ██ ██ ██    ██ ")
+    print("     ██       ██         ███████    ██    ██   ██ ██   ██ ██ ██    ██ ")
+    print("     ██       ██              ██    ██    ██   ██ ██   ██ ██ ██    ██ ")
+    print("     ██       ██         ███████    ██     █████  ██████  ██  ██████  ")
+    print(f"{C_RESET}")
+    
+    # Subtitle
+    print(f"{C_CYAN}AI Model Development & Deployment Made Easy{C_RESET}")
     print()
     
     # Feature highlights
-    print(f"{C_GREEN}🌟 Features:{C_RESET}")
-    print(f"  {C_YELLOW}•{C_RESET} Interactive environment setup")
-    print(f"  {C_YELLOW}•{C_RESET} Docker orchestration & management") 
-    print(f"  {C_YELLOW}•{C_RESET} TT Inference Server integration")
-    print(f"  {C_YELLOW}•{C_RESET} Hardware detection & optimization")
-    print(f"  {C_YELLOW}•{C_RESET} AI Playground for cloud models")
+    print(f"{C_GREEN}Features:{C_RESET}")
+    print(f"  • Interactive environment setup")
+    print(f"  • Docker orchestration & management") 
+    print(f"  • TT Inference Server integration")
+    print(f"  • Hardware detection & optimization")
+    print(f"  • AI Playground for cloud models")
     print()
     
-    # Bottom decorative line
-    print(f"{C_TT_PURPLE}" + "─" * 68 + f"{C_RESET}")
+    # Bottom line
+    print("=" * 68)
     print()
 
 def cleanup_resources(args):
@@ -785,6 +804,42 @@ def setup_tt_inference_server():
     else:
         print(f"📁 TT Inference Server directory found at {INFERENCE_SERVER_DIR}")
     
+    # Ensure the submodule is on the correct branch
+    try:
+        print(f"🔧 Ensuring TT Inference Server is on the correct branch...")
+        original_dir = os.getcwd()
+        os.chdir(INFERENCE_SERVER_DIR)
+        
+        # Fetch the latest changes from remote
+        print(f"📥 Fetching latest changes from remote...")
+        run_command(["git", "fetch", "origin"], check=True)
+        
+        # Check out the correct branch as specified in .gitmodules
+        print(f"🌿 Checking out branch: {INFERENCE_SERVER_BRANCH}")
+        run_command(["git", "checkout", INFERENCE_SERVER_BRANCH], check=True)
+        
+        # Pull the latest changes
+        print(f"📥 Pulling latest changes...")
+        run_command(["git", "pull", "origin", INFERENCE_SERVER_BRANCH], check=True)
+        
+        print(f"✅ TT Inference Server is now on the correct branch: {INFERENCE_SERVER_BRANCH}")
+        
+    except (subprocess.CalledProcessError, SystemExit) as e:
+        print(f"{C_YELLOW}⚠️  Warning: Could not update TT Inference Server branch: {e}{C_RESET}")
+        print(f"   Continuing with current state...")
+    finally:
+        os.chdir(original_dir)
+    
+    # Verify that requirements-api.txt exists
+    requirements_file = os.path.join(INFERENCE_SERVER_DIR, "requirements-api.txt")
+    if not os.path.exists(requirements_file):
+        print(f"{C_RED}⛔ Error: requirements-api.txt not found in TT Inference Server directory{C_RESET}")
+        print(f"   Expected path: {requirements_file}")
+        print(f"   This suggests the submodule is not properly set up or on the wrong branch.")
+        return False
+    else:
+        print(f"✅ Found requirements-api.txt in TT Inference Server directory")
+    
     return True
 
 def setup_fastapi_environment():
@@ -796,29 +851,87 @@ def setup_fastapi_environment():
     
     try:
         # Change to inference server directory (like startup.sh)
+        print(f"📁 Changing to TT Inference Server directory: {INFERENCE_SERVER_DIR}")
         os.chdir(INFERENCE_SERVER_DIR)
+        
+        # Verify we're in the right directory and can see the requirements file
+        current_dir = os.getcwd()
+        print(f"📍 Current directory: {current_dir}")
+        
+        if not os.path.exists("requirements-api.txt"):
+            print(f"{C_RED}⛔ Error: requirements-api.txt not found in {current_dir}{C_RESET}")
+            print(f"📂 Files in current directory:")
+            try:
+                for item in os.listdir("."):
+                    print(f"   - {item}")
+            except Exception as e:
+                print(f"   Could not list directory: {e}")
+            return False
+        else:
+            print(f"✅ Found requirements-api.txt in {current_dir}")
         
         # Create virtual environment if it doesn't exist (like startup.sh)
         if not os.path.exists(".venv"):
             print(f"🐍 Creating Python virtual environment...")
             try:
                 run_command(["python3", "-m", "venv", ".venv"], check=True)
-            except (subprocess.CalledProcessError, SystemExit):
-                print(f"{C_RED}⛔ Error: Failed to create virtual environment{C_RESET}")
+                print(f"✅ Virtual environment created successfully")
+            except (subprocess.CalledProcessError, SystemExit) as e:
+                print(f"{C_RED}⛔ Error: Failed to create virtual environment: {e}{C_RESET}")
                 return False
         else:
             print(f"🐍 Virtual environment already exists")
         
+        # Verify the virtual environment was created properly
+        venv_pip = ".venv/bin/pip"
+        if OS_NAME == "Windows":
+            venv_pip = ".venv/Scripts/pip.exe"
+        
+        if not os.path.exists(venv_pip):
+            print(f"{C_RED}⛔ Error: Virtual environment pip not found at {venv_pip}{C_RESET}")
+            return False
+        
+        # Upgrade pip first
+        print(f"📦 Upgrading pip in virtual environment...")
+        try:
+            run_command([venv_pip, "install", "--upgrade", "pip"], check=True)
+            print(f"✅ Pip upgraded successfully")
+        except (subprocess.CalledProcessError, SystemExit) as e:
+            print(f"{C_YELLOW}⚠️  Warning: Failed to upgrade pip: {e}{C_RESET}")
+            print(f"   Continuing with installation...")
+        
         # Install requirements (like startup.sh)
-        if os.path.exists("requirements-api.txt"):
-            print(f"📦 Installing Python requirements...")
+        print(f"📦 Installing Python requirements from requirements-api.txt...")
+        try:
+            run_command([venv_pip, "install", "-r", "requirements-api.txt"], check=True)
+            print(f"✅ Requirements installed successfully")
+        except (subprocess.CalledProcessError, SystemExit) as e:
+            print(f"{C_RED}⛔ Error: Failed to install requirements: {e}{C_RESET}")
+            print(f"📜 Contents of requirements-api.txt:")
             try:
-                run_command([".venv/bin/pip", "install", "-r", "requirements-api.txt"], check=True)
-            except (subprocess.CalledProcessError, SystemExit):
-                print(f"{C_RED}⛔ Error: Failed to install requirements{C_RESET}")
-                return False
+                with open("requirements-api.txt", "r") as f:
+                    for line_num, line in enumerate(f, 1):
+                        print(f"   {line_num}: {line.rstrip()}")
+            except Exception as read_e:
+                print(f"   Could not read requirements file: {read_e}")
+            return False
+        
+        # Verify uvicorn was installed
+        venv_uvicorn = ".venv/bin/uvicorn"
+        if OS_NAME == "Windows":
+            venv_uvicorn = ".venv/Scripts/uvicorn.exe"
+        
+        if os.path.exists(venv_uvicorn):
+            print(f"✅ uvicorn installed successfully at {venv_uvicorn}")
         else:
-            print(f"{C_YELLOW}⚠️  requirements-api.txt not found, skipping dependency installation{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Warning: uvicorn not found at expected location {venv_uvicorn}{C_RESET}")
+            print(f"   Checking if uvicorn is available in the virtual environment...")
+            try:
+                run_command([".venv/bin/python", "-c", "import uvicorn; print('uvicorn is available')"], check=True)
+                print(f"✅ uvicorn is available in the virtual environment")
+            except (subprocess.CalledProcessError, SystemExit):
+                print(f"{C_RED}⛔ Error: uvicorn is not available in the virtual environment{C_RESET}")
+                return False
         
         return True
     finally:
@@ -1087,7 +1200,7 @@ def main():
   {C_CYAN}python run.py --dev{C_RESET}             🛠️  Development mode with suggested defaults
   {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
-  {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup
+  {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1102,7 +1215,7 @@ def main():
         parser.add_argument("--help-env", action="store_true", 
                            help="📚 Show detailed help for environment variables")
         parser.add_argument("--skip-fastapi", action="store_true", 
-                           help="⏭️  Skip TT Inference Server FastAPI setup")
+                           help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--no-sudo", action="store_true", 
                            help="🚫 Skip sudo usage for FastAPI setup (may limit functionality)")
         
@@ -1110,53 +1223,53 @@ def main():
         
         if args.help_env:
             print(f"""
-{C_TT_PURPLE}{C_BOLD}🔧 TT Studio Environment Variables Help{C_RESET}
+{C_TT_PURPLE}{C_BOLD}TT Studio Environment Variables Help{C_RESET}
 
-{C_CYAN}{C_BOLD}📁 Core Configuration:{C_RESET}
-{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
-  {C_YELLOW}TT_STUDIO_ROOT{C_RESET}                      📂 Root directory of the repository
-  {C_YELLOW}HOST_PERSISTENT_STORAGE_VOLUME{C_RESET}      💾 Host path for persistent storage
-  {C_YELLOW}INTERNAL_PERSISTENT_STORAGE_VOLUME{C_RESET}  🗂️  Container path for persistent storage
-  {C_YELLOW}BACKEND_API_HOSTNAME{C_RESET}                🌐 Backend API hostname
+{C_CYAN}{C_BOLD}Core Configuration:{C_RESET}
+{'=' * 80}
+  {C_YELLOW}TT_STUDIO_ROOT{C_RESET}                      Root directory of the repository
+  {C_YELLOW}HOST_PERSISTENT_STORAGE_VOLUME{C_RESET}      Host path for persistent storage
+  {C_YELLOW}INTERNAL_PERSISTENT_STORAGE_VOLUME{C_RESET}  Container path for persistent storage
+  {C_YELLOW}BACKEND_API_HOSTNAME{C_RESET}                Backend API hostname
 
-{C_RED}{C_BOLD}🔐 Security (Required):{C_RESET}
-{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
-  {C_YELLOW}JWT_SECRET{C_RESET}                          🔑 JWT authentication secret
-  {C_YELLOW}DJANGO_SECRET_KEY{C_RESET}                   🛡️  Django application secret key
-  {C_YELLOW}HF_TOKEN{C_RESET}                            🤗 Hugging Face API token
+{C_RED}{C_BOLD}Security (Required):{C_RESET}
+{'=' * 80}
+  {C_YELLOW}JWT_SECRET{C_RESET}                          JWT authentication secret
+  {C_YELLOW}DJANGO_SECRET_KEY{C_RESET}                   Django application secret key
+  {C_YELLOW}HF_TOKEN{C_RESET}                            Hugging Face API token
 
-{C_YELLOW}{C_BOLD}🔍 Optional Services:{C_RESET}
-{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
-  {C_YELLOW}TAVILY_API_KEY{C_RESET}                      🔍 Tavily search API key (optional)
+{C_YELLOW}{C_BOLD}Optional Services:{C_RESET}
+{'=' * 80}
+  {C_YELLOW}TAVILY_API_KEY{C_RESET}                      Tavily search API key (optional)
 
-{C_GREEN}{C_BOLD}⚙️  Application Modes:{C_RESET}
-{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
-  {C_YELLOW}VITE_APP_TITLE{C_RESET}                      📝 Application title
-  {C_YELLOW}VITE_ENABLE_DEPLOYED{C_RESET}                ☁️  Enable AI Playground mode (true/false)
-  {C_YELLOW}VITE_ENABLE_RAG_ADMIN{C_RESET}               📚 Enable RAG admin interface (true/false)
-  {C_YELLOW}RAG_ADMIN_PASSWORD{C_RESET}                  🔒 RAG admin password (required if RAG enabled)
+{C_GREEN}{C_BOLD}Application Modes:{C_RESET}
+{'=' * 80}
+  {C_YELLOW}VITE_APP_TITLE{C_RESET}                      Application title
+  {C_YELLOW}VITE_ENABLE_DEPLOYED{C_RESET}                Enable AI Playground mode (true/false)
+  {C_YELLOW}VITE_ENABLE_RAG_ADMIN{C_RESET}               Enable RAG admin interface (true/false)
+  {C_YELLOW}RAG_ADMIN_PASSWORD{C_RESET}                  RAG admin password (required if RAG enabled)
 
-{C_BLUE}{C_BOLD}☁️  Cloud Models (Only when AI Playground is enabled):{C_RESET}
-{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
-  {C_YELLOW}CLOUD_CHAT_UI_URL{C_RESET}                   🦙 Llama Chat UI endpoint
-  {C_YELLOW}CLOUD_CHAT_UI_AUTH_TOKEN{C_RESET}            🔑 Llama Chat UI authentication token
-  {C_YELLOW}CLOUD_YOLOV4_API_URL{C_RESET}                👁️  YOLOv4 API endpoint
-  {C_YELLOW}CLOUD_YOLOV4_API_AUTH_TOKEN{C_RESET}         🔑 YOLOv4 API authentication token
-  {C_YELLOW}CLOUD_SPEECH_RECOGNITION_URL{C_RESET}        🎤 Whisper API endpoint
-  {C_YELLOW}CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN{C_RESET} 🔑 Whisper API authentication token
-  {C_YELLOW}CLOUD_STABLE_DIFFUSION_URL{C_RESET}          🎨 Stable Diffusion API endpoint
-  {C_YELLOW}CLOUD_STABLE_DIFFUSION_AUTH_TOKEN{C_RESET}   🔑 Stable Diffusion API authentication token
+{C_BLUE}{C_BOLD}Cloud Models (Only when AI Playground is enabled):{C_RESET}
+{'=' * 80}
+  {C_YELLOW}CLOUD_CHAT_UI_URL{C_RESET}                   Llama Chat UI endpoint
+  {C_YELLOW}CLOUD_CHAT_UI_AUTH_TOKEN{C_RESET}            Llama Chat UI authentication token
+  {C_YELLOW}CLOUD_YOLOV4_API_URL{C_RESET}                YOLOv4 API endpoint
+  {C_YELLOW}CLOUD_YOLOV4_API_AUTH_TOKEN{C_RESET}         YOLOv4 API authentication token
+  {C_YELLOW}CLOUD_SPEECH_RECOGNITION_URL{C_RESET}        Whisper API endpoint
+  {C_YELLOW}CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN{C_RESET} Whisper API authentication token
+  {C_YELLOW}CLOUD_STABLE_DIFFUSION_URL{C_RESET}          Stable Diffusion API endpoint
+  {C_YELLOW}CLOUD_STABLE_DIFFUSION_AUTH_TOKEN{C_RESET}   Stable Diffusion API authentication token
 
-{C_MAGENTA}{C_BOLD}💡 Usage Examples:{C_RESET}
-{C_WHITE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
-  {C_CYAN}python run.py{C_RESET}                        🚀 Normal setup with prompts
-  {C_CYAN}python run.py --dev{C_RESET}                  🛠️  Development mode with defaults
-  {C_CYAN}python run.py --cleanup{C_RESET}              🧹 Clean up containers only
-  {C_CYAN}python run.py --cleanup-all{C_RESET}          🗑️  Complete cleanup (data + config)
-  {C_CYAN}python run.py --skip-fastapi{C_RESET}         ⏭️  Skip FastAPI server setup
-  {C_CYAN}python run.py --no-sudo{C_RESET}              🚫 Skip sudo usage (may limit functionality)
+{C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
+{'=' * 80}
+  {C_CYAN}python run.py{C_RESET}                        Normal setup with prompts
+  {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
+  {C_CYAN}python run.py --cleanup{C_RESET}              Clean up containers only
+  {C_CYAN}python run.py --cleanup-all{C_RESET}          Complete cleanup (data + config)
+  {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
+  {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
 
-{C_TT_PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{C_RESET}
+{'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
         """)
             return
@@ -1196,8 +1309,14 @@ def main():
         # Run the Docker Compose command
         run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
         
-        # Setup TT Inference Server FastAPI (unless skipped)
-        if not args.skip_fastapi:
+        # Check if AI Playground mode is enabled
+        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
+        
+        # Setup TT Inference Server FastAPI (unless skipped or AI Playground mode is enabled)
+        if not args.skip_fastapi and not is_deployed_mode:
+            print(f"\n{C_TT_PURPLE}{C_BOLD}🔧 Setting up TT Inference Server FastAPI (Local Mode){C_RESET}")
+            print(f"{C_CYAN}   Note: FastAPI server is only needed for local model inference{C_RESET}")
+            
             # Store original directory to return to later
             original_dir = os.getcwd()
             
@@ -1225,58 +1344,75 @@ def main():
             finally:
                 # Return to original directory
                 os.chdir(original_dir)
-        else:
+        elif args.skip_fastapi:
             print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
+        elif is_deployed_mode:
+            print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
+            print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
         
         print(f"\n{C_GREEN}✔ Setup Complete!{C_RESET}")
         print()
-        print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│   🚀 Tenstorrent TT Studio is ready!                     │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│   Access it at: {C_CYAN}http://localhost:3000{C_RESET}{C_WHITE}{C_BOLD}                    │{C_RESET}")
-        if not args.skip_fastapi and os.path.exists(FASTAPI_PID_FILE):
-            print(f"{C_WHITE}{C_BOLD}│   FastAPI server: {C_CYAN}http://localhost:8001{C_RESET}{C_WHITE}{C_BOLD}                  │{C_RESET}")
-            print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Health check: curl http://localhost:8001/){C_RESET}{C_WHITE}{C_BOLD}           │{C_RESET}")
+        
+        # Simple, clean output without complex formatting
+        print("=" * 60)
+        print("🚀 Tenstorrent TT Studio is ready!")
+        print("=" * 60)
+        print(f"Access it at: {C_CYAN}http://localhost:3000{C_RESET}")
+        
+        if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE):
+            print(f"FastAPI server: {C_CYAN}http://localhost:8001{C_RESET}")
+            print(f"Health check: curl http://localhost:8001/")
+        
         if OS_NAME == "Darwin":
-            print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Cmd+Click the link to open in browser){C_RESET}{C_WHITE}{C_BOLD}                │{C_RESET}")
+            print("(Cmd+Click the link to open in browser)")
         else:
-            print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}(Ctrl+Click the link to open in browser){C_RESET}{C_WHITE}{C_BOLD}               │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│                                                            │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
+            print("(Ctrl+Click the link to open in browser)")
+        
+        print("=" * 60)
         print()
         
-        # Display info about special modes if they are enabled (like startup.sh)
-        if args.dev or detect_tt_hardware():
-            print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
-            print(f"{C_WHITE}{C_BOLD}│                    {C_YELLOW}Active Modes{C_WHITE}{C_BOLD}                            │{C_RESET}")
-            if args.dev:
-                print(f"{C_WHITE}{C_BOLD}│   {C_CYAN}💻 Development Mode: ENABLED{C_WHITE}{C_BOLD}                           │{C_RESET}")
-            if detect_tt_hardware():
-                print(f"{C_WHITE}{C_BOLD}│   {C_CYAN}🔧 Tenstorrent Device: MOUNTED{C_WHITE}{C_BOLD}                         │{C_RESET}")
-            print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
+        # Display info about special modes if they are enabled
+        active_modes = []
+        if args.dev:
+            active_modes.append("💻 Development Mode: ENABLED")
+        if detect_tt_hardware():
+            active_modes.append("🔧 Tenstorrent Device: MOUNTED")
+        if is_deployed_mode:
+            active_modes.append("☁️ AI Playground Mode: ENABLED")
+        
+        if active_modes:
+            print(f"{C_YELLOW}Active Modes:{C_RESET}")
+            for mode in active_modes:
+                print(f"  {mode}")
             print()
         
-        print(f"{C_WHITE}{C_BOLD}┌────────────────────────────────────────────────────────────┐{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│   {C_YELLOW}🧹 To stop all services, run:{C_RESET}{C_WHITE}{C_BOLD}                           │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}│   {C_MAGENTA}python run.py --cleanup{C_RESET}{C_WHITE}{C_BOLD}                                │{C_RESET}")
-        print(f"{C_WHITE}{C_BOLD}└────────────────────────────────────────────────────────────┘{C_RESET}")
+        print(f"{C_YELLOW}🧹 To stop all services, run:{C_RESET}")
+        print(f"  {C_MAGENTA}python run.py --cleanup{C_RESET}")
+        print()
         print()
         
         # Display final summary
-        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
         is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
         
         print(f"{C_BOLD}📋 Configuration Summary:{C_RESET}")
-        print(f"  • AI Playground Mode: {'✅ Enabled' if is_deployed_mode else '❌ Disabled'}")
+        if is_deployed_mode:
+            print(f"  • {C_GREEN}☁️ AI Playground Mode: ✅ ENABLED{C_RESET}")
+            print(f"    {C_CYAN}   → Using cloud models for inference{C_RESET}")
+        else:
+            print(f"  • {C_YELLOW}🏠 Local Mode: ✅ ENABLED{C_RESET}")
+            print(f"    {C_CYAN}   → Using local FastAPI server for inference{C_RESET}")
         print(f"  • RAG Admin Interface: {'✅ Enabled' if is_rag_admin_enabled else '❌ Disabled'}")
         print(f"  • Persistent Storage: {host_persistent_volume}")
         print(f"  • Development Mode: {'✅ Enabled' if args.dev else '❌ Disabled'}")
         print(f"  • TT Hardware Support: {'✅ Enabled' if detect_tt_hardware() else '❌ Disabled'}")
-        print(f"  • FastAPI Server: {'✅ Enabled' if not args.skip_fastapi and os.path.exists(FASTAPI_PID_FILE) else '❌ Disabled'}")
+        print(f"  • FastAPI Server: {'✅ Enabled' if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE) else '❌ Disabled'}")
         
         if is_deployed_mode:
             print(f"\n{C_BLUE}🌐 Your TT Studio is running in AI Playground mode with cloud model integrations.{C_RESET}")
+            print(f"{C_CYAN}   You can access cloud models through the AI Playground interface.{C_RESET}")
+        else:
+            print(f"\n{C_BLUE}🏠 Your TT Studio is running in Local Mode with local model inference.{C_RESET}")
+            print(f"{C_CYAN}   You can deploy and manage local models through the interface.{C_RESET}")
         
         # Try to open the browser automatically
         try:
@@ -1300,7 +1436,7 @@ def main():
             
             # Also check for FastAPI server logs
             fastapi_logs_process = None
-            if not args.skip_fastapi and os.path.exists(FASTAPI_LOG_FILE):
+            if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_LOG_FILE):
                 fastapi_logs_process = subprocess.Popen(["tail", "-f", FASTAPI_LOG_FILE])
             
             try:
