@@ -1,11 +1,12 @@
 # TT-Studio
+
 TT-Studio is a comprehensive platform for deploying and managing TT-Metal based models in TT-Inference Server-ized Docker containers optimized for Tenstorrent hardware. It combines [TT Inference Server's](https://github.com/tenstorrent/tt-inference-server) core packaging setup, containerization, and deployment automation with [TT-Metal's](https://github.com/tenstorrent-metal/tt-metal) model execution framework specifically optimized for Tenstorrent hardware and provides an intuitive GUI for model management and interaction. This guide explains how to use TT-Studio in both standard and development environments.
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
 2. [Overview](#overview)
-3. [Quick Start](#quick-start)  
+3. [Quick Start](#quick-start)
    - [One-Command Setup (Recommended)](#one-command-setup-recommended)
    - [For General Users](#for-general-users)
 4. [Running in Development Mode](#running-in-development-mode)
@@ -13,16 +14,19 @@ TT-Studio is a comprehensive platform for deploying and managing TT-Metal based 
 6. [Documentation](#documentation)
    - [Frontend Documentation](#frontend-documentation)
    - [Backend API Documentation](#backend-api-documentation)
-   - [Running vLLM Models in TT-Studio](#running-vllm-models-and-mock-vllm-model-in-tt-studio)  
+   - [Running vLLM Models in TT-Studio](#running-vllm-models-and-mock-vllm-model-in-tt-studio)
    - [Running AI Agent with Chat LLM Models in TT-Studio](#running-ai-agent-in-tt-studio)
 
 ---
+
 ## Prerequisites
+
 1. Python 3.8 or higher: Required to run the setup script. You can download Python from [python.org](https://www.python.org/downloads/).
 2. Docker: Ensure that Docker is installed on your machine. You can refer to the installation guide [here](https://docs.docker.com/engine/install/).
 3. Tenstorrent Hardware (optional): TT-Studio will automatically detect and use available Tenstorrent hardware.
 
 ## Overview
+
 TT-Studio is a comprehensive environment for deploying and interacting with Tenstorrent models. It consists of:
 
 - **Frontend Interface**: A modern React-based UI for model interaction
@@ -35,6 +39,7 @@ TT-Studio is a comprehensive environment for deploying and interacting with Tens
 ### Using TT-Studio as a Model Interface
 
 TT-Studio provides a unified frontend interface for interacting with various AI models including:
+
 - Chat-based Language Models (LLMs)
 - Computer Vision (YOLO)
 - Speech Recognition (Whisper)
@@ -45,6 +50,7 @@ For detailed instructions on setting up and using these models, see our [Model I
 > ⚠️ **Note**: The `startup.sh` script is deprecated and will be removed soon. Please use `python run.py` for all setup and management operations.
 
 ---
+
 ## Quick Start
 
 ### One-Command Setup (Recommended)
@@ -56,6 +62,7 @@ git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git && c
 ```
 
 This command will:
+
 - Clone the TT-Studio repository
 - Initialize and download all required submodules (including TT Inference Server)
 - Automatically configure the environment
@@ -65,14 +72,14 @@ This command will:
 
 To set up TT-Studio step by step:
 
-1. **Clone the Repository with Submodules**:
+1. **Clone the Repository**:
 
    ```bash
-   git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git
+   git clone https://github.com/tenstorrent/tt-studio.git
    cd tt-studio
    ```
 
-   > **Important**: Always use `--recurse-submodules` to ensure the TT Inference Server submodule is properly initialized. This is required for running vLLM-based models on Tenstorrent devices.
+   > **Note**: You don't need to worry about `--recurse-submodules` - the setup script will automatically handle submodule initialization for you.
 
 2. **Run the Setup Script**:
 
@@ -81,19 +88,23 @@ To set up TT-Studio step by step:
    ```bash
    # On Linux
    python run.py
-   
+
    # On macOS
    python3 run.py
    ```
 
-   The script will guide you through all configuration options and set up everything automatically. You'll be prompted to provide:
-   - JWT_SECRET for authentication
-   - HF_TOKEN (Hugging Face token) for accessing models
-   - DJANGO_SECRET_KEY for backend security
-   - TAVILY_API_KEY for search functionality (optional)
-   - Other optional configuration options
+   The script will:
 
-   > **Note**: The setup script automatically detects and initializes the TT Inference Server submodule if it wasn't cloned with `--recurse-submodules`. However, it's recommended to clone with submodules from the start for the best experience.
+   - Automatically initialize and configure all required submodules (including TT Inference Server)
+   - Guide you through all configuration options and set up everything automatically
+   - Prompt you to provide:
+     - JWT_SECRET for authentication
+     - HF_TOKEN (Hugging Face token) for accessing models
+     - DJANGO_SECRET_KEY for backend security
+     - TAVILY_API_KEY for search functionality (optional)
+     - Other optional configuration options
+
+   > **Smart Submodule Handling**: The setup script automatically detects, initializes, and configures all required submodules, ensuring they're on the correct branches. No manual submodule management needed!
 
    #### See this [section](#command-line-options) for more information on command-line arguments available within the setup script.
 
@@ -103,11 +114,13 @@ To set up TT-Studio step by step:
    The FastAPI server runs on [http://localhost:8001](http://localhost:8001).
 
 4. **Cleanup**:
+
    - To stop and remove Docker services, run:
+
      ```bash
      # On Linux
      python run.py --cleanup
-     
+
      # On macOS
      python3 run.py --cleanup
      ```
@@ -125,16 +138,9 @@ To set up TT-Studio step by step:
 
 > ⚠️ **Note**: Tenstorrent hardware is now automatically detected and enabled. The script will automatically mount `/dev/tenstorrent` when present, eliminating the need for manual configuration.
 
-### Troubleshooting: Already Cloned Without Submodules?
+### Troubleshooting
 
-If you already have a clone of TT-Studio but didn't use `--recurse-submodules`, you can fix this by running:
-
-```bash
-cd tt-studio
-git submodule update --init --recursive
-```
-
-This will download the required TT Inference Server submodule that's needed for running vLLM-based models.
+If you encounter any issues with setup, submodules, or other problems, please refer to our comprehensive [Troubleshooting Guide](docs/troubleshooting.md).
 
 ---
 
@@ -142,11 +148,14 @@ This will download the required TT Inference Server submodule that's needed for 
 
 Developers can run the app with live code reloading for easier development.
 
-> **Prerequisites**: Ensure you've cloned the repository with submodules:
+> **Prerequisites**: Ensure you have the repository cloned:
+>
 > ```bash
-> git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git
+> git clone https://github.com/tenstorrent/tt-studio.git
 > cd tt-studio
 > ```
+>
+> > **Note**: You don't need to worry about `--recurse-submodules` - the setup script will automatically handle submodule initialization for you, just like in the standard setup process.
 
 1. **Start the Application in Dev Mode**:
 
@@ -155,7 +164,7 @@ Developers can run the app with live code reloading for easier development.
    ```bash
    # On Linux
    python run.py --dev
-   
+
    # On macOS
    python3 run.py --dev
    ```
@@ -165,20 +174,23 @@ Developers can run the app with live code reloading for easier development.
 2. **Hot Reload & Debugging**:
 
    #### Frontend
+
    - Local files in `./app/frontend` are mounted within the container for development.
    - Code changes trigger an automatic rebuild and redeployment of the frontend.
 
    #### Backend
+
    - Local files in `./app/backend` are mounted within the container for development.
    - Code changes trigger an automatic rebuild and redeployment of the backend.
 
 3. **Stopping the Services**:
 
    To shut down the application and remove running containers:
+
    ```bash
    # On Linux
    python run.py --cleanup
-   
+
    # On macOS
    python3 run.py --cleanup
    ```
@@ -205,7 +217,7 @@ For detailed information about using the `run.py` script, including all command-
 - **Running vLLM Models in TT-Studio**: Models are automatically set up and deployed through the TT-Studio interface. No manual configuration is required.
 
 - **Running AI Agent in TT-Studio**: [app/agent/README.md](app/agent/README.md)
-   Instructions on how to run AI Agent by providing an API Key. 
+  Instructions on how to run AI Agent by providing an API Key.
 
 - **Contribution Guide**: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)  
   If you're interested in contributing to the project, please refer to our contribution guidelines.
