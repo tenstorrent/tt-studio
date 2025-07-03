@@ -6,6 +6,7 @@ TT-Studio is a comprehensive platform for deploying and managing TT-Metal based 
 1. [Prerequisites](#prerequisites)
 2. [Overview](#overview)
 3. [Quick Start](#quick-start)  
+   - [One-Command Setup (Recommended)](#one-command-setup-recommended)
    - [For General Users](#for-general-users)
 4. [Running in Development Mode](#running-in-development-mode)
 5. [Troubleshooting](#troubleshooting)
@@ -46,16 +47,32 @@ For detailed instructions on setting up and using these models, see our [Model I
 ---
 ## Quick Start
 
+### One-Command Setup (Recommended)
+
+For the fastest setup experience, run this single command that will clone the repository with all submodules and start TT-Studio:
+
+```bash
+git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python3 run.py
+```
+
+This command will:
+- Clone the TT-Studio repository
+- Initialize and download all required submodules (including TT Inference Server)
+- Automatically configure the environment
+- Start all services
+
 ### For General Users
 
-To set up TT-Studio:
+To set up TT-Studio step by step:
 
-1. **Clone the Repository**:
+1. **Clone the Repository with Submodules**:
 
    ```bash
-   git clone https://github.com/tenstorrent/tt-studio.git
+   git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git
    cd tt-studio
    ```
+
+   > **Important**: Always use `--recurse-submodules` to ensure the TT Inference Server submodule is properly initialized. This is required for running vLLM-based models on Tenstorrent devices.
 
 2. **Run the Setup Script**:
 
@@ -76,11 +93,7 @@ To set up TT-Studio:
    - TAVILY_API_KEY for search functionality (optional)
    - Other optional configuration options
 
-   > **Note**: The setup script automatically handles submoduling of the TT Inference Server. If submodule initialization fails during setup, you can manually initialize the submodules using:
-   > ```bash
-   > git submodule update --init --recursive
-   > ```
-   > This will clone the TT Inference Server repository as a submodule, which is required for the running vLLM based models on a Tenstorrent device.
+   > **Note**: The setup script automatically detects and initializes the TT Inference Server submodule if it wasn't cloned with `--recurse-submodules`. However, it's recommended to clone with submodules from the start for the best experience.
 
    #### See this [section](#command-line-options) for more information on command-line arguments available within the setup script.
 
@@ -111,11 +124,29 @@ To set up TT-Studio:
    ```
 
 > ⚠️ **Note**: Tenstorrent hardware is now automatically detected and enabled. The script will automatically mount `/dev/tenstorrent` when present, eliminating the need for manual configuration.
+
+### Troubleshooting: Already Cloned Without Submodules?
+
+If you already have a clone of TT-Studio but didn't use `--recurse-submodules`, you can fix this by running:
+
+```bash
+cd tt-studio
+git submodule update --init --recursive
+```
+
+This will download the required TT Inference Server submodule that's needed for running vLLM-based models.
+
 ---
 
 ## Running in Development Mode
 
 Developers can run the app with live code reloading for easier development.
+
+> **Prerequisites**: Ensure you've cloned the repository with submodules:
+> ```bash
+> git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git
+> cd tt-studio
+> ```
 
 1. **Start the Application in Dev Mode**:
 
