@@ -14,7 +14,5 @@ services:
 
   tt_studio_frontend:
     volumes:
-      # Mount the local frontend directory for live code changes
+      #! for development mount api changes
       - ./frontend:/frontend
-      # Mount node_modules locally for IDE support (shared between host and container)
-      - ./frontend/node_modules:/frontend/node_modules

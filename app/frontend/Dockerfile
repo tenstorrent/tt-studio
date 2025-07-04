@@ -1,6 +1,4 @@
-FROM node:22-alpine
-
-WORKDIR /frontend
+FROM node:21-alpine3.18
 
 RUN apk update && \
     apk add --no-cache \
@@ -14,14 +12,8 @@ RUN apk update && \
     rm -rf /var/cache/apk/*
 
 EXPOSE 3000
+WORKDIR /frontend
+COPY . /frontend
 
-# Copy package files first for better Docker layer caching
-COPY package*.json ./
 
-# Install dependencies (this layer gets cached when only source code changes)
-RUN npm i
-
-# Copy the rest of the application code
-COPY . .
-
-CMD ["npm", "run", "dev"]
+CMD ["sh", "-c", "npm i && npm run dev"]
