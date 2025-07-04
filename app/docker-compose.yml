@@ -82,6 +82,7 @@ services:
       - VITE_ENABLE_RAG_ADMIN
       - VITE_TEST_AUDIO_URL
       - VITE_TEST_AUDIO_AUTH
+    # command: bash -c "npm i && npm run dev"
 
   tt_studio_agent:
     container_name: tt_studio_agent
