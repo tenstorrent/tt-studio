@@ -1212,36 +1212,43 @@ def ensure_frontend_dependencies():
     
     # Check if node_modules exists and is not empty
     if os.path.exists(node_modules_dir) and os.listdir(node_modules_dir):
-        print(f"{C_GREEN}✅ Frontend dependencies already installed{C_RESET}")
+        print(f"{C_GREEN}✅ Frontend dependencies already installed locally{C_RESET}")
         return True
     
     if not os.path.exists(node_modules_dir):
-        print(f"{C_YELLOW}📦 node_modules directory not found - this is needed for development mode{C_RESET}")
+        print(f"{C_YELLOW}📦 node_modules directory not found - will be created for development mode{C_RESET}")
     else:
         print(f"{C_YELLOW}📦 node_modules directory is empty - dependencies need to be installed{C_RESET}")
     
     # Check if npm is available
     if not shutil.which("npm"):
         print(f"{C_YELLOW}⚠️  npm not found locally. Dependencies will be installed in Docker container.{C_RESET}")
+        print(f"{C_CYAN}   The updated Dockerfile will handle this automatically.{C_RESET}")
         return True
     
-    print(f"{C_BLUE}📦 Installing frontend dependencies...{C_RESET}")
-    print(f"{C_CYAN}   This ensures node_modules are available for development mode{C_RESET}")
+    print(f"{C_BLUE}📦 Installing frontend dependencies locally...{C_RESET}")
+    print(f"{C_CYAN}   This ensures node_modules are available for development mode and IDE support{C_RESET}")
     
     try:
         # Change to frontend directory and install dependencies
         original_dir = os.getcwd()
         os.chdir(frontend_dir)
         
+        # Create node_modules directory if it doesn't exist
+        if not os.path.exists(node_modules_dir):
+            os.makedirs(node_modules_dir, exist_ok=True)
+        
         # Install dependencies
         run_command(["npm", "install"], check=True)
         
         print(f"{C_GREEN}✅ Frontend dependencies installed successfully{C_RESET}")
+        print(f"{C_CYAN}   node_modules is now available for development mode volume mounting{C_RESET}")
         return True
         
     except (subprocess.CalledProcessError, SystemExit) as e:
         print(f"{C_YELLOW}⚠️  Warning: Failed to install frontend dependencies locally: {e}{C_RESET}")
         print(f"{C_CYAN}   Dependencies will be installed in Docker container instead{C_RESET}")
+        print(f"{C_CYAN}   The updated Dockerfile will handle this automatically.{C_RESET}")
         return True
     finally:
         os.chdir(original_dir)
@@ -1367,7 +1374,7 @@ def main():
             print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies()
+        # ensure_frontend_dependencies()
 
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
