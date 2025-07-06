@@ -83,7 +83,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
           </div>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Docker Container Health: {health} (refreshed every 10 seconds)</p>
+          <p>Docker Container Health: {health} (refreshed every 2 minutes)</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
