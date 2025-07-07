@@ -1175,6 +1175,7 @@ export default function ChatComponent() {
               reRenderingMessageId={reRenderingMessageId}
               ragDatasource={ragDatasource}
               isMobileView={screenSize.isMobileView}
+              modelName={modelName}
             />
             {/* Scroll to bottom button */}
             <AnimatePresence>

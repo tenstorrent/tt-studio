@@ -16,6 +16,7 @@ interface MessageActionsProps {
   isStreaming: boolean;
   inferenceStats?: InferenceStatsType;
   messageContent?: string;
+  modelName?: string | null;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -26,6 +27,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   isStreaming,
   inferenceStats,
   messageContent,
+  modelName,
 }) => {
   const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");
 
@@ -133,7 +135,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             <span className="sr-only">Thumbs down</span>
           </Button>
 
-          {inferenceStats && <InferenceStats stats={inferenceStats} />}
+          {inferenceStats && <InferenceStats stats={inferenceStats} modelName={modelName} />}
         </div>
       </div>
     </>

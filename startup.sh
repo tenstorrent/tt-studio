@@ -563,7 +563,7 @@ if [[ "$RUN_DEV_MODE" = true || "$RUN_TT_HARDWARE" = true ]]; then
     if [[ "$RUN_TT_HARDWARE" = true ]]; then
         echo -e "${C_WHITE}${C_BOLD}│   ${C_CYAN}🔧 Tenstorrent Device: MOUNTED${C_WHITE}${C_BOLD}                         │${C_RESET}"
     fi
-    echo -e "${C_WHITE}${C_BOLD}└────────────────────────────────────────────────────────────┘${C_RESET}"
+    echo -e "${C_WHITE}${C_BOLD}└──────────https://github.com/tenstorrent/tt-inference-server/blob/anirud/fast-api-container-fetching-fixes/requirements-api.txt──────────────────────────────────────────────────┘${C_RESET}"
     echo
 fi
 

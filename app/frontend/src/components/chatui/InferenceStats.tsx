@@ -10,12 +10,15 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/
 import { useTheme } from "../../providers/ThemeProvider"; // Import the existing theme provider
 import type { InferenceStatsProps } from "./types";
 
-export default function Component({ stats }: InferenceStatsProps) {
+export default function Component({ stats, modelName }: InferenceStatsProps) {
   const [open, setOpen] = useState(false);
   const { theme } = useTheme(); // Use your existing theme hook
 
   // Determine dark mode based on the theme value
   const isDarkMode = theme === "dark";
+
+  // Check if we're in deployed mode or AI playground mode
+  const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
   if (!stats) return null;
 
@@ -126,6 +129,17 @@ export default function Component({ stats }: InferenceStatsProps) {
       ],
     },
   ];
+
+  // Function to get the display model name
+  const getDisplayModelName = () => {
+    if (apiUrlDefined) {
+      // In AI playground mode, always show the 3.3 model
+      return "Tenstorrent/Meta-Llama 3.3 70B";
+    } else {
+      // In deployed mode, use the actual model name or fallback
+      return modelName || "Unknown Model";
+    }
+  };
 
   return (
     <>
@@ -240,9 +254,8 @@ export default function Component({ stats }: InferenceStatsProps) {
               <span className="whitespace-nowrap">
                 Model:{" "}
                 <span className={isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}>
-                  Tenstorrent
+                  {getDisplayModelName()}
                 </span>
-                /Meta-Llama 3.3 70B
               </span>
             </div>
           </div>

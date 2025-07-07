@@ -101,6 +101,7 @@ interface ChatHistoryProps {
     metadata?: Record<string, unknown>;
   };
   isMobileView?: boolean;
+  modelName?: string | null;
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
@@ -113,6 +114,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   reRenderingMessageId,
   // ragDatasource,
   isMobileView = false,
+  modelName,
 }) => {
   // console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -475,6 +477,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                         }
                         inferenceStats={message.inferenceStats}
                         messageContent={message.text}
+                        modelName={modelName}
                       />
                     </div>
                   )}

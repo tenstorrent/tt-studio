@@ -134,6 +134,7 @@ export interface InputAreaProps {
 
 export interface InferenceStatsProps {
   stats: InferenceStats | undefined;
+  modelName?: string | null;
 }
 
 export interface StreamingMessageProps {
