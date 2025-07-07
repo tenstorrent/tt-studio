@@ -102,6 +102,7 @@ interface ChatHistoryProps {
   };
   isMobileView?: boolean;
   modelName?: string | null;
+  toggleableInlineStats?: boolean;
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({
@@ -115,6 +116,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   // ragDatasource,
   isMobileView = false,
   modelName,
+  toggleableInlineStats = true,
 }) => {
   // console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -140,6 +142,14 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const isScrollLockedRef = useRef(false); // Track if scroll is locked to bottom
   const [isScrollLocked, setIsScrollLocked] = useState(false); // For UI updates
   // --- END SCROLL STATE REFS ---
+
+  // Add state for tracking which message has stats toggled open
+  const [openStatsMessageId, setOpenStatsMessageId] = useState<string | null>(null);
+
+  // Handler to toggle stats for a specific message
+  const handleToggleStats = useCallback((messageId: string) => {
+    setOpenStatsMessageId(prev => prev === messageId ? null : messageId);
+  }, []);
 
   const shouldShowMessageIndicator = useCallback(() => {
     // Check if streaming AND last message is from user
@@ -478,6 +488,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                         inferenceStats={message.inferenceStats}
                         messageContent={message.text}
                         modelName={modelName}
+                        statsOpen={openStatsMessageId === (message.id || "")}
+                        onToggleStats={() => handleToggleStats(message.id || "")}
+                        toggleableInlineStats={toggleableInlineStats}
                       />
                     </div>
                   )}

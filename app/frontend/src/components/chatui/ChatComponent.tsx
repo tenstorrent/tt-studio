@@ -96,6 +96,7 @@ export default function ChatComponent() {
     maxLength: 512,
     topP: 0.9,
     topK: 20,
+    toggleableInlineStats: true,
   });
 
   // Add the missing state variables
@@ -447,7 +448,7 @@ export default function ChatComponent() {
   }, [chatThreads, currentThreadIndex, defaultThread]);
 
   // Handle settings changes
-  const handleSettingsChange = (key: string, value: number) => {
+  const handleSettingsChange = (key: string, value: number | boolean) => {
     console.log(`=== Settings Change ===`);
     console.log(`Parameter: ${key}`);
     console.log(`New Value: ${value}`);
@@ -1176,6 +1177,7 @@ export default function ChatComponent() {
               ragDatasource={ragDatasource}
               isMobileView={screenSize.isMobileView}
               modelName={modelName}
+              toggleableInlineStats={modelSettings.toggleableInlineStats}
             />
             {/* Scroll to bottom button */}
             <AnimatePresence>

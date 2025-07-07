@@ -3,7 +3,7 @@
 import type React from "react";
 import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
-import { Clipboard, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Clipboard, ThumbsUp, ThumbsDown, BarChart2 } from "lucide-react";
 import CustomToaster, { customToast } from "../CustomToaster";
 import InferenceStats from "./InferenceStats";
 import type { InferenceStats as InferenceStatsType } from "./types";
@@ -17,6 +17,9 @@ interface MessageActionsProps {
   inferenceStats?: InferenceStatsType;
   messageContent?: string;
   modelName?: string | null;
+  statsOpen?: boolean;
+  onToggleStats?: () => void;
+  toggleableInlineStats?: boolean;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -28,6 +31,9 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   inferenceStats,
   messageContent,
   modelName,
+  statsOpen = false,
+  onToggleStats,
+  toggleableInlineStats = true,
 }) => {
   const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");
 
@@ -135,7 +141,34 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             <span className="sr-only">Thumbs down</span>
           </Button>
 
-          {inferenceStats && <InferenceStats stats={inferenceStats} modelName={modelName} />}
+          {/* Speed Insights toggle button - only show if stats are available and feature is enabled */}
+          {inferenceStats && toggleableInlineStats && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onToggleStats}
+              className={`h-8 w-8 p-0 transition-colors ${
+                statsOpen
+                  ? "bg-TT-purple-tint2 text-TT-purple-accent dark:bg-TT-purple-shade dark:text-TT-purple hover:bg-TT-purple-tint1 dark:hover:bg-TT-purple"
+                  : "hover:bg-gray-100 dark:hover:bg-gray-800"
+              }`}
+              style={{ outline: "none" }}
+              title={statsOpen ? "Hide Speed Insights" : "Show Speed Insights"}
+            >
+              <BarChart2 className="h-4 w-4" />
+              <span className="sr-only">{statsOpen ? "Hide Speed Insights" : "Show Speed Insights"}</span>
+            </Button>
+          )}
+          
+          {/* Conditionally render InferenceStats inline when toggled open and feature is enabled */}
+          {inferenceStats && toggleableInlineStats && statsOpen && (
+            <InferenceStats stats={inferenceStats} modelName={modelName} inline={true} />
+          )}
+          
+          {/* Show original stats component when feature is disabled */}
+          {inferenceStats && !toggleableInlineStats && (
+            <InferenceStats stats={inferenceStats} modelName={modelName} />
+          )}
         </div>
       </div>
     </>
