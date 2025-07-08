@@ -1,6 +1,18 @@
-# TT-Studio
 
-TT-Studio is a comprehensive platform for deploying and managing TT-Metal based models in TT-Inference Server-ized Docker containers optimized for Tenstorrent hardware. It combines [TT Inference Server's](https://github.com/tenstorrent/tt-inference-server) core packaging setup, containerization, and deployment automation with [TT-Metal's](https://github.com/tenstorrent-metal/tt-metal) model execution framework specifically optimized for Tenstorrent hardware and provides an intuitive GUI for model management and interaction. This guide explains how to use TT-Studio in both standard and development environments.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tenstorrent/tt-metal/main/docs/source/common/images/favicon.png" width="120" height="120" />
+</p>
+
+<h1 align="center">TT-Studio</h1>
+<p align="center">An all-in-one platform with an interactive UI for deploying, managing, and interacting with TT-Metal–based models on Tenstorrent AI accelerators.</p>
+
+> To use TT-Studio’s deployment features, you need access to a Tenstorrent AI accelerator.<br>
+> Alternatively, you can connect just the frontend to a remote API endpoint if you do not have direct hardware access.
+
+
+TT-Studio combines [TT Inference Server's](https://github.com/tenstorrent/tt-inference-server) core packaging setup, containerization, and deployment automation with [TT-Metal's](https://github.com/tenstorrent-metal/tt-metal) model execution framework specifically optimized for Tenstorrent hardware and provides an intuitive GUI for model management and interaction. 
+
+This guide explains how to use TT-Studio in both standard and development environments.
 
 ## Table of Contents
 
@@ -12,10 +24,10 @@ TT-Studio is a comprehensive platform for deploying and managing TT-Metal based 
 4. [Running in Development Mode](#running-in-development-mode)
 5. [Troubleshooting](#troubleshooting)
 6. [Documentation](#documentation)
-   - [Frontend Documentation](#frontend-documentation)
-   - [Backend API Documentation](#backend-api-documentation)
-   - [Running vLLM Models in TT-Studio](#running-vllm-models-and-mock-vllm-model-in-tt-studio)
-   - [Running AI Agent with Chat LLM Models in TT-Studio](#running-ai-agent-in-tt-studio)
+   - [Frontend Documentation](app/frontend/README.md)
+   - [Backend API Documentation](app/backend/README.md)
+   - [Running vLLM Models in TT-Studio](docs/HowToRun_vLLM_Models.md)
+   - [Running AI Agent in TT-Studio](app/agent/README.md)
 
 ---
 
@@ -106,7 +118,7 @@ To set up TT-Studio step by step:
 
    > **Smart Submodule Handling**: The setup script automatically detects, initializes, and configures all required submodules, ensuring they're on the correct branches. No manual submodule management needed!
 
-   #### See this [section](#command-line-options) for more information on command-line arguments available within the setup script.
+   #### See the [Complete `run.py` Guide](#documentation) for more information on command-line arguments available within the setup script.
 
 3. **Access the Application**:
 
