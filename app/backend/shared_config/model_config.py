@@ -237,22 +237,22 @@ model_implmentations_list = [
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.SPEECH_RECOGNITION,
     ),
-
+    # TODO: add this model back in when its in tt-inference-server-main branch
     # Image Generation - Can run on N150 and N300
-    ModelImpl(
-        model_name="Stable-Diffusion-3.5-medium",
-        model_id="id_stable_diffusion_3.5_mediumv0.1.0",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
-        image_tag="v0.0.1-tt-metal-a0560feb3eed",
-        device_configurations=ALL_BOARDS,  # Can run on N150 and N300
-        docker_config=base_docker_config(),
-        shm_size="32G",
-        service_port=7000,
-        service_route="/enqueue",
-        health_route="/",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.IMAGE_GENERATION,
-    ),
+    # ModelImpl(
+    #     model_name="Stable-Diffusion-3.5-medium",
+    #     model_id="id_stable_diffusion_3.5_mediumv0.1.0",
+    #     image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
+    #     image_tag="v0.0.1-tt-metal-a0560feb3eed",
+    #     device_configurations=ALL_BOARDS,  # Can run on N150 and N300
+    #     docker_config=base_docker_config(),
+    #     shm_size="32G",
+    #     service_port=7000,
+    #     service_route="/enqueue",
+    #     health_route="/",
+    #     setup_type=SetupTypes.TT_INFERENCE_SERVER,
+    #     model_type=ModelTypes.IMAGE_GENERATION,
+    # ),
 
     # Image Generation - Can run on N150 and N300
     ModelImpl(
@@ -287,36 +287,25 @@ model_implmentations_list = [
 
     # Mock Chat 
     # TODO: currently not working.
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
-        model_name="Mock-Llama-3.1-70B-Instruct",
-        model_id="id_mock_vllm_modelv0.0.1",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
-        image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
-        device_configurations={DeviceConfigurations.CPU},
-        docker_config=base_docker_config(),
-        shm_size="1G",
-        service_port=7000,
-        service_route="/v1/chat/completions",
-        setup_type=SetupTypes.MAKE_VOLUMES,
-        model_type=ModelTypes.MOCK
-    ),
+    # remove this model for now until its in tt-inference-server-main branch
+    #  TODO: add / make a new mock model
+    # ModelImpl(
+    #     hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
+    #     model_name="Mock-Llama-3.1-70B-Instruct",
+    #     model_id="id_mock_vllm_modelv0.0.1",
+    #     image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
+    #     image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
+    #     device_configurations={DeviceConfigurations.CPU},
+    #     docker_config=base_docker_config(),
+    #     shm_size="1G",
+    #     service_port=7000,
+    #     service_route="/v1/chat/completions",
+    #     setup_type=SetupTypes.MAKE_VOLUMES,
+    #     model_type=ModelTypes.MOCK
+    # ),
 
     # --- Chat Models ---
-    # 70B models - Only T3000
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=T3000_ONLY,  # Only T3000
-        docker_config=base_docker_config(),
-        shm_size="32G",
-        service_port=7000,
-        service_route="/v1/chat/completions",
-        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
-    ),
+
     # 1B, 3B, 8B, 11B models - Can run on all boards
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.2-1B-Instruct",
@@ -351,27 +340,45 @@ model_implmentations_list = [
         model_type=ModelTypes.CHAT
 
     ),
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=ALL_BOARDS,  # Can run on all boards
-        docker_config=base_docker_config(),
-        service_route="/v1/chat/completions",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
+    # TODO: add this model back in when its in tt-inference-server-main branch
+    # ModelImpl(
+    #     hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
+    #     image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+    #     image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
+    #     device_configurations=ALL_BOARDS,  # Can run on all boards
+    #     docker_config=base_docker_config(),
+    #     service_route="/v1/chat/completions",
+    #     setup_type=SetupTypes.TT_INFERENCE_SERVER,
+    #     model_type=ModelTypes.CHAT
  
-    ),
+    # ),
+
+
+    # 70B models - Only T3000
+
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
         image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
         device_configurations=T3000_ONLY,  # Only T3000
         docker_config=base_docker_config(),
+        shm_size="32G",
+        service_port=7000,
         service_route="/v1/chat/completions",
+        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.CHAT
     ),
+    # ModelImpl(
+    #     hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
+    #     image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+    #     image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
+    #     device_configurations=T3000_ONLY,  # Only T3000
+    #     docker_config=base_docker_config(),
+    #     service_route="/v1/chat/completions",
+    #     setup_type=SetupTypes.TT_INFERENCE_SERVER,
+    #     model_type=ModelTypes.CHAT
+    # ),
     ModelImpl(
         hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
