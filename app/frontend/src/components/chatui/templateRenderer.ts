@@ -8,20 +8,73 @@ export interface ChatMessage {
   content: string;
 }
 
+// Simple greeting patterns for fast detection
+const SIMPLE_GREETINGS = new Set([
+  "hi",
+  "hello",
+  "hey",
+  "hiya",
+  "greetings",
+  "good morning",
+  "good afternoon",
+  "good evening",
+  "howdy",
+  "sup",
+  "what's up",
+  "whats up",
+  "yo",
+]);
+
+function isSimpleGreeting(message: string): boolean {
+  const cleaned = message
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s]/g, "");
+  return SIMPLE_GREETINGS.has(cleaned);
+}
+
+function generateSimpleGreetingResponse(
+  chatHistory: { sender: string; text: string }[]
+): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+
+  // Simple system message for greetings
+  messages.push({
+    role: "system",
+    content:
+      "You are an open source language model running on Tenstorrent hardware. Respond to greetings in a friendly, brief manner.",
+  });
+
+  // Add chat history
+  chatHistory.forEach((message) => {
+    messages.push({
+      role: message.sender === "user" ? "user" : "assistant",
+      content: message.text,
+    });
+  });
+
+  return messages;
+}
+
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
-  ragContext: { documents: string[] } | null = null,
+  ragContext: { documents: string[] } | null = null
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
   // Get the latest user question
   const latestUserQuestion =
-    chatHistory.length > 0 &&
-    chatHistory[chatHistory.length - 1].sender === "user"
+    chatHistory.length > 0 && chatHistory[chatHistory.length - 1].sender === "user"
       ? chatHistory[chatHistory.length - 1].text
       : "";
 
   // console.log("📝 Original User Query:", latestUserQuestion);
+
+  // Check for simple greetings first for faster responses
+  if (isSimpleGreeting(latestUserQuestion)) {
+    console.log("👋 Detected simple greeting, using fast path");
+    return generateSimpleGreetingResponse(chatHistory);
+  }
 
   // Process the user's query
   const processedQuery = processQuery(latestUserQuestion);

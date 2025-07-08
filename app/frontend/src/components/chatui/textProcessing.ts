@@ -87,23 +87,11 @@ const TECHNICAL_ACTIONS = new Set([
 ]);
 
 // Combine all preserved terms
-const PRESERVED_TERMS = new Set([
-  ...DOMAIN_TERMS,
-  ...TECHNICAL_TERMS,
-  ...TECHNICAL_ACTIONS,
-]);
+const PRESERVED_TERMS = new Set([...DOMAIN_TERMS, ...TECHNICAL_TERMS, ...TECHNICAL_ACTIONS]);
 
 // Action patterns for better intent detection
 const ACTION_PATTERNS = {
-  debug: [
-    "debug",
-    "troubleshoot",
-    "fix",
-    "resolve",
-    "error",
-    "issue",
-    "problem",
-  ],
+  debug: ["debug", "troubleshoot", "fix", "resolve", "error", "issue", "problem"],
   deploy: ["deploy", "run", "start", "launch", "execute"],
   configure: ["configure", "setup", "install", "set", "define"],
   monitor: ["monitor", "watch", "observe", "track", "log"],
@@ -221,25 +209,8 @@ const STOP_WORDS = new Set([
 
 // Intent-specific context keywords
 const INTENT_CONTEXT_KEYWORDS: Record<string, string[]> = {
-  debug: [
-    "error",
-    "issue",
-    "problem",
-    "fix",
-    "troubleshoot",
-    "log",
-    "crash",
-    "fail",
-  ],
-  deploy: [
-    "setup",
-    "install",
-    "configure",
-    "run",
-    "start",
-    "environment",
-    "config",
-  ],
+  debug: ["error", "issue", "problem", "fix", "troubleshoot", "log", "crash", "fail"],
+  deploy: ["setup", "install", "configure", "run", "start", "environment", "config"],
   howto: ["guide", "tutorial", "steps", "process", "procedure", "method"],
   explain: ["concept", "overview", "architecture", "design", "purpose", "why"],
   search: ["find", "locate", "where", "which", "what", "list"],
@@ -355,6 +326,32 @@ export const analyzeQueryIntent = (query: string): QueryIntent => {
     details: [],
   };
 
+  // Check for simple greetings first
+  const greetingWords = [
+    "hi",
+    "hello",
+    "hey",
+    "hiya",
+    "greetings",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "howdy",
+    "sup",
+    "what's up",
+    "whats up",
+    "yo",
+  ];
+  const cleaned = query
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s]/g, "");
+  if (greetingWords.includes(cleaned)) {
+    intent.type = "greeting";
+    console.log("👋 Detected greeting type");
+    return intent;
+  }
+
   // Check for question words
   if (doc.has("^#QuestionWord")) {
     intent.type = "question";
@@ -393,26 +390,19 @@ export const analyzeQueryIntent = (query: string): QueryIntent => {
 
   // Extract important details (nouns, technical terms)
   const nounTerms: string[] = doc.nouns().out("array");
-  const domainTerms: string[] = doc
-    .match(Array.from(DOMAIN_TERMS).join("|"))
-    .out("array");
-  const technicalTerms: string[] = doc
-    .match(Array.from(TECHNICAL_TERMS).join("|"))
-    .out("array");
+  const domainTerms: string[] = doc.match(Array.from(DOMAIN_TERMS).join("|")).out("array");
+  const technicalTerms: string[] = doc.match(Array.from(TECHNICAL_TERMS).join("|")).out("array");
 
-  intent.details = [
-    ...intent.details,
-    ...nounTerms,
-    ...domainTerms,
-    ...technicalTerms,
-  ].filter((term): term is string => typeof term === "string");
+  intent.details = [...intent.details, ...nounTerms, ...domainTerms, ...technicalTerms].filter(
+    (term): term is string => typeof term === "string"
+  );
 
   console.log("✅ Final intent analysis:", intent);
   return intent;
 };
 
 export const processQuery = (
-  query: string,
+  query: string
 ): {
   processed: string;
   expanded: string;
