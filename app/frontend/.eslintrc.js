@@ -1,6 +1,10 @@
 module.exports = {
   root: true,
-  extends: ["eslint:recommended", "plugin:react/recommended", "plugin:prettier/recommended"],
+  extends: [
+    "eslint:recommended",
+    "plugin:react/recommended",
+    "plugin:prettier/recommended",
+  ],
   plugins: ["headers"],
   rules: {
     "headers/header": [

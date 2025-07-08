@@ -16,4 +16,7 @@ WORKDIR /frontend
 COPY . /frontend
 
 
-CMD ["sh", "-c", "npm i && npm run dev"]
+# CMD ["sh", "-c", "npm i && npm run dev"]
+RUN npm i
+
+CMD ["npm", "run", "dev"]

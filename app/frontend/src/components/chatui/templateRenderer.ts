@@ -10,17 +10,18 @@ export interface ChatMessage {
 
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
-  ragContext: { documents: string[] } | null = null
+  ragContext: { documents: string[] } | null = null,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
   // Get the latest user question
   const latestUserQuestion =
-    chatHistory.length > 0 && chatHistory[chatHistory.length - 1].sender === "user"
+    chatHistory.length > 0 &&
+    chatHistory[chatHistory.length - 1].sender === "user"
       ? chatHistory[chatHistory.length - 1].text
       : "";
 
-  console.log("📝 Original User Query:", latestUserQuestion);
+  // console.log("📝 Original User Query:", latestUserQuestion);
 
   // Process the user's query
   const processedQuery = processQuery(latestUserQuestion);
@@ -64,7 +65,7 @@ Answer: To deploy the application, you'll need to set up the required environmen
   // Add system message first
   messages.push({
     role: "system",
-    content: `You are an assistant embedded in Tenstorrent's AI tool.
+    content: `You are an open source language model running on Tenstorrent hardware.
 
 SAFETY GUIDELINES:
 • Only answer if you are confident and the information is in your training or the provided context
@@ -75,11 +76,9 @@ SAFETY GUIDELINES:
 ${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
 
 ${
-  processedQuery.intent.type === "greeting" || !processedQuery.intent.action
-    ? "Keep responses warm and natural while following safety guidelines."
-    : `Start conversations warmly and maintain a conversational tone while following safety guidelines.
-
-RESPONSE FORMAT:
+  processedQuery.intent.type === "greeting"
+    ? "Keep responses brief and friendly for greetings."
+    : `RESPONSE FORMAT:
 ${responseFormat}`
 }`,
   });
@@ -133,7 +132,9 @@ CONTEXT INSTRUCTIONS:
 }
 
 function getResponseFormat(intent: { type: string; action?: string }): string {
-  if (intent.action === "debug") {
+  if (intent.type === "greeting") {
+    return `Keep it simple and friendly.`;
+  } else if (intent.action === "debug") {
     return `• Let's look at what might be causing the issue
 • I'll suggest some solutions that could help
 • We can walk through the steps together`;

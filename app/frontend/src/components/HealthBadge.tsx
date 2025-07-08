@@ -26,7 +26,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
         `/models-api/health/?deploy_id=${deployId}`,
         {
           method: "GET",
-        }
+        },
       );
 
       if (response.status === 200) {

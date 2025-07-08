@@ -55,6 +55,14 @@ TT_STUDIO_ROOT = os.getcwd()
 INFERENCE_SERVER_BRANCH = "anirud/fast-api-container-fetching-fixes"
 OS_NAME = platform.system()
 
+# --- ASCII Art Constants ---
+# Credit: figlet font slant by Glenn Chappell
+TENSTORRENT_ASCII_ART = r"""   __                  __                             __
+  / /____  ____  _____/ /_____  _____________  ____  / /_
+ / __/ _ \/ __ \/ ___/ __/ __ \/ ___/ ___/ _ \/ __ \/ __/
+/ /_/  __/ / / (__  ) /_/ /_/ / /  / /  /  __/ / / / /_
+\__/\___/_/ /_/____/\__/\____/_/  /_/   \___/_/ /_/\__/"""
+
 # --- File Paths ---
 DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
@@ -530,13 +538,20 @@ def display_welcome_banner():
     print("=" * 68)
     print(f"{C_RESET}")
     
-    # Simple ASCII Art
+    # Tenstorrent ASCII Art
     print(f"{C_TT_PURPLE}{C_BOLD}")
-    print("  ████████ ████████      ███████ ████████ ██   ██ ██████  ██  ██████  ")
-    print("     ██       ██         ██         ██    ██   ██ ██   ██ ██ ██    ██ ")
-    print("     ██       ██         ███████    ██    ██   ██ ██   ██ ██ ██    ██ ")
-    print("     ██       ██              ██    ██    ██   ██ ██   ██ ██ ██    ██ ")
-    print("     ██       ██         ███████    ██     █████  ██████  ██  ██████  ")
+    print(TENSTORRENT_ASCII_ART)
+    print(f"{C_RESET}")
+    print()
+    
+    # TT Studio ASCII Art
+    print(f"{C_TT_PURPLE}{C_BOLD}")
+    print("████████╗████████╗    ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ ")
+    print("╚══██╔══╝╚══██╔══╝    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗")
+    print("   ██║      ██║       ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║")
+    print("   ██║      ██║       ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║")
+    print("   ██║      ██║       ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝")
+    print("   ╚═╝      ╚═╝       ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ ")
     print(f"{C_RESET}")
     
     # Subtitle

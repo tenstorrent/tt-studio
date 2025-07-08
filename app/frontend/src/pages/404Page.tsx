@@ -4,11 +4,16 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React from "react";
 import { useState, useEffect } from "react";
-import { useMotionValue, useMotionTemplate, motion, type MotionValue } from "framer-motion";
+import {
+  useMotionValue,
+  useMotionTemplate,
+  motion,
+  type MotionValue,
+} from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { Button } from "../components/ui/button";
-import ttLogo from "../assets/logo/tt_logo.svg";
+import { useLogo } from "../utils/logo";
 
 const PageSpotlight = ({ children }: { children: React.ReactNode }) => {
   const mouseX = useMotionValue(0);
@@ -51,7 +56,13 @@ function PagePattern({
   );
 }
 
-const LoginCard = ({ children, className }: { children: React.ReactNode; className?: string }) => {
+const LoginCard = ({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) => {
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
   const [randomString, setRandomString] = useState("");
@@ -61,7 +72,11 @@ const LoginCard = ({ children, className }: { children: React.ReactNode; classNa
     setRandomString(str);
   }, []);
 
-  function onMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent<HTMLDivElement>) {
+  function onMouseMove({
+    currentTarget,
+    clientX,
+    clientY,
+  }: React.MouseEvent<HTMLDivElement>) {
     const { left, top } = currentTarget.getBoundingClientRect();
     mouseX.set(clientX - left);
     mouseY.set(clientY - top);
@@ -71,11 +86,15 @@ const LoginCard = ({ children, className }: { children: React.ReactNode; classNa
     <div
       className={cn(
         "group relative rounded-lg bg-card/80 backdrop-blur-sm transition-all duration-300 p-16 w-full max-w-4xl min-h-[800px]",
-        className
+        className,
       )}
       onMouseMove={onMouseMove}
     >
-      <CardPattern mouseX={mouseX} mouseY={mouseY} randomString={randomString} />
+      <CardPattern
+        mouseX={mouseX}
+        mouseY={mouseY}
+        randomString={randomString}
+      />
       <div className="relative z-10">{children}</div>
     </div>
   );
@@ -112,7 +131,8 @@ function CardPattern({
   );
 }
 
-const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const characters =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const generateRandomString = (length: number) => {
   const word = "tenstorrent";
   let result = "";
@@ -121,7 +141,9 @@ const generateRandomString = (length: number) => {
       result += word;
       i += word.length - 1;
     } else {
-      result += characters.charAt(Math.floor(Math.random() * characters.length));
+      result += characters.charAt(
+        Math.floor(Math.random() * characters.length),
+      );
     }
   }
   return result;
@@ -144,7 +166,9 @@ function ImageCarousel() {
   };
 
   const prevImage = () => {
-    setCurrentIndex((prevIndex) => (prevIndex - 1 + chipImages.length) % chipImages.length);
+    setCurrentIndex(
+      (prevIndex) => (prevIndex - 1 + chipImages.length) % chipImages.length,
+    );
   };
 
   const handleHover = () => {
@@ -199,6 +223,7 @@ function ImageCarousel() {
 
 export default function NotFoundPage() {
   const navigate = useNavigate();
+  const { logoUrl } = useLogo();
 
   return (
     <PageSpotlight>
@@ -222,9 +247,9 @@ export default function NotFoundPage() {
             </div>
           </LoginCard>
           <div className="flex items-center justify-center space-x-2">
-            {ttLogo && (
+            {logoUrl && (
               <img
-                src={ttLogo}
+                src={logoUrl}
                 alt="Tenstorrent"
                 className="h-6 w-auto"
                 onError={(e) => {

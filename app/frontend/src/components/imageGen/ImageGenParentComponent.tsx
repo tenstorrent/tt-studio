@@ -21,7 +21,7 @@ const ImageGenParentComponent: React.FC = () => {
     if (location.state) {
       if (!location.state.containerID) {
         customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
+          "modelID is unavailable. Try navigating here from the Models Deployed tab",
         );
         return;
       }

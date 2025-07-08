@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useState } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../ui/table";
 import { Detection } from "./types/objectDetection";
 import { getConfidenceTextColorClass } from "./utils/colorUtils";
 import { Activity, ChevronRight, ChevronDown } from "lucide-react";
@@ -51,7 +58,9 @@ export const DetectionResultsTable: React.FC<DetectionResultsTableProps> = ({
                   <TableHead className="w-[100px] text-center whitespace-nowrap py-3">
                     Confidence
                   </TableHead>
-                  <TableHead className="text-left whitespace-nowrap py-3 pl-4">Object</TableHead>
+                  <TableHead className="text-left whitespace-nowrap py-3 pl-4">
+                    Object
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -59,7 +68,9 @@ export const DetectionResultsTable: React.FC<DetectionResultsTableProps> = ({
                   <React.Fragment key={index}>
                     <TableRow
                       className={`hover:bg-muted/40 transition-colors ${
-                        index === hoveredIndex ? "bg-blue-50 dark:bg-blue-900/20" : ""
+                        index === hoveredIndex
+                          ? "bg-blue-50 dark:bg-blue-900/20"
+                          : ""
                       }`}
                       onMouseEnter={() => onHoverDetection(index)}
                       onMouseLeave={() => onHoverDetection(null)}
@@ -70,15 +81,21 @@ export const DetectionResultsTable: React.FC<DetectionResultsTableProps> = ({
                           className="p-1 hover:bg-muted/60 rounded-md transition-colors"
                         >
                           {expandedRows.has(index) ? (
-                            <ChevronDown size={16} className="text-muted-foreground" />
+                            <ChevronDown
+                              size={16}
+                              className="text-muted-foreground"
+                            />
                           ) : (
-                            <ChevronRight size={16} className="text-muted-foreground" />
+                            <ChevronRight
+                              size={16}
+                              className="text-muted-foreground"
+                            />
                           )}
                         </button>
                       </TableCell>
                       <TableCell
                         className={`text-center font-medium py-2 w-[100px] ${getConfidenceTextColorClass(
-                          detection.confidence
+                          detection.confidence,
                         )}`}
                       >
                         {(detection.confidence * 100).toFixed(1)}%
@@ -93,28 +110,48 @@ export const DetectionResultsTable: React.FC<DetectionResultsTableProps> = ({
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                             <div className="space-y-2">
                               <div>
-                                <span className="text-muted-foreground">ID: </span>
-                                <span className="font-medium">{detection.class}</span>
+                                <span className="text-muted-foreground">
+                                  ID:{" "}
+                                </span>
+                                <span className="font-medium">
+                                  {detection.class}
+                                </span>
                               </div>
                               <div>
-                                <span className="text-muted-foreground">x-min: </span>
-                                <span className="font-mono">{detection.xmin?.toFixed(3)}</span>
-                              </div>
-                            </div>
-                            <div className="space-y-2">
-                              <div>
-                                <span className="text-muted-foreground">y-min: </span>
-                                <span className="font-mono">{detection.ymin?.toFixed(3)}</span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">x-max: </span>
-                                <span className="font-mono">{detection.xmax?.toFixed(3)}</span>
+                                <span className="text-muted-foreground">
+                                  x-min:{" "}
+                                </span>
+                                <span className="font-mono">
+                                  {detection.xmin?.toFixed(3)}
+                                </span>
                               </div>
                             </div>
                             <div className="space-y-2">
                               <div>
-                                <span className="text-muted-foreground">y-max: </span>
-                                <span className="font-mono">{detection.ymax?.toFixed(3)}</span>
+                                <span className="text-muted-foreground">
+                                  y-min:{" "}
+                                </span>
+                                <span className="font-mono">
+                                  {detection.ymin?.toFixed(3)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">
+                                  x-max:{" "}
+                                </span>
+                                <span className="font-mono">
+                                  {detection.xmax?.toFixed(3)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <div>
+                                <span className="text-muted-foreground">
+                                  y-max:{" "}
+                                </span>
+                                <span className="font-mono">
+                                  {detection.ymax?.toFixed(3)}
+                                </span>
                               </div>
                             </div>
                           </div>
