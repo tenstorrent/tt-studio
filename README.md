@@ -228,5 +228,8 @@ For detailed information about using the `run.py` script, including all command-
 - **Troubleshooting Guide**: [docs/troubleshooting.md](docs/troubleshooting.md)  
   Comprehensive solutions for common issues you might encounter with TT-Studio.
 
+- **Developer Tools**: [dev-tools/README.md](dev-tools/README.md)  
+  Development utilities and tools for TT-Studio, including the SPDX header tool for adding license headers to source files.
+
 - **Frequently Asked Questions (FAQ)**: [docs/FAQ.md](docs/FAQ.md)  
   A compilation of frequently asked questions to help users quickly solve common issues.
