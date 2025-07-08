@@ -98,7 +98,7 @@ const AnimatedIcon = forwardRef<HTMLDivElement, AnimatedIconProps>(
     >
       <Icon {...props} />
     </motion.div>
-  )
+  ),
 );
 
 AnimatedIcon.displayName = "AnimatedIcon";
@@ -395,9 +395,7 @@ export default function NavBar() {
     }
   };
 
-  const handleImageGenerationClick = () => {
-    handleNavigation("/image-generation");
-  };
+  // Removed unused handleImageGenerationClick - functionality is already handled by handleNavigation
 
   const toggleHorizontalExpand = (): void => {
     setIsHorizontalExpanded(!isHorizontalExpanded);
@@ -569,19 +567,19 @@ export default function NavBar() {
                 rel="noopener noreferrer"
                 className="mb-6"
               >
-                              {logoUrl && (
-                <motion.img
-                  src={logoUrl}
-                  alt="Tenstorrent Logo"
-                  className="w-10 h-10"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display =
-                      "none";
-                  }}
-                  whileHover={{ scale: 1.1, rotate: 360 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 10 }}
-                />
-              )}
+                {logoUrl && (
+                  <motion.img
+                    src={logoUrl}
+                    alt="Tenstorrent Logo"
+                    className="w-10 h-10"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display =
+                        "none";
+                    }}
+                    whileHover={{ scale: 1.1, rotate: 360 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 10 }}
+                  />
+                )}
               </a>
 
               {/* Navigation Menu */}

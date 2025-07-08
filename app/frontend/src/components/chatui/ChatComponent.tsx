@@ -43,8 +43,9 @@ export default function ChatComponent() {
   const [ragDatasource, setRagDatasource] = useState<
     RagDataSource | undefined
   >();
-  const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
-    useState(false);
+  // TODO: RAG explicit deselection feature is incomplete - setter is commented out in Header.tsx
+  // const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
+  //   useState(false);
   const { data: ragDataSources } = useQuery("collectionsList", {
     queryFn: fetchCollections,
     initialData: [],
@@ -61,7 +62,7 @@ export default function ChatComponent() {
   // Updated structure to include titles directly in the threads
   const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>(
     "chat_threads",
-    [defaultThread]
+    [defaultThread],
   );
 
   const [currentThreadIndex, setCurrentThreadIndex] =
@@ -129,7 +130,7 @@ export default function ChatComponent() {
   useEffect(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
       console.warn(
-        "ChatThreads is not an array or is empty, resetting to default"
+        "ChatThreads is not an array or is empty, resetting to default",
       );
       setChatThreads([defaultThread]);
       setCurrentThreadIndex(0);
@@ -523,7 +524,7 @@ export default function ChatComponent() {
                 uploadDate: new Date().toISOString(),
               },
             };
-          })
+          }),
         );
 
         // Update files with processed metadata
@@ -559,7 +560,7 @@ export default function ChatComponent() {
         updatedMessages = (threadToUse.messages || []).map((msg) =>
           msg.id === continuationMessageId
             ? { ...msg, text: msg.text + " [Continuing...] " }
-            : msg
+            : msg,
         );
       } else {
         // Store ragDatasource in the user message
@@ -590,7 +591,7 @@ export default function ChatComponent() {
                     title: userMessage.text.substring(0, 30),
                     messages: updatedMessages,
                   }
-                : thread
+                : thread,
             );
           });
         }
@@ -604,7 +605,7 @@ export default function ChatComponent() {
           return prevThreads.map((thread, idx) =>
             idx === currentThreadIndex
               ? { ...thread, messages: updatedMessages }
-              : thread
+              : thread,
           );
         });
       }
@@ -678,14 +679,14 @@ export default function ChatComponent() {
               return prevThreads.map((thread, idx) =>
                 idx === currentThreadIndex
                   ? { ...thread, messages: finalMessages }
-                  : thread
+                  : thread,
               );
             });
           },
           setIsStreaming,
           isAgentSelected,
           currentThreadIndex,
-          controller
+          controller,
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -714,7 +715,7 @@ export default function ChatComponent() {
       defaultThread,
       setCurrentThreadIndex,
       modelSettings,
-    ]
+    ],
   );
 
   const handleStopInference = useCallback(() => {
@@ -732,7 +733,7 @@ export default function ChatComponent() {
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
       const messageToReRender = currentThread.messages.find(
-        (msg) => msg.id === messageId
+        (msg) => msg.id === messageId,
       );
       if (
         !messageToReRender ||
@@ -745,7 +746,7 @@ export default function ChatComponent() {
         (msg) =>
           msg.sender === "user" &&
           currentThread.messages.indexOf(msg) <
-            currentThread.messages.indexOf(messageToReRender)
+            currentThread.messages.indexOf(messageToReRender),
       );
       if (!userMessage) return;
 
@@ -808,19 +809,19 @@ export default function ChatComponent() {
                   };
                 }
                 return msg;
-              }
+              },
             );
 
             return prevThreads.map((thread, idx) =>
               idx === currentThreadIndex
                 ? { ...thread, messages: updatedMessages }
-                : thread
+                : thread,
             );
           });
         },
         setIsStreaming,
         isAgentSelected,
-        currentThreadIndex
+        currentThreadIndex,
       );
 
       setReRenderingMessageId(null);
@@ -833,7 +834,7 @@ export default function ChatComponent() {
       setChatThreads,
       isAgentSelected,
       defaultThread,
-    ]
+    ],
   );
 
   const handleContinue = useCallback(
@@ -842,14 +843,14 @@ export default function ChatComponent() {
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
       const messageToContinue = currentThread.messages.find(
-        (msg) => msg.id === messageId
+        (msg) => msg.id === messageId,
       );
       if (!messageToContinue || messageToContinue.sender !== "assistant")
         return;
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [getCurrentThread]
+    [getCurrentThread],
   );
 
   const handleSelectConversation = useCallback(
@@ -878,7 +879,7 @@ export default function ChatComponent() {
       screenSize.isMobileView,
       setChatThreads,
       defaultThread,
-    ]
+    ],
   );
 
   // Create a new conversation with a unique ID
@@ -1170,7 +1171,7 @@ export default function ChatComponent() {
                     }
 
                     const newThreads = prevThreads.filter(
-                      (thread) => thread.id !== id
+                      (thread) => thread.id !== id,
                     );
 
                     if (newThreads.length === 0) {
@@ -1192,7 +1193,9 @@ export default function ChatComponent() {
                     if (!Array.isArray(prevThreads)) return [defaultThread];
 
                     return prevThreads.map((thread) =>
-                      thread.id === id ? { ...thread, title: newTitle } : thread
+                      thread.id === id
+                        ? { ...thread, title: newTitle }
+                        : thread,
                     );
                   });
                 }}
@@ -1231,7 +1234,8 @@ export default function ChatComponent() {
               isAgentSelected={isAgentSelected}
               setIsAgentSelected={setIsAgentSelected}
               isMobileView={screenSize.isMobileView}
-              setIsRagExplicitlyDeselected={setIsRagExplicitlyDeselected}
+              // TODO: RAG explicit deselection feature is incomplete
+              // setIsRagExplicitlyDeselected={setIsRagExplicitlyDeselected}
               isSettingsOpen={isSettingsOpen}
               setIsSettingsOpen={setIsSettingsOpen}
             />
@@ -1251,7 +1255,7 @@ export default function ChatComponent() {
                   ? currentThread.messages
                   : [];
               })()}
-                              logo={logoUrl || ""}
+              logo={logoUrl || ""}
               setTextInput={setTextInput}
               isStreaming={isStreaming}
               onReRender={handleReRender}

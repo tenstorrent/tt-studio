@@ -159,8 +159,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               systemStatus.hardware_status === "error"
                 ? "destructive"
                 : error
-                ? "destructive"
-                : "default"
+                  ? "destructive"
+                  : "default"
             }
             className="text-xs"
             title={systemStatus.hardware_error || error || "Hardware status"}

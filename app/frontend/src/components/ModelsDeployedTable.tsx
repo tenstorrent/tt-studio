@@ -88,7 +88,7 @@ interface ParsedLogLine {
 
 // Map ANSI color codes to CSS classes
 const ansiToColor = (
-  code: string
+  code: string,
 ): {
   color?: string;
   backgroundColor?: string;
@@ -399,11 +399,11 @@ function LogsDialog({
 
         if (isLoading) {
           setError(
-            "Failed to connect to log stream. The container may have stopped."
+            "Failed to connect to log stream. The container may have stopped.",
           );
         } else {
           setError(
-            "Connection to log stream lost. The container may have stopped."
+            "Connection to log stream lost. The container may have stopped.",
           );
         }
 
@@ -495,7 +495,7 @@ function LogsDialog({
                       {parsed.level && (
                         <span
                           className={`text-xs font-bold mr-2 ${getLogLevelColor(
-                            parsed.level
+                            parsed.level,
                           )}`}
                         >
                           [{parsed.level}]
@@ -583,10 +583,10 @@ function LogsDialog({
                         isError
                           ? "border-red-500 bg-red-900 bg-opacity-20"
                           : isWarning
-                          ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
-                          : isInfo || isStartupEvent
-                          ? "border-green-500 bg-green-900 bg-opacity-20"
-                          : "border-blue-500 bg-blue-900 bg-opacity-20"
+                            ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
+                            : isInfo || isStartupEvent
+                              ? "border-green-500 bg-green-900 bg-opacity-20"
+                              : "border-blue-500 bg-blue-900 bg-opacity-20"
                       }`}
                       style={{
                         wordWrap: "break-word",
@@ -626,10 +626,10 @@ function LogsDialog({
                                 isError
                                   ? "bg-red-500 text-white"
                                   : isWarning
-                                  ? "bg-yellow-500 text-black"
-                                  : isInfo || isStartupEvent
-                                  ? "bg-green-500 text-white"
-                                  : "bg-blue-500 text-white"
+                                    ? "bg-yellow-500 text-black"
+                                    : isInfo || isStartupEvent
+                                      ? "bg-green-500 text-white"
+                                      : "bg-blue-500 text-white"
                               }`}
                             >
                               {parsed.level}
@@ -646,10 +646,10 @@ function LogsDialog({
                                     (isError
                                       ? "#FF6B6B"
                                       : isWarning
-                                      ? "#FFD93D"
-                                      : isInfo || isStartupEvent
-                                      ? "#50FA7B"
-                                      : "#8BE9FD"),
+                                        ? "#FFD93D"
+                                        : isInfo || isStartupEvent
+                                          ? "#50FA7B"
+                                          : "#8BE9FD"),
                                   backgroundColor: segment.backgroundColor,
                                   fontWeight: segment.bold ? "bold" : "normal",
                                   fontStyle: segment.italic
@@ -746,11 +746,11 @@ export default function ModelsDeployedTable() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const { theme } = useTheme();
   const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(
-    () => ({})
+    () => ({}),
   );
   const [showBanner, setShowBanner] = useState(true);
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
-    null
+    null,
   );
   // New state variables for column visibility
   const [showImage, setShowImage] = useState(false);
@@ -801,7 +801,7 @@ export default function ModelsDeployedTable() {
       await Promise.all(
         models.map(async (model) => {
           healthStatuses[model.id] = await fetchHealth(model.id);
-        })
+        }),
       );
       if (isMounted) setModelHealth(healthStatuses);
     };
@@ -860,7 +860,7 @@ export default function ModelsDeployedTable() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setModels((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id))
+        prevModels.filter((model) => !fadingModels.includes(model.id)),
       );
       setFadingModels([]);
     }, 3000);
@@ -1227,7 +1227,7 @@ export default function ModelsDeployedTable() {
                                   handleModelNavigationClick(
                                     model.id,
                                     model.name,
-                                    navigate
+                                    navigate,
                                   )
                                 }
                                 className={`$${
@@ -1263,7 +1263,7 @@ export default function ModelsDeployedTable() {
                               ) : (
                                 <p>
                                   {getTooltipText(
-                                    getModelTypeLabel(model.name)
+                                    getModelTypeLabel(model.name),
                                   )}
                                 </p>
                               )}

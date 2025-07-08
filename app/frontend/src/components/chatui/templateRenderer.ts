@@ -10,13 +10,14 @@ export interface ChatMessage {
 
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
-  ragContext: { documents: string[] } | null = null
+  ragContext: { documents: string[] } | null = null,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
   // Get the latest user question
   const latestUserQuestion =
-    chatHistory.length > 0 && chatHistory[chatHistory.length - 1].sender === "user"
+    chatHistory.length > 0 &&
+    chatHistory[chatHistory.length - 1].sender === "user"
       ? chatHistory[chatHistory.length - 1].text
       : "";
 

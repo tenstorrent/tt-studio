@@ -37,7 +37,7 @@ function GridPattern() {
               }`}
             />
           );
-        })
+        }),
       )}
     </div>
   );
@@ -52,14 +52,15 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
   modelID,
   setExternalControls,
 }) => {
-  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } = useWebcam(
-    setDetections,
-    setLiveMode,
-    setIsLoading,
-    setIsStreaming,
-    setIsCameraOn,
-    modelID ?? ""
-  );
+  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } =
+    useWebcam(
+      setDetections,
+      setLiveMode,
+      setIsLoading,
+      setIsStreaming,
+      setIsCameraOn,
+      modelID ?? "",
+    );
 
   // Add a state to track if the component is mounted/visible
   const [isMounted, setIsMounted] = useState(true);
@@ -93,7 +94,11 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       const controls = (
         <div className="flex justify-center">
           {isCapturing ? (
-            <Button onClick={handleStopCapture} variant="outline" className="w-full sm:w-auto">
+            <Button
+              onClick={handleStopCapture}
+              variant="outline"
+              className="w-full sm:w-auto"
+            >
               Stop Capture
             </Button>
           ) : (
@@ -143,7 +148,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
                 className={cn(
                   "relative group-hover/file:shadow-2xl z-40 bg-white dark:bg-neutral-900 flex items-center justify-center h-32 w-full max-w-[8rem] mx-auto rounded-md",
-                  "shadow-[0px_10px_50px_rgba(0,0,0,0.1)]"
+                  "shadow-[0px_10px_50px_rgba(0,0,0,0.1)]",
                 )}
               >
                 <Video className="h-6 w-6 text-neutral-600 dark:text-neutral-300" />

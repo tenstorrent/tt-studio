@@ -235,7 +235,9 @@ export const migrateFromLocalStorage = async (): Promise<void> => {
             parsedValue = JSON.parse(value);
           } catch (parseError) {
             // If parsing fails, store the raw string value
-            console.log(`Value for key ${key} is not valid JSON, storing as string`);
+            console.log(
+              `Value for key ${key} is not valid JSON, storing as string`,
+            );
             parsedValue = value;
           }
 

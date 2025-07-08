@@ -69,7 +69,8 @@ export default function StepperDemo() {
 
   const addCustomStep = () => {
     setSteps((prevSteps) => {
-      const customStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const customStepIndex =
+        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const customStep = {
         label: "Custom Step",
         description: "Upload Custom Weights",
@@ -87,7 +88,8 @@ export default function StepperDemo() {
 
   const addFineTuneStep = () => {
     setSteps((prevSteps) => {
-      const fineTuneStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const fineTuneStepIndex =
+        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const fineTuneStep = {
         label: "Fine-Tune Step",
         description: "Link to Fine Tuner",
@@ -105,13 +107,18 @@ export default function StepperDemo() {
 
   const removeDynamicSteps = () => {
     setSteps((prevSteps) =>
-      prevSteps.filter((step) => step.label !== "Custom Step" && step.label !== "Fine-Tune Step")
+      prevSteps.filter(
+        (step) =>
+          step.label !== "Custom Step" && step.label !== "Fine-Tune Step",
+      ),
     );
   };
 
   const checkImageStatus = async (modelId: string) => {
     try {
-      const response = await axios.get(`${dockerAPIURL}docker/image_status/${modelId}/`);
+      const response = await axios.get(
+        `${dockerAPIURL}docker/image_status/${modelId}/`,
+      );
       console.log("Image status response:", response.data);
       setImageStatus(response.data);
     } catch (error) {
@@ -131,7 +138,7 @@ export default function StepperDemo() {
             Accept: "text/event-stream",
           },
           responseType: "text",
-        }
+        },
       );
 
       // Parse the SSE response manually
@@ -179,7 +186,9 @@ export default function StepperDemo() {
 
     const model_id = selectedModel || "0";
     const weights_id =
-      selectedWeight === "Default Weights" ? "" : customWeight?.weights_id || selectedWeight;
+      selectedWeight === "Default Weights"
+        ? ""
+        : customWeight?.weights_id || selectedWeight;
 
     const payload = JSON.stringify({
       model_id,
@@ -221,7 +230,10 @@ export default function StepperDemo() {
               className="mb-8"
             >
               {step.label === "Step 1" && (
-                <FirstStepForm setSelectedModel={setSelectedModel} setFormError={setFormError} />
+                <FirstStepForm
+                  setSelectedModel={setSelectedModel}
+                  setFormError={setFormError}
+                />
               )}
               {step.label === "Docker Step" && (
                 <DockerStepForm
@@ -255,7 +267,11 @@ export default function StepperDemo() {
               {step.label === "Fine-Tune Step" && (
                 <>
                   <div className="flex flex-col items-center w-full justify-center p-10">
-                    <Button onClick={() => customToast.success("Link to Fine Tuner activated")}>
+                    <Button
+                      onClick={() =>
+                        customToast.success("Link to Fine Tuner activated")
+                      }
+                    >
                       Link to Fine Tuner
                     </Button>
                   </div>

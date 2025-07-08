@@ -86,7 +86,7 @@ const LoginCard = ({
     <div
       className={cn(
         "group relative rounded-lg bg-card/80 backdrop-blur-sm transition-all duration-300 p-16 w-full max-w-4xl min-h-[800px]",
-        className
+        className,
       )}
       onMouseMove={onMouseMove}
     >
@@ -142,7 +142,7 @@ const generateRandomString = (length: number) => {
       i += word.length - 1;
     } else {
       result += characters.charAt(
-        Math.floor(Math.random() * characters.length)
+        Math.floor(Math.random() * characters.length),
       );
     }
   }
@@ -167,7 +167,7 @@ function ImageCarousel() {
 
   const prevImage = () => {
     setCurrentIndex(
-      (prevIndex) => (prevIndex - 1 + chipImages.length) % chipImages.length
+      (prevIndex) => (prevIndex - 1 + chipImages.length) % chipImages.length,
     );
   };
 

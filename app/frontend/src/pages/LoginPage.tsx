@@ -85,7 +85,7 @@ const LoginCard = ({
     <div
       className={cn(
         "group relative rounded-lg bg-card/80 backdrop-blur-sm transition-all duration-300 p-12 w-full max-w-xl",
-        className
+        className,
       )}
       onMouseMove={onMouseMove}
     >
@@ -141,7 +141,7 @@ const generateRandomString = (length: number) => {
       i += word.length - 1;
     } else {
       result += characters.charAt(
-        Math.floor(Math.random() * characters.length)
+        Math.floor(Math.random() * characters.length),
       );
     }
   }

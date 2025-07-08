@@ -31,7 +31,7 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
             : "bg-TT-purple/10 text-TT-purple-accent",
           "text-xs font-medium rounded-full px-2 py-0.5",
           animate && count > 0 && "animate-pulse",
-          className
+          className,
         )}
       >
         {count}
@@ -50,7 +50,7 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
           "rounded-full px-3 py-1",
           "border shadow-sm",
           animate && count > 0 && "animate-pulse",
-          className
+          className,
         )}
       >
         <MessageSquare className="h-3.5 w-3.5" />
@@ -72,7 +72,7 @@ export const ConversationCounter: React.FC<ConversationCounterProps> = ({
         "rounded-md px-2 py-0.5",
         "border shadow-sm",
         animate && count > 0 && "animate-pulse",
-        className
+        className,
       )}
     >
       <MessageSquare className="h-3 w-3" />

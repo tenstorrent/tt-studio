@@ -14,7 +14,11 @@ interface WindowWithWebkit extends Window {
   webkitAudioContext?: typeof AudioContext;
 }
 
-export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceInputProps) {
+export function VoiceInput({
+  onTranscript,
+  isListening,
+  setIsListening,
+}: VoiceInputProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -25,15 +29,18 @@ export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceI
   const barsRef = useRef<(HTMLDivElement | null)[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const cleanTranscript: (text: string) => string = useCallback((text: string): string => {
-    const cleaned = text.replace(/\s+/g, " ").trim();
-    const words = cleaned.split(" ");
-    const uniqueWords = words.filter((word, index) => {
-      const prevWord = words[index - 1];
-      return word !== prevWord;
-    });
-    return uniqueWords.join(" ");
-  }, []);
+  const cleanTranscript: (text: string) => string = useCallback(
+    (text: string): string => {
+      const cleaned = text.replace(/\s+/g, " ").trim();
+      const words = cleaned.split(" ");
+      const uniqueWords = words.filter((word, index) => {
+        const prevWord = words[index - 1];
+        return word !== prevWord;
+      });
+      return uniqueWords.join(" ");
+    },
+    [],
+  );
 
   const stopAudioAnalysis = useCallback(() => {
     if (rafIdRef.current) {
@@ -67,7 +74,9 @@ export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceI
     for (let i = 0; i < barCount; i++) {
       const bar = bars[i];
       if (bar) {
-        const barIndex = Math.floor((i / barCount) * dataArrayRef.current.length);
+        const barIndex = Math.floor(
+          (i / barCount) * dataArrayRef.current.length,
+        );
         const barHeight = (dataArrayRef.current[barIndex] / 255) * 100;
         bar.style.height = `${Math.max(4, barHeight)}%`;
       }
@@ -88,7 +97,9 @@ export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceI
       }
       audioContextRef.current = new AudioContextConstructor();
       analyserRef.current = audioContextRef.current.createAnalyser();
-      sourceRef.current = audioContextRef.current.createMediaStreamSource(streamRef.current);
+      sourceRef.current = audioContextRef.current.createMediaStreamSource(
+        streamRef.current,
+      );
       sourceRef.current.connect(analyserRef.current);
       analyserRef.current.fftSize = 32;
       const bufferLength = analyserRef.current.frequencyBinCount;
@@ -127,10 +138,13 @@ export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceI
     if (!recognitionRef.current) {
       try {
         const SpeechRecognitionConstructor =
-          window.SpeechRecognition || (window as WindowWithWebkit).webkitSpeechRecognition;
+          window.SpeechRecognition ||
+          (window as WindowWithWebkit).webkitSpeechRecognition;
 
         if (!SpeechRecognitionConstructor) {
-          throw new Error("SpeechRecognition is not supported in this browser.");
+          throw new Error(
+            "SpeechRecognition is not supported in this browser.",
+          );
         }
 
         recognitionRef.current = new SpeechRecognitionConstructor();
@@ -153,7 +167,9 @@ export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceI
           }
         };
 
-        recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
+        recognitionRef.current.onerror = (
+          event: SpeechRecognitionErrorEvent,
+        ) => {
           console.error("Speech recognition error", event.error);
           setErrorMessage(`Error: ${event.error}`);
           setIsListening(false);
@@ -180,7 +196,13 @@ export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceI
       console.error("Error starting speech recognition", error);
       setErrorMessage("Error starting speech recognition. Please try again.");
     }
-  }, [onTranscript, setIsListening, cleanTranscript, startAudioAnalysis, cleanupResources]);
+  }, [
+    onTranscript,
+    setIsListening,
+    cleanTranscript,
+    startAudioAnalysis,
+    cleanupResources,
+  ]);
 
   const stopListening = useCallback(() => {
     cleanupResources();
@@ -209,7 +231,11 @@ export function VoiceInput({ onTranscript, isListening, setIsListening }: VoiceI
           isListening ? "bg-[#7C68FA]/20" : ""
         }`}
       >
-        {isListening ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+        {isListening ? (
+          <Mic className="h-5 w-5" />
+        ) : (
+          <MicOff className="h-5 w-5" />
+        )}
       </Button>
       {isListening && (
         <>

@@ -30,7 +30,10 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     const renderNextChunk = useCallback(() => {
       const currentContent = contentRef.current;
       const currentRenderedLength = renderedContent.length;
-      const nextChunk = currentContent.slice(currentRenderedLength, currentRenderedLength + 10);
+      const nextChunk = currentContent.slice(
+        currentRenderedLength,
+        currentRenderedLength + 10,
+      );
 
       if (nextChunk !== lastChunkRef.current) {
         lastChunkRef.current = nextChunk;
@@ -83,14 +86,18 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
             ▋
           </motion.span>
         )}
-        {isStopped && <div className="mt-2 text-red-500 font-bold text-sm">[Stopped by User]</div>}
+        {isStopped && (
+          <div className="mt-2 text-red-500 font-bold text-sm">
+            [Stopped by User]
+          </div>
+        )}
       </div>
     );
   },
   (prevProps, nextProps) =>
     prevProps.isStreamFinished === nextProps.isStreamFinished &&
     prevProps.content === nextProps.content &&
-    prevProps.isStopped === nextProps.isStopped
+    prevProps.isStopped === nextProps.isStopped,
 );
 
 export default StreamingMessage;
