@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx && npm run type-check",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "lint:fix:errors": "eslint . --ext .js,.jsx,.ts,.tsx --fix --quiet",
     "lint:fix:warnings": "eslint . --ext .js,.jsx,.ts,.tsx --fix --max-warnings=0",
