@@ -10,7 +10,7 @@ export function isWavFormat(blob: Blob): boolean {
 // Function to convert any audio blob to WAV format with a specific sample rate
 export async function convertToWav(
   audioBlob: Blob,
-  targetSampleRate = 16_000 // 16kHz
+  targetSampleRate = 16_000, // 16kHz
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     // Create a new FileReader
@@ -20,7 +20,8 @@ export async function convertToWav(
     reader.onload = async (event) => {
       try {
         // Get the audio context
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        const AudioContext =
+          window.AudioContext || (window as any).webkitAudioContext;
         const audioContext = new AudioContext({ sampleRate: targetSampleRate });
 
         // Decode the audio data
@@ -33,8 +34,13 @@ export async function convertToWav(
 
         // Check if we need to resample
         if (audioBuffer.sampleRate !== targetSampleRate) {
-          console.log(`Resampling from ${audioBuffer.sampleRate}Hz to ${targetSampleRate}Hz`);
-          const resampledBuffer = await resampleAudio(audioBuffer, targetSampleRate);
+          console.log(
+            `Resampling from ${audioBuffer.sampleRate}Hz to ${targetSampleRate}Hz`,
+          );
+          const resampledBuffer = await resampleAudio(
+            audioBuffer,
+            targetSampleRate,
+          );
           const wavBlob = audioBufferToWav(resampledBuffer, targetSampleRate);
           resolve(wavBlob);
         } else {
@@ -62,17 +68,23 @@ export async function convertToWav(
 // Resample audio to a different sample rate
 async function resampleAudio(
   audioBuffer: AudioBuffer,
-  targetSampleRate: number
+  targetSampleRate: number,
 ): Promise<AudioBuffer> {
   const numChannels = audioBuffer.numberOfChannels;
   const originalSampleRate = audioBuffer.sampleRate;
   const originalLength = audioBuffer.length;
 
   // Calculate new length based on ratio of sample rates
-  const targetLength = Math.round((originalLength * targetSampleRate) / originalSampleRate);
+  const targetLength = Math.round(
+    (originalLength * targetSampleRate) / originalSampleRate,
+  );
 
   // Create offline context for resampling
-  const offlineContext = new OfflineAudioContext(numChannels, targetLength, targetSampleRate);
+  const offlineContext = new OfflineAudioContext(
+    numChannels,
+    targetLength,
+    targetSampleRate,
+  );
 
   // Create buffer source
   const source = offlineContext.createBufferSource();
@@ -129,7 +141,7 @@ function encodeWAV(
   format: number,
   sampleRate: number,
   numChannels: number,
-  bitDepth: number
+  bitDepth: number,
 ): Blob {
   const bytesPerSample = bitDepth / 8;
   const blockAlign = numChannels * bytesPerSample;
@@ -184,7 +196,11 @@ function writeString(view: DataView, offset: number, string: string): void {
 }
 
 // Convert float audio data to 16-bit PCM
-function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array): void {
+function floatTo16BitPCM(
+  output: DataView,
+  offset: number,
+  input: Float32Array,
+): void {
   for (let i = 0; i < input.length; i++, offset += 2) {
     const s = Math.max(-1, Math.min(1, input[i]));
     output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
@@ -192,7 +208,11 @@ function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array):
 }
 
 // Convert float audio data to 8-bit PCM
-function floatTo8BitPCM(output: DataView, offset: number, input: Float32Array): void {
+function floatTo8BitPCM(
+  output: DataView,
+  offset: number,
+  input: Float32Array,
+): void {
   for (let i = 0; i < input.length; i++, offset++) {
     const s = Math.max(-1, Math.min(1, input[i]));
     output.setUint8(offset, (s < 0 ? s * 128 : s * 127) + 128);

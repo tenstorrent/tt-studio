@@ -8,6 +8,54 @@ export interface ChatMessage {
   content: string;
 }
 
+// Simple greeting patterns for fast detection
+const SIMPLE_GREETINGS = new Set([
+  "hi",
+  "hello",
+  "hey",
+  "hiya",
+  "greetings",
+  "good morning",
+  "good afternoon",
+  "good evening",
+  "howdy",
+  "sup",
+  "what's up",
+  "whats up",
+  "yo",
+]);
+
+function isSimpleGreeting(message: string): boolean {
+  const cleaned = message
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s]/g, "");
+  return SIMPLE_GREETINGS.has(cleaned);
+}
+
+function generateSimpleGreetingResponse(
+  chatHistory: { sender: string; text: string }[]
+): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+
+  // Simple system message for greetings
+  messages.push({
+    role: "system",
+    content:
+      "You are an open source language model running on Tenstorrent hardware. Respond to greetings in a friendly, brief manner.",
+  });
+
+  // Add chat history
+  chatHistory.forEach((message) => {
+    messages.push({
+      role: message.sender === "user" ? "user" : "assistant",
+      content: message.text,
+    });
+  });
+
+  return messages;
+}
+
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
   ragContext: { documents: string[] } | null = null
@@ -20,7 +68,13 @@ export function generatePrompt(
       ? chatHistory[chatHistory.length - 1].text
       : "";
 
-  console.log("📝 Original User Query:", latestUserQuestion);
+  // console.log("📝 Original User Query:", latestUserQuestion);
+
+  // Check for simple greetings first for faster responses
+  if (isSimpleGreeting(latestUserQuestion)) {
+    console.log("👋 Detected simple greeting, using fast path");
+    return generateSimpleGreetingResponse(chatHistory);
+  }
 
   // Process the user's query
   const processedQuery = processQuery(latestUserQuestion);
@@ -64,7 +118,7 @@ Answer: To deploy the application, you'll need to set up the required environmen
   // Add system message first
   messages.push({
     role: "system",
-    content: `You are an assistant embedded in Tenstorrent's AI tool.
+    content: `You are an open source language model running on Tenstorrent hardware.
 
 SAFETY GUIDELINES:
 • Only answer if you are confident and the information is in your training or the provided context
@@ -75,11 +129,9 @@ SAFETY GUIDELINES:
 ${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
 
 ${
-  processedQuery.intent.type === "greeting" || !processedQuery.intent.action
-    ? "Keep responses warm and natural while following safety guidelines."
-    : `Start conversations warmly and maintain a conversational tone while following safety guidelines.
-
-RESPONSE FORMAT:
+  processedQuery.intent.type === "greeting"
+    ? "Keep responses brief and friendly for greetings."
+    : `RESPONSE FORMAT:
 ${responseFormat}`
 }`,
   });
@@ -133,7 +185,9 @@ CONTEXT INSTRUCTIONS:
 }
 
 function getResponseFormat(intent: { type: string; action?: string }): string {
-  if (intent.action === "debug") {
+  if (intent.type === "greeting") {
+    return `Keep it simple and friendly.`;
+  } else if (intent.action === "debug") {
     return `• Let's look at what might be causing the issue
 • I'll suggest some solutions that could help
 • We can walk through the steps together`;

@@ -14,5 +14,5 @@ services:
 
   tt_studio_frontend:
     volumes:
-      # Mount the local frontend directory for live code changes
+      #! for development mount api changes
       - ./frontend:/frontend

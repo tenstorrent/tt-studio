@@ -326,6 +326,32 @@ export const analyzeQueryIntent = (query: string): QueryIntent => {
     details: [],
   };
 
+  // Check for simple greetings first
+  const greetingWords = [
+    "hi",
+    "hello",
+    "hey",
+    "hiya",
+    "greetings",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "howdy",
+    "sup",
+    "what's up",
+    "whats up",
+    "yo",
+  ];
+  const cleaned = query
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s]/g, "");
+  if (greetingWords.includes(cleaned)) {
+    intent.type = "greeting";
+    console.log("👋 Detected greeting type");
+    return intent;
+  }
+
   // Check for question words
   if (doc.has("^#QuestionWord")) {
     intent.type = "question";

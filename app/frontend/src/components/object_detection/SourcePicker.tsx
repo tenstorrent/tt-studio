@@ -3,15 +3,25 @@
 import React from "react";
 import { FileUpload } from "../ui/file-upload";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Detection, DetectionMetadata, InferenceRequest } from "./types/objectDetection";
+import {
+  Detection,
+  DetectionMetadata,
+  InferenceRequest,
+} from "./types/objectDetection";
 import { runInference } from "./utils/runInference";
 import { Button } from "../ui/button";
 import { X } from "lucide-react";
-import { getConfidenceColorClass, getLabelColorClass } from "./utils/colorUtils";
+import {
+  getConfidenceColorClass,
+  getLabelColorClass,
+} from "./utils/colorUtils";
 
 interface SourcePickerProps {
   containerRef: React.RefObject<HTMLDivElement>;
-  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
+  setDetections: (data: {
+    boxes: Detection[];
+    metadata: DetectionMetadata;
+  }) => void;
   setLiveMode: (mode: boolean) => void;
   scaledDetections: Detection[];
   modelID: string | null;
@@ -130,7 +140,10 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
         <FileUpload onChange={handleFileUpload} />
       ) : (
         <div className="flex-1 min-h-0 relative bg-muted/5 rounded-lg p-4">
-          <div ref={containerRef} className="h-full flex items-center justify-center">
+          <div
+            ref={containerRef}
+            className="h-full flex items-center justify-center"
+          >
             {image && (
               <div className="relative max-h-full">
                 <img
@@ -159,7 +172,7 @@ const SourcePicker: React.FC<SourcePickerProps> = ({
                     >
                       <span
                         className={`absolute top-0 left-0 ${getLabelColorClass(
-                          detection.confidence
+                          detection.confidence,
                         )} text-white text-xs px-1 py-0.5 rounded-br-sm truncate max-w-full`}
                       >
                         {detection.name} ({detection.confidence.toFixed(2)})

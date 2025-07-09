@@ -5,10 +5,14 @@ import { InferenceRequest, RagDataSource } from "./types.ts";
 
 export const getRagContext = async (
   request: InferenceRequest,
-  ragDatasource: RagDataSource | undefined
+  ragDatasource: RagDataSource | undefined,
 ) => {
   const ragContext: { documents: string[] } = { documents: [] };
-  console.log("2^^^Fetching RAG context for the given request...", request, ragDatasource);
+  console.log(
+    "2^^^Fetching RAG context for the given request...",
+    request,
+    ragDatasource,
+  );
 
   if (!ragDatasource) return ragContext;
 
@@ -33,26 +37,36 @@ export const getRagContext = async (
         if (response?.data?.results) {
           // Format results to include collection name
           ragContext.documents = response.data.results.map(
-            (result: any) => `[From ${result.collection.name}]\n${result.document}`
+            (result: any) =>
+              `[From ${result.collection.name}]\n${result.document}`,
           );
           console.log("Processed documents:", ragContext.documents.length);
         } else {
-          console.warn("No results found in query-all response:", response.data);
+          console.warn(
+            "No results found in query-all response:",
+            response.data,
+          );
         }
       } catch (error: any) {
         console.error(`Error querying all collections: ${error.message}`);
-        console.error("Error details:", error.response?.data || "No response data");
+        console.error(
+          "Error details:",
+          error.response?.data || "No response data",
+        );
       }
     } else {
       // Standard single collection query
       console.log(`Querying single collection: ${ragDatasource.name}`);
       try {
-        const response = await axios.get(`/collections-api/${ragDatasource.name}/query`, {
-          params: { query_text: request.text },
-          headers: {
-            "X-Browser-ID": browserId,
+        const response = await axios.get(
+          `/collections-api/${ragDatasource.name}/query`,
+          {
+            params: { query_text: request.text },
+            headers: {
+              "X-Browser-ID": browserId,
+            },
           },
-        });
+        );
 
         console.log("Single collection response:", response);
 
@@ -60,11 +74,19 @@ export const getRagContext = async (
           ragContext.documents = response.data.documents[0] || [];
           console.log("Processed documents:", ragContext.documents.length);
         } else {
-          console.warn("No results found in single collection response:", response.data);
+          console.warn(
+            "No results found in single collection response:",
+            response.data,
+          );
         }
       } catch (error: any) {
-        console.error(`Error querying collection ${ragDatasource.name}: ${error.message}`);
-        console.error("Error details:", error.response?.data || "No response data");
+        console.error(
+          `Error querying collection ${ragDatasource.name}: ${error.message}`,
+        );
+        console.error(
+          "Error details:",
+          error.response?.data || "No response data",
+        );
       }
     }
   } catch (e) {

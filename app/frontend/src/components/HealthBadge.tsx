@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from "react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 interface HealthBadgeProps {
   deployId: string;
@@ -17,9 +22,12 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
 
   const fetchHealth = async () => {
     try {
-      const response = await fetch(`/models-api/health/?deploy_id=${deployId}`, {
-        method: "GET",
-      });
+      const response = await fetch(
+        `/models-api/health/?deploy_id=${deployId}`,
+        {
+          method: "GET",
+        },
+      );
 
       if (response.status === 200) {
         setHealth("healthy");
@@ -37,7 +45,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
 
   useEffect(() => {
     fetchHealth();
-    const intervalId = setInterval(fetchHealth, 5000); // 5 seconds
+    const intervalId = setInterval(fetchHealth, 120000); // 2 minutes
     return () => clearInterval(intervalId);
   }, [deployId]);
 
@@ -75,7 +83,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
           </div>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Docker Container Health: {health} (refreshed every 6 minutes)</p>
+          <p>Docker Container Health: {health} (refreshed every 2 minutes)</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
