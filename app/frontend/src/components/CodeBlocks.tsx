@@ -9,9 +9,18 @@ interface CodeBlocksProps {
   showLineNumbers: boolean;
 }
 
-const CodeBlocks: React.FC<CodeBlocksProps> = ({ code, language, showLineNumbers }) => {
+const CodeBlocks: React.FC<CodeBlocksProps> = ({
+  code,
+  language,
+  showLineNumbers,
+}) => {
   return (
-    <CodeBlock text={code} language={language} showLineNumbers={showLineNumbers} theme={dracula} />
+    <CodeBlock
+      text={code}
+      language={language}
+      showLineNumbers={showLineNumbers}
+      theme={dracula}
+    />
   );
 };
 

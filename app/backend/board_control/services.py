@@ -6,7 +6,9 @@ import json
 import os
 import psutil
 import signal
+import time
 from django.utils import timezone
+from django.core.cache import cache
 from shared_config.logger_config import get_logger
 from .models import HardwareSnapshot, DeviceTelemetry, HardwareAlert
 
@@ -15,9 +17,19 @@ logger = get_logger(__name__)
 class SystemResourceService:
     """Service for monitoring system resources and TT device telemetry"""
     
+    # Cache keys and timeout
+    TT_SMI_CACHE_KEY = "tt_smi_data"
+    TT_SMI_CACHE_TIMEOUT = 10  # Cache for 10 seconds
+    
     @staticmethod
     def get_tt_smi_data(timeout=10):
-        """Get raw tt-smi data with timeout handling"""
+        """Get raw tt-smi data with caching to reduce expensive calls"""
+        # Check cache first
+        cached_data = cache.get(SystemResourceService.TT_SMI_CACHE_KEY)
+        if cached_data is not None:
+            logger.debug("Using cached tt-smi data")
+            return cached_data
+        
         try:
             logger.info("Running tt-smi -s to get device telemetry")
             
@@ -36,15 +48,20 @@ class SystemResourceService:
                 
                 if process.returncode != 0:
                     logger.error(f"tt-smi -s failed with return code {process.returncode}, stderr: {stderr}")
+                    # Cache the None result for a shorter time to avoid repeated failures
+                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
                     return None
                 
                 # Parse JSON output
                 try:
                     data = json.loads(stdout)
                     logger.info("Successfully parsed tt-smi data")
+                    # Cache the successful result
+                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, data, timeout=SystemResourceService.TT_SMI_CACHE_TIMEOUT)
                     return data
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse tt-smi JSON output: {e}, stdout: {stdout}")
+                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
                     return None
                     
             except subprocess.TimeoutExpired:
@@ -58,13 +75,17 @@ class SystemResourceService:
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                     except:
                         pass
+                # Cache the None result for a shorter time
+                cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
                 return None
                 
         except FileNotFoundError:
             logger.error("tt-smi command not found")
+            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=30)  # Cache longer for missing command
             return None
         except Exception as e:
             logger.error(f"Error getting tt-smi data: {str(e)}")
+            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
             return None
 
     @staticmethod

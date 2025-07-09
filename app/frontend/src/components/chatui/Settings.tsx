@@ -1,9 +1,18 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Button } from "../ui/button";
-import { X, Thermometer, TextQuote, Shuffle, ListFilter, Info } from "lucide-react";
+import {
+  X,
+  Thermometer,
+  TextQuote,
+  Shuffle,
+  ListFilter,
+  Info,
+  BarChart2,
+} from "lucide-react";
 import { Slider } from "@/src/components/ui/slider";
 import { Input } from "../ui/input";
+import { Switch } from "../ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -19,8 +28,9 @@ interface SettingsProps {
     maxLength: number;
     topP: number;
     topK: number;
+    toggleableInlineStats: boolean;
   };
-  onSettingsChange: (key: string, value: number) => void;
+  onSettingsChange: (key: string, value: number | boolean) => void;
 }
 
 // Parameter validation ranges
@@ -37,18 +47,25 @@ const DEFAULT_VALUES = {
   maxLength: 512,
   topP: 0.9,
   topK: 20,
+  toggleableInlineStats: true,
 };
 
 const validateParam = (key: string, value: number): number => {
   const range = PARAM_RANGES[key as keyof typeof PARAM_RANGES];
-  if (!range) return DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES];
+  if (!range) {
+    // Only return numeric defaults for numeric parameters
+    const defaultValue = DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES];
+    return typeof defaultValue === "number" ? defaultValue : 1;
+  }
 
   // If value is zero or less than minimum, use default
   if (value <= 0) {
+    const defaultValue = DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES];
+    const numericDefault = typeof defaultValue === "number" ? defaultValue : 1;
     console.warn(
-      `Invalid ${key} value: ${value}. Using default: ${DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES]}`
+      `Invalid ${key} value: ${value}. Using default: ${numericDefault}`,
     );
-    return DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES];
+    return numericDefault;
   }
 
   // Clamp value within range
@@ -87,9 +104,13 @@ const Parameter = ({
   <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">{icon}</div>
+        <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
+          {icon}
+        </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{label}</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            {label}
+          </span>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -125,7 +146,60 @@ const Parameter = ({
   </div>
 );
 
-export default function Settings({ isOpen, onClose, settings, onSettingsChange }: SettingsProps) {
+// Toggle Setting Component
+const ToggleSetting = ({
+  label,
+  description,
+  tooltip,
+  icon,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  tooltip: string;
+  icon: React.ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) => (
+  <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
+          {icon}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            {label}
+          </span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-4 w-4 text-gray-400 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{tooltip}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      </div>
+      <Switch
+        checked={checked}
+        onCheckedChange={onChange}
+        className="data-[state=checked]:bg-[#7C68FA]"
+      />
+    </div>
+    <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+  </div>
+);
+
+export default function Settings({
+  isOpen,
+  onClose,
+  settings,
+  onSettingsChange,
+}: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
     if (!value || isNaN(numValue) || numValue <= 0) {
@@ -238,6 +312,20 @@ export default function Settings({ isOpen, onClose, settings, onSettingsChange }
               step={PARAM_RANGES.topK.step}
               tooltip="Limits the vocabulary size for token selection"
               description="Limits vocabulary: Lower values make text more focused"
+            />
+
+            <ToggleSetting
+              label="Toggleable Inline Stats"
+              description="Enable inline speed insights that can be toggled per message"
+              tooltip="When enabled, shows a toggle button next to each message to display inference statistics inline"
+              icon={<BarChart2 className="h-4 w-4" />}
+              checked={
+                settings.toggleableInlineStats ??
+                DEFAULT_VALUES.toggleableInlineStats
+              }
+              onChange={(checked) =>
+                onSettingsChange("toggleableInlineStats", checked)
+              }
             />
           </div>
         </div>
