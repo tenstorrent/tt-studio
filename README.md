@@ -4,38 +4,55 @@
 </p>
 
 <h1 align="center">TT-Studio</h1>
-<p align="center">An all-in-one platform with an interactive UI for deploying, managing, and interacting with TT-Metal–based models on Tenstorrent AI accelerators.</p>
+
 
 > To use TT-Studio’s deployment features, you need access to a Tenstorrent AI accelerator.<br>
 > Alternatively, you can connect just the frontend to a remote API endpoint if you do not have direct hardware access.
 
 
-TT-Studio combines [TT Inference Server's](https://github.com/tenstorrent/tt-inference-server) core packaging setup, containerization, and deployment automation with [TT-Metal's](https://github.com/tenstorrent-metal/tt-metal) model execution framework specifically optimized for Tenstorrent hardware and provides an intuitive GUI for model management and interaction. 
-
-This guide explains how to use TT-Studio in both standard and development environments.
-
-## Table of Contents
-
-1. [Prerequisites](#prerequisites)
-2. [Overview](#overview)
-3. [Quick Start](#quick-start)
-   - [One-Command Setup (Recommended)](#one-command-setup-recommended)
-   - [For General Users](#for-general-users)
-4. [Running in Development Mode](#running-in-development-mode)
-5. [Troubleshooting](#troubleshooting)
-6. [Documentation](#documentation)
-   - [Frontend Documentation](app/frontend/README.md)
-   - [Backend API Documentation](app/backend/README.md)
-   - [Running vLLM Models in TT-Studio](docs/HowToRun_vLLM_Models.md)
-   - [Running AI Agent in TT-Studio](app/agent/README.md)
+**TL;DR:** TT-Studio is an easy-to-use web interface for running AI models on Tenstorrent hardware. It handles all the technical setup automatically and gives you a simple GUI to deploy models, chat with models, and more.
 
 ---
 
+TT-Studio combines [TT Inference Server's](https://github.com/tenstorrent/tt-inference-server) core packaging setup, containerization, and deployment automation with [TT-Metal's](https://github.com/tenstorrent-metal/tt-metal) model execution framework specifically optimized for Tenstorrent hardware and provides an intuitive GUI for model management and interaction. 
+
 ## Prerequisites
 
-1. Python 3.8 or higher: Required to run the setup script. You can download Python from [python.org](https://www.python.org/downloads/).
-2. Docker: Ensure that Docker is installed on your machine. You can refer to the installation guide [here](https://docs.docker.com/engine/install/).
-3. Tenstorrent Hardware (optional): TT-Studio will automatically detect and use available Tenstorrent hardware.
+Before you start, make sure you have:
+
+1. **Python 3.8+** - [Download here](https://www.python.org/downloads/)
+2. **Docker** - [Installation guide](https://docs.docker.com/engine/install/)
+3. **Tenstorrent Hardware** (optional) - Auto-detected when available
+
+## 📚 Choose Your Path
+
+### 👤 I'm a Normal User
+> I want to use TT-Studio to run AI models
+
+**Start Here:**
+1. **[FAQ](docs/FAQ.md)** - Quick answers to common questions
+2. **[Setup Guide](docs/run-py-guide.md)** - Complete installation & configuration  
+3. **[AI Model Interface](docs/model-interface.md)** - Use TT-Studio as AI playground (Chat, Vision, Speech, Images)
+
+**Need Help?**
+- **Having issues?** → [Troubleshooting Guide](docs/troubleshooting.md)
+- **Want specific models?** → [vLLM Models Guide](docs/HowToRun_vLLM_Models.md)
+- **Need AI assistant?** → [AI Agent Setup](app/agent/README.md)
+
+### 🛠️ I'm a Developer
+> I want to contribute to TT-Studio or modify it
+
+**Start Here:**
+1. **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute code
+2. **[Dev Setup](docs/development.md)** - Development environment setup
+3. **[Frontend Docs](app/frontend/README.md)** - React frontend development
+4. **[Backend API](app/backend/README.md)** - Django backend & API endpoints
+
+**Tools & Resources:**
+- **[Dev Tools](dev-tools/README.md)** - Development utilities
+- **[Troubleshooting](docs/troubleshooting.md)** - Fix common problems
+
+---
 
 ## Overview
 
@@ -217,31 +234,3 @@ Developers can run the app with live code reloading for easier development.
 For detailed information about using the `run.py` script, including all command-line options, authentication requirements, and advanced usage scenarios, see our [Complete `run.py` Guide](docs/run-py-guide.md).
 
 ---
-
-## Documentation
-
-- **Frontend Documentation**: [app/frontend/README.md](app/frontend/README.md)  
-  Detailed documentation about the frontend of TT Studio, including setup, development, and customization guides.
-
-- **Backend API Documentation**: [app/backend/README.md](app/backend/README.md)  
-  Information on the backend API, including available endpoints and integration details.
-
-- **Running vLLM Models in TT-Studio**: Models are automatically set up and deployed through the TT-Studio interface. No manual configuration is required.
-
-- **Running AI Agent in TT-Studio**: [app/agent/README.md](app/agent/README.md)
-  Instructions on how to run AI Agent by providing an API Key.
-
-- **Contribution Guide**: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)  
-  If you're interested in contributing to the project, please refer to our contribution guidelines.
-
-- **Complete `run.py` Guide**: [docs/run-py-guide.md](docs/run-py-guide.md)  
-  Detailed documentation for using the `run.py` script, including all command-line options and authentication requirements.
-
-- **Troubleshooting Guide**: [docs/troubleshooting.md](docs/troubleshooting.md)  
-  Comprehensive solutions for common issues you might encounter with TT-Studio.
-
-- **Developer Tools**: [dev-tools/README.md](dev-tools/README.md)  
-  Development utilities and tools for TT-Studio, including the SPDX header tool for adding license headers to source files.
-
-- **Frequently Asked Questions (FAQ)**: [docs/FAQ.md](docs/FAQ.md)  
-  A compilation of frequently asked questions to help users quickly solve common issues.
