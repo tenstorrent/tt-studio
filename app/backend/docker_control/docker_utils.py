@@ -30,6 +30,20 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
     )
 
 
+def map_board_type_to_device_name(board_type):
+    """Map our internal board type names to TT Inference Server device names"""
+    board_to_device_map = {
+        "N150": "n150",
+        "N300": "n300",
+        "T3000": "t3k",  # T3000 maps to t3k for TT Inference Server
+        "T3K": "t3k",
+        "unknown": "cpu"  # Fallback to cpu for unknown boards
+    }
+
+    device_name = board_to_device_map.get(board_type, "cpu")
+    logger.info(f"Mapped board type '{board_type}' to device name '{device_name}'")
+    return device_name
+
 def run_container(impl, weights_id):
     """Run a docker container via TT Inference Server API"""
     if (impl.model_type == ModelTypes.CHAT):
@@ -38,36 +52,37 @@ def run_container(impl, weights_id):
             logger.info(f"Calling TT Inference Server API")
             logger.info(f"run_container called for {impl.model_name}")
 
-            device = detect_board_type().lower()
+            board_type = detect_board_type()
+            device = map_board_type_to_device_name(board_type)
             
             # Create payload for the API call
             payload = {
                 "model": impl.model_name,
                 "workflow": "server",  # Default workflow for container runs
-                "device": device,  # Extract device from impl
+                "device": device,  # Use mapped device name
                 "docker_server": True,
                 "dev_mode": True
             }
 
             logger.info(f"API payload: {payload}")
-            
+
             # Make POST request to TT Inference Server API
             import requests
             api_url = "http://172.18.0.1:8001/run"
-            
+
             response = requests.post(
                 api_url,
                 json=payload,
                 timeout=300  # 5 minute timeout for container startup
             )
-            
+
             if response.status_code == 200:
                 api_result = response.json()
                 logger.info(f"API call successful: {api_result}")
-                
+
                 # Update deploy cache on success
                 update_deploy_cache()
-                
+
                 return {
                     "status": "success",
                     "container_name": api_result["container_name"],
@@ -77,7 +92,7 @@ def run_container(impl, weights_id):
                 error_msg = f"API call failed with status {response.status_code}: {response.text}"
                 logger.error(error_msg)
                 return {"status": "error", "message": error_msg}
-                
+
         except requests.exceptions.RequestException as e:
             error_msg = f"Network error calling TT Inference Server API: {str(e)}"
             logger.error(error_msg)
@@ -91,7 +106,7 @@ def run_container(impl, weights_id):
         try:
             logger.info(f"run_container called for {impl.model_name}")
 
-            
+
             run_kwargs = copy.deepcopy(impl.docker_config)
             # handle runtime configuration changes to docker kwargs
             device_mounts = get_devices_mounts(impl)
@@ -113,7 +128,7 @@ def run_container(impl, weights_id):
             )
             logger.info(f"run_kwargs:= {run_kwargs}")
             container = client.containers.run(impl.image_version, **run_kwargs)
-            # 
+            #
             verify_container(impl, run_kwargs, container)
             # on changes to containers, update deploy cache
             update_deploy_cache()
@@ -137,7 +152,7 @@ def run_agent_container(container_name, port_bindings, impl):
     'network': 'tt_studio_network',  # Docker network
     'ports': {'8080/tcp': host_agent_port},  # Mapping container port 8080 to host port (host port dependent on LLM port)
     'environment': {
-        'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'), # found in env file 
+        'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'), # found in env file
         'LLM_CONTAINER_NAME': container_name,
         'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
         'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
@@ -150,7 +165,7 @@ def run_agent_container(container_name, port_bindings, impl):
     auto_remove=True,
     **run_kwargs
 )
-    
+
 def stop_container(container_id):
     """Stop a specific docker container"""
     try:
@@ -279,24 +294,24 @@ def update_deploy_cache():
     # Get current running containers
     data = get_container_status()
     cache = caches[backend_config.django_deploy_cache_name]
-    
+
     # Get all cached container IDs (need to strip version tag)
     cached_container_ids = set()
     for key in cache._cache.keys():
         # Strip the version tag to get the actual container ID
         clean_key = key.replace(":version:", "")
         cached_container_ids.add(clean_key)
-    
+
     # Get current running container IDs
     current_container_ids = set(data.keys())
     logger.info(f"!!! current_container_ids:= {current_container_ids}")
-    
+
     # Remove containers from cache that are no longer running
     containers_to_remove = cached_container_ids - current_container_ids
     for container_id in containers_to_remove:
         logger.info(f"Removing stopped container from deploy cache: {container_id}")
         cache.delete(container_id)
-    
+
     # Add/update current running containers in cache
     logger.info(f"!!! data.items():= {data.items()}")
     for con_id, con in data.items():
@@ -444,13 +459,13 @@ def perform_reset():
         reset_attempts = 0
         reset_success = False
         cumulative_output = []
-        
+
         # Step 1: Try software resets first
         while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
             reset_attempts += 1
             logger.info(f"Software reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
             cumulative_output.append(f"Attempting software reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
-            
+
             # Check if the reset config JSON already exists
             if not os.path.exists(CONFIG_PATH):
                 generate_result = stream_command_output(["tt-smi", "--generate_reset_json"])
@@ -459,29 +474,29 @@ def perform_reset():
                     cumulative_output.append(generate_result.get('output', '') + "\n")
                 else:
                     cumulative_output.append("Generated reset configuration successfully.\n")
-            
+
             # Perform software reset
             soft_reset_result = stream_command_output(["tt-smi", "--softreset"])
             cumulative_output.append(soft_reset_result.get('output', '') + "\n")
-            
+
             if soft_reset_result.get("status") == "success":
                 logger.info(f"Software reset attempt {reset_attempts} succeeded")
                 reset_success = True
                 break
-            
+
             logger.warning(f"Software reset attempt {reset_attempts} failed")
             # Small delay between attempts
             time.sleep(2)
-        
+
         # If software resets didn't work, try tt-smi reset
         if not reset_success:
             logger.warning(f"All {MAX_RESET_ATTEMPTS} software reset attempts failed. Trying tt-smi reset...")
             cumulative_output.append(f"Software reset attempts exhausted. Trying tt-smi reset...\n")
-            
+
             # Step 2: Run the tt-smi reset using the generated JSON
             reset_result = stream_command_output(["tt-smi", "-r", CONFIG_PATH])
             cumulative_output.append(reset_result.get('output', '') + "\n")
-            
+
             if reset_result.get("status") == "error":
                 all_output = "".join(cumulative_output)
                 logger.error("tt-smi reset also failed")
@@ -493,7 +508,7 @@ def perform_reset():
                 }
             else:
                 reset_success = True
-        
+
         all_output = "".join(cumulative_output)
         if reset_success:
             return {
@@ -524,7 +539,7 @@ def check_image_exists(image_name, image_tag):
     try:
         target_image = f"{image_name}:{image_tag}"
         logger.info(f"Checking for image: {target_image}")
-        
+
         # First try exact match (current behavior)
         try:
             image_info = client.images.get(target_image)
@@ -539,12 +554,12 @@ def check_image_exists(image_name, image_tag):
         except docker.errors.ImageNotFound:
             logger.info(f"Exact match not found for: {target_image}")
             pass
-        
+
         # If exact match fails, search through all images
         logger.info("Searching through all available images for partial matches...")
         all_images = client.images.list()
         available_images = []
-        
+
         for image in all_images:
             for tag in image.tags:
                 available_images.append(tag)
@@ -559,17 +574,17 @@ def check_image_exists(image_name, image_tag):
                         "status": "available",
                         "actual_tag": tag
                     }
-        
+
         # Log available images for debugging
         logger.warning(f"Image not found: {target_image}")
         logger.info(f"Available images: {available_images[:10]}...")  # Show first 10 to avoid spam
-        
+
         return {
             "exists": False,
             "size": "0MB",
             "status": "not_pulled"
         }
-        
+
     except Exception as e:
         logger.error(f"Error checking image status: {str(e)}")
         return {
@@ -583,7 +598,7 @@ def pull_image_with_progress(image_name, image_tag, progress_callback=None):
     try:
         image = f"{image_name}:{image_tag}"
         logger.info(f"Pulling image: {image}")
-        
+
         # Authenticate with ghcr.io if credentials are available
         if image_name.startswith("ghcr.io") and backend_config.github_username and backend_config.github_pat:
             logger.info("Authenticating with GitHub Container Registry")
@@ -597,7 +612,7 @@ def pull_image_with_progress(image_name, image_tag, progress_callback=None):
             except Exception as auth_error:
                 logger.error(f"Failed to authenticate with ghcr.io: {str(auth_error)}")
                 return {"status": "error", "message": f"Authentication failed: {str(auth_error)}"}
-        
+
         # Pull the image with progress tracking
         for line in client.api.pull(image, stream=True, decode=True):
             if progress_callback and isinstance(line, dict):
@@ -608,7 +623,7 @@ def pull_image_with_progress(image_name, image_tag, progress_callback=None):
                         'id': line.get('id', '')
                     }
                     progress_callback(progress)
-        
+
         # Verify the image was pulled successfully
         client.images.get(image)
         return {"status": "success", "message": f"Successfully pulled {image}"}
@@ -617,116 +632,12 @@ def pull_image_with_progress(image_name, image_tag, progress_callback=None):
         return {"status": "error", "message": str(e)}
 
 def detect_board_type():
-    """Detect board type using tt-smi command"""
+    """Detect board type using cached data from SystemResourceService"""
     try:
-        logger.info("Running tt-smi -s to detect board type")
-        
-        process = subprocess.Popen(
-            ["tt-smi", "-s"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            stdin=subprocess.DEVNULL,
-            text=True,
-            preexec_fn=os.setsid  # Create new process group for cleanup
-        )
-        
-        try:
-            # Wait for process with timeout (10 seconds)
-            stdout, stderr = process.communicate(timeout=10)
-            
-            if process.returncode != 0:
-                logger.error(f"tt-smi -s failed with return code {process.returncode}, stderr: {stderr}")
-                return "unknown"
-            
-            # Parse JSON output
-            logger.info(f"tt-smi -s raw output length: {len(stdout)}")
-            logger.info(f"tt-smi -s first 500 chars: {stdout[:500]}")
-            
-            try:
-                data = json.loads(stdout)
-                logger.info(f"Parsed JSON successfully. Keys: {list(data.keys())}")
-                
-                if "device_info" in data:
-                    logger.info(f"Found {len(data['device_info'])} devices")
-                    num_devices = len(data["device_info"])
-                    logger.info(f"num_devices: {num_devices}")
-                    if num_devices > 0:
-                        if num_devices == 1:
-                            first_device = data["device_info"][0]
-                            if "board_info" in first_device:
-                                board_info = first_device["board_info"]
-                                board_type = board_info.get("board_type", "unknown")
-                                logger.info(f"Raw board_type: '{board_type}'")
-                                if "n150" in board_type.lower():
-                                    logger.info("Detected N150 board")
-                                    return "N150"
-                                else:
-                                    logger.warning(f"Unknown board type: {board_type}")
-                                    return "unknown"
-                            else:
-                                logger.warning("No board_info found in first device")
-                                return "unknown"
-                        elif num_devices == 2:
-                            first_device = data["device_info"][0]
-                            if "board_info" in first_device:
-                                board_info = first_device["board_info"]
-                                board_type = board_info.get("board_type", "unknown")
-                                logger.info(f"Raw board_type: '{board_type}'")
-                                if "n300" in board_type.lower():
-                                    logger.info("Detected N300 board")
-                                    return "N300"
-                                else:
-                                    logger.warning(f"Unknown board type: {board_type}")
-                                    return "unknown"
-                            else:
-                                logger.warning("No board_info found in first device")
-                                return "unknown"
-                        elif num_devices == 8:
-                            first_device = data["device_info"][0]
-                            if "board_info" in first_device:
-                                board_info = first_device["board_info"]
-                                board_type = board_info.get("board_type", "unknown")
-                                logger.info(f"Raw board_type: '{board_type}'")
-                                if "n300" in board_type.lower():
-                                    logger.info("Detected T3000 board")
-                                    return "T3K"
-                                else:
-                                    logger.warning(f"Unknown board type: {board_type}")
-                                    return "unknown"
-                            else:
-                                logger.warning("No board_info found in first device")
-                                return "unknown"
-                        else:
-                            logger.warning(f"Unknown number of devices: {num_devices}")
-                            return "unknown"
-                    else:
-                        logger.warning("No devices detected")
-                        return "unknown"
-                else:
-                    logger.warning("No 'device_info' key found in JSON")
-                    logger.info(f"Available keys: {list(data.keys())}")
-                    return "unknown"
-                    
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse tt-smi JSON output: {e}")
-                logger.error(f"Raw output: {stdout}")
-                return "unknown"
-                
-        except subprocess.TimeoutExpired:
-            logger.error("tt-smi -s command timed out after 10 seconds")
-            # Kill the process group to ensure cleanup
-            try:
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                process.wait(timeout=2)
-            except:
-                try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                except:
-                    pass
-            return "unknown"
-            
-    except FileNotFoundError:
-        logger.error("tt-smi command not found")
+        from board_control.services import SystemResourceService
+        return SystemResourceService.get_board_type()
+    except ImportError:
+        logger.error("Could not import SystemResourceService")
         return "unknown"
     except Exception as e:
         logger.error(f"Error detecting board type: {str(e)}")

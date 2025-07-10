@@ -16,4 +16,7 @@ urlpatterns = [
     # Alert endpoints
     path("alerts/", views.HardwareAlertsView.as_view(), name="hardware-alerts"),
     path("alerts/<int:alert_id>/resolve/", views.HardwareAlertsView.as_view(), name="resolve-alert"),
+    
+    # Cache management
+    path("refresh-cache/", views.RefreshCacheView.as_view(), name="refresh-cache"),
 ] 

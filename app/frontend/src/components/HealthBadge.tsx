@@ -45,8 +45,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
 
   useEffect(() => {
     fetchHealth();
-    const intervalId = setInterval(fetchHealth, 120000); // 2 minutes
-    return () => clearInterval(intervalId);
+    // No more timer-based polling - health will be checked on model deployment events
   }, [deployId]);
 
   const getStatusColor = () => {
@@ -83,7 +82,7 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
           </div>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Docker Container Health: {health} (refreshed every 2 minutes)</p>
+          <p>Docker Container Health: {health} (refreshed on deployment events)</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

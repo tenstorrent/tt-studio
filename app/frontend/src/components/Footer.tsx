@@ -84,16 +84,10 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   };
 
   useEffect(() => {
-    // Initial fetch
+    // Initial fetch on mount only
     fetchSystemStatus();
 
-    // Set up polling every 2 minutes for system status only
-    const interval = setInterval(() => {
-      fetchSystemStatus();
-    }, 120000);
-
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
+    // No more timer-based polling - will refresh on model deployment events
   }, []);
 
   const textColor = theme === "dark" ? "text-zinc-300" : "text-gray-700";

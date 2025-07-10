@@ -737,7 +737,7 @@ function LogsDialog({
 
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
-  const { refreshTrigger, triggerRefresh } = useRefresh();
+  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const { models, setModels, refreshModels } = useModels();
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [pulsatingModels, setPulsatingModels] = useState<string[]>([]);
@@ -807,12 +807,11 @@ export default function ModelsDeployedTable() {
     };
     if (models.length > 0) {
       fetchAllHealth();
-      const interval = setInterval(fetchAllHealth, 120000);
-      return () => {
-        isMounted = false;
-        clearInterval(interval);
-      };
+      // No more timer-based polling - health will be checked when models change
     }
+    return () => {
+      isMounted = false;
+    };
   }, [models]);
 
   // Placeholder for backend reset call
@@ -845,6 +844,7 @@ export default function ModelsDeployedTable() {
         error: "Failed to reset card.",
       });
       await refreshModels();
+      triggerHardwareRefresh(); // Trigger hardware refresh
       setShowDeleteModal(false);
       setDeleteTargetId(null);
     } catch (error) {

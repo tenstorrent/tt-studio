@@ -223,3 +223,25 @@ class HardwareAlertsView(APIView):
                 {"error": "Failed to resolve alert", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             ) 
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class RefreshCacheView(APIView):
+    """Manual cache refresh endpoint for debugging and manual triggering"""
+    
+    def post(self, request, *args, **kwargs):
+        try:
+            logger.info("Manual cache refresh requested")
+            SystemResourceService.force_refresh_tt_smi_cache()
+            
+            return Response({
+                "status": "success",
+                "message": "tt-smi cache refreshed successfully"
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error manually refreshing cache: {str(e)}")
+            return Response(
+                {"error": "Failed to refresh cache", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            ) 
