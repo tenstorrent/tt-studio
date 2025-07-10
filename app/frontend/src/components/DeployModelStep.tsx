@@ -28,7 +28,7 @@ export function DeployModelStep({
 }) {
   const { nextStep } = useStepper();
   const { refreshModels } = useModels();
-  const { triggerRefresh } = useRefresh();
+  const { triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const navigate = useNavigate();
   const [modelName, setModelName] = useState<string | null>(null);
   const [deployedInfo, setDeployedInfo] = useState<{
@@ -104,9 +104,12 @@ export function DeployModelStep({
 
       // Trigger a global refresh
       triggerRefresh();
+      
+      // Trigger hardware cache refresh after successful deployment
+      await triggerHardwareRefresh();
     }
     return deploySuccess;
-  }, [handleDeploy, refreshModels, triggerRefresh, isDeployDisabled]);
+  }, [handleDeploy, refreshModels, triggerRefresh, triggerHardwareRefresh, isDeployDisabled]);
 
   const onDeploymentComplete = useCallback(() => {
     setTimeout(() => {

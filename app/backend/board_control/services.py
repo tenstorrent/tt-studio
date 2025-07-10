@@ -19,7 +19,9 @@ class SystemResourceService:
     
     # Cache keys and timeout
     TT_SMI_CACHE_KEY = "tt_smi_data"
-    TT_SMI_CACHE_TIMEOUT = 10  # Cache for 10 seconds
+    TT_SMI_CACHE_TIMEOUT = 3600  # Cache for 1 hour (since we'll refresh on events only)
+    BOARD_TYPE_CACHE_KEY = "board_type_data"
+    BOARD_TYPE_CACHE_TIMEOUT = 3600  # Cache board type for 1 hour (since it rarely changes)
     
     @staticmethod
     def get_tt_smi_data(timeout=10):
@@ -48,8 +50,8 @@ class SystemResourceService:
                 
                 if process.returncode != 0:
                     logger.error(f"tt-smi -s failed with return code {process.returncode}, stderr: {stderr}")
-                    # Cache the None result for a shorter time to avoid repeated failures
-                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
+                    # Cache the None result for a longer time to avoid repeated failures
+                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for failures
                     return None
                 
                 # Parse JSON output
@@ -61,7 +63,7 @@ class SystemResourceService:
                     return data
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse tt-smi JSON output: {e}, stdout: {stdout}")
-                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
+                    cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for parse errors
                     return None
                     
             except subprocess.TimeoutExpired:
@@ -75,18 +77,77 @@ class SystemResourceService:
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                     except:
                         pass
-                # Cache the None result for a shorter time
-                cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
+                # Cache the None result for a longer time to avoid repeated timeouts
+                cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for timeouts
                 return None
                 
         except FileNotFoundError:
             logger.error("tt-smi command not found")
-            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=30)  # Cache longer for missing command
+            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=300)  # Cache longer for missing command
             return None
         except Exception as e:
             logger.error(f"Error getting tt-smi data: {str(e)}")
-            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=5)
+            cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for general errors
             return None
+
+    @staticmethod
+    def get_board_type():
+        """Get board type with caching to reduce tt-smi calls"""
+        # Check cache first
+        cached_board_type = cache.get(SystemResourceService.BOARD_TYPE_CACHE_KEY)
+        if cached_board_type is not None:
+            logger.debug(f"Using cached board type: {cached_board_type}")
+            return cached_board_type
+        
+        try:
+            # Get tt-smi data (which is also cached)
+            tt_data = SystemResourceService.get_tt_smi_data()
+            
+            if not tt_data:
+                board_type = "unknown"
+            else:
+                # Extract board type from tt-smi data
+                if "device_info" in tt_data and len(tt_data["device_info"]) > 0:
+                    device_info = tt_data["device_info"][0]
+                    if "board_info" in device_info:
+                        board_info = device_info["board_info"]
+                        raw_board_type = board_info.get("board_type", "unknown")
+                        logger.info(f"Raw board_type: '{raw_board_type}'")
+                        
+                        # Determine board type based on number of devices and board type
+                        num_devices = len(tt_data["device_info"])
+                        logger.info(f"num_devices: {num_devices}")
+                        
+                        if "n150" in raw_board_type.lower():
+                            board_type = "N150"
+                        elif "n300" in raw_board_type.lower():
+                            if num_devices == 1:
+                                board_type = "N300"
+                            elif num_devices >= 4:
+                                board_type = "T3000"
+                            else:
+                                logger.warning(f"Unexpected number of N300 devices: {num_devices}")
+                                board_type = "N300"
+                        else:
+                            logger.warning(f"Unknown board type: {raw_board_type}")
+                            board_type = "unknown"
+                    else:
+                        logger.warning("No 'board_info' found in device info")
+                        board_type = "unknown"
+                else:
+                    logger.warning("No device info found in tt-smi data")
+                    board_type = "unknown"
+            
+            # Cache the result
+            cache.set(SystemResourceService.BOARD_TYPE_CACHE_KEY, board_type, timeout=SystemResourceService.BOARD_TYPE_CACHE_TIMEOUT)
+            logger.info(f"Detected and cached board type: {board_type}")
+            return board_type
+            
+        except Exception as e:
+            logger.error(f"Error detecting board type: {str(e)}")
+            board_type = "unknown"
+            cache.set(SystemResourceService.BOARD_TYPE_CACHE_KEY, board_type, timeout=60)  # Cache error for 1 minute
+            return board_type
 
     @staticmethod
     def get_system_resources():
@@ -303,3 +364,17 @@ class SystemResourceService:
         except Exception as e:
             logger.error(f"Error checking hardware alerts: {str(e)}")
             return [] 
+
+    @staticmethod
+    def force_refresh_tt_smi_cache():
+        """Force refresh of tt-smi cache - used after model deployment/deletion events"""
+        logger.info("Force refreshing tt-smi cache due to model deployment event")
+        # Clear the existing cache
+        cache.delete(SystemResourceService.TT_SMI_CACHE_KEY)
+        cache.delete(SystemResourceService.BOARD_TYPE_CACHE_KEY)
+        
+        # Fetch fresh data
+        SystemResourceService.get_tt_smi_data()
+        SystemResourceService.get_board_type()
+        
+        logger.info("tt-smi cache refreshed successfully") 

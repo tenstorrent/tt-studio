@@ -32,6 +32,7 @@ from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
 from shared_config.device_config import DeviceConfigurations
+from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -81,6 +82,12 @@ class StopView(APIView):
                     )
                     logger.warning(f"Reset failed: {error_message}")
                     reset_status = "error"
+                else:
+                    # Refresh tt-smi cache after successful stop and reset
+                    try:
+                        SystemResourceService.force_refresh_tt_smi_cache()
+                    except Exception as e:
+                        logger.warning(f"Failed to refresh tt-smi cache after model stop: {e}")
 
             # Ensure that we always return a status field
             combined_status = (
@@ -176,6 +183,13 @@ class DeployView(APIView):
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
             
+            # Refresh tt-smi cache after successful deployment
+            if response.get("status") == "success":
+                try:
+                    SystemResourceService.force_refresh_tt_smi_cache()
+                except Exception as e:
+                    logger.warning(f"Failed to refresh tt-smi cache after deployment: {e}")
+            
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -190,6 +204,14 @@ class RedeployView(APIView):
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
+            
+            # Refresh tt-smi cache after successful redeployment
+            if response.get("status") == "success":
+                try:
+                    SystemResourceService.force_refresh_tt_smi_cache()
+                except Exception as e:
+                    logger.warning(f"Failed to refresh tt-smi cache after redeployment: {e}")
+                    
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
