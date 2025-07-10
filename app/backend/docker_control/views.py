@@ -32,6 +32,7 @@ from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
 from shared_config.device_config import DeviceConfigurations
+from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -84,7 +85,6 @@ class StopView(APIView):
                 else:
                     # Refresh tt-smi cache after successful stop and reset
                     try:
-                        from board_control.services import SystemResourceService
                         SystemResourceService.force_refresh_tt_smi_cache()
                     except Exception as e:
                         logger.warning(f"Failed to refresh tt-smi cache after model stop: {e}")
@@ -186,7 +186,6 @@ class DeployView(APIView):
             # Refresh tt-smi cache after successful deployment
             if response.get("status") == "success":
                 try:
-                    from board_control.services import SystemResourceService
                     SystemResourceService.force_refresh_tt_smi_cache()
                 except Exception as e:
                     logger.warning(f"Failed to refresh tt-smi cache after deployment: {e}")
@@ -209,7 +208,6 @@ class RedeployView(APIView):
             # Refresh tt-smi cache after successful redeployment
             if response.get("status") == "success":
                 try:
-                    from board_control.services import SystemResourceService
                     SystemResourceService.force_refresh_tt_smi_cache()
                 except Exception as e:
                     logger.warning(f"Failed to refresh tt-smi cache after redeployment: {e}")

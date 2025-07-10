@@ -8,6 +8,7 @@ import copy
 from pathlib import Path
 
 import docker
+import requests
 from django.core.cache import caches
 
 from shared_config.device_config import DeviceConfigurations
@@ -15,6 +16,7 @@ from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
+from board_control.services import SystemResourceService
 
 
 CONFIG_PATH = "/root/.config/tenstorrent/reset_config.json"
@@ -67,7 +69,6 @@ def run_container(impl, weights_id):
             logger.info(f"API payload: {payload}")
 
             # Make POST request to TT Inference Server API
-            import requests
             api_url = "http://172.18.0.1:8001/run"
 
             response = requests.post(
@@ -634,11 +635,7 @@ def pull_image_with_progress(image_name, image_tag, progress_callback=None):
 def detect_board_type():
     """Detect board type using cached data from SystemResourceService"""
     try:
-        from board_control.services import SystemResourceService
         return SystemResourceService.get_board_type()
-    except ImportError:
-        logger.error("Could not import SystemResourceService")
-        return "unknown"
     except Exception as e:
         logger.error(f"Error detecting board type: {str(e)}")
         return "unknown"
