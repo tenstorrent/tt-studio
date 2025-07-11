@@ -14,7 +14,8 @@
     "format": "npm run lint:fix",
     "format-check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "preview": "vite preview",
-    "generate-license": "npx generate-license-file --input package.json --output ./third-party-licenses.txt --overwrite"
+    "generate-license": "npx generate-license-file --input package.json --output ./third-party-licenses.txt --overwrite",
+    "audit": "npm audit"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
