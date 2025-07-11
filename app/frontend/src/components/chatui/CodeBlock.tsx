@@ -34,17 +34,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   const actualCode = blockMatch?.output || code || "";
   const actualLanguage = blockMatch?.language || language || "text";
 
-  // Determine the appropriate Shiki theme based on current theme
-  const getShikiTheme = () => {
-    if (theme === "system") {
-      // Check system preference if theme is set to system
-      return window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "github-dark"
-        : "github-light";
-    }
-    return theme === "dark" ? "github-dark" : "github-light";
-  };
-
   // Get theme-aware background classes
   const getBackgroundClasses = () => {
     const isDark =
@@ -65,6 +54,17 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   };
 
   useEffect(() => {
+    // Determine the appropriate Shiki theme based on current theme
+    const getShikiTheme = () => {
+      if (theme === "system") {
+        // Check system preference if theme is set to system
+        return window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "github-dark"
+          : "github-light";
+      }
+      return theme === "dark" ? "github-dark" : "github-light";
+    };
+
     const highlightCode = async () => {
       try {
         const shikiTheme = getShikiTheme();
