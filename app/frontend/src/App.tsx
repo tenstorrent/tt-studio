@@ -7,6 +7,8 @@ import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "react-query";
 import { useSetTitle } from "./api/utlis.ts";
 import { HeroSectionProvider } from "./providers/HeroSectionContext";
+import { StagewiseToolbar } from "@stagewise/toolbar-react";
+import ReactPlugin from "@stagewise-plugins/react";
 
 function App() {
   const client = new QueryClient({
@@ -24,6 +26,13 @@ function App() {
           </HeroSectionProvider>
         </QueryClientProvider>
       </ThemeProvider>
+      {import.meta.env.DEV && (
+        <StagewiseToolbar
+          config={{
+            plugins: [ReactPlugin],
+          }}
+        />
+      )}
     </>
   );
 }

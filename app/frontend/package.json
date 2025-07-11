@@ -81,6 +81,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",
+    "@stagewise-plugins/react": "^0.5.1",
+    "@stagewise/toolbar-react": "^0.5.1",
     "@types/node": "^22.9.1",
     "@types/nunjucks": "^3.2.6",
     "@types/react": "^18.3.12",
