@@ -1,6 +1,7 @@
-FROM node:21-alpine3.18
+FROM node:22-alpine3.20
 
 RUN apk update && \
+    apk upgrade && \
     apk add --no-cache \
     procps \
     net-tools \
