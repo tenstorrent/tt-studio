@@ -1,124 +1,110 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React from "react";
-import type { CodeToHtmlOptions } from "@llm-ui/code";
-import {
-  loadHighlighter,
-  useCodeBlockToHtml,
-  allLangs,
-  allLangsAlias,
-} from "@llm-ui/code";
-import parseHtml from "html-react-parser";
-import { getHighlighterCore } from "shiki/core";
-import { bundledLanguagesInfo } from "shiki/langs";
-import githubDark from "shiki/themes/github-dark.mjs";
-import getWasm from "shiki/wasm";
-
-const highlighter = loadHighlighter(
-  getHighlighterCore({
-    langs: allLangs(bundledLanguagesInfo),
-    langAlias: allLangsAlias(bundledLanguagesInfo),
-    themes: [githubDark],
-    loadWasm: getWasm,
-  }),
-);
-
-const codeToHtmlOptions: CodeToHtmlOptions = {
-  theme: "github-dark",
-};
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import React, { useEffect, useState } from "react";
+import { codeToHtml } from "shiki";
 
 interface CodeBlockProps {
-  blockMatch: {
+  // For chat UI compatibility
+  blockMatch?: {
     output: string;
     language: string;
   };
+  // For generic use
+  code?: string;
+  language?: string;
+  showLineNumbers?: boolean;
+  showCopyButton?: boolean;
+  className?: string;
 }
 
-const normalizeLanguage = (lang: string): string => {
-  const normalized = lang.toLowerCase().trim();
-  switch (normalized) {
-    case "pyt":
-    case "pytho":
-    case "py":
-    case "python":
-      return "python";
-    case "js":
-    case "javascript":
-      return "javascript";
-    case "ts":
-    case "typescript":
-      return "typescript";
-    case "html":
-    case "htm":
-      return "html";
-    case "css":
-      return "css";
-    case "json":
-      return "json";
-    case "java":
-      return "java";
-    case "cpp":
-    case "c++":
-      return "cpp";
-    case "c#":
-    case "csharp":
-    case "cs":
-      return "csharp";
-    case "go":
-    case "golang":
-      return "go";
-    case "rust":
-    case "rs":
-      return "rust";
-    case "swift":
-      return "swift";
-    case "kotlin":
-    case "kt":
-      return "kotlin";
-    case "ruby":
-    case "rb":
-      return "ruby";
-    case "php":
-      return "php";
-    // Add more language mappings as needed
-    default:
-      // If the language is not recognized, default to 'plaintext'
-      return "plaintext";
-  }
-};
+const CodeBlock: React.FC<CodeBlockProps> = ({
+  blockMatch,
+  code,
+  language,
+  showLineNumbers = false,
+  showCopyButton = true,
+  className = "",
+}) => {
+  const [highlightedCode, setHighlightedCode] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
 
-const CodeBlock: React.FC<CodeBlockProps> = ({ blockMatch }) => {
-  const language = normalizeLanguage(blockMatch.language);
+  // Extract code and language from props (support both interfaces)
+  const actualCode = blockMatch?.output || code || "";
+  const actualLanguage = blockMatch?.language || language || "text";
 
-  const { html, code } = useCodeBlockToHtml({
-    markdownCodeBlock: `\`\`\`${language}\n${blockMatch.output}\n\`\`\``,
-    highlighter,
-    codeToHtmlOptions,
-  });
+  useEffect(() => {
+    const highlightCode = async () => {
+      try {
+        const html = await codeToHtml(actualCode, {
+          lang: actualLanguage,
+          theme: "github-dark",
+          ...(showLineNumbers && {
+            transformers: [
+              {
+                name: "line-numbers",
+                line(node, line) {
+                  this.addClassToHast(node, "line");
+                  node.children.unshift({
+                    type: "element",
+                    tagName: "span",
+                    properties: { className: ["line-number"] },
+                    children: [{ type: "text", value: line.toString() }],
+                  });
+                },
+              },
+            ],
+          }),
+        });
 
-  const renderCode = () => {
-    if (html) {
-      return parseHtml(html);
+        setHighlightedCode(html);
+      } catch (error) {
+        console.error("Error highlighting code:", error);
+        // Shiki will gracefully fallback to plain text for unknown languages
+        const fallbackHtml = await codeToHtml(actualCode, {
+          lang: "text",
+          theme: "github-dark",
+        });
+        setHighlightedCode(fallbackHtml);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    highlightCode();
+  }, [actualCode, actualLanguage, showLineNumbers]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(actualCode);
+    } catch (error) {
+      console.error("Failed to copy code:", error);
     }
-    // Fallback to plain text rendering if HTML generation fails
-    return (
-      <pre className="text-white text-sm">
-        <code>{code}</code>
-      </pre>
-    );
   };
 
-  return (
-    <div className="relative group">
-      <div className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">
-        {renderCode()}
+  if (isLoading) {
+    return (
+      <div className={`code-block-loading ${className}`}>
+        <pre>
+          <code>{actualCode}</code>
+        </pre>
       </div>
-      <button
-        className="absolute top-2 right-2 bg-gray-700 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={() => navigator.clipboard.writeText(code)}
-      >
-        Copy
-      </button>
+    );
+  }
+
+  return (
+    <div className={`relative group ${className}`}>
+      <div
+        className={`code-block ${showLineNumbers ? "with-line-numbers" : ""} bg-gray-800 rounded-md p-4 my-4 overflow-x-auto`}
+        dangerouslySetInnerHTML={{ __html: highlightedCode }}
+      />
+      {showCopyButton && (
+        <button
+          className="absolute top-2 right-2 bg-gray-700 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-600"
+          onClick={handleCopy}
+        >
+          Copy
+        </button>
+      )}
     </div>
   );
 };

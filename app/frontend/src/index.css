@@ -300,3 +300,50 @@ a.button {
     background-position: 100% -100%;
   }
 }
+
+/* Code block styling */
+.code-block {
+  border-radius: 6px;
+  overflow: auto;
+  font-family: 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  overflow: auto;
+}
+
+.code-block.with-line-numbers .line {
+  display: block;
+  padding-left: 3.5rem;
+  position: relative;
+}
+
+.code-block.with-line-numbers .line-number {
+  position: absolute;
+  left: 0;
+  width: 3rem;
+  text-align: right;
+  padding-right: 1rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+  user-select: none;
+}
+
+.code-block-loading {
+  background: #282a36;
+  border-radius: 6px;
+  padding: 1rem;
+  color: #f8f8f2;
+}
+
+.code-block-loading pre {
+  margin: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
+}
