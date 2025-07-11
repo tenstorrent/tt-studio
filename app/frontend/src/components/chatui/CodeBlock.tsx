@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import React, { useEffect, useState } from "react";
 import { codeToHtml } from "shiki";
+import { useTheme } from "../../providers/ThemeProvider";
 
 interface CodeBlockProps {
   // For chat UI compatibility
@@ -27,17 +28,50 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
 }) => {
   const [highlightedCode, setHighlightedCode] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
+  const { theme } = useTheme();
 
   // Extract code and language from props (support both interfaces)
   const actualCode = blockMatch?.output || code || "";
   const actualLanguage = blockMatch?.language || language || "text";
 
+  // Determine the appropriate Shiki theme based on current theme
+  const getShikiTheme = () => {
+    if (theme === "system") {
+      // Check system preference if theme is set to system
+      return window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "github-dark"
+        : "github-light";
+    }
+    return theme === "dark" ? "github-dark" : "github-light";
+  };
+
+  // Get theme-aware background classes
+  const getBackgroundClasses = () => {
+    const isDark =
+      theme === "dark" ||
+      (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return isDark
+      ? "bg-gray-900 border border-gray-700"
+      : "bg-gray-50 border-2 border-gray-400 shadow-md";
+  };
+
+  const getCopyButtonClasses = () => {
+    const isDark =
+      theme === "dark" ||
+      (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return isDark
+      ? "absolute top-2 right-2 bg-gray-600 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-500 border border-gray-500"
+      : "absolute top-2 right-2 bg-white text-gray-800 px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-50 border border-gray-400 shadow-sm";
+  };
+
   useEffect(() => {
     const highlightCode = async () => {
       try {
+        const shikiTheme = getShikiTheme();
+
         const html = await codeToHtml(actualCode, {
           lang: actualLanguage,
-          theme: "github-dark",
+          theme: shikiTheme,
           ...(showLineNumbers && {
             transformers: [
               {
@@ -62,7 +96,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
         // Shiki will gracefully fallback to plain text for unknown languages
         const fallbackHtml = await codeToHtml(actualCode, {
           lang: "text",
-          theme: "github-dark",
+          theme: getShikiTheme(),
         });
         setHighlightedCode(fallbackHtml);
       } finally {
@@ -71,7 +105,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
     };
 
     highlightCode();
-  }, [actualCode, actualLanguage, showLineNumbers]);
+  }, [actualCode, actualLanguage, showLineNumbers, theme]); // Add theme to dependencies
 
   const handleCopy = async () => {
     try {
@@ -94,14 +128,11 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
   return (
     <div className={`relative group ${className}`}>
       <div
-        className={`code-block ${showLineNumbers ? "with-line-numbers" : ""} bg-gray-800 rounded-md p-4 my-4 overflow-x-auto`}
+        className={`code-block ${showLineNumbers ? "with-line-numbers" : ""} ${getBackgroundClasses()} rounded-md p-4 my-4 overflow-x-auto`}
         dangerouslySetInnerHTML={{ __html: highlightedCode }}
       />
       {showCopyButton && (
-        <button
-          className="absolute top-2 right-2 bg-gray-700 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-600"
-          onClick={handleCopy}
-        >
+        <button className={getCopyButtonClasses()} onClick={handleCopy}>
           Copy
         </button>
       )}
