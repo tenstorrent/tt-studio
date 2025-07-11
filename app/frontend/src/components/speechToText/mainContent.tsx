@@ -378,9 +378,12 @@ export function MainContent({
                 <Card
                   className={cn(
                     "mb-4 sm:mb-8 p-4 sm:p-8 backdrop-blur-sm shadow-lg shadow-TT-purple/5",
+                    "transition-all duration-300 ease-in-out transform",
+                    "hover:scale-[1.02] hover:shadow-xl hover:shadow-TT-purple/10",
+                    "hover:-translate-y-1 hover:backdrop-blur-md",
                     theme === "dark"
-                      ? "bg-[#222222]/80 border-TT-purple/30"
-                      : "bg-white/80 border-TT-purple-shade/30",
+                      ? "bg-[#222222]/80 border-TT-purple/30 hover:bg-[#222222]/90 hover:border-TT-purple/50"
+                      : "bg-white/80 border-TT-purple-shade/30 hover:bg-white/90 hover:border-TT-purple-shade/50",
                   )}
                 >
                   <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 text-TT-purple">
