@@ -1266,6 +1266,172 @@ def ensure_frontend_dependencies():
 
     return True
 
+def check_service_health(service_name, port, endpoint="/", expected_codes=["200", "404"]):
+    """
+    Check if a service is healthy and responding.
+    Returns True if healthy, False otherwise.
+    """
+    try:
+        # Try to connect to the service
+        result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", f"http://localhost:{port}{endpoint}"], 
+                               capture_output=True, text=True, timeout=10, check=False)
+        
+        if result.stdout.strip() in expected_codes:
+            return True
+    except:
+        # Fallback to urllib if curl is not available
+        try:
+            import urllib.request
+            response = urllib.request.urlopen(f"http://localhost:{port}{endpoint}", timeout=10)
+            if str(response.getcode()) in expected_codes:
+                return True
+        except:
+            pass
+    
+    return False
+
+def check_docker_container_health(container_name):
+    """
+    Check if a Docker container is running and healthy.
+    Returns True if healthy, False otherwise.
+    """
+    try:
+        result = subprocess.run(["docker", "inspect", "--format", "{{.State.Health.Status}}", container_name], 
+                               capture_output=True, text=True, check=False)
+        if result.stdout.strip() == "healthy":
+            return True
+        
+        # Also check if container is running (in case no health check is defined)
+        result = subprocess.run(["docker", "inspect", "--format", "{{.State.Status}}", container_name], 
+                               capture_output=True, text=True, check=False)
+        if result.stdout.strip() == "running":
+            return True
+    except:
+        pass
+    
+    return False
+
+def wait_for_all_services_health(max_retries=30, retry_delay=2):
+    """
+    Wait for all services to become healthy.
+    Returns a dictionary with service status and any failed services.
+    """
+    print(f"{C_BLUE}⏳ Waiting for all services to become healthy...{C_RESET}")
+    
+    # Define all services to check
+    services_to_check = [
+        {"name": "Backend API", "port": 8000, "endpoint": "/up/", "container": "tt_studio_backend_api"},
+        {"name": "Frontend", "port": 3000, "endpoint": "/", "container": "tt_studio_frontend"},
+        {"name": "Agent", "port": 8080, "endpoint": "/", "container": "tt_studio_agent"},
+        {"name": "Chroma DB", "port": 8111, "endpoint": "/api/v1/heartbeat", "container": "tt_studio_chroma"}
+    ]
+    
+    service_status = {}
+    failed_services = []
+    
+    for i in range(1, max_retries + 1):
+        print(f"\n{C_CYAN}Health check attempt {i}/{max_retries}:{C_RESET}")
+        all_healthy = True
+        
+        for service in services_to_check:
+            # Check both HTTP health and Docker container health
+            http_healthy = check_service_health(service["name"], service["port"], service["endpoint"])
+            container_healthy = check_docker_container_health(service["container"])
+            
+            service_key = service["name"].lower().replace(" ", "_")
+            service_status[service_key] = {
+                "name": service["name"],
+                "http_healthy": http_healthy,
+                "container_healthy": container_healthy,
+                "port": service["port"],
+                "container": service["container"]
+            }
+            
+            if http_healthy and container_healthy:
+                print(f"  ✅ {service['name']} (port {service['port']}): Healthy")
+            else:
+                all_healthy = False
+                status_parts = []
+                if not http_healthy:
+                    status_parts.append("HTTP not responding")
+                if not container_healthy:
+                    status_parts.append("Container not healthy")
+                print(f"  ❌ {service['name']} (port {service['port']}): {' | '.join(status_parts)}")
+        
+        if all_healthy:
+            print(f"\n{C_GREEN}✅ All services are healthy and responding!{C_RESET}")
+            return {"success": True, "service_status": service_status, "failed_services": []}
+        
+        if i < max_retries:
+            print(f"⏳ Waiting {retry_delay}s before next health check...")
+            time.sleep(retry_delay)
+    
+    # If we get here, some services failed
+    failed_services = [service for service in service_status.values() 
+                      if not (service["http_healthy"] and service["container_healthy"])]
+    
+    print(f"\n{C_RED}⛔ Some services failed to become healthy after {max_retries} attempts.{C_RESET}")
+    return {"success": False, "service_status": service_status, "failed_services": failed_services}
+
+def graceful_shutdown_on_service_failure(args, failed_services):
+    """
+    Perform graceful shutdown when any service fails to load.
+    Stops all services and provides user feedback.
+    """
+    print(f"\n{C_RED}{C_BOLD}🚨 Service Health Check Failed{C_RESET}")
+    print(f"{C_RED}The following services are not responding properly:{C_RESET}")
+    
+    for service in failed_services:
+        print(f"  ❌ {service['name']} (port {service['port']})")
+        if not service['http_healthy']:
+            print(f"     - HTTP endpoint not responding")
+        if not service['container_healthy']:
+            print(f"     - Docker container not healthy")
+    
+    print(f"\n{C_YELLOW}Performing graceful shutdown of all services...{C_RESET}")
+    
+    # Stop all Docker services
+    try:
+        print(f"{C_BLUE}🛑 Stopping Docker services...{C_RESET}")
+        docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
+        docker_compose_cmd.extend(["down"])
+        run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
+        print(f"{C_GREEN}✅ Docker services stopped successfully.{C_RESET}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Warning: Could not stop Docker services cleanly: {e}{C_RESET}")
+    
+    # Clean up FastAPI server if it was started
+    try:
+        cleanup_fastapi_server(no_sudo=args.no_sudo)
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Warning: Could not clean up FastAPI server: {e}{C_RESET}")
+    
+    print(f"\n{C_RED}{C_BOLD}❌ Setup Failed - Service Issues{C_RESET}")
+    print(f"{C_YELLOW}One or more services failed to start properly. This could be due to:{C_RESET}")
+    print(f"  • Port conflicts with other applications")
+    print(f"  • Docker containers failed to build or start")
+    print(f"  • Network connectivity issues")
+    print(f"  • Insufficient system resources (CPU, memory, disk space)")
+    print(f"  • Docker daemon issues")
+    print(f"  • Missing dependencies or configuration")
+    print()
+    print(f"{C_CYAN}💡 Troubleshooting steps:{C_RESET}")
+    print(f"  1. Check Docker container status: {C_WHITE}docker ps -a{C_RESET}")
+    print(f"  2. Check container logs for each service:")
+    for service in failed_services:
+        print(f"     {C_WHITE}docker logs {service['container']}{C_RESET}")
+    print(f"  3. Check if ports are available:")
+    for service in failed_services:
+        print(f"     {C_WHITE}lsof -i :{service['port']}{C_RESET}")
+    print(f"  4. Try cleaning up and restarting: {C_WHITE}python run.py --cleanup{C_RESET}")
+    print(f"  5. Check system resources: {C_WHITE}docker system df{C_RESET}")
+    print(f"  6. Ensure Docker is running and has sufficient resources")
+    print(f"  7. Check Docker daemon logs: {C_WHITE}docker system info{C_RESET}")
+    print()
+    print(f"{C_MAGENTA}🔄 To retry setup: {C_WHITE}python run.py{C_RESET}")
+    if args.dev:
+        print(f"{C_MAGENTA}🔄 To retry in dev mode: {C_WHITE}python run.py --dev{C_RESET}")
+
 def main():
     """Main function to orchestrate the script."""
     try:
@@ -1400,6 +1566,12 @@ def main():
         
         # Run the Docker Compose command
         run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
+        
+        # Wait for all services to become healthy
+        health_result = wait_for_all_services_health()
+        if not health_result["success"]:
+            graceful_shutdown_on_service_failure(args, health_result["failed_services"])
+            sys.exit(1)
         
         # Check if AI Playground mode is enabled
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
