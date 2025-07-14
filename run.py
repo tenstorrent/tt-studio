@@ -1198,59 +1198,73 @@ def request_sudo_authentication():
         return False
 
 def ensure_frontend_dependencies():
-    """Ensure frontend dependencies are installed before starting Docker services."""
+    """
+    Ensures frontend dependencies are available locally for IDE support.
+    This is optional for running the app, as dependencies are always installed
+    inside the Docker container, but it greatly improves the development experience
+    (e.g., for TypeScript autocompletion).
+    """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
     package_json_path = os.path.join(frontend_dir, "package.json")
-    
+
+    print(f"\n{C_BLUE}📦 Checking frontend dependencies for IDE support...{C_RESET}")
+
     if not os.path.exists(package_json_path):
-        print(f"{C_RED}⛔ Error: package.json not found in {frontend_dir}{C_RESET}")
+        print(f"{C_RED}⛔ Error: package.json not found in {frontend_dir}. Cannot continue.{C_RESET}")
         return False
-    
-    print(f"\n{C_BLUE}📦 Checking frontend dependencies...{C_RESET}")
-    
-    # Check if node_modules exists and is not empty
+
+    # If node_modules already exists and is populated, we're good.
     if os.path.exists(node_modules_dir) and os.listdir(node_modules_dir):
-        print(f"{C_GREEN}✅ Frontend dependencies already installed locally{C_RESET}")
+        print(f"{C_GREEN}✅ Local node_modules found. IDE support is active.{C_RESET}")
         return True
-    
-    if not os.path.exists(node_modules_dir):
-        print(f"{C_YELLOW}📦 node_modules directory not found - will be created for development mode{C_RESET}")
-    else:
-        print(f"{C_YELLOW}📦 node_modules directory is empty - dependencies need to be installed{C_RESET}")
-    
-    # Check if npm is available
-    if not shutil.which("npm"):
-        print(f"{C_YELLOW}⚠️  npm not found locally. Dependencies will be installed in Docker container.{C_RESET}")
-        print(f"{C_CYAN}   The updated Dockerfile will handle this automatically.{C_RESET}")
-        return True
-    
-    print(f"{C_BLUE}📦 Installing frontend dependencies locally...{C_RESET}")
-    print(f"{C_CYAN}   This ensures node_modules are available for development mode and IDE support{C_RESET}")
-    
+
+    print(f"{C_YELLOW}💡 Local node_modules directory not found or is empty.{C_RESET}")
+    print(f"{C_CYAN}📦  Installing them locally will enable IDE features like autocompletion.{C_RESET}")
+    print(f"{C_CYAN}⚠️  This is optional; the application will still run correctly using the dependencies inside the Docker container.{C_RESET}")
+
+    # Check for local npm installation
+    has_local_npm = shutil.which("npm")
+
     try:
-        # Change to frontend directory and install dependencies
-        original_dir = os.getcwd()
-        os.chdir(frontend_dir)
-        
-        # Create node_modules directory if it doesn't exist
-        if not os.path.exists(node_modules_dir):
-            os.makedirs(node_modules_dir, exist_ok=True)
-        
-        # Install dependencies
-        run_command(["npm", "install"], check=True)
-        
-        print(f"{C_GREEN}✅ Frontend dependencies installed successfully{C_RESET}")
-        print(f"{C_CYAN}   node_modules is now available for development mode volume mounting{C_RESET}")
-        return True
-        
+        if has_local_npm:
+            choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip()
+            if choice in ['n', 'no']:
+                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                return True # It's not a failure, just a choice.
+            
+            print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
+            run_command(["npm", "install"], check=True, cwd=frontend_dir)
+            print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+
+        else: # No local npm found
+            print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
+            choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip()
+            if choice in ['n', 'no']:
+                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                return True
+
+            print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
+            # This command runs `npm install` inside a container and mounts the result back to the host.
+            docker_cmd = [
+                "docker", "run", "--rm",
+                "-v", f"{frontend_dir}:/app",
+                "-w", "/app",
+                "node:22-alpine3.20",
+                "npm", "install"
+            ]
+            run_command(docker_cmd, check=True)
+            print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
+
     except (subprocess.CalledProcessError, SystemExit) as e:
-        print(f"{C_YELLOW}⚠️  Warning: Failed to install frontend dependencies locally: {e}{C_RESET}")
-        print(f"{C_CYAN}   Dependencies will be installed in Docker container instead{C_RESET}")
-        print(f"{C_CYAN}   The updated Dockerfile will handle this automatically.{C_RESET}")
+        print(f"{C_RED}⛔ Error installing frontend dependencies: {e}{C_RESET}")
+        print(f"{C_YELLOW}   Could not install dependencies locally. IDE features may be limited, but the app will still run.{C_RESET}")
+        return True # Still return True, as this is not a fatal error for the application itself.
+    except KeyboardInterrupt:
+        print(f"\n{C_YELLOW}🛑 Installation cancelled by user.{C_RESET}")
         return True
-    finally:
-        os.chdir(original_dir)
+
+    return True
 
 def main():
     """Main function to orchestrate the script."""
@@ -1373,7 +1387,7 @@ def main():
             print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
 
         # Ensure frontend dependencies are installed
-        # ensure_frontend_dependencies()
+        ensure_frontend_dependencies()
 
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
