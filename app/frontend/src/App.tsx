@@ -4,7 +4,7 @@ import "./App.css";
 
 import { ThemeProvider } from "./providers/ThemeProvider";
 import AppRouter from "./routes/index.tsx";
-import { QueryClient, QueryClientProvider } from "react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSetTitle } from "./api/utlis.ts";
 import { HeroSectionProvider } from "./providers/HeroSectionContext";
 import { StagewiseToolbar } from "@stagewise/toolbar-react";

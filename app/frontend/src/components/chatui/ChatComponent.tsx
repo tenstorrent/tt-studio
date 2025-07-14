@@ -7,7 +7,7 @@ import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
 import { useLogo } from "../../utils/logo";
 import { fetchModels } from "../../api/modelsDeployedApis";
-import { useQuery } from "react-query";
+import { useQuery } from "@tanstack/react-query";
 import { fetchCollections } from "@/src/components/rag";
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
