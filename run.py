@@ -76,17 +76,19 @@ FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
 # Global flag to determine if we should overwrite existing values
 FORCE_OVERWRITE = False
 
-def run_command(command, check=False, cwd=None):
+def run_command(command, check=False, cwd=None, capture_output=False):
     """Helper function to run a shell command."""
     try:
         cmd_str = ' '.join(command) if isinstance(command, list) else command
         # Run command and show its output directly in the terminal
-        subprocess.run(command, check=check, cwd=cwd, text=True, stderr=sys.stderr, stdout=sys.stdout)
+        return subprocess.run(command, check=check, cwd=cwd, text=True, capture_output=capture_output)
     except FileNotFoundError as e:
         print(f"{C_RED}⛔ Error: Command not found: {e.filename}{C_RESET}")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
         print(f"{C_RED}⛔ Error executing command: {cmd_str}{C_RESET}")
+        if capture_output:
+            print(f"{C_RED}Stderr: {e.stderr}{C_RESET}")
         sys.exit(1)
 
 def check_docker_installation():
@@ -709,73 +711,55 @@ def check_port_available(port):
             return False
 
 def kill_process_on_port(port):
-    """Kill any process using the specified port (like startup.sh)."""
+    """
+    Find and kill a process using a specific port. More robust and cross-platform.
+    """
+    pid = None
+    
+    # Method 1: Try 'lsof' (most reliable, common on macOS and Linux)
+    if shutil.which("lsof"):
+        try:
+            result = run_command(["lsof", "-ti", f"tcp:{port}"], check=True, capture_output=True)
+            pid = result.stdout.strip()
+        except (subprocess.CalledProcessError, SystemExit):
+            pass # Command failed, pid remains None
+
+    # Method 2: Fallback to 'ss' (modern replacement for netstat on Linux)
+    if not pid and shutil.which("ss"):
+        try:
+            result = run_command(["ss", "-lptn", f"sport = :{port}"], check=True, capture_output=True)
+            output = result.stdout.strip()
+            # Example ss output: LISTEN 0 4096 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=12345,fd=21))
+            match = re.search(r'pid=(\d+)', output)
+            if match:
+                pid = match.group(1)
+        except (subprocess.CalledProcessError, SystemExit):
+            pass # Command failed, pid remains None
+            
+    if not pid:
+        print(f"{C_YELLOW}⚠️  Could not find a specific process using port {port}. This is likely okay.{C_RESET}")
+        return True
+
+    print(f"🛑 Found process with PID {pid} using port {port}. Attempting to stop it...")
+    
     try:
-        # Try to find the PID using the port with different methods (like startup.sh)
-        port_pid = None
-        
-        # Method 1: lsof
-        result = subprocess.run(["lsof", "-Pi", f":{port}", "-sTCP:LISTEN", "-t"], 
-                               capture_output=True, text=True, check=False)
-        if result.stdout.strip():
-            port_pid = result.stdout.strip()
-        
-        # Method 2: netstat (if lsof didn't work)
-        if not port_pid:
-            result = subprocess.run(["netstat", "-anp"], capture_output=True, text=True, check=False)
-            if result.stdout:
-                for line in result.stdout.split('\n'):
-                    if f":{port}" in line and "LISTEN" in line:
-                        parts = line.split()
-                        if len(parts) >= 7:
-                            pid_part = parts[6]
-                            if '/' in pid_part:
-                                port_pid = pid_part.split('/')[0]
-                                break
-        
-        if port_pid:
-            print(f"🛑 Found process using port {port} (PID: {port_pid}). Stopping it...")
-            # Try graceful kill first
-            subprocess.run(["sudo", "kill", "-15", port_pid], check=False)
-            time.sleep(2)
-            
-            # Check if process is still running
-            result = subprocess.run(["kill", "-0", port_pid], capture_output=True, check=False)
-            if result.returncode == 0:
-                print(f"⚠️  Process still running. Attempting force kill...")
-                subprocess.run(["sudo", "kill", "-9", port_pid], check=False)
-                time.sleep(1)
-        else:
-            print(f"⚠️  Could not find specific process. Attempting to kill any process on port {port}...")
-            # On macOS, use a different approach
-            if OS_NAME == "Darwin":
-                subprocess.run(["sudo", "lsof", "-i", f":{port}", "-sTCP:LISTEN", "-t"], 
-                              capture_output=True, check=False)
-                result = subprocess.run(["sudo", "lsof", "-i", f":{port}", "-sTCP:LISTEN", "-t"], 
-                                       capture_output=True, text=True, check=False)
-                if result.stdout.strip():
-                    pids = result.stdout.strip().split('\n')
-                    for pid in pids:
-                        if pid:
-                            subprocess.run(["sudo", "kill", "-9", pid], check=False)
-            else:
-                # Linux
-                subprocess.run(["sudo", "fuser", "-k", f"{port}/tcp"], check=False)
-            time.sleep(1)
-        
-        # Final check
-        if check_port_available(port):
-            print(f"✅ Port {port} is now available")
-            return True
-        else:
-            print(f"❌ Failed to free port {port}. Please manually stop any process using this port.")
-            print(f"   Try: sudo lsof -i :{port} (to identify the process)")
-            print(f"   Then: sudo kill -9 <PID> (to forcibly terminate it)")
-            return False
-            
+        # Try a graceful termination first
+        run_command(["kill", "-15", pid])
+        time.sleep(2)
+        # Check if it's still alive, if so, force kill
+        run_command(["kill", "-0", pid], check=False)
+        print(f"⚠️  Process {pid} still alive. Forcing termination...")
+        run_command(["kill", "-9", pid])
+        print(f"{C_GREEN}✅ Process {pid} terminated.{C_RESET}")
+    except (subprocess.CalledProcessError, SystemExit):
+        # This will happen if the process terminated gracefully, which is good.
+        print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
     except Exception as e:
-        print(f"{C_YELLOW}Warning: Could not kill process on port {port}: {e}{C_RESET}")
+        print(f"{C_RED}⛔ Failed to kill process {pid}: {e}{C_RESET}")
+        print(f"{C_YELLOW}   You may need to stop it manually. Try: kill -9 {pid}{C_RESET}")
         return False
+        
+    return True
 
 def initialize_submodules():
     """Initialize git submodules if they don't exist or are not properly set up."""
