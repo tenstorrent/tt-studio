@@ -67,7 +67,7 @@ services:
   tt_studio_frontend:
     container_name: tt_studio_frontend
     hostname: tt-studio-frontend
-    image: ghcr.io/tenstorrent/tt-studio/frontend:v0.1.0
+    image: ghcr.io/tenstorrent/tt-studio/frontend:v1.1.0
     build: ./frontend
     depends_on:
       tt_studio_backend:
@@ -82,7 +82,7 @@ services:
       - VITE_ENABLE_RAG_ADMIN
       - VITE_TEST_AUDIO_URL
       - VITE_TEST_AUDIO_AUTH
-    command: bash -c "npm i && npm run dev"
+    command: sh -c "npm i && npm run dev"
 
   tt_studio_agent:
     container_name: tt_studio_agent

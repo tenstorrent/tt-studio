@@ -13,6 +13,13 @@ services:
       - DEBUG=True
 
   tt_studio_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    
+    ports:
+      - "3000:3000"
+
     volumes:
-      #! for development mount api changes
-      - ./frontend:/frontend
+      - ./frontend:/app
+      - /app/node_modules
