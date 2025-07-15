@@ -66,6 +66,7 @@ TENSTORRENT_ASCII_ART = r"""   __                  __                           
 # --- File Paths ---
 DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
+DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
@@ -673,10 +674,16 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True):
     """
     compose_files = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE]
     
-    # Add dev mode override if in dev mode and file exists
-    if dev_mode and os.path.exists(DOCKER_COMPOSE_DEV_FILE):
-        compose_files.extend(["-f", DOCKER_COMPOSE_DEV_FILE])
-        print(f"{C_MAGENTA}🚀 Adding development mode overrides...{C_RESET}")
+    if dev_mode:
+        # Add dev mode override if in dev mode and file exists
+        if os.path.exists(DOCKER_COMPOSE_DEV_FILE):
+            compose_files.extend(["-f", DOCKER_COMPOSE_DEV_FILE])
+            print(f"{C_MAGENTA}🚀 Applying development mode overrides...{C_RESET}")
+    else:
+        # Add production mode override if not in dev mode and file exists
+        if os.path.exists(DOCKER_COMPOSE_PROD_FILE):
+            compose_files.extend(["-f", DOCKER_COMPOSE_PROD_FILE])
+            print(f"{C_GREEN}🚀 Applying production mode overrides...{C_RESET}")
     
     # Add TT hardware override if hardware is detected
     if detect_tt_hardware():

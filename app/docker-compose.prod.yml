@@ -1,0 +1,22 @@
+# Production mode overrides
+services:
+  tt_studio_frontend:
+    ports:
+      - "3000:80" # Map host 3000 to Nginx's port 80
+    build:
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
+        - VITE_APP_TITLE=${VITE_APP_TITLE}
+        - VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}
+        - VITE_TEST_AUDIO_URL=${VITE_TEST_AUDIO_URL}
+        - VITE_TEST_AUDIO_AUTH=${VITE_TEST_AUDIO_AUTH}
+        - VITE_LOGIN_USERNAME=${VITE_LOGIN_USERNAME}
+        - VITE_LOGIN_PASSWORD=${VITE_LOGIN_PASSWORD}
+        - VITE_LLAMA_AUTH_TOKEN=${VITE_LLAMA_AUTH_TOKEN}
+        - VITE_SPECIAL_API_URL=${VITE_SPECIAL_API_URL}
+        - VITE_API_HOST=${VITE_API_HOST}
+        - VITE_STABILITY_API_KEY=${VITE_STABILITY_API_KEY}
+    # Remove runtime environment variables since they're now baked into the build
+    environment: [] 
