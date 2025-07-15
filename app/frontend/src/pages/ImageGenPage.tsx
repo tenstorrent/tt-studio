@@ -14,7 +14,7 @@ const ImageGenPage = () => {
           }}
         ></div>
         <div className="flex flex-grow justify-center items-center w-full h-screen ">
-          <ImageGenParentComponent  />
+          <ImageGenParentComponent />
         </div>
       </div>
     </>

@@ -1,3 +1,4 @@
+import React from "react";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
@@ -35,6 +36,7 @@ export interface ChatMessage {
   files?: FileData[];
   inferenceStats?: InferenceStats;
   ragDatasource?: RagDataSource;
+  isStopped?: boolean;
 }
 
 export type MessageContent =
@@ -69,8 +71,15 @@ export interface RagDataSource {
 export interface InferenceRequest {
   deploy_id: string;
   text: string;
-  rag_context?: { documents: string[] };
   files?: FileData[];
+  temperature?: number; // 0-2, default 1
+  max_tokens?: number; // 1-2048, default 512
+  top_p?: number; // 0-1, default 0.9
+  top_k?: number; // 1-100, default 20
+  stream_options?: {
+    include_usage: boolean;
+    continuous_usage_stats: boolean;
+  };
 }
 
 export interface InferenceStats {
@@ -103,6 +112,7 @@ export interface InputAreaProps {
 
 export interface InferenceStatsProps {
   stats: InferenceStats | undefined;
+  modelName?: string | null;
 }
 
 export interface StreamingMessageProps {

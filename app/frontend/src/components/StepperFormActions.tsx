@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-
 import { Button } from "./ui/button";
 import { useStepper } from "./ui/stepper";
 import { UseFormReturn, FieldValues } from "react-hook-form";
@@ -18,11 +17,13 @@ export function StepperFormActions<
   removeDynamicSteps,
   isSubmitting,
   onPrevStep,
+  disableNext,
 }: {
   form?: UseFormReturn<TFieldValues, TContext>;
   removeDynamicSteps: () => void;
   isSubmitting?: boolean;
   onPrevStep?: () => void;
+  disableNext?: boolean;
 }) {
   const {
     prevStep,
@@ -69,7 +70,7 @@ export function StepperFormActions<
             <Button
               size="sm"
               type={form ? "submit" : "button"}
-              disabled={isSubmitting}
+              disabled={isSubmitting || disableNext}
               onClick={!form ? nextStep : undefined}
             >
               {isOptionalStep ? "Skip" : "Next"}
@@ -80,4 +81,3 @@ export function StepperFormActions<
     </div>
   );
 }
-

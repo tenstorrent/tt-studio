@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from "react";
 import { Button } from "../ui/button";
@@ -17,6 +17,7 @@ import {
 interface ChatExamplesProps {
   logo: string;
   setTextInput: React.Dispatch<React.SetStateAction<string>>;
+  isMobileView?: boolean;
 }
 
 const allExamples = [
@@ -62,54 +63,78 @@ const allExamples = [
   },
 ];
 
-const ChatExamples: React.FC<ChatExamplesProps> = ({ logo, setTextInput }) => {
+const ChatExamples: React.FC<ChatExamplesProps> = ({
+  logo,
+  setTextInput,
+  isMobileView = false,
+}) => {
+  // Show fewer examples on mobile to prevent crowding
+  const exampleCount = isMobileView ? 2 : 4;
+
   const [displayedExamples, setDisplayedExamples] = useState(
-    allExamples.slice(0, 4),
+    allExamples.slice(0, exampleCount),
   );
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setDisplayedExamples((prevExamples) => {
-        const nextIndex =
-          (allExamples.indexOf(prevExamples[3]) + 1) % allExamples.length;
-        return [
-          ...allExamples.slice(nextIndex, nextIndex + 4),
-          ...allExamples.slice(
-            0,
-            Math.max(0, 4 - (allExamples.length - nextIndex)),
-          ),
-        ];
-      });
-    }, 15000);
+    const interval = setInterval(
+      () => {
+        setDisplayedExamples((prevExamples) => {
+          const nextIndex =
+            (allExamples.indexOf(prevExamples[prevExamples.length - 1]) + 1) %
+            allExamples.length;
+          return [
+            ...allExamples.slice(nextIndex, nextIndex + exampleCount),
+            ...allExamples.slice(
+              0,
+              Math.max(0, exampleCount - (allExamples.length - nextIndex)),
+            ),
+          ];
+        });
+      },
+      isMobileView ? 10000 : 15000,
+    ); // Rotate a bit faster on mobile
 
     return () => clearInterval(interval);
-  }, []);
+  }, [exampleCount, isMobileView]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[28rem] p-4 bg-white dark:bg-inherit transition-colors duration-200">
+    <div className="flex flex-col items-center justify-center min-h-[28rem] p-2 sm:p-4 transition-colors duration-200">
       <img
         src={logo}
         alt="Tenstorrent Logo"
-        className="w-16 h-16 mb-6 transform transition duration-300 hover:scale-110"
+        className={`${isMobileView ? "w-12 h-12 mb-4" : "w-16 h-16 mb-6"} transform transition duration-300 hover:scale-110`}
       />
-      <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white transition-colors duration-200">
+      <h2
+        className={`${isMobileView ? "text-xl" : "text-2xl"} font-bold mb-4 sm:mb-6 text-gray-800 dark:text-white transition-colors duration-200 text-center`}
+      >
         Start a conversation with TT Studio Chat...
       </h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-4xl">
+      <div
+        className={`grid ${isMobileView ? "grid-cols-1 gap-3" : "grid-cols-1 sm:grid-cols-2 gap-4"} w-full max-w-4xl`}
+      >
         {displayedExamples.map((example, index) => (
           <Button
             key={index}
             variant="outline"
-            className="h-auto py-4 px-6 flex flex-col items-center justify-center text-center space-y-2
-                     bg-gray-100 dark:bg-[#2A2A2A] hover:bg-gray-200 dark:hover:bg-[#333333] 
-                     border border-gray-300 dark:border-[#7C68FA]/20 hover:border-gray-400 dark:hover:border-[#7C68FA]/40
-                     text-gray-800 dark:text-white group transition-all duration-300"
+            className={`h-auto ${isMobileView ? "py-3 px-4" : "py-4 px-6"} flex flex-col items-center justify-center text-center space-y-2
+                     bg-white dark:bg-[#2A2A2A] hover:bg-gray-50 dark:hover:bg-[#333333] 
+                     border border-gray-200 dark:border-[#7C68FA]/20 hover:border-gray-300 dark:hover:border-[#7C68FA]/40
+                     text-gray-800 dark:text-white group transition-all duration-300 shadow-sm hover:shadow-md
+                     rounded-xl hover:rounded-2xl transform hover:scale-[1.02] active:scale-[0.98]`}
             onClick={() => setTextInput(example.text)}
           >
-            <span className={`${example.color} transition-colors duration-200`}>
-              {example.icon}
+            <span
+              className={`${example.color} transition-all duration-300 transform group-hover:scale-110 group-hover:rotate-[-8deg]`}
+            >
+              {React.cloneElement(example.icon as React.ReactElement, {
+                className: isMobileView ? "h-5 w-5" : "h-6 w-6",
+              })}
             </span>
-            <span className="text-sm font-medium">{example.text}</span>
+            <span
+              className={`${isMobileView ? "text-xs" : "text-sm"} font-medium transition-all duration-300 group-hover:text-gray-900 dark:group-hover:text-white`}
+            >
+              {example.text}
+            </span>
           </Button>
         ))}
       </div>

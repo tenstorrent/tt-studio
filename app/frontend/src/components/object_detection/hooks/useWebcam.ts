@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, useRef, useCallback, useEffect } from "react";
-import { startCapture, stopCapture, sendSnapshot } from "../utlis/webcamUtlis";
+import { startCapture, stopCapture, sendSnapshot } from "../utils/webcamUtils";
 import { Detection, DetectionMetadata } from "../types/objectDetection";
 
 export const useWebcam = (
@@ -19,7 +19,7 @@ export const useWebcam = (
   const videoRef = useRef<HTMLVideoElement>(null);
   const isLiveRef = useRef(false);
   const processingRef = useRef(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const processFrame = useCallback(async () => {
     if (!isLiveRef.current || processingRef.current || !videoRef.current)

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useState, forwardRef, useImperativeHandle } from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, CircleX } from "lucide-react";
+import { Menu, XCircle } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { AspectRatio } from "./ui/aspect-ratio";
 import imagePath from "../assets/tt_line_graphics_1.png";
@@ -52,7 +52,7 @@ const Sidebar = forwardRef((_, ref) => {
                     optimal performance.
                   </li>
                   <li>
-                    <strong>Deploy Model:</strong> Once you’ve configured the
+                    <strong>Deploy Model:</strong> Once you've configured the
                     model and selected the weights, click the "Deploy" button to
                     initiate the deployment process.
                   </li>
@@ -74,21 +74,26 @@ const Sidebar = forwardRef((_, ref) => {
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "RAG Management" page allows you to create additional
-                Datasources to augment the responses provided by the models you
-                have deployed. You can select a datasource to use from the
+                The "RAG Management" page allows you to create RAG datasources
+                by simply uploading documents. Datasources are automatically
+                created using file names, and you can select them from the
                 dropdown menu at the top of the chat window.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
                 <li>
-                  <strong>Create New RAG Datasource:</strong> RAG datasources
-                  must have a unique name of at least two characters and no
-                  spaces. Enter the name of your datasource and click the create
-                  button to create the datasource.{" "}
+                  <strong>Auto-Create Datasources:</strong> Simply drag & drop
+                  files or click "Select Files" to upload documents. RAG
+                  datasources will be created automatically using the file name
+                  (without extension) as the datasource name.
                 </li>
                 <li>
-                  <strong>Upload Document:</strong> Select a document to upload
-                  and embed into the RAG datasource.
+                  <strong>Upload to Existing:</strong> If a datasource with the
+                  same name already exists, the document will be uploaded to
+                  that collection, replacing any existing document.
+                </li>
+                <li>
+                  <strong>Individual Upload:</strong> Use the "Upload" button on
+                  existing datasources to add or replace documents individually.
                 </li>
                 <li>
                   <strong>Delete:</strong> Delete your RAG datasource. This
@@ -99,19 +104,18 @@ const Sidebar = forwardRef((_, ref) => {
           </Card>
         ),
 
-        "/chat-ui": (
+        "/chat": (
           <Card className={baseStyles}>
             <CardHeader>
               <CardTitle className="text-2xl font-bold text-left">
-                ChatUI
+                Chat
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "ChatUI" page allows you to interact with your deployed
-                models in a conversational format. You can ask questions,
-                provide input, and receive responses from the models you have
-                deployed.
+                The Chat page allows you to interact with your deployed models
+                in a conversational format. You can ask questions, provide
+                input, and receive responses from the models you have deployed.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
                 <li>
@@ -181,7 +185,7 @@ const Sidebar = forwardRef((_, ref) => {
           <div className="absolute top-0 left-0 w-full h-full flex items-center justify-between p-4 bg-gradient-to-b from-black/50 to-transparent">
             <h1 className="text-lg font-bold">Help</h1>
             <Button onClick={toggleSidebar}>
-              <CircleX className="w-6 h-6" />
+              <XCircle className="w-6 h-6" />
             </Button>
           </div>
         </div>
@@ -189,9 +193,7 @@ const Sidebar = forwardRef((_, ref) => {
       </div>
       <Button
         onClick={toggleSidebar}
-        className={`p-4 md:hidden fixed right-0 top-0 ${
-          isOpen ? "hidden" : "block"
-        }`}
+        className={`p-4 md:hidden fixed right-0 top-0 ${isOpen ? "hidden" : "block"}`}
       >
         <Menu className="w-6 h-6" />
       </Button>

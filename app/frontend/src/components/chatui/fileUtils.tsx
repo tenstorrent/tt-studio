@@ -58,6 +58,7 @@ const supportedMimeTypes = {
     "text/x-c++src",
     "text/x-typescript",
   ],
+  pdfFiles: ["application/pdf"],
 };
 
 const getFileExtension = (filename: string): string => {
@@ -68,12 +69,12 @@ const getFileExtension = (filename: string): string => {
 
 export const encodeFile = (
   file: File,
-  base64Encoded = true
+  base64Encoded = true,
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     console.log("Starting file encoding process...");
     console.log(
-      `File name: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}`
+      `File name: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}`,
     );
     console.log(`Encoding mode: ${base64Encoded ? "Base64" : "Raw binary"}`);
 
@@ -107,7 +108,7 @@ export const encodeFile = (
         // Extract only the base64 data without the data URI prefix
         const base64Data = result.split(",")[1];
         console.log(
-          `Base64 encoded data (first 50 chars): ${base64Data.substring(0, 50)}...`
+          `Base64 encoded data (first 50 chars): ${base64Data.substring(0, 50)}...`,
         );
         resolve(base64Data);
         customToast.success(`File name: ${file.name}, uploaded sucessfully!🎉`);
@@ -120,7 +121,7 @@ export const encodeFile = (
 
     reader.onerror = (error) => {
       customToast.error(
-        `Error uploading file: ${file.name} only supports PNG, JPEG, and WebP images.`
+        `Error uploading file: ${file.name} only supports PNG, JPEG, and WebP images.`,
       );
       console.error("File reading error:", error);
       reject(new Error("Failed to read file"));
@@ -151,8 +152,8 @@ export const encodeFile = (
       console.error("Error during file reading:", error);
       reject(
         new Error(
-          `Failed to read file: ${error instanceof Error ? error.message : "Unknown error"}`
-        )
+          `Failed to read file: ${error instanceof Error ? error.message : "Unknown error"}`,
+        ),
       );
     }
   });
@@ -171,14 +172,22 @@ export const isTextFile = (file: File): boolean => {
     supportedMimeTypes.codeFiles.includes(file.type) ||
     codeFileExtensions.has(`.${extension}`);
   console.log(
-    `File type check: ${file.type} - Is supported text/code file: ${result}`
+    `File type check: ${file.type} - Is supported text/code file: ${result}`,
   );
+  return result;
+};
+
+export const isPdfFile = (file: File): boolean => {
+  const result =
+    supportedMimeTypes.pdfFiles.includes(file.type) ||
+    file.name.toLowerCase().endsWith(".pdf");
+  console.log(`File type check: ${file.type} - Is PDF file: ${result}`);
   return result;
 };
 
 export const validateFile = (
   file: File,
-  maxSizeMB = 10
+  maxSizeMB = 10,
 ): { valid: boolean; error?: string } => {
   console.log(`Validating file: ${file.name}`);
 
@@ -190,7 +199,7 @@ export const validateFile = (
   const maxSizeBytes = maxSizeMB * 1024 * 1024;
   if (file.size > maxSizeBytes) {
     console.warn(
-      `File size (${file.size} bytes) exceeds limit of ${maxSizeBytes} bytes`
+      `File size (${file.size} bytes) exceeds limit of ${maxSizeBytes} bytes`,
     );
     return {
       valid: false,

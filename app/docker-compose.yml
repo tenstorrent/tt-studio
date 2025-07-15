@@ -1,29 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 services:
   tt_studio_backend:
     container_name: tt_studio_backend_api
     # hostnames must not contain underscores
     hostname: tt-studio-backend-api
-    image: ghcr.io/tenstorrent/tt-studio/api:v0.0.0
-    build: ./api
+    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
+    build: ./backend
     #* DEV: Uncomment devices to use Tenstorrent hardware
-    #! devices:
+    # devices:
     #* mounts all tenstorrent devices to backend container
-    #!   - /dev/tenstorrent:/dev/tenstorrent
-
+    # - /dev/tenstorrent:/dev/tenstorrent
     # note that `network_mode: host` does not work on mac OS
     networks:
       - tt_studio_network
     ports:
       - "8000:8000"
-    # command: bash
-    # dev server can be used for breakpoint debugging, does not support streaming
-    # command: python ./manage.py runserver 0.0.0.0:8000
-    # gunicorn is used from production, supports streaming
-
     command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
     depends_on:
       tt_studio_chroma:
@@ -40,18 +34,32 @@ services:
       - BACKEND_API_HOSTNAME
       - JWT_SECRET
       - TAVILY_API_KEY
+      - CLOUD_CHAT_UI_URL
+      - CLOUD_CHAT_UI_AUTH_TOKEN
+      - CLOUD_YOLOV4_API_URL
+      - CLOUD_YOLOV4_API_AUTH_TOKEN
+      - RAG_ADMIN_PASSWORD
+      - CLOUD_SPEECH_RECOGNITION_URL
+      - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
+      - CLOUD_STABLE_DIFFUSION_URL
+      - CLOUD_STABLE_DIFFUSION_AUTH_TOKEN
+      - CLOUD_SPEECH_RECOGNITION_URL
+      - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
+      - GITHUB_USERNAME
+      - GITHUB_PAT
+      - VITE_ENABLE_DEPLOYED
     volumes:
       # mounting docker unix socket allows for backend container to run docker cmds
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
-      # for development mount api changes
-      # - ./api:/api
+      # Mount the local api directory for live code changes
+      - ./backend:/backend
 
     healthcheck:
       # On first application load resources for transformers/etc
       # are downloaded. The UI should not start until these resources
       # have been downloaded. Adjust timeout if on a very slow connection
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/up/" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
       timeout: 120s
       interval: 10s
       retries: 5
@@ -59,7 +67,7 @@ services:
   tt_studio_frontend:
     container_name: tt_studio_frontend
     hostname: tt-studio-frontend
-    image: ghcr.io/tenstorrent/tt-studio/frontend:v0.0.0
+    image: ghcr.io/tenstorrent/tt-studio/frontend:v0.1.0
     build: ./frontend
     depends_on:
       tt_studio_backend:
@@ -68,11 +76,41 @@ services:
       - tt_studio_network
     ports:
       - "3000:3000"
-    volumes:
-    #! for development mount api changes
-      - ./frontend:/frontend
-    # command: sh
+    environment:
+      - VITE_ENABLE_DEPLOYED
+      - VITE_APP_TITLE
+      - VITE_ENABLE_RAG_ADMIN
+      - VITE_TEST_AUDIO_URL
+      - VITE_TEST_AUDIO_AUTH
     command: bash -c "npm i && npm run dev"
+
+  tt_studio_agent:
+    container_name: tt_studio_agent
+    hostname: tt-studio-agent
+    image: ghcr.io/tenstorrent/tt-studio/agent:v0.0.0
+    build: ./agent
+    depends_on:
+      tt_studio_backend:
+        condition: service_healthy
+    networks:
+      - tt_studio_network
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_SECRET
+      - TAVILY_API_KEY
+      - CLOUD_CHAT_UI_URL
+      - CLOUD_CHAT_UI_AUTH_TOKEN
+      - USE_CLOUD_LLM=true
+      - LLM_CONTAINER_NAME
+      - BACKEND_API_HOSTNAME
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      timeout: 60s
+      interval: 10s
+      retries: 3
 
   tt_studio_chroma:
     image: chromadb/chroma:0.5.3
@@ -92,7 +130,7 @@ services:
       - "8111:8111"
     healthcheck:
       # Adjust below to match your container port
-      test: [ "CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat"]
       interval: 10s
       timeout: 10s
       retries: 3

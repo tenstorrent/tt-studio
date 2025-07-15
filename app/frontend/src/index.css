@@ -1,10 +1,147 @@
-@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  /* Custom Scrollbar Styles */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(38, 38, 51, 0.8);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(79, 70, 229, 0.3);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  ::-webkit-scrollbar-thumb:active,
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.4);
+    width: 8px;
+  }
+
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(79, 70, 229, 0.3) rgba(38, 38, 51, 0.8);
+  }
+
+  *:hover {
+    scrollbar-color: rgba(99, 102, 241, 0.4) rgba(38, 38, 51, 0.8);
+  }
+
+  /* Light mode overrides if needed */
+  .light ::-webkit-scrollbar-track {
+    background: rgba(38, 38, 51, 0.8);
+  }
+
+  .light ::-webkit-scrollbar-thumb {
+    background: rgba(79, 70, 229, 0.3);
+  }
+
+  .light ::-webkit-scrollbar-thumb:active,
+  .light ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.4);
+  }
+
+  .light * {
+    scrollbar-color: rgba(79, 70, 229, 0.3) rgba(38, 38, 51, 0.8);
+  }
+
+  .light *:hover {
+    scrollbar-color: rgba(99, 102, 241, 0.4) rgba(38, 38, 51, 0.8);
+  }
+
+  body {
+    @apply font-sans antialiased;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Chat message styles */
+  .chat-bubble {
+    @apply font-medium leading-relaxed;
+    letter-spacing: -0.011em;
+  }
+
+  .chat-bubble p {
+    @apply mb-4 last:mb-0;
+  }
+
+  .chat-bubble code {
+    @apply font-mono text-[13.5px] leading-relaxed;
+  }
+
+  /* Heading styles */
+  h1 {
+    @apply text-2xl font-semibold tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    @apply text-xl font-semibold tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-medium tracking-tight;
+    letter-spacing: -0.02em;
+  }
+
+  /* Button text */
+  button,
+  .button {
+    @apply font-medium tracking-tight;
+  }
+
+  /* Input fields */
+  input,
+  textarea {
+    @apply font-normal tracking-tight;
+  }
+
+  .chat-bubble.user {
+    @apply text-[15px];
+  }
+
+  .chat-bubble.assistant {
+    @apply text-[15px];
+  }
+}
+
 body {
-  @apply font-degularDisplay;
+  @apply font-sans;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+button,
+.button,
+a.button {
   font-weight: 500;
 }
 
@@ -33,6 +170,14 @@ body {
   --input: 20 5.9% 90%;
   --ring: 20 14.3% 4.1%;
   --radius: 0.75rem;
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 95.9%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
 }
 .dark {
   --background: 20 14.3% 4.1%;
@@ -58,20 +203,31 @@ body {
   --border: 12 6.5% 15.1%;
   --input: 12 6.5% 15.1%;
   --ring: 24 5.7% 82.9%;
+  --sidebar-background: 240 5.9% 10%;
+  --sidebar-foreground: 240 4.8% 95.9%;
+  --sidebar-primary: 224.3 76.3% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 3.7% 15.9%;
+  --sidebar-accent-foreground: 240 4.8% 95.9%;
+  --sidebar-border: 240 3.7% 15.9%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
 }
 
 /* Neumorphism effect for all buttons and similar components */
 .neu {
   background-color: var(--background);
   border-radius: var(--radius);
-  box-shadow: 10px 10px 20px var(--neu-shadow-dark),
+  box-shadow: 10px 10px 20px var(--neu-shadow-dark);
+  box-shadow:
+    10px 10px 20px var(--neu-shadow-dark),
     -10px -10px 20px var(--neu-shadow);
 }
 
 .neu-inset {
   background-color: var(--background);
   border-radius: var(--radius);
-  box-shadow: inset 10px 10px 20px var(--neu-shadow-dark),
+  box-shadow:
+    inset 10px 10px 20px var(--neu-shadow-dark),
     inset -10px -10px 20px var(--neu-shadow);
 }
 
@@ -90,6 +246,57 @@ body {
   }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+  }
+  :root {
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+  .dark {
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@keyframes grid {
+  0% {
+    transform: translateY(0%);
+  }
+  100% {
+    transform: translateY(calc(var(--cell-size, 50px) * 2));
+  }
+}
+
+.animate-grid {
+  animation: grid 8s linear infinite;
+  will-change: transform;
+}
+
+@layer components {
+  .animate-line-shadow {
+    animation: line-shadow 15s linear infinite;
+  }
+}
+
+@keyframes line-shadow {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 100% -100%;
   }
 }

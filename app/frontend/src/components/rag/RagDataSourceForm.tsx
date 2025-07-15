@@ -37,11 +37,15 @@ const RagDataSourceForm = ({
   const onSubmitForm = async (data: z.infer<typeof formSchema>) => {
     try {
       await onSubmit({ collectionName: data.name });
+      // Only reset if no error was thrown
       reset();
-      customToast.success("RAG Datasource created successfully.");
     } catch (error) {
       console.error("Error creating RAG Datasource:", error);
-      customToast.error("Failed to create RAG Datasource. Please try again.");
+      if (error instanceof Error) {
+        customToast.error(error.message);
+      } else {
+        customToast.error("Failed to create RAG Datasource. Please try again.");
+      }
     }
   };
 
@@ -60,8 +64,11 @@ const RagDataSourceForm = ({
 
   return (
     <div className="w-full max-w-4xl mx-auto my-4">
-      <form className="flex space-x-4 items-center" onSubmit={handleFormSubmit}>
-        <div className="flex-grow relative">
+      <form
+        className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 items-start sm:items-center"
+        onSubmit={handleFormSubmit}
+      >
+        <div className="flex-grow relative w-full p-2">
           <Input
             type="text"
             autoComplete="off"
@@ -75,9 +82,18 @@ const RagDataSourceForm = ({
             </div>
           )}
         </div>
-        <Button type="submit" disabled={isSubmitting}>
+        <Button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-auto self-center sm:self-auto"
+        >
           <Plus className="mr-2 h-4 w-4" />
-          {isSubmitting ? "Creating..." : "Create New RAG Datasource"}
+          <span className="hidden sm:inline">
+            {isSubmitting ? "Creating..." : "Create New RAG Datasource"}
+          </span>
+          <span className="sm:hidden">
+            {isSubmitting ? "Creating..." : "Create"}
+          </span>
         </Button>
       </form>
       {errors.name && (

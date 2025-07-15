@@ -14,8 +14,9 @@ RUN apk update && \
 EXPOSE 3000
 WORKDIR /frontend
 COPY . /frontend
-# RUN apt-get update && apt-get install 
-# build
+
+
+# CMD ["sh", "-c", "npm i && npm run dev"]
 RUN npm i
 
-CMD npm run dev
+CMD ["npm", "run", "dev"]

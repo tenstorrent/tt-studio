@@ -8,18 +8,86 @@ export const getRagContext = async (
   ragDatasource: RagDataSource | undefined,
 ) => {
   const ragContext: { documents: string[] } = { documents: [] };
+  console.log(
+    "2^^^Fetching RAG context for the given request...",
+    request,
+    ragDatasource,
+  );
 
   if (!ragDatasource) return ragContext;
 
   try {
-    const response = await axios.get(
-      `/collections-api/${ragDatasource.name}/query`,
-      {
-        params: { query: request.text },
-      },
-    );
-    if (response?.data) {
-      ragContext.documents = response.data.documents;
+    // Get browser ID from localStorage
+    const browserId = localStorage.getItem("tt_studio_browser_id");
+    console.log(`Browser ID: ${browserId}`);
+
+    // If special-all is specified, query across all collections
+    if (ragDatasource.id === "special-all") {
+      console.log("Querying across all collections");
+      try {
+        const response = await axios.get(`/collections-api/query-all`, {
+          params: { query_text: request.text, limit: 5 },
+          headers: {
+            "X-Browser-ID": browserId,
+          },
+        });
+
+        console.log("Query-all response:", response);
+
+        if (response?.data?.results) {
+          // Format results to include collection name
+          ragContext.documents = response.data.results.map(
+            (result: any) =>
+              `[From ${result.collection.name}]\n${result.document}`,
+          );
+          console.log("Processed documents:", ragContext.documents.length);
+        } else {
+          console.warn(
+            "No results found in query-all response:",
+            response.data,
+          );
+        }
+      } catch (error: any) {
+        console.error(`Error querying all collections: ${error.message}`);
+        console.error(
+          "Error details:",
+          error.response?.data || "No response data",
+        );
+      }
+    } else {
+      // Standard single collection query
+      console.log(`Querying single collection: ${ragDatasource.name}`);
+      try {
+        const response = await axios.get(
+          `/collections-api/${ragDatasource.name}/query`,
+          {
+            params: { query_text: request.text },
+            headers: {
+              "X-Browser-ID": browserId,
+            },
+          },
+        );
+
+        console.log("Single collection response:", response);
+
+        if (response?.data) {
+          ragContext.documents = response.data.documents[0] || [];
+          console.log("Processed documents:", ragContext.documents.length);
+        } else {
+          console.warn(
+            "No results found in single collection response:",
+            response.data,
+          );
+        }
+      } catch (error: any) {
+        console.error(
+          `Error querying collection ${ragDatasource.name}: ${error.message}`,
+        );
+        console.error(
+          "Error details:",
+          error.response?.data || "No response data",
+        );
+      }
     }
   } catch (e) {
     console.error(`Error fetching RAG context: ${e}`);

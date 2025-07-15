@@ -1,38 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
-import { User, ChevronDown, Bot, X, Database, File } from "lucide-react";
+import { ChevronDown, Database, File, X, Lock } from "lucide-react";
 import { Button } from "../ui/button";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
 import MessageActions from "./MessageActions";
+import MessageIndicator from "./MessageIndicator";
 import FileDisplay from "./FileDisplay";
 import type { ChatMessage } from "./types";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as Tooltip from "@radix-ui/react-tooltip";
 
-interface ChatHistoryProps {
-  chatHistory: ChatMessage[];
-  logo: string;
-  setTextInput: React.Dispatch<React.SetStateAction<string>>;
-  isStreaming: boolean;
-  onReRender: (messageId: string) => void;
-  onContinue: (messageId: string) => void;
-  reRenderingMessageId: string | null;
-  ragDatasource:
-    | {
-        id: string;
-        name: string;
-        metadata?: {
-          created_at?: string;
-          embedding_func_name?: string;
-          last_uploaded_document?: string;
-        };
-      }
-    | undefined;
-}
-
+// --- RagPill component (assuming it's defined elsewhere or identical) ---
 const RagPill: React.FC<{
   ragDatasource: {
     id: string;
@@ -47,14 +31,13 @@ const RagPill: React.FC<{
   <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-TT-slate/30 text-xs text-gray-300 mb-2">
     <Database size={12} />
     <span>{ragDatasource.name}</span>
-    {ragDatasource.metadata?.last_uploaded_document && (
-      <span className="text-gray-400">
-        · {ragDatasource.metadata.last_uploaded_document}
-      </span>
-    )}
+    <span className="text-gray-400">
+      · {ragDatasource.metadata?.last_uploaded_document || "Untitled"}
+    </span>
   </div>
 );
 
+// --- FileViewerDialog component (assuming it's defined elsewhere or identical) ---
 interface FileViewerDialogProps {
   file: { url: string; name: string; isImage: boolean } | null;
   onClose: () => void;
@@ -109,6 +92,24 @@ const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
   );
 };
 
+interface ChatHistoryProps {
+  chatHistory: ChatMessage[];
+  logo: string;
+  setTextInput: React.Dispatch<React.SetStateAction<string>>;
+  isStreaming: boolean;
+  onReRender: (messageId: string) => void;
+  onContinue: (messageId: string) => void;
+  reRenderingMessageId: string | null;
+  ragDatasource?: {
+    id: string;
+    name: string;
+    metadata?: Record<string, unknown>;
+  };
+  isMobileView?: boolean;
+  modelName?: string | null;
+  toggleableInlineStats?: boolean;
+}
+
 const ChatHistory: React.FC<ChatHistoryProps> = ({
   chatHistory = [],
   logo,
@@ -118,66 +119,238 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   onContinue,
   reRenderingMessageId,
   // ragDatasource,
+  isMobileView = false,
+  modelName,
+  toggleableInlineStats = true,
 }) => {
   // console.log("ChatHistory component rendered", ragDatasource);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isScrollButtonVisible, setIsScrollButtonVisible] = useState(false);
-  const lastMessageRef = useRef<HTMLDivElement>(null);
-
   const [minimizedFiles, setMinimizedFiles] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<{
     url: string;
     name: string;
     isImage: boolean;
   } | null>(null);
+  const messageRefs = useRef<Map<string | number, HTMLDivElement>>(new Map());
+  const [screenSize, setScreenSize] = useState<{
+    isLargeScreen: boolean;
+    isExtraLargeScreen: boolean;
+  }>({ isLargeScreen: false, isExtraLargeScreen: false });
 
+  // --- SCROLL STATE REFS ---
+  const userHasScrolledAwayRef = useRef(false);
+  const prevChatHistoryLengthRef = useRef(chatHistory.length);
+  const isAutoScrollingRef = useRef(false); // Track if scroll is from our code vs user
+  const lastScrollTopRef = useRef(0); // Remember last scroll position for better detection
+  const isAtBottomRef = useRef(true); // Track if user is at bottom
+  const isScrollLockedRef = useRef(false); // Track if scroll is locked to bottom
+  const [isScrollLocked, setIsScrollLocked] = useState(false); // For UI updates
+  // --- END SCROLL STATE REFS ---
+
+  // Add state for tracking which message has stats toggled open
+  const [openStatsMessageId, setOpenStatsMessageId] = useState<string | null>(
+    null,
+  );
+
+  // Handler to toggle stats for a specific message
+  const handleToggleStats = useCallback((messageId: string) => {
+    setOpenStatsMessageId((prev) => (prev === messageId ? null : messageId));
+  }, []);
+
+  const shouldShowMessageIndicator = useCallback(() => {
+    // Check if streaming AND last message is from user
+    return (
+      isStreaming &&
+      chatHistory.length > 0 &&
+      chatHistory[chatHistory.length - 1]?.sender === "user"
+    );
+  }, [isStreaming, chatHistory]);
+
+  // Screen size effect
+  useEffect(() => {
+    const checkScreenSize = () => {
+      const width = window.innerWidth;
+      setScreenSize({
+        isLargeScreen: width >= 1280,
+        isExtraLargeScreen: width >= 1600,
+      });
+    };
+    checkScreenSize();
+    window.addEventListener("resize", checkScreenSize);
+    return () => window.removeEventListener("resize", checkScreenSize);
+  }, []);
+
+  // --- SCROLLING FUNCTIONS ---
   const scrollToBottom = useCallback(() => {
     if (viewportRef.current) {
+      // Set flag to indicate this is an auto-scroll
+      isAutoScrollingRef.current = true;
+      // Use scrollHeight to get the total scrollable height
       viewportRef.current.scrollTo({
         top: viewportRef.current.scrollHeight,
         behavior: "smooth",
       });
+
+      // Reset various scroll tracking states
+      userHasScrolledAwayRef.current = false;
+      isAtBottomRef.current = true;
+
+      // Clear auto-scroll flag after animation
+      setTimeout(() => {
+        isAutoScrollingRef.current = false;
+      }, 300);
     }
   }, []);
 
+  // --- UPDATED: Scroll Event Handler with Enhanced Detection ---
   const handleScroll = useCallback(() => {
-    if (viewportRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
-      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
-      setIsScrollButtonVisible(!isAtBottom);
+    if (!viewportRef.current || isAutoScrollingRef.current) {
+      // Skip scroll handling during programmatic scrolling
+      return;
     }
-  }, []);
 
+    const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
+
+    // Detection improvements
+    const previousScrollTop = lastScrollTopRef.current;
+    const scrollChange = Math.abs(scrollTop - previousScrollTop);
+
+    // Update last scroll position
+    lastScrollTopRef.current = scrollTop;
+
+    // Reduce sensitivity threshold to detect smaller scrolls
+    const isUserScroll = scrollChange > 0.5;
+
+    // Make threshold larger (50px instead of 30px) for better detection
+    const isNearBottom = scrollHeight - scrollTop <= clientHeight + 50;
+
+    // Update bottom status ref
+    isAtBottomRef.current = isNearBottom;
+
+    // IMPORTANT: Always update scroll button visibility when not at bottom
+    // AND when there's actually enough content to scroll
+    const isContentScrollable = scrollHeight > clientHeight + 10;
+    const shouldShowButton = isContentScrollable && !isNearBottom;
+
+    // Force update button visibility
+    if (shouldShowButton !== isScrollButtonVisible) {
+      setIsScrollButtonVisible(shouldShowButton);
+    }
+
+    // If user is manually scrolling up (away from bottom), unlock scroll
+    if (isUserScroll && !isNearBottom) {
+      // Only trigger state update if there's an actual change
+      if (isScrollLockedRef.current) {
+        isScrollLockedRef.current = false;
+        setIsScrollLocked(false);
+      }
+      userHasScrolledAwayRef.current = true;
+    }
+  }, [isScrollButtonVisible]);
+
+  // Attach scroll listener
   useEffect(() => {
     const viewport = viewportRef.current;
     if (viewport) {
-      viewport.addEventListener("scroll", handleScroll);
+      viewport.addEventListener("scroll", handleScroll, { passive: true });
       return () => viewport.removeEventListener("scroll", handleScroll);
     }
   }, [handleScroll]);
 
+  // NEW EFFECT: Check content length on chat history changes
   useEffect(() => {
-    if (!isStreaming) {
-      const viewport = viewportRef.current;
-      if (viewport) {
-        const { scrollTop, scrollHeight, clientHeight } = viewport;
-        const isAtBottom = scrollHeight - scrollTop <= clientHeight + 1;
-        if (isAtBottom) {
-          scrollToBottom();
-        }
-        setIsScrollButtonVisible(!isAtBottom);
+    // Force check if content is scrollable when chat history changes
+    if (viewportRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = viewportRef.current;
+      const isNearBottom = scrollHeight - scrollTop <= clientHeight + 50;
+      const isContentScrollable = scrollHeight > clientHeight + 10;
+
+      // Set button visibility if content is scrollable and not at bottom
+      const shouldShowButton = isContentScrollable && !isNearBottom;
+      if (shouldShowButton !== isScrollButtonVisible) {
+        setIsScrollButtonVisible(shouldShowButton);
       }
     }
-  }, [isStreaming, scrollToBottom]);
+  }, [chatHistory, isScrollButtonVisible]);
 
+  // Handle Auto-Scrolling for New Messages
+  useEffect(() => {
+    const currentLength = chatHistory.length;
+    const previousLength = prevChatHistoryLengthRef.current;
+
+    // Only update the history length reference
+    prevChatHistoryLengthRef.current = currentLength;
+
+    // Only process if there's a new message
+    if (currentLength > previousLength && viewportRef.current) {
+      const newMessage = chatHistory[currentLength - 1];
+
+      // Schedule scroll logic after the next paint
+      requestAnimationFrame(() => {
+        if (!viewportRef.current) return;
+
+        // Always scroll to bottom for user messages
+        if (newMessage.sender === "user") {
+          scrollToBottom();
+          userHasScrolledAwayRef.current = false;
+        }
+        // For assistant messages, only scroll if locked or at bottom
+        else if (newMessage.sender === "assistant") {
+          if (isScrollLockedRef.current || isAtBottomRef.current) {
+            scrollToBottom();
+          } else {
+            // Show the scroll button when new assistant messages arrive
+            setIsScrollButtonVisible(true);
+          }
+        }
+      });
+    }
+  }, [chatHistory, scrollToBottom]);
+
+  // Streaming auto-scroll behavior
+  useEffect(() => {
+    if (!isStreaming || !viewportRef.current) return;
+
+    // Only auto-scroll when streaming if we're locked or at bottom
+    let animationFrameId: number;
+
+    const autoScrollIfLocked = () => {
+      if (!viewportRef.current) return;
+
+      // Check if we should auto-scroll
+      if (isScrollLockedRef.current) {
+        // Lock is enabled, force scroll to bottom
+        isAutoScrollingRef.current = true;
+        viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        setTimeout(() => {
+          isAutoScrollingRef.current = false;
+        }, 10);
+      }
+
+      // Continue the loop
+      animationFrameId = requestAnimationFrame(autoScrollIfLocked);
+    };
+
+    // Start the loop if scroll is locked
+    if (isScrollLockedRef.current) {
+      animationFrameId = requestAnimationFrame(autoScrollIfLocked);
+    }
+
+    // Clean up the animation frame
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [isStreaming]);
+
+  // Other callbacks
   const toggleMinimizeFile = useCallback((fileId: string) => {
     setMinimizedFiles((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(fileId)) {
-        newSet.delete(fileId);
-      } else {
-        newSet.add(fileId);
-      }
+      if (newSet.has(fileId)) newSet.delete(fileId);
+      else newSet.add(fileId);
       return newSet;
     });
   }, []);
@@ -187,155 +360,262 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     const extension = fileName.split(".").pop()?.toLowerCase() || "";
     const isImage =
       imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
-
-    setSelectedFile({
-      url: fileUrl,
-      name: fileName,
-      isImage,
-    });
+    setSelectedFile({ url: fileUrl, name: fileName, isImage });
   }, []);
 
+  // Responsive helpers
+  const getContainerWidth = () => {
+    if (isMobileView) return "w-full";
+    if (screenSize.isExtraLargeScreen) return "max-w-[97%] w-full"; // Wider container
+    if (screenSize.isLargeScreen) return "max-w-[97%] w-full"; // Wider container
+    return "max-w-[97%] w-full"; // Wider container
+  };
+
+  const getBubbleMaxWidth = () => {
+    if (isMobileView) return "max-w-[95vw]"; // Increased from "max-w-[85vw]"
+    if (screenSize.isExtraLargeScreen) return "max-w-[95%]"; // Increased from "max-w-[90%]"
+    if (screenSize.isLargeScreen) return "max-w-[95%]"; // Increased from "max-w-[90%]"
+    return "max-w-full"; // Increased from "max-w-[95%]"
+  };
+
   return (
-    <div className="flex flex-col w-full flex-grow p-8 font-rmMono relative overflow-hidden">
-      {chatHistory.length === 0 ? (
-        <ChatExamples logo={logo} setTextInput={setTextInput} />
+    <div
+      className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} relative overflow-hidden`}
+    >
+      {chatHistory.length === 0 && !isStreaming ? (
+        <ChatExamples
+          logo={logo}
+          setTextInput={setTextInput}
+          isMobileView={isMobileView}
+        />
       ) : (
-        <ScrollArea.Root className="flex-grow h-full overflow-hidden">
+        <ScrollArea.Root
+          className={`relative flex flex-col flex-grow ${isMobileView ? "h-full touch-pan-y" : ""}`}
+        >
+          {/* VIEWPORT */}
           <ScrollArea.Viewport
             ref={viewportRef}
-            className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+            className={`h-full w-full outline-none ${
+              isMobileView ? "-webkit-overflow-scrolling-touch" : ""
+            }`}
             onScroll={handleScroll}
           >
-            <div className="p-4 border rounded-lg">
+            {/* INNER CONTAINER - ADJUSTED PADDING WITH WIDER WIDTH */}
+            <div
+              className={`p-2 sm:p-3 border border-gray-700 rounded-lg ${isMobileView ? "mx-0 border-x-0 rounded-none" : "mx-0"} ${getContainerWidth()}`}
+            >
+              {/* CHAT MESSAGES */}
               {chatHistory.map((message, index) => (
                 <div
-                  key={message.id}
-                  ref={index === chatHistory.length - 1 ? lastMessageRef : null}
-                  className={`chat ${message.sender === "user" ? "chat-end" : "chat-start"} mb-4`}
+                  key={message.id || index}
+                  ref={(el) => {
+                    if (el) messageRefs.current.set(message.id || index, el);
+                    else messageRefs.current.delete(message.id || index);
+                  }}
+                  className={`mb-3 sm:mb-4 flex flex-col ${message.sender === "user" ? "items-end" : "items-start"}`}
                 >
-                  <div className="chat-image avatar text-left">
-                    <div className="w-10 rounded-full">
-                      {message.sender === "user" ? (
-                        <User className="h-6 w-6 mr-2 text-left" />
-                      ) : (
-                        <Bot className="w-8 h-8 rounded-full mr-2" />
-                      )}
-                    </div>
-                  </div>
+                  {/* Bubble */}
                   <div
                     className={`chat-bubble ${
                       message.sender === "user"
-                        ? "bg-TT-green-accent text-white text-left"
-                        : "bg-TT-slate text-white text-left"
-                    } p-3 rounded-lg mb-1`}
+                        ? "bg-TT-green-accent text-white"
+                        : "bg-TT-purple-accent text-white"
+                    } p-4 rounded-2xl mb-1 ${
+                      isMobileView ? "text-[15px]" : "text-[15px]"
+                    } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm leading-relaxed`}
                   >
                     {message.sender === "assistant" && (
                       <>
                         {reRenderingMessageId === message.id && (
-                          <div className="text-yellow-300 font-bold mb-2 flex items-center">
-                            <span className="mr-2">Re-rendering</span>
+                          <div className="text-yellow-300 font-bold mb-1 sm:mb-2 flex items-center text-xs sm:text-sm">
+                            <span className="mr-1 sm:mr-2">Re-rendering</span>
                             <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
                               className="animate-spin"
-                            >
-                              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                            </svg>
+                              /* ... re-render icon ... */
+                            />
                           </div>
                         )}
-                        <StreamingMessage
-                          content={message.text}
-                          isStreamFinished={
-                            !isStreaming ||
-                            (reRenderingMessageId !== message.id &&
-                              index !== chatHistory.length - 1)
-                          }
-                        />
+                        <div className="w-full text-left">
+                          <StreamingMessage
+                            content={message.text}
+                            isStreamFinished={
+                              !isStreaming || // If global streaming stopped
+                              reRenderingMessageId === message.id || // If this specific message is being re-rendered
+                              index < chatHistory.length - 1 // If it's not the absolute last message
+                            }
+                            isStopped={message.isStopped}
+                          />
+                        </div>
                       </>
                     )}
                     {message.sender === "user" && (
-                      <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-1">
                         {message.text && (
-                          <div className="bg-TT-green-accent/20 p-2 rounded">
-                            <p className="text-white">
-                              {message.text.split(" ").map((word, i) => {
-                                const isUrl = word.startsWith("http");
-                                return isUrl ? (
-                                  <span
-                                    key={i}
-                                    className="text-blue-300 underline"
-                                  >
+                          <p className="text-white whitespace-pre-wrap break-words">
+                            {message.text.split(/(\s+)/).map((segment, i) => {
+                              // Split by space, keeping spaces
+                              const isUrl = /^(https?:\/\/|www\.)\S+/i.test(
+                                segment,
+                              );
+                              if (isUrl) {
+                                const cleanUrl = segment.replace(
+                                  /[.,!?;:]$/,
+                                  "",
+                                );
+                                const punctuation = segment.slice(
+                                  cleanUrl.length,
+                                );
+                                return (
+                                  <React.Fragment key={i}>
                                     <a
-                                      href={word}
+                                      href={
+                                        cleanUrl.startsWith("www.")
+                                          ? `https://${cleanUrl}`
+                                          : cleanUrl
+                                      }
                                       target="_blank"
                                       rel="noopener noreferrer"
+                                      className="text-blue-300 hover:text-blue-200 underline break-all"
                                     >
-                                      {word}
-                                    </a>{" "}
-                                  </span>
-                                ) : (
-                                  <span key={i}>{word} </span>
+                                      {cleanUrl}
+                                    </a>
+                                    {punctuation}
+                                  </React.Fragment>
                                 );
-                              })}
-                            </p>
-                          </div>
+                              } else {
+                                return <span key={i}>{segment}</span>; // Render spaces/words
+                              }
+                            })}
+                          </p>
                         )}
                       </div>
                     )}
                   </div>
+                  {/* Actions & RAG Pill */}
                   {message.sender === "assistant" && (
-                    <MessageActions
-                      messageId={message.id}
-                      onReRender={onReRender}
-                      onContinue={onContinue}
-                      isReRendering={reRenderingMessageId === message.id}
-                      isStreaming={isStreaming}
-                      inferenceStats={message.inferenceStats}
-                      messageContent={message.text}
-                    />
+                    <div className="mt-1 text-xs">
+                      <MessageActions
+                        messageId={message.id || ""}
+                        onReRender={onReRender}
+                        onContinue={onContinue}
+                        isReRendering={reRenderingMessageId === message.id}
+                        isStreaming={
+                          isStreaming &&
+                          index === chatHistory.length - 1 &&
+                          reRenderingMessageId !== message.id
+                        }
+                        inferenceStats={message.inferenceStats}
+                        messageContent={message.text}
+                        modelName={modelName}
+                        statsOpen={openStatsMessageId === (message.id || "")}
+                        onToggleStats={() =>
+                          handleToggleStats(message.id || "")
+                        }
+                        toggleableInlineStats={toggleableInlineStats}
+                      />
+                    </div>
                   )}
+                  {/* RAG Pill for User message (assuming it might apply) */}
                   {message.ragDatasource && (
-                    <RagPill ragDatasource={message.ragDatasource} />
+                    <div className="mt-1">
+                      <RagPill ragDatasource={message.ragDatasource} />
+                    </div>
                   )}
+                  {/* Files for both User and Assistant messages */}
                   {message.files && message.files.length > 0 && (
-                    <FileDisplay
-                      files={message.files}
-                      minimizedFiles={minimizedFiles}
-                      toggleMinimizeFile={toggleMinimizeFile}
-                      onFileClick={handleFileClick}
-                    />
+                    <div className="mt-2">
+                      <FileDisplay
+                        files={message.files}
+                        minimizedFiles={minimizedFiles}
+                        toggleMinimizeFile={toggleMinimizeFile}
+                        onFileClick={handleFileClick}
+                      />
+                    </div>
                   )}
                 </div>
               ))}
+              {/* Streaming Indicator */}
+              {shouldShowMessageIndicator() && (
+                <div className={`mb-3 sm:mb-4 flex flex-col items-start`}>
+                  <div
+                    className={`chat-bubble bg-TT-slate text-white p-2 sm:p-3 rounded-lg mb-1 ${
+                      isMobileView ? "text-sm" : "text-base"
+                    } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm`}
+                  >
+                    <div className="w-full text-left">
+                      <MessageIndicator isMobileView={isMobileView} />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </ScrollArea.Viewport>
-          <ScrollArea.Scrollbar
-            orientation="vertical"
-            className="w-2 bg-transparent transition-colors duration-150 ease-out hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <ScrollArea.Thumb className="bg-gray-300 rounded-full w-full transition-colors duration-150 ease-out hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500" />
-          </ScrollArea.Scrollbar>
+
+          {/* SCROLLBAR - Hide in mobile view */}
+          {!isMobileView && (
+            <ScrollArea.Scrollbar
+              orientation="vertical"
+              className="flex select-none touch-none p-0.5 bg-transparent transition-colors duration-160 ease-out data-[orientation=vertical]:w-2.5 hover:bg-black/10"
+            >
+              <ScrollArea.Thumb className="flex-1 bg-gray-500 dark:bg-gray-600 rounded-[10px] relative before:content-[''] before:absolute before:top-1/2 before:left-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:w-full before:h-full before:min-w-[44px] before:min-h-[44px]" />
+            </ScrollArea.Scrollbar>
+          )}
         </ScrollArea.Root>
       )}
+
+      {/* Scroll button */}
       {isScrollButtonVisible && (
-        <Button
-          className="absolute bottom-4 right-4 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300"
-          onClick={() => {
-            scrollToBottom();
-            setIsScrollButtonVisible(false);
-          }}
-        >
-          <ChevronDown className="h-6 w-6 animate-bounce" />
-        </Button>
+        <Tooltip.Provider delayDuration={200}>
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <Button
+                onClick={scrollToBottom}
+                className="fixed bottom-24 right-8 h-10 w-10 rounded-full bg-primary shadow-lg hover:bg-primary/90 transition-all duration-200 z-50"
+                size="icon"
+              >
+                <ChevronDown className="h-5 w-5 text-white" />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                className="bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md rounded-md animate-in fade-in-0 zoom-in-95 z-50"
+                side="left"
+                sideOffset={5}
+              >
+                New messages below
+                <Tooltip.Arrow className="fill-popover" />
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+        </Tooltip.Provider>
       )}
 
+      {/* Lock indicator */}
+      {isScrollLocked && (
+        <div className="fixed bottom-24 right-20 z-50">
+          <Tooltip.Provider delayDuration={200}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <div className="h-10 w-10 rounded-full bg-TT-slate/80 flex items-center justify-center shadow-lg">
+                  <Lock className="h-5 w-5 text-white" />
+                </div>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content
+                  className="bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md rounded-md animate-in fade-in-0 zoom-in-95 z-50"
+                  side="left"
+                  sideOffset={5}
+                >
+                  Scroll locked to bottom
+                  <Tooltip.Arrow className="fill-popover" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
+        </div>
+      )}
+
+      {/* FILE VIEWER DIALOG */}
       <FileViewerDialog
         file={selectedFile}
         onClose={() => setSelectedFile(null)}
@@ -344,4 +624,5 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   );
 };
 
+// Added React.memo for potential performance optimization if props don't change often
 export default React.memo(ChatHistory);

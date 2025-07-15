@@ -17,8 +17,10 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   const statusColor = (() => {
     switch (status.toLowerCase()) {
       case "running":
+      case "available":
         return "bg-green-500";
       case "stopped":
+      case "not downloaded":
         return "bg-red-500";
       default:
         return "bg-yellow-500";
@@ -26,7 +28,12 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   })();
 
   const variant =
-    status.toLowerCase() === "running" ? "default" : "destructive";
+    status.toLowerCase() === "running" || status.toLowerCase() === "available"
+      ? "default"
+      : status.toLowerCase() === "stopped" ||
+          status.toLowerCase() === "not downloaded"
+        ? "destructive"
+        : "warning";
 
   return (
     <TooltipProvider>
@@ -39,7 +46,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
           </div>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Docker Container Status: {status} (refreshed every 6 minutes)</p>
+          <p>Status: {status}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
