@@ -12,7 +12,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies inside the container image
-RUN npm i
+RUN npm install
 
 # Copy the rest of the source code
 COPY . .

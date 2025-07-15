@@ -76,20 +76,23 @@ FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
 # Global flag to determine if we should overwrite existing values
 FORCE_OVERWRITE = False
 
-def run_command(command, check=False, cwd=None, capture_output=False):
+def run_command(command, check=False, cwd=None, capture_output=False, shell=False):
     """Helper function to run a shell command."""
     try:
-        cmd_str = ' '.join(command) if isinstance(command, list) else command
-        # Run command and show its output directly in the terminal
-        return subprocess.run(command, check=check, cwd=cwd, text=True, capture_output=capture_output)
+        cmd_str = command if shell else ' '.join(command)
+        return subprocess.run(command, check=check, cwd=cwd, text=True, capture_output=capture_output, shell=shell)
     except FileNotFoundError as e:
         print(f"{C_RED}⛔ Error: Command not found: {e.filename}{C_RESET}")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
-        print(f"{C_RED}⛔ Error executing command: {cmd_str}{C_RESET}")
-        if capture_output:
-            print(f"{C_RED}Stderr: {e.stderr}{C_RESET}")
-        sys.exit(1)
+        # Don't exit if check=False, just return the result
+        if check:
+            print(f"{C_RED}⛔ Error executing command: {cmd_str}{C_RESET}")
+            if capture_output:
+                print(f"{C_RED}Stderr: {e.stderr}{C_RESET}")
+            sys.exit(1)
+        return e
+
 
 def check_docker_installation():
     """Function to check Docker installation."""
@@ -710,53 +713,81 @@ def check_port_available(port):
         except OSError:
             return False
 
-def kill_process_on_port(port):
+def kill_process_on_port(port, no_sudo=False):
     """
     Find and kill a process using a specific port. More robust and cross-platform.
+    Handles permissions by trying commands with and without sudo.
     """
     pid = None
     
-    # Method 1: Try 'lsof' (most reliable, common on macOS and Linux)
-    if shutil.which("lsof"):
-        try:
-            result = run_command(["lsof", "-ti", f"tcp:{port}"], check=True, capture_output=True)
-            pid = result.stdout.strip()
-        except (subprocess.CalledProcessError, SystemExit):
-            pass # Command failed, pid remains None
 
-    # Method 2: Fallback to 'ss' (modern replacement for netstat on Linux)
+    # --- macOS and Linux logic ---
+    
+    # Define commands to try
+    lsof_cmd = ["lsof", "-ti", f"tcp:{port}"]
+    ss_cmd = ["ss", "-lptn", f"sport = :{port}"]
+    
+    # Function to run a command and extract PID
+    def find_pid_with_command(base_cmd, use_sudo):
+        cmd_to_run = base_cmd.copy()
+        if use_sudo:
+            cmd_to_run.insert(0, "sudo")
+        
+        # Run command but don't exit on failure
+        result = run_command(cmd_to_run, check=False, capture_output=True)
+        
+        if result.returncode == 0 and result.stdout.strip():
+            if "ss" in base_cmd[0]: # ss needs parsing
+                match = re.search(r'pid=(\d+)', result.stdout.strip())
+                return match.group(1) if match else None
+            else: # lsof directly returns PID
+                return result.stdout.strip().split('\n')[0]
+        return None
+
+    # Try lsof, then lsof with sudo
+    if shutil.which("lsof"):
+        pid = find_pid_with_command(lsof_cmd, use_sudo=False)
+        if not pid and not no_sudo:
+            pid = find_pid_with_command(lsof_cmd, use_sudo=True)
+
+    # If lsof failed, try ss, then ss with sudo
     if not pid and shutil.which("ss"):
-        try:
-            result = run_command(["ss", "-lptn", f"sport = :{port}"], check=True, capture_output=True)
-            output = result.stdout.strip()
-            # Example ss output: LISTEN 0 4096 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=12345,fd=21))
-            match = re.search(r'pid=(\d+)', output)
-            if match:
-                pid = match.group(1)
-        except (subprocess.CalledProcessError, SystemExit):
-            pass # Command failed, pid remains None
-            
+        pid = find_pid_with_command(ss_cmd, use_sudo=False)
+        if not pid and not no_sudo:
+            pid = find_pid_with_command(ss_cmd, use_sudo=True)
+
     if not pid:
         print(f"{C_YELLOW}⚠️  Could not find a specific process using port {port}. This is likely okay.{C_RESET}")
         return True
 
     print(f"🛑 Found process with PID {pid} using port {port}. Attempting to stop it...")
     
+    # Build kill commands
+    kill_cmd_graceful = ["kill", "-15", pid]
+    kill_cmd_force = ["kill", "-9", pid]
+    check_alive_cmd = ["kill", "-0", pid]
+    use_sudo_for_kill = not no_sudo and os.geteuid() != 0
+
+    if use_sudo_for_kill:
+        kill_cmd_graceful.insert(0, "sudo")
+        kill_cmd_force.insert(0, "sudo")
+        check_alive_cmd.insert(0, "sudo")
+
     try:
-        # Try a graceful termination first
-        run_command(["kill", "-15", pid])
+        run_command(kill_cmd_graceful, check=False)
         time.sleep(2)
-        # Check if it's still alive, if so, force kill
-        run_command(["kill", "-0", pid], check=False)
-        print(f"⚠️  Process {pid} still alive. Forcing termination...")
-        run_command(["kill", "-9", pid])
-        print(f"{C_GREEN}✅ Process {pid} terminated.{C_RESET}")
-    except (subprocess.CalledProcessError, SystemExit):
-        # This will happen if the process terminated gracefully, which is good.
-        print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
+        
+        result = run_command(check_alive_cmd, check=False, capture_output=True)
+        if result.returncode == 0:
+            print(f"⚠️  Process {pid} still alive. Forcing termination...")
+            run_command(kill_cmd_force, check=True)
+            print(f"{C_GREEN}✅ Process {pid} terminated by force.{C_RESET}")
+        else:
+            print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
+
     except Exception as e:
         print(f"{C_RED}⛔ Failed to kill process {pid}: {e}{C_RESET}")
-        print(f"{C_YELLOW}   You may need to stop it manually. Try: kill -9 {pid}{C_RESET}")
+        print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
         return False
         
     return True
@@ -964,10 +995,8 @@ def start_fastapi_server(no_sudo=False):
     # Check if port 8001 is available
     if not check_port_available(8001):
         print(f"⚠️  Port 8001 is already in use. Attempting to free the port...")
-        if not kill_process_on_port(8001):
+        if not kill_process_on_port(8001, no_sudo=no_sudo):
             print(f"{C_RED}❌ Failed to free port 8001. Please manually stop any process using this port.{C_RESET}")
-            print(f"   Try: sudo lsof -i :8001 (to identify the process)")
-            print(f"   Then: sudo kill -9 <PID> (to forcibly terminate it)")
             return False
         print(f"✅ Port 8001 is now available")
     else:
@@ -1163,7 +1192,7 @@ def cleanup_fastapi_server(no_sudo=False):
             print(f"{C_YELLOW}Warning: Could not kill FastAPI process: {e}{C_RESET}")
     
     # Kill any process on port 8001
-    kill_process_on_port(8001)
+    kill_process_on_port(8001, no_sudo=no_sudo)
     
     # Remove PID and log files
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
@@ -1220,8 +1249,8 @@ def ensure_frontend_dependencies():
         return True
 
     print(f"{C_YELLOW}💡 Local node_modules directory not found or is empty.{C_RESET}")
-    print(f"{C_CYAN}📦  Installing them locally will enable IDE features like autocompletion.{C_RESET}")
-    print(f"{C_CYAN}⚠️  This is optional; the application will still run correctly using the dependencies inside the Docker container.{C_RESET}")
+    print(f"{C_CYAN}   Installing them locally will enable IDE features like autocompletion.{C_RESET}")
+    print(f"{C_CYAN}   This is optional; the application will still run correctly using the dependencies inside the Docker container.{C_RESET}")
 
     # Check for local npm installation
     has_local_npm = shutil.which("npm")
@@ -1265,172 +1294,6 @@ def ensure_frontend_dependencies():
         return True
 
     return True
-
-def check_service_health(service_name, port, endpoint="/", expected_codes=["200", "404"]):
-    """
-    Check if a service is healthy and responding.
-    Returns True if healthy, False otherwise.
-    """
-    try:
-        # Try to connect to the service
-        result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", f"http://localhost:{port}{endpoint}"], 
-                               capture_output=True, text=True, timeout=10, check=False)
-        
-        if result.stdout.strip() in expected_codes:
-            return True
-    except:
-        # Fallback to urllib if curl is not available
-        try:
-            import urllib.request
-            response = urllib.request.urlopen(f"http://localhost:{port}{endpoint}", timeout=10)
-            if str(response.getcode()) in expected_codes:
-                return True
-        except:
-            pass
-    
-    return False
-
-def check_docker_container_health(container_name):
-    """
-    Check if a Docker container is running and healthy.
-    Returns True if healthy, False otherwise.
-    """
-    try:
-        result = subprocess.run(["docker", "inspect", "--format", "{{.State.Health.Status}}", container_name], 
-                               capture_output=True, text=True, check=False)
-        if result.stdout.strip() == "healthy":
-            return True
-        
-        # Also check if container is running (in case no health check is defined)
-        result = subprocess.run(["docker", "inspect", "--format", "{{.State.Status}}", container_name], 
-                               capture_output=True, text=True, check=False)
-        if result.stdout.strip() == "running":
-            return True
-    except:
-        pass
-    
-    return False
-
-def wait_for_all_services_health(max_retries=30, retry_delay=2):
-    """
-    Wait for all services to become healthy.
-    Returns a dictionary with service status and any failed services.
-    """
-    print(f"{C_BLUE}⏳ Waiting for all services to become healthy...{C_RESET}")
-    
-    # Define all services to check
-    services_to_check = [
-        {"name": "Backend API", "port": 8000, "endpoint": "/up/", "container": "tt_studio_backend_api"},
-        {"name": "Frontend", "port": 3000, "endpoint": "/", "container": "tt_studio_frontend"},
-        {"name": "Agent", "port": 8080, "endpoint": "/", "container": "tt_studio_agent"},
-        {"name": "Chroma DB", "port": 8111, "endpoint": "/api/v1/heartbeat", "container": "tt_studio_chroma"}
-    ]
-    
-    service_status = {}
-    failed_services = []
-    
-    for i in range(1, max_retries + 1):
-        print(f"\n{C_CYAN}Health check attempt {i}/{max_retries}:{C_RESET}")
-        all_healthy = True
-        
-        for service in services_to_check:
-            # Check both HTTP health and Docker container health
-            http_healthy = check_service_health(service["name"], service["port"], service["endpoint"])
-            container_healthy = check_docker_container_health(service["container"])
-            
-            service_key = service["name"].lower().replace(" ", "_")
-            service_status[service_key] = {
-                "name": service["name"],
-                "http_healthy": http_healthy,
-                "container_healthy": container_healthy,
-                "port": service["port"],
-                "container": service["container"]
-            }
-            
-            if http_healthy and container_healthy:
-                print(f"  ✅ {service['name']} (port {service['port']}): Healthy")
-            else:
-                all_healthy = False
-                status_parts = []
-                if not http_healthy:
-                    status_parts.append("HTTP not responding")
-                if not container_healthy:
-                    status_parts.append("Container not healthy")
-                print(f"  ❌ {service['name']} (port {service['port']}): {' | '.join(status_parts)}")
-        
-        if all_healthy:
-            print(f"\n{C_GREEN}✅ All services are healthy and responding!{C_RESET}")
-            return {"success": True, "service_status": service_status, "failed_services": []}
-        
-        if i < max_retries:
-            print(f"⏳ Waiting {retry_delay}s before next health check...")
-            time.sleep(retry_delay)
-    
-    # If we get here, some services failed
-    failed_services = [service for service in service_status.values() 
-                      if not (service["http_healthy"] and service["container_healthy"])]
-    
-    print(f"\n{C_RED}⛔ Some services failed to become healthy after {max_retries} attempts.{C_RESET}")
-    return {"success": False, "service_status": service_status, "failed_services": failed_services}
-
-def graceful_shutdown_on_service_failure(args, failed_services):
-    """
-    Perform graceful shutdown when any service fails to load.
-    Stops all services and provides user feedback.
-    """
-    print(f"\n{C_RED}{C_BOLD}🚨 Service Health Check Failed{C_RESET}")
-    print(f"{C_RED}The following services are not responding properly:{C_RESET}")
-    
-    for service in failed_services:
-        print(f"  ❌ {service['name']} (port {service['port']})")
-        if not service['http_healthy']:
-            print(f"     - HTTP endpoint not responding")
-        if not service['container_healthy']:
-            print(f"     - Docker container not healthy")
-    
-    print(f"\n{C_YELLOW}Performing graceful shutdown of all services...{C_RESET}")
-    
-    # Stop all Docker services
-    try:
-        print(f"{C_BLUE}🛑 Stopping Docker services...{C_RESET}")
-        docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
-        docker_compose_cmd.extend(["down"])
-        run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
-        print(f"{C_GREEN}✅ Docker services stopped successfully.{C_RESET}")
-    except Exception as e:
-        print(f"{C_YELLOW}⚠️  Warning: Could not stop Docker services cleanly: {e}{C_RESET}")
-    
-    # Clean up FastAPI server if it was started
-    try:
-        cleanup_fastapi_server(no_sudo=args.no_sudo)
-    except Exception as e:
-        print(f"{C_YELLOW}⚠️  Warning: Could not clean up FastAPI server: {e}{C_RESET}")
-    
-    print(f"\n{C_RED}{C_BOLD}❌ Setup Failed - Service Issues{C_RESET}")
-    print(f"{C_YELLOW}One or more services failed to start properly. This could be due to:{C_RESET}")
-    print(f"  • Port conflicts with other applications")
-    print(f"  • Docker containers failed to build or start")
-    print(f"  • Network connectivity issues")
-    print(f"  • Insufficient system resources (CPU, memory, disk space)")
-    print(f"  • Docker daemon issues")
-    print(f"  • Missing dependencies or configuration")
-    print()
-    print(f"{C_CYAN}💡 Troubleshooting steps:{C_RESET}")
-    print(f"  1. Check Docker container status: {C_WHITE}docker ps -a{C_RESET}")
-    print(f"  2. Check container logs for each service:")
-    for service in failed_services:
-        print(f"     {C_WHITE}docker logs {service['container']}{C_RESET}")
-    print(f"  3. Check if ports are available:")
-    for service in failed_services:
-        print(f"     {C_WHITE}lsof -i :{service['port']}{C_RESET}")
-    print(f"  4. Try cleaning up and restarting: {C_WHITE}python run.py --cleanup{C_RESET}")
-    print(f"  5. Check system resources: {C_WHITE}docker system df{C_RESET}")
-    print(f"  6. Ensure Docker is running and has sufficient resources")
-    print(f"  7. Check Docker daemon logs: {C_WHITE}docker system info{C_RESET}")
-    print()
-    print(f"{C_MAGENTA}🔄 To retry setup: {C_WHITE}python run.py{C_RESET}")
-    if args.dev:
-        print(f"{C_MAGENTA}🔄 To retry in dev mode: {C_WHITE}python run.py --dev{C_RESET}")
 
 def main():
     """Main function to orchestrate the script."""
@@ -1566,12 +1429,6 @@ def main():
         
         # Run the Docker Compose command
         run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
-        
-        # Wait for all services to become healthy
-        health_result = wait_for_all_services_health()
-        if not health_result["success"]:
-            graceful_shutdown_on_service_failure(args, health_result["failed_services"])
-            sys.exit(1)
         
         # Check if AI Playground mode is enabled
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))

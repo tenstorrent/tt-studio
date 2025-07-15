@@ -92,10 +92,11 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 3000,
-    fs: {
-      cachedChecks: false,
+    hmr: { clientPort: 3000 },
+    watch: {
+      usePolling: true,
+      interval: 1000,
     },
-    hmr: { clientPort: 3000 }, // Adjust HMR client port to match the server port
     proxy: proxyConfig,
     allowedHosts: ["localhost", "playground.tenstorrent.com"],
   },
