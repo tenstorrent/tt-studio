@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/src/components/ui/table";
 import CopyableText from "@/src/components/CopyableText";
-import { useTheme } from "@/src/providers/ThemeProvider";
+import { useTheme } from "@/src/hooks/useTheme";
 import CustomToaster, { customToast } from "@/src/components/CustomToaster";
 import React, { useRef, useState, useEffect } from "react";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";

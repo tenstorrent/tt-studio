@@ -29,16 +29,16 @@ import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
 
-import { useTheme } from "../providers/ThemeProvider";
-import { useRefresh } from "../providers/RefreshContext";
-import { useModels } from "../providers/ModelsContext";
+import { useTheme } from "../hooks/useTheme";
+import { useRefresh } from "../hooks/useRefresh";
+import { useModels } from "../hooks/useModels";
 import {
   handleModelNavigationClick,
   getDestinationFromModelType,
   ModelType,
   getModelTypeFromName,
 } from "../api/modelsDeployedApis";
-import { useHeroSection } from "../providers/HeroSectionContext";
+import { useHeroSection } from "../hooks/useHeroSection";
 
 // Interfaces for our components
 interface AnimatedIconProps {

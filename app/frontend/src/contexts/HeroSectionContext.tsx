@@ -1,11 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-
-type HeroSectionContextType = {
-  showHero: boolean;
-  setShowHero: (val: boolean) => void;
-};
-
-const HeroSectionContext = createContext<HeroSectionContextType | undefined>(undefined);
+import React, { useState, useEffect } from "react";
+import { HeroSectionContext } from "./HeroSectionContext";
 
 export const HeroSectionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [showHero, setShowHero] = useState(() => {
@@ -22,10 +16,4 @@ export const HeroSectionProvider: React.FC<{ children: React.ReactNode }> = ({ c
       {children}
     </HeroSectionContext.Provider>
   );
-};
-
-export const useHeroSection = () => {
-  const ctx = useContext(HeroSectionContext);
-  if (!ctx) throw new Error("useHeroSection must be used within a HeroSectionProvider");
-  return ctx;
 };

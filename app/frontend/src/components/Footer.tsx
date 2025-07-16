@@ -4,9 +4,9 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
-import { useTheme } from "../providers/ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 import { useNavigate } from "react-router-dom";
-import { useModels } from "../providers/ModelsContext";
+import { useModels } from "../hooks/useModels";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 interface FooterProps {

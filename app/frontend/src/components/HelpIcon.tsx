@@ -3,7 +3,7 @@
 import React from "react";
 import { HelpCircle } from "lucide-react";
 import { Button } from "./ui/button";
-import { useTheme } from "../providers/ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 
 interface HelpIconProps {
   toggleSidebar: () => void;

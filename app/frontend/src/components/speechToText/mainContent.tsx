@@ -16,7 +16,7 @@ import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/Audio
 import { cn } from "../../lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { sendAudioRecording } from "./lib/apiClient";
-import { useTheme } from "../../providers/ThemeProvider";
+import { useTheme } from "../../hooks/useTheme";
 
 interface Transcription {
   id: string;

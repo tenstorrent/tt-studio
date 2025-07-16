@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { Skeleton } from "@/src/components/ui/skeleton";
 import { Card } from "@/src/components/ui/card";
-import { useTheme } from "@/src/providers/ThemeProvider";
+import { useTheme } from "@/src/hooks/useTheme";
 import { ScrollArea, ScrollBar } from "@/src/components/ui/scroll-area";
 import {
   Table,

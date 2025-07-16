@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { Toaster, toast } from "react-hot-toast";
-import { useTheme } from "../providers/ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 import { Check, X, Info, AlertTriangle, Trash2 } from "lucide-react";
 
 const getToastStyle = (theme: string, _type?: string) => {

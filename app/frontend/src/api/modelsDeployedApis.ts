@@ -3,6 +3,7 @@
 import axios from "axios";
 import { customToast } from "../components/CustomToaster";
 import { NavigateFunction } from "react-router-dom";
+import { type Model } from "../contexts/ModelsContext";
 
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
@@ -30,14 +31,7 @@ interface ContainerData {
   networks: { [key: string]: Network };
 }
 
-interface Model {
-  id: string;
-  image: string;
-  status: string;
-  health: string;
-  ports: string;
-  name: string;
-}
+
 
 interface StopResponse {
   status: string;

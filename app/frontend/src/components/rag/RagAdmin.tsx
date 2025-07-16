@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/src/components/ui/table";
 import CopyableText from "@/src/components/CopyableText";
-import { useTheme } from "@/src/providers/ThemeProvider";
+import { useTheme } from "@/src/hooks/useTheme";
 import CustomToaster, { customToast } from "@/src/components/CustomToaster";
 import { Spinner } from "@/src/components/ui/spinner";
 import axios from "axios";

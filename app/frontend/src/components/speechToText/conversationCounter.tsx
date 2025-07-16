@@ -1,7 +1,7 @@
 import React from "react";
 import { cn } from "../../lib/utils";
 import { MessageSquare } from "lucide-react";
-import { useTheme } from "../../providers/ThemeProvider";
+import { useTheme } from "../../hooks/useTheme";
 
 interface ConversationCounterProps {
   count: number;

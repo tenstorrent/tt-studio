@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "./ui/table";
 import { Button } from "./ui/button";
-import { useTheme } from "../providers/ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 import CustomToaster, { customToast } from "./CustomToaster";
 import { Spinner } from "./ui/spinner";
 import CopyableText from "./CopyableText";
@@ -33,8 +33,8 @@ import {
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { NoModelsDialog } from "./NoModelsDeployed";
 import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
-import { useRefresh } from "../providers/RefreshContext";
-import { useModels } from "../providers/ModelsContext";
+import { useRefresh } from "../hooks/useRefresh";
+import { useModels } from "../hooks/useModels";
 import {
   Box,
   Image,

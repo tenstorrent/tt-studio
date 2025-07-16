@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { AspectRatio } from "./ui/aspect-ratio";
 import imagePath from "../assets/tt_line_graphics_1.png";
 import { Button } from "./ui/button";
-import { useTheme } from "../providers/ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 
 const Sidebar = forwardRef((_, ref) => {
   const [isOpen, setIsOpen] = useState(false);

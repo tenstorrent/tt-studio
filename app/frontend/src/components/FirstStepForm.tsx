@@ -28,7 +28,7 @@ import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
 import { DeployedModelsWarning } from "./DeployedModelsWarning";
-import { useModels } from "../providers/ModelsContext";
+import { useModels } from "../hooks/useModels";
 
 // Model type configuration with icons and labels
 const MODEL_TYPE_CONFIG = {

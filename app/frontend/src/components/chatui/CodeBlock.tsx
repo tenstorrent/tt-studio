@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import React, { useEffect, useState } from "react";
 import { codeToHtml } from "shiki";
-import { useTheme } from "../../providers/ThemeProvider";
+import { useTheme } from "../../hooks/useTheme";
 
 interface CodeBlockProps {
   // For chat UI compatibility

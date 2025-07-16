@@ -7,7 +7,7 @@ import { BarChart2, Clock, Zap, Hash, AlignJustify, FileText, Activity } from "l
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { useTheme } from "../../providers/ThemeProvider"; // Import the existing theme provider
+import { useTheme } from "../../hooks/useTheme"; // Import the existing theme provider
 import type { InferenceStatsProps } from "./types";
 
 interface InferenceStatsComponentProps extends InferenceStatsProps {

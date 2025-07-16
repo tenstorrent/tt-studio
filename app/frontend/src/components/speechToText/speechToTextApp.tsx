@@ -9,7 +9,7 @@ import { Card } from "../ui/card";
 import { Mic, MessageSquare } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { cn } from "../../lib/utils";
-import { useTheme } from "../../providers/ThemeProvider";
+import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
 

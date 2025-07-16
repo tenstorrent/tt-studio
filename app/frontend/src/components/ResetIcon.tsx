@@ -6,7 +6,7 @@ import axios from "axios";
 import { Cpu, CheckCircle, AlertTriangle } from "lucide-react";
 import { Spinner } from "./ui/spinner";
 import { customToast } from "./CustomToaster";
-import { useTheme } from "../providers/ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -20,7 +20,7 @@ import {
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 import { ScrollArea } from "./ui/scroll-area";
 import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
-import { useModels } from "../providers/ModelsContext";
+import { useModels } from "../hooks/useModels";
 import BoardBadge from "./BoardBadge";
 
 interface ResetIconProps {

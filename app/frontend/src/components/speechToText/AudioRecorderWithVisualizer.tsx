@@ -1,4 +1,4 @@
-import { useTheme } from "../../providers/ThemeProvider";
+import { useTheme } from "../../hooks/useTheme";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { Send, Mic, Trash2 as Trash, Square, Play, Pause, Clock } from "lucide-react";

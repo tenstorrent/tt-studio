@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { DeployedHome } from "../components/aiPlaygroundHome/DeployedHome";
 import { RetroGrid } from "../components/ui/retro-grid";
-import { useTheme } from "../providers/ThemeProvider";
-import { useHeroSection } from "../providers/HeroSectionContext";
+import { useTheme } from "../hooks/useTheme";
+import { useHeroSection } from "../hooks/useHeroSection";
 // import NavBar from "../components/NavBar";
 
 const DeployedHomePage = () => {
