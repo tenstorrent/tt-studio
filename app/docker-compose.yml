@@ -4,10 +4,9 @@
 
 services:
   tt_studio_backend:
-    container_name: tt_studio_backend_api
-    # hostnames must not contain underscores
+    #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
-    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
+    # Container name and image are defined in mode-specific override files
     build: ./backend
     #* DEV: Uncomment devices to use Tenstorrent hardware
     # devices:
@@ -66,41 +65,19 @@ services:
       start_period: 60s
 
   tt_studio_frontend:
-    container_name: tt_studio_frontend
     hostname: tt-studio-frontend
-    image: ghcr.io/tenstorrent/tt-studio/frontend:v1.1.0
-    build: 
-      context: ./frontend
-      args:
-        - VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
-        - VITE_APP_TITLE=${VITE_APP_TITLE}
-        - VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}
-        - VITE_TEST_AUDIO_URL=${VITE_TEST_AUDIO_URL}
-        - VITE_TEST_AUDIO_AUTH=${VITE_TEST_AUDIO_AUTH}
-        - VITE_LOGIN_USERNAME=${VITE_LOGIN_USERNAME}
-        - VITE_LOGIN_PASSWORD=${VITE_LOGIN_PASSWORD}
-        - VITE_LLAMA_AUTH_TOKEN=${VITE_LLAMA_AUTH_TOKEN}
-        - VITE_SPECIAL_API_URL=${VITE_SPECIAL_API_URL}
-        - VITE_API_HOST=${VITE_API_HOST}
-        - VITE_STABILITY_API_KEY=${VITE_STABILITY_API_KEY}
+    # Container name and image are defined in mode-specific override files
+    # Build configuration is defined in mode-specific override files
     depends_on:
       tt_studio_backend:
         condition: service_healthy
     networks:
       - tt_studio_network
-    ports:
-      - "3000:80"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/"]
-      timeout: 30s
-      interval: 10s
-      retries: 3
-      start_period: 60s
+    # Ports and healthcheck are defined in mode-specific override files
 
   tt_studio_agent:
-    container_name: tt_studio_agent
     hostname: tt-studio-agent
-    image: ghcr.io/tenstorrent/tt-studio/agent:v0.0.0
+    # Container name and image are defined in mode-specific override files
     build: ./agent
     depends_on:
       tt_studio_backend:

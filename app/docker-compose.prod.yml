@@ -1,22 +1,34 @@
 # Production mode overrides
 services:
+  tt_studio_backend:
+    container_name: tt_studio_backend_api_prod
+    image: ghcr.io/tenstorrent/tt-studio/backend-prod:v0.0.0
+  
   tt_studio_frontend:
-    ports:
-      - "3000:80" # Map host 3000 to Nginx's port 80
+    container_name: tt_studio_frontend_prod
+    image: ghcr.io/tenstorrent/tt-studio/frontend-prod:v1.1.0
     build:
-      dockerfile: Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile.prod
       target: production
       args:
         - VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
         - VITE_APP_TITLE=${VITE_APP_TITLE}
         - VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}
-        - VITE_TEST_AUDIO_URL=${VITE_TEST_AUDIO_URL}
-        - VITE_TEST_AUDIO_AUTH=${VITE_TEST_AUDIO_AUTH}
-        - VITE_LOGIN_USERNAME=${VITE_LOGIN_USERNAME}
-        - VITE_LOGIN_PASSWORD=${VITE_LOGIN_PASSWORD}
-        - VITE_LLAMA_AUTH_TOKEN=${VITE_LLAMA_AUTH_TOKEN}
-        - VITE_SPECIAL_API_URL=${VITE_SPECIAL_API_URL}
-        - VITE_API_HOST=${VITE_API_HOST}
-        - VITE_STABILITY_API_KEY=${VITE_STABILITY_API_KEY}
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      timeout: 30s
+      interval: 10s
+      retries: 3
+      start_period: 60s
     # Remove runtime environment variables since they're now baked into the build
-    environment: [] 
+    environment: []
+  
+  tt_studio_agent:
+    container_name: tt_studio_agent_prod
+    image: ghcr.io/tenstorrent/tt-studio/agent-prod:v0.0.0
+  
+  tt_studio_chroma:
+    container_name: tt_studio_chroma_prod 
