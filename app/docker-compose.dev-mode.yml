@@ -19,6 +19,19 @@ services:
     
     ports:
       - "3000:3000"
+    
+    environment:
+      - VITE_ENABLE_DEPLOYED
+      - VITE_APP_TITLE
+      - VITE_ENABLE_RAG_ADMIN
+      - VITE_TEST_AUDIO_URL
+      - VITE_TEST_AUDIO_AUTH
+      - VITE_LOGIN_USERNAME
+      - VITE_LOGIN_PASSWORD
+      - VITE_LLAMA_AUTH_TOKEN
+      - VITE_SPECIAL_API_URL
+      - VITE_API_HOST
+      - VITE_STABILITY_API_KEY
 
     volumes:
       - ./frontend:/app

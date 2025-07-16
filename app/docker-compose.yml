@@ -69,22 +69,29 @@ services:
     container_name: tt_studio_frontend
     hostname: tt-studio-frontend
     image: ghcr.io/tenstorrent/tt-studio/frontend:v1.1.0
-    build: ./frontend
+    build: 
+      context: ./frontend
+      args:
+        - VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
+        - VITE_APP_TITLE=${VITE_APP_TITLE}
+        - VITE_ENABLE_RAG_ADMIN=${VITE_ENABLE_RAG_ADMIN}
+        - VITE_TEST_AUDIO_URL=${VITE_TEST_AUDIO_URL}
+        - VITE_TEST_AUDIO_AUTH=${VITE_TEST_AUDIO_AUTH}
+        - VITE_LOGIN_USERNAME=${VITE_LOGIN_USERNAME}
+        - VITE_LOGIN_PASSWORD=${VITE_LOGIN_PASSWORD}
+        - VITE_LLAMA_AUTH_TOKEN=${VITE_LLAMA_AUTH_TOKEN}
+        - VITE_SPECIAL_API_URL=${VITE_SPECIAL_API_URL}
+        - VITE_API_HOST=${VITE_API_HOST}
+        - VITE_STABILITY_API_KEY=${VITE_STABILITY_API_KEY}
     depends_on:
       tt_studio_backend:
         condition: service_healthy
     networks:
       - tt_studio_network
     ports:
-      - "3000:3000"
-    environment:
-      - VITE_ENABLE_DEPLOYED
-      - VITE_APP_TITLE
-      - VITE_ENABLE_RAG_ADMIN
-      - VITE_TEST_AUDIO_URL
-      - VITE_TEST_AUDIO_AUTH
+      - "3000:80"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
       timeout: 30s
       interval: 10s
       retries: 3
