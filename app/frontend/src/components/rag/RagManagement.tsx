@@ -367,7 +367,7 @@ export default function RagManagement() {
       customToast.error(`Error deleting ${variables.collectionName}: ${error.message}`);
     },
     onSuccess: (_data, variables: { collectionName: string }) => {
-      queryClient.invalidateQueries(["collectionsList"]);
+      queryClient.invalidateQueries({ queryKey: ["collectionsList"] });
 
       // Update local state
       setRagDataSources((prev) => prev.filter((rds) => rds.name !== variables.collectionName));

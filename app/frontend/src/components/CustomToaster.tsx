@@ -37,9 +37,7 @@ const ToastContent = ({
 }) => (
   <div
     className={`${t.visible ? "animate-enter" : "animate-leave"}`}
-    style={getToastStyle(
-      document.documentElement.classList.contains("dark") ? "dark" : "light",
-    )}
+    style={getToastStyle(document.documentElement.classList.contains("dark") ? "dark" : "light")}
   >
     <div className="flex items-center gap-2 min-w-0 flex-1">
       <Icon size={16} className={`${iconColor} shrink-0`} />
@@ -57,52 +55,28 @@ const ToastContent = ({
 export const customToast = {
   success: (message: string) =>
     toast.custom(
-      (t) => (
-        <ToastContent
-          message={message}
-          icon={Check}
-          iconColor="text-green-400"
-          t={t}
-        />
-      ),
+      (t) => <ToastContent message={message} icon={Check} iconColor="text-green-400" t={t} />,
       {
         duration: 2000,
-      },
+      }
     ),
   error: (message: string) =>
-    toast.custom((t) => (
-      <ToastContent message={message} icon={X} iconColor="text-red-400" t={t} />
-    )),
+    toast.custom((t) => <ToastContent message={message} icon={X} iconColor="text-red-400" t={t} />),
   warning: (message: string) =>
     toast.custom((t) => (
-      <ToastContent
-        message={message}
-        icon={AlertTriangle}
-        iconColor="text-yellow-400"
-        t={t}
-      />
+      <ToastContent message={message} icon={AlertTriangle} iconColor="text-yellow-400" t={t} />
     )),
   info: (message: string) =>
     toast.custom((t) => (
-      <ToastContent
-        message={message}
-        icon={Info}
-        iconColor="text-blue-400"
-        t={t}
-      />
+      <ToastContent message={message} icon={Info} iconColor="text-blue-400" t={t} />
     )),
   destructive: (message: string) =>
     toast.custom((t) => (
-      <ToastContent
-        message={message}
-        icon={Trash2}
-        iconColor="text-red-400"
-        t={t}
-      />
+      <ToastContent message={message} icon={Trash2} iconColor="text-red-400" t={t} />
     )),
   promise: (
     promise: Promise<unknown>,
-    messages: { loading: string; success: string; error: string },
+    messages: { loading: string; success: string; error: string }
   ) =>
     toast.promise(
       promise,
@@ -113,11 +87,9 @@ export const customToast = {
       },
       {
         style: getToastStyle(
-          document.documentElement.classList.contains("dark")
-            ? "dark"
-            : "light",
+          document.documentElement.classList.contains("dark") ? "dark" : "light"
         ),
-      },
+      }
     ),
 };
 

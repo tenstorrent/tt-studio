@@ -7,12 +7,7 @@ import { Badge } from "./ui/badge";
 import { useTheme } from "../providers/ThemeProvider";
 import { useNavigate } from "react-router-dom";
 import { useModels } from "../providers/ModelsContext";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 interface FooterProps {
   className?: string;
@@ -128,9 +123,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
             </Badge>
           </div>
           <div className="flex items-center space-x-4">
-            <span className={`text-sm ${mutedTextColor}`}>
-              LOADING SYSTEM RESOURCES...
-            </span>
+            <span className={`text-sm ${mutedTextColor}`}>LOADING SYSTEM RESOURCES...</span>
           </div>
         </div>
       </motion.footer>
@@ -194,11 +187,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                   {models.length > 0
                     ? `Click to view ${models.length} deployed model${
                         models.length > 1 ? "s" : ""
-                      }${
-                        models.length === 1
-                          ? `: ${models[0].name || "Unknown Model"}`
-                          : ""
-                      }`
+                      }${models.length === 1 ? `: ${models[0].name || "Unknown Model"}` : ""}`
                     : "Click to view deployed models page"}
                 </p>
               </TooltipContent>
@@ -208,29 +197,21 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
         {/* Right Section - System Resources & Controls */}
         <div className="flex items-center space-x-4">
-          <span className={`text-sm ${mutedTextColor}`}>
-            SYSTEM RESOURCES USAGE:
-          </span>
+          <span className={`text-sm ${mutedTextColor}`}>SYSTEM RESOURCES USAGE:</span>
           <span className={`text-sm ${textColor}`}>
-            RAM: {systemStatus.memoryUsage.toFixed(1)}% (
-            {systemStatus.memoryTotal}) | CPU:{" "}
+            RAM: {systemStatus.memoryUsage.toFixed(1)}% ({systemStatus.memoryTotal}) | CPU:{" "}
             {systemStatus.cpuUsage.toFixed(2)}%
             {systemStatus.hardware_status === "healthy" && (
               <> | TEMP: {systemStatus.temperature.toFixed(1)}°C</>
             )}
-            {systemStatus.hardware_status === "error" && (
-              <> | TT HARDWARE: UNAVAILABLE</>
-            )}
-            {systemStatus.hardware_status === "unknown" && (
-              <> | TT HARDWARE: CHECKING...</>
-            )}
+            {systemStatus.hardware_status === "error" && <> | TT HARDWARE: UNAVAILABLE</>}
+            {systemStatus.hardware_status === "unknown" && <> | TT HARDWARE: CHECKING...</>}
           </span>
-          {systemStatus.devices.length > 1 &&
-            systemStatus.hardware_status === "healthy" && (
-              <span className={`text-xs ${mutedTextColor}`}>
-                ({systemStatus.devices.length} devices)
-              </span>
-            )}
+          {systemStatus.devices.length > 1 && systemStatus.hardware_status === "healthy" && (
+            <span className={`text-xs ${mutedTextColor}`}>
+              ({systemStatus.devices.length} devices)
+            </span>
+          )}
         </div>
       </div>
     </motion.footer>

@@ -75,9 +75,7 @@ export const Logo: React.FC<LogoProps> = ({
 
   if (isLoading) {
     return (
-      <div
-        className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`}
-      />
+      <div className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`} />
     );
   }
 
@@ -144,17 +142,12 @@ export const MotionLogo: React.FC<MotionLogoProps> = ({
 
   if (isLoading) {
     return (
-      <div
-        className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`}
-      />
+      <div className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`} />
     );
   }
 
   // Merge preset animations with custom props
-  const motionProps =
-    animation === "custom"
-      ? props
-      : { ...animationPresets[animation], ...props };
+  const motionProps = animation === "custom" ? props : { ...animationPresets[animation], ...props };
 
   return (
     <motion.img

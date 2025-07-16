@@ -2,10 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 import React, { createContext, useContext, useState, useCallback } from "react";
-import {
-  fetchModels,
-  fetchDeployedModelsInfo,
-} from "../api/modelsDeployedApis";
+import { fetchModels, fetchDeployedModelsInfo } from "../api/modelsDeployedApis";
 
 export interface Model {
   id: string;
@@ -25,9 +22,7 @@ interface ModelsContextType {
 
 const ModelsContext = createContext<ModelsContextType | undefined>(undefined);
 
-export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [models, setModels] = useState<Model[]>([]);
   const [hasDeployedModels, setHasDeployedModels] = useState<boolean>(false);
 
@@ -46,7 +41,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
           const dockerModel = dockerModels.find(
             (docker) =>
               docker.name.includes(deployedModel.modelName.toLowerCase()) ||
-              docker.id === deployedModel.id,
+              docker.id === deployedModel.id
           );
 
           return {
@@ -83,9 +78,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   return (
-    <ModelsContext.Provider
-      value={{ models, setModels, refreshModels, hasDeployedModels }}
-    >
+    <ModelsContext.Provider value={{ models, setModels, refreshModels, hasDeployedModels }}>
       {children}
     </ModelsContext.Provider>
   );

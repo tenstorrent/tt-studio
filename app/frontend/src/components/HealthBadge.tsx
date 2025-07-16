@@ -2,12 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from "react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 
 interface HealthBadgeProps {
   deployId: string;
@@ -22,12 +17,9 @@ const HealthBadge: React.FC<HealthBadgeProps> = ({ deployId }) => {
 
   const fetchHealth = async () => {
     try {
-      const response = await fetch(
-        `/models-api/health/?deploy_id=${deployId}`,
-        {
-          method: "GET",
-        },
-      );
+      const response = await fetch(`/models-api/health/?deploy_id=${deployId}`, {
+        method: "GET",
+      });
 
       if (response.status === 200) {
         setHealth("healthy");

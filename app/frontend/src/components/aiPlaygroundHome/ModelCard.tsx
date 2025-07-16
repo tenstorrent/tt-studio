@@ -67,16 +67,12 @@ export function ModelCard({
   // Generate floating particles effect
   useEffect(() => {
     if (isHovered && hoverEffects?.particleEffect?.enabled) {
-      const newParticles = Array.from(
-        { length: hoverEffects.particleEffect?.count || 10 },
-        () => ({
-          x: Math.random() * 100,
-          y: Math.random() * 100,
-          opacity: Math.random(),
-          speed:
-            (hoverEffects.particleEffect?.speed || 0.5) + Math.random() * 1.5,
-        }),
-      );
+      const newParticles = Array.from({ length: hoverEffects.particleEffect?.count || 10 }, () => ({
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        opacity: Math.random(),
+        speed: (hoverEffects.particleEffect?.speed || 0.5) + Math.random() * 1.5,
+      }));
       setParticles(newParticles);
     } else {
       setParticles([]);
@@ -101,7 +97,7 @@ export function ModelCard({
           y: particle.y - particle.speed * deltaTime,
           opacity: particle.y < 10 ? particle.y / 10 : particle.opacity,
         }))
-        .filter((particle) => particle.y > 0),
+        .filter((particle) => particle.y > 0)
     );
 
     lastUpdateRef.current = now;
@@ -205,9 +201,7 @@ export function ModelCard({
                   className={`w-3 h-[2px] ${isHovered ? "bg-red-500" : "bg-gray-500"} transition-colors duration-300`}
                 ></div>
               </div>
-              <span className="font-mono">
-                {tpBadge.customText && tpBadge.customText}
-              </span>
+              <span className="font-mono">{tpBadge.customText && tpBadge.customText}</span>
             </div>
           </div>
         )}
@@ -233,9 +227,7 @@ export function ModelCard({
             {statusIndicator.show && (
               <div className="absolute -top-1 -right-1 z-30">
                 <div className="relative">
-                  <div
-                    className={`w-2.5 h-2.5 bg-${statusIndicator.color} rounded-full`}
-                  ></div>
+                  <div className={`w-2.5 h-2.5 bg-${statusIndicator.color} rounded-full`}></div>
                   {statusIndicator.animate && (
                     <>
                       <div
@@ -339,9 +331,7 @@ export function ModelCard({
                   style={{
                     backgroundColor: filter,
                     mixBlendMode: "overlay",
-                    boxShadow: isHovered
-                      ? "inset 0 0 30px rgba(0,0,0,0.1)"
-                      : "none",
+                    boxShadow: isHovered ? "inset 0 0 30px rgba(0,0,0,0.1)" : "none",
                   }}
                 />
               )}

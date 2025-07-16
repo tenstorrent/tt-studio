@@ -44,7 +44,8 @@ export default function ChatComponent() {
   // TODO: RAG explicit deselection feature is incomplete - setter is commented out in Header.tsx
   // const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
   //   useState(false);
-  const { data: ragDataSources } = useQuery("collectionsList", {
+  const { data: ragDataSources } = useQuery<RagDataSource[]>({
+    queryKey: ["collectionsList"],
     queryFn: fetchCollections,
     initialData: [],
   });

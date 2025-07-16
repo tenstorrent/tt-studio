@@ -11,9 +11,7 @@ interface RefreshContextType {
 
 const RefreshContext = createContext<RefreshContextType | undefined>(undefined);
 
-export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const triggerRefresh = () => {
@@ -29,7 +27,7 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
           "Content-Type": "application/json",
         },
       });
-      
+
       if (response.ok) {
         console.log("Hardware cache refreshed successfully");
         // Also trigger regular refresh to update UI

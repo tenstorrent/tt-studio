@@ -35,14 +35,10 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onToggleStats,
   toggleableInlineStats = true,
 }) => {
-  const [completeMessage, setCompleteMessage] = useState<string>(
-    messageContent || "",
-  );
+  const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");
 
   // Add state for tracking feedback status
-  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(
-    null,
-  );
+  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(null);
 
   // Update the complete message when streaming finishes
   useEffect(() => {
@@ -168,11 +164,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
           {/* Conditionally render InferenceStats inline when toggled open and feature is enabled */}
           {inferenceStats && toggleableInlineStats && statsOpen && (
-            <InferenceStats
-              stats={inferenceStats}
-              modelName={modelName}
-              inline={true}
-            />
+            <InferenceStats stats={inferenceStats} modelName={modelName} inline={true} />
           )}
 
           {/* Show original stats component when feature is disabled */}

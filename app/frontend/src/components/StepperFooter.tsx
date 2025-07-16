@@ -27,11 +27,7 @@ const ScalingIcon = () => (
   </motion.div>
 );
 
-const StepperFooter = ({
-  removeDynamicSteps,
-}: {
-  removeDynamicSteps: () => void;
-}) => {
+const StepperFooter = ({ removeDynamicSteps }: { removeDynamicSteps: () => void }) => {
   const { hasCompletedAllSteps, resetSteps } = useStepper();
 
   const handleReset = () => {

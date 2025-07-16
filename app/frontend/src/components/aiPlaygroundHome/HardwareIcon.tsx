@@ -24,7 +24,5 @@ export function HardwareIcon({ type, className = "" }: HardwareIconProps) {
   const iconPath = getIconPath();
   if (!iconPath) return null;
 
-  return (
-    <img src={iconPath} alt={`${type} hardware icon`} className={className} />
-  );
+  return <img src={iconPath} alt={`${type} hardware icon`} className={className} />;
 }

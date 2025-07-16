@@ -5,13 +5,9 @@ type HeroSectionContextType = {
   setShowHero: (val: boolean) => void;
 };
 
-const HeroSectionContext = createContext<HeroSectionContextType | undefined>(
-  undefined,
-);
+const HeroSectionContext = createContext<HeroSectionContextType | undefined>(undefined);
 
-export const HeroSectionProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const HeroSectionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [showHero, setShowHero] = useState(() => {
     const val = localStorage.getItem("showHeroSection");
     return val === "true";
@@ -30,7 +26,6 @@ export const HeroSectionProvider: React.FC<{ children: React.ReactNode }> = ({
 
 export const useHeroSection = () => {
   const ctx = useContext(HeroSectionContext);
-  if (!ctx)
-    throw new Error("useHeroSection must be used within a HeroSectionProvider");
+  if (!ctx) throw new Error("useHeroSection must be used within a HeroSectionProvider");
   return ctx;
 };

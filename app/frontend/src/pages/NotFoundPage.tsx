@@ -79,12 +79,10 @@ export default function NotFoundPage() {
             transition={{ delay: 0.4 }}
             className="mt-6 space-y-2 max-w-lg"
           >
-            <p className="text-TT-purple-tint2 text-xl">
-              Process Interrupted: Path Not Found
-            </p>
+            <p className="text-TT-purple-tint2 text-xl">Process Interrupted: Path Not Found</p>
             <p className="text-TT-slate-DEFAULT">
-              The requested route could not be processed. Please verify the path
-              or return to a valid endpoint.
+              The requested route could not be processed. Please verify the path or return to a
+              valid endpoint.
             </p>
           </motion.div>
 
