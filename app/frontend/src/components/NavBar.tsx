@@ -789,9 +789,14 @@ export default function NavBar() {
               />
             )}
             <h4
-              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
+              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto flex items-center`}
             >
               {isDeployedEnabled ? "AI Playground" : "TT-Studio"}
+              {import.meta.env.DEV && (
+                <span className="ml-2 px-2 py-1 text-xs bg-orange-500 text-white rounded-md font-mono">
+                  DEV
+                </span>
+              )}
             </h4>
           </a>
 
