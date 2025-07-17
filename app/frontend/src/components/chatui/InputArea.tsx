@@ -720,7 +720,7 @@ export default function InputArea({
                 </div>
               ) : (
                 <div className="relative group">
-                  <button
+                  <Button
                     onClick={() => {
                       if (
                         (textInput.trim() !== "" || files.length > 0) &&
