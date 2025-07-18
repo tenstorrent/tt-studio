@@ -1,21 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-type HardwareIconProps = {
+// Import SVG assets properly so Vite can handle them during build
+import loudBoxSvg from "../../assets/aiPlayground/ttHardware/tt_brand_refresh_loud_box.svg";
+import n150Svg from "../../assets/aiPlayground/ttHardware/n150.svg";
+
+interface HardwareIconProps {
   type: string;
   className?: string;
-};
+}
 
 export function HardwareIcon({ type, className = "" }: HardwareIconProps) {
   const getIconPath = () => {
     switch (type.toLowerCase()) {
       case "loudbox":
-        return "/src/assets/aiPlayground/ttHardware/tt_brand_refresh_loud_box.svg";
+        return loudBoxSvg;
       case "n150":
       case "n300":
-        return "/src/assets/aiPlayground/ttHardware/n150.svg";
+        return n150Svg;
       // case "quietbox":
-      //   return "/src/assets/aiPlayground/ttHardware/quiet_box.svg";
+      //   return quietBoxSvg;
       default:
         return "";
     }

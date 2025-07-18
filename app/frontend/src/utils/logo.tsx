@@ -4,6 +4,9 @@
 import React, { useState, useEffect } from "react";
 import { motion, MotionProps } from "framer-motion";
 
+// Import logo SVG properly so Vite can handle it during build
+import ttLogoSvg from "../assets/logo/tt_logo.svg";
+
 // Fallback logo URL from GitHub
 export const FALLBACK_LOGO_URL =
   "https://github.com/tenstorrent/tt-metal/raw/main/docs/source/common/images/favicon.png";
@@ -19,11 +22,10 @@ export const useLogo = () => {
 
       // Try to load local logo by creating an image element to test if it exists
       const testImage = new Image();
-      const localLogoPath = "/src/assets/logo/tt_logo.svg";
 
       testImage.onload = () => {
         console.log("Found local logo: tt_logo.svg");
-        setLogoUrl(localLogoPath);
+        setLogoUrl(ttLogoSvg);
         setIsLoading(false);
       };
 
@@ -34,7 +36,7 @@ export const useLogo = () => {
       };
 
       // Start loading the test image
-      testImage.src = localLogoPath;
+      testImage.src = ttLogoSvg;
     };
 
     loadLogo();
@@ -166,15 +168,14 @@ export const ttLogo = FALLBACK_LOGO_URL;
 // Logo configuration for advanced usage
 export const logoConfig = {
   fallbackUrl: FALLBACK_LOGO_URL,
-  localPath: "/src/assets/logo/tt_logo.svg",
+  localPath: ttLogoSvg,
 
   async getLogoUrl(): Promise<string> {
     return new Promise((resolve) => {
       const testImage = new Image();
-      const localLogoPath = "/src/assets/logo/tt_logo.svg";
 
       testImage.onload = () => {
-        resolve(localLogoPath);
+        resolve(ttLogoSvg);
       };
 
       testImage.onerror = () => {
@@ -182,7 +183,7 @@ export const logoConfig = {
         resolve(FALLBACK_LOGO_URL);
       };
 
-      testImage.src = localLogoPath;
+      testImage.src = ttLogoSvg;
     });
   },
 };
