@@ -6,21 +6,8 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import axios from "axios";
 import { useEffect, useState } from "react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "./ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
 import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
@@ -44,9 +31,7 @@ export function WeightForm({
       console.log("fetching weights", getWeightsUrl(selectedModel));
       const fetchWeights = async () => {
         try {
-          const response = await axios.get<Weight[]>(
-            getWeightsUrl(selectedModel),
-          );
+          const response = await axios.get<Weight[]>(getWeightsUrl(selectedModel));
           console.log("fetched weights:", response.data);
           setWeights(response.data);
         } catch (error) {
@@ -62,7 +47,7 @@ export function WeightForm({
     resolver: zodResolver(
       z.object({
         weight: z.string().nonempty("Please select a weight file."),
-      }),
+      })
     ),
     defaultValues: {
       weight: "",
@@ -76,9 +61,7 @@ export function WeightForm({
   const onSubmit = async (data: { weight: string }) => {
     setIsSubmitting(true);
     try {
-      const selectedWeight = weights.find(
-        (weight) => weight.name === data.weight,
-      );
+      const selectedWeight = weights.find((weight) => weight.name === data.weight);
       if (selectedWeight) {
         setCustomWeight(selectedWeight);
         customToast.success("Model Weight Selected!");
@@ -134,11 +117,7 @@ export function WeightForm({
             </FormItem>
           )}
         />
-        <StepperFormActions
-          form={form}
-          removeDynamicSteps={() => {}}
-          isSubmitting={isSubmitting}
-        />
+        <StepperFormActions form={form} removeDynamicSteps={() => {}} isSubmitting={isSubmitting} />
       </form>
     </Form>
   );

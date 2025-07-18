@@ -43,10 +43,7 @@ export default [
       ...prettierConfig.rules,
 
       // React Refresh
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
 
       // TypeScript specific rules
       "@typescript-eslint/no-unused-vars": [

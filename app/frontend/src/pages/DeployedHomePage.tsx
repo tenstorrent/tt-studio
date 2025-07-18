@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { DeployedHome } from "../components/aiPlaygroundHome/DeployedHome";
 import { RetroGrid } from "../components/ui/retro-grid";
-import { useTheme } from "../providers/ThemeProvider";
-import { useHeroSection } from "../providers/HeroSectionContext";
+import { useTheme } from "../hooks/useTheme";
+import { useHeroSection } from "../hooks/useHeroSection";
 // import NavBar from "../components/NavBar";
 
 const DeployedHomePage = () => {
@@ -18,9 +18,7 @@ const DeployedHomePage = () => {
             className="w-full h-full transform-gpu"
             opacity={0.7}
             lightLineColor={
-              theme === "dark"
-                ? "rgba(124, 104, 250, 0.9)"
-                : "rgba(124, 104, 250, 0.4)"
+              theme === "dark" ? "rgba(124, 104, 250, 0.9)" : "rgba(124, 104, 250, 0.4)"
             }
             darkLineColor="rgba(124, 104, 250, 0.9)"
             cellSize={50}

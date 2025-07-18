@@ -8,12 +8,9 @@ const collectionsAPIURL = "/collections-api";
 // Authenticate admin
 export const authenticateAdmin = async (password: string) => {
   try {
-    const response = await axios.post(
-      `${collectionsAPIURL}/admin/authenticate`,
-      {
-        password,
-      },
-    );
+    const response = await axios.post(`${collectionsAPIURL}/admin/authenticate`, {
+      password,
+    });
     return response.data;
   } catch (error) {
     console.error("Admin authentication error:", error);
@@ -28,12 +25,9 @@ export const authenticateAdmin = async (password: string) => {
 // Get all collections (admin view)
 export const fetchAllCollections = async (password: string) => {
   try {
-    const response = await axios.post(
-      `${collectionsAPIURL}/admin/collections`,
-      {
-        password,
-      },
-    );
+    const response = await axios.post(`${collectionsAPIURL}/admin/collections`, {
+      password,
+    });
     return response.data;
   } catch (error) {
     console.error("Error fetching admin collections:", error);
@@ -46,18 +40,12 @@ export const fetchAllCollections = async (password: string) => {
 };
 
 // Delete a collection (admin function)
-export const deleteCollectionAdmin = async (
-  collectionId: string,
-  password: string,
-) => {
+export const deleteCollectionAdmin = async (collectionId: string, password: string) => {
   try {
-    const response = await axios.post(
-      `${collectionsAPIURL}/admin/delete-collection`,
-      {
-        collection_name: collectionId,
-        password,
-      },
-    );
+    const response = await axios.post(`${collectionsAPIURL}/admin/delete-collection`, {
+      collection_name: collectionId,
+      password,
+    });
     return response.data;
   } catch (error) {
     console.error("Error deleting collection:", error);
