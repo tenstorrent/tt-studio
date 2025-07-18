@@ -156,7 +156,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                   ? "destructive"
                   : "default"
             }
-            className="text-xs"
+            className={`text-xs ${textColor}`}
             title={systemStatus.hardware_error || error || "Hardware status"}
           >
             {systemStatus.boardName}
