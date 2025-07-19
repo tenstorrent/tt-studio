@@ -727,7 +727,7 @@ export function MainContent({
                     className="flex items-center gap-2 sm:gap-3 px-4 sm:px-8 py-2 sm:py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple-accent hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
                   >
                     <Mic className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
-                    <span className="text-sm sm:text-base">
+                    <span className="text-sm sm:text-base text-white">
                       {hasRecordedBefore
                         ? "Record Another Message"
                         : "Record New Message"}
@@ -742,13 +742,15 @@ export function MainContent({
                           <Button
                             onClick={startNewRecording}
                             size="sm"
+                            variant="ghost"
                             className={cn(
                               "h-12 w-12 sm:h-14 sm:w-14 rounded-full shadow-lg shadow-TT-purple/20",
-                              "bg-TT-purple-accent hover:bg-TT-purple",
+                              "!bg-TT-purple-accent hover:!bg-TT-purple",
                               "transition-all duration-200 ease-in-out",
                               "flex items-center justify-center relative",
-                              "border-2 border-[#1A1A1A]", // Added border to match background
+                              theme === "dark" ? "border-2 border-[#1A1A1A]" : "border-2 border-white"
                             )}
+                            style={{ backgroundColor: '#7C68FA' }}
                           >
                             {/* Pulse animation */}
                             <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse rounded-full"></span>
@@ -756,7 +758,10 @@ export function MainContent({
 
                             {/* Notification dot with improved positioning */}
                             {hasRecordedBefore && (
-                              <span className="absolute -top-1 -right-1 h-5 w-5 sm:h-6 sm:w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md border border-[#1A1A1A]">
+                              <span className={cn(
+                                "absolute -top-1 -right-1 h-5 w-5 sm:h-6 sm:w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md",
+                                theme === "dark" ? "border border-[#1A1A1A]" : "border border-white"
+                              )}>
                                 <span className="text-xs text-white font-bold">
                                   +
                                 </span>

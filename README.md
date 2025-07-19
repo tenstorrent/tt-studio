@@ -43,7 +43,7 @@ Before you start, make sure you have:
 > I want to contribute to TT-Studio or modify it
 
 **Start Here:**
-1. **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute code
+1. **[Contributing Guide](CONTRIBUTING.md)** - How to contribute code
 2. **[Dev Setup](docs/development.md)** - Development environment setup
 3. **[Frontend Docs](app/frontend/README.md)** - React frontend development
 4. **[Backend API](app/backend/README.md)** - Django backend & API endpoints
