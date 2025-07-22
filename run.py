@@ -720,6 +720,64 @@ def check_port_available(port):
         except OSError:
             return False
 
+
+def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
+    """Wait for a service to become healthy."""
+    print(f"⏳ Waiting for {service_name} to become healthy at {health_url}...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            result = subprocess.run(["curl", "-f", health_url], 
+                                   capture_output=True, text=True, timeout=10, check=False)
+            if result.returncode == 0:
+                print(f"✅ {service_name} is healthy!")
+                return True
+        except:
+            # Fallback to urllib if curl is not available
+            try:
+                import urllib.request
+                response = urllib.request.urlopen(health_url, timeout=10)
+                if response.getcode() == 200:
+                    print(f"✅ {service_name} is healthy!")
+                    return True
+            except:
+                pass
+        
+        elapsed = time.time() - start_time
+        print(f"⏳ {service_name} not ready yet... ({elapsed:.1f}s/{timeout}s)")
+        time.sleep(interval)
+    
+    print(f"⚠️  {service_name} did not become healthy within {timeout} seconds")
+    return False
+
+
+def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
+    """Wait for all TT-Studio services to become healthy."""
+    print(f"\n{C_BLUE}⏳ Waiting for all services to become healthy...{C_RESET}")
+    
+    services_to_check = [
+        ("ChromaDB", "http://localhost:8111/api/v1/heartbeat"),
+        ("Backend API", "http://localhost:8000/up/"),
+        ("Frontend", "http://localhost:3000/"),
+    ]
+    
+    # Add FastAPI if not skipped and not in AI Playground mode
+    if not skip_fastapi and not is_deployed_mode:
+        services_to_check.append(("FastAPI Server", "http://localhost:8001/"))
+    
+    all_healthy = True
+    for service_name, health_url in services_to_check:
+        if not wait_for_service_health(service_name, health_url):
+            all_healthy = False
+    
+    if all_healthy:
+        print(f"\n{C_GREEN}✅ All services are healthy and ready!{C_RESET}")
+    else:
+        print(f"\n{C_YELLOW}⚠️  Some services may not be fully ready. TT-Studio should still be accessible.{C_RESET}")
+    
+    return all_healthy
+
 def kill_process_on_port(port, no_sudo=False):
     """
     Find and kill a process using a specific port. More robust and cross-platform.
@@ -1326,6 +1384,8 @@ def main():
   {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
+  {C_CYAN}python run.py --no-browser{C_RESET}      🚫 Skip automatic browser opening
+  {C_CYAN}python run.py --wait-for-services{C_RESET} ⏳ Wait for all services to be healthy before completing
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1343,6 +1403,10 @@ def main():
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--no-sudo", action="store_true", 
                            help="🚫 Skip sudo usage for FastAPI setup (may limit functionality)")
+        parser.add_argument("--no-browser", action="store_true", 
+                           help="🚫 Skip automatic browser opening")
+        parser.add_argument("--wait-for-services", action="store_true", 
+                           help="⏳ Wait for all services to be healthy before completing")
         
         args = parser.parse_args()
         
@@ -1542,11 +1606,19 @@ def main():
             print(f"\n{C_BLUE}🏠 Your TT Studio is running in Local Mode with local model inference.{C_RESET}")
             print(f"{C_CYAN}   You can deploy and manage local models through the interface.{C_RESET}")
         
-        # Try to open the browser automatically
-        try:
-            webbrowser.open("http://localhost:3000")
-        except:
-            print(f"{C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually{C_RESET}")
+        # Wait for services if requested
+        if args.wait_for_services:
+            wait_for_all_services(skip_fastapi=args.skip_fastapi, is_deployed_mode=is_deployed_mode)
+        
+        # Try to open the browser automatically (unless disabled)
+        if not args.no_browser:
+            try:
+                webbrowser.open("http://localhost:3000")
+                print(f"{C_GREEN}🌐 Browser opened automatically to http://localhost:3000{C_RESET}")
+            except:
+                print(f"{C_YELLOW}⚠️  Could not open browser automatically. Please open http://localhost:3000 manually{C_RESET}")
+        else:
+            print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://localhost:3000{C_RESET}")
         
         # If in dev mode, show logs similar to startup.sh
         if args.dev:
