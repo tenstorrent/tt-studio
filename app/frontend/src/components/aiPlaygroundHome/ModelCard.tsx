@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
 import { Eye, Mic, Brain, Bot, Network } from "lucide-react";
 import { HardwareIcon } from "./HardwareIcon";
-import { ImageWithFallback } from "../ui/ImageWithFallback";
+import { ModelLogo } from "./ModelLogo";
 
 type ModelCardProps = Omit<Model, "id"> & {
   modelType?: "LLM" | "CNN" | "Audio" | "NLP" | "ImageGen";
@@ -310,8 +310,8 @@ export function ModelCard({
           >
             {/* Image container with 3D perspective */}
             <div className="relative aspect-[16/10] md:aspect-[4/3] lg:aspect-[16/10] xl:aspect-[4/3] w-full overflow-hidden rounded-t-2xl">
-              <ImageWithFallback
-                src={image}
+              <ModelLogo
+                path={image}
                 alt={title}
                 className={`
                   h-full w-full object-cover 
