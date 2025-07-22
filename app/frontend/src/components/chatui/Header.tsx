@@ -112,27 +112,27 @@ const ForwardedSelect = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof Select> & {
     ragDataSources?: any[];
   }
->((props, ref) => (
-  <Select {...props}>
+>(({ ragDataSources, value, onValueChange, ...selectProps }, ref) => (
+  <Select value={value} onValueChange={onValueChange} {...selectProps}>
     <SelectTrigger
       ref={ref}
       className="w-full md:w-[220px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm flex items-center gap-2"
     >
-      {props.value === "special-all" ? (
+      {value === "special-all" ? (
         <Search className="h-4 w-4 text-[#7C68FA]" />
       ) : (
         <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
       )}
       <SelectValue placeholder="Select knowledge base">
-        {props.value
-          ? props.value === "special-all"
+        {value
+          ? value === "special-all"
             ? "Search All Collections"
-            : props.value
+            : value
           : null}
       </SelectValue>
     </SelectTrigger>
     <SelectContent
-      className="bg-[#1E1E1E] border-[#7C68FA]/20 max-h-[300px] w-[300px]"
+      className="bg-white dark:bg-[#1E1E1E] border-gray-200 dark:border-[#7C68FA]/20 max-h-[300px] w-[300px]"
       align="start"
       position="popper"
       side="bottom"
@@ -141,53 +141,53 @@ const ForwardedSelect = React.forwardRef<
       <div className="px-2 py-2">
         <SelectItem
           value="special-all"
-          className="relative rounded-lg bg-[#2A2A2A] hover:bg-[#3A3A3A] transition-all duration-200"
+          className="relative rounded-lg bg-gray-50 dark:bg-[#2A2A2A] hover:bg-gray-100 dark:hover:bg-[#3A3A3A] transition-all duration-200"
         >
           <div className="p-3 flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <Search className="h-5 w-5 text-[#7C68FA]" />
-              <span className="font-medium text-white">Search All Collections</span>
+              <span className="font-medium text-gray-900 dark:text-white">Search All Collections</span>
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
               <Database className="h-4 w-4" />
-              <span>{props.ragDataSources?.length || 0} Collections</span>
+              <span>{ragDataSources?.length || 0} Collections</span>
             </div>
           </div>
         </SelectItem>
       </div>
 
-      <SelectSeparator className="my-2 bg-gray-800" />
+      <SelectSeparator className="my-2 bg-gray-200 dark:bg-gray-800" />
 
       <div className="px-2 py-1">
-        <div className="flex items-center gap-2 px-2 py-1.5 text-gray-400">
+        <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
           <FolderOpen className="h-4 w-4" />
           <span>Your Collections</span>
         </div>
 
-        {Array.isArray(props.ragDataSources) &&
-          props.ragDataSources.map((c) => (
+        {Array.isArray(ragDataSources) &&
+          ragDataSources.map((c) => (
             <SelectItem
               key={c.id}
               value={c.name}
               className={`rounded-lg my-1 ${
-                props.value === c.name ? "bg-[#2A2A2A]" : "hover:bg-[#2A2A2A]"
+                value === c.name ? "bg-gray-100 dark:bg-[#2A2A2A]" : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
               }`}
             >
               <div className="flex items-center gap-2">
-                <Database className="h-4 w-4 text-gray-400" />
-                <span className="text-white">{c.name}</span>
+                <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                <span className="text-gray-900 dark:text-white">{c.name}</span>
               </div>
             </SelectItem>
           ))}
       </div>
 
-      {props.value && (
+      {value && (
         <>
-          <SelectSeparator className="my-2 bg-gray-800" />
+          <SelectSeparator className="my-2 bg-gray-200 dark:bg-gray-800" />
           <div className="px-2 pb-2">
-            <SelectItem value="remove" className="text-red-400 hover:bg-red-500/10 rounded-lg">
+            <SelectItem value="remove" className="text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg">
               <div className="flex items-center gap-2">
-                <X className="h-4 w-4 text-red-400" />
+                <X className="h-4 w-4 text-red-500" />
                 <span>Remove Context</span>
               </div>
             </SelectItem>
@@ -564,7 +564,7 @@ export default function Header({
                 }}
                 ragDataSources={ragDataSources}
               >
-                <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
+                <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
                   <SelectGroup>
                     <SelectLabel className="text-gray-500 dark:text-white/70">
                       Special Options

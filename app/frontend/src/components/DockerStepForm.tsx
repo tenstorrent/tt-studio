@@ -12,7 +12,6 @@ import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip";
 import { Loader2, Trash2, Download, XCircle, HardDrive } from "lucide-react";
 import { FaDocker } from "react-icons/fa";
-
 const dockerAPIURL = "/docker-api/";
 const catalogURL = `${dockerAPIURL}catalog/`;
 

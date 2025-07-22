@@ -92,7 +92,7 @@ Added SPDX header to: /path/to/project/app/frontend/src/main.tsx
 This tool is part of the TT-Studio development workflow. For comprehensive development setup instructions, see:
 
 - **[Development Setup](../docs/development.md)** - Initial development environment setup
-- **[Contributing Guide](../docs/CONTRIBUTING.md)** - Full contribution workflow and standards
+- **[Contributing Guide](../CONTRIBUTING.md)** - Full contribution workflow and standards
 - **[Pre-commit Hooks](../docs/development.md#pre-commit)** - Automated code quality checks
 
 ### Pre-commit Integration
@@ -130,4 +130,4 @@ For more troubleshooting help, see the [project troubleshooting guide](../docs/t
 
 ---
 
-For more information about the TT-Studio project development workflow, see the [Contributing Guide](../docs/CONTRIBUTING.md).
+For more information about the TT-Studio project development workflow, see the [Contributing Guide](../CONTRIBUTING.md).
