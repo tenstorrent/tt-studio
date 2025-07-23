@@ -1508,11 +1508,7 @@ def main():
             print(f"\n{C_BLUE}🏠 Your TT Studio is running in Local Mode with local model inference.{C_RESET}")
             print(f"{C_CYAN}   You can deploy and manage local models through the interface.{C_RESET}")
         
-        # Try to open the browser automatically
-        try:
-            webbrowser.open("http://localhost:3000")
-        except:
-            print(f"{C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually{C_RESET}")
+        # Browser auto-open disabled
         
         # If in dev mode, show logs similar to startup.sh
         if args.dev:
