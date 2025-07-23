@@ -124,11 +124,7 @@ const ForwardedSelect = React.forwardRef<
         <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
       )}
       <SelectValue placeholder="Select knowledge base">
-        {value
-          ? value === "special-all"
-            ? "Search All Collections"
-            : value
-          : null}
+        {value ? (value === "special-all" ? "Search All Collections" : value) : null}
       </SelectValue>
     </SelectTrigger>
     <SelectContent
@@ -146,7 +142,9 @@ const ForwardedSelect = React.forwardRef<
           <div className="p-3 flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <Search className="h-5 w-5 text-[#7C68FA]" />
-              <span className="font-medium text-gray-900 dark:text-white">Search All Collections</span>
+              <span className="font-medium text-gray-900 dark:text-white">
+                Search All Collections
+              </span>
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
               <Database className="h-4 w-4" />
@@ -170,7 +168,9 @@ const ForwardedSelect = React.forwardRef<
               key={c.id}
               value={c.name}
               className={`rounded-lg my-1 ${
-                value === c.name ? "bg-gray-100 dark:bg-[#2A2A2A]" : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
+                value === c.name
+                  ? "bg-gray-100 dark:bg-[#2A2A2A]"
+                  : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
               }`}
             >
               <div className="flex items-center gap-2">
@@ -185,7 +185,10 @@ const ForwardedSelect = React.forwardRef<
         <>
           <SelectSeparator className="my-2 bg-gray-200 dark:bg-gray-800" />
           <div className="px-2 pb-2">
-            <SelectItem value="remove" className="text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg">
+            <SelectItem
+              value="remove"
+              className="text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg"
+            >
               <div className="flex items-center gap-2">
                 <X className="h-4 w-4 text-red-500" />
                 <span>Remove Context</span>

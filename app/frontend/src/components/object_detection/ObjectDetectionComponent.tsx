@@ -2,13 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
-import React, {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-} from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Card } from "../ui/card";
 
 import SourcePicker from "./SourcePicker";
@@ -21,27 +15,9 @@ import {
   getConfidenceTextColorClass,
 } from "./utils/colorUtils";
 import { AnimatedTabs } from "./AnimatedTabs";
-import {
-  Maximize2,
-  Timer,
-  Gauge,
-  Activity,
-  ChevronRight,
-  ChevronDown,
-} from "lucide-react";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "../ui/resizable";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
+import { Maximize2, Timer, Gauge, Activity, ChevronRight, ChevronDown } from "lucide-react";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 
 // Modified AnimatedTabs with adjusted underline position for initial load
 const ModifiedAnimatedTabs = React.forwardRef<
@@ -70,25 +46,16 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   // File-related state
   const [fileDetections, setFileDetections] = useState<Detection[]>([]);
-  const [fileScaledDetections, setFileScaledDetections] = useState<Detection[]>(
-    []
-  );
-  const [fileMetadata, setFileMetadata] = useState<DetectionMetadata | null>(
-    null
-  );
+  const [fileScaledDetections, setFileScaledDetections] = useState<Detection[]>([]);
+  const [fileMetadata, setFileMetadata] = useState<DetectionMetadata | null>(null);
   const [fileHoveredIndex, setFileHoveredIndex] = useState<number | null>(null);
   const fileContainerRef = useRef<HTMLDivElement>(null);
 
   // Webcam-related state
   const [webcamDetections, setWebcamDetections] = useState<Detection[]>([]);
-  const [webcamScaledDetections, setWebcamScaledDetections] = useState<
-    Detection[]
-  >([]);
-  const [webcamMetadata, setWebcamMetadata] =
-    useState<DetectionMetadata | null>(null);
-  const [webcamHoveredIndex, setWebcamHoveredIndex] = useState<number | null>(
-    null
-  );
+  const [webcamScaledDetections, setWebcamScaledDetections] = useState<Detection[]>([]);
+  const [webcamMetadata, setWebcamMetadata] = useState<DetectionMetadata | null>(null);
+  const [webcamHoveredIndex, setWebcamHoveredIndex] = useState<number | null>(null);
   const webcamContainerRef = useRef<HTMLDivElement>(null);
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const [isWebcamLiveMode, setIsWebcamLiveMode] = useState(false);
@@ -242,11 +209,7 @@ export const ObjectDetectionComponent: React.FC = () => {
 
   // Update file bounding boxes
   useEffect(() => {
-    if (
-      !fileMetadata ||
-      fileDetections.length === 0 ||
-      !fileContainerRef.current
-    ) {
+    if (!fileMetadata || fileDetections.length === 0 || !fileContainerRef.current) {
       // Clear scaled detections if there are no detections
       if (fileScaledDetections.length > 0) {
         setFileScaledDetections([]);
@@ -282,8 +245,7 @@ export const ObjectDetectionComponent: React.FC = () => {
     // Skip if video dimensions not ready
     if (
       webcamVideoRef.current &&
-      (webcamVideoRef.current.videoWidth! === 0 ||
-        webcamVideoRef.current.videoHeight! === 0)
+      (webcamVideoRef.current.videoWidth! === 0 || webcamVideoRef.current.videoHeight! === 0)
     ) {
       return;
     }
@@ -311,11 +273,7 @@ export const ObjectDetectionComponent: React.FC = () => {
   useEffect(() => {
     // Handle video metadata loading
     const handleVideoMetadataLoaded = () => {
-      if (
-        webcamDetections.length > 0 &&
-        webcamMetadata &&
-        webcamContainerRef.current
-      ) {
+      if (webcamDetections.length > 0 && webcamMetadata && webcamContainerRef.current) {
         const updatedDetections = updateBoxPositions(
           webcamContainerRef,
           webcamVideoRef,
@@ -329,34 +287,22 @@ export const ObjectDetectionComponent: React.FC = () => {
     // Add event listener for video metadata loading
     const videoElement = webcamVideoRef.current;
     if (videoElement && isWebcamLiveMode) {
-      videoElement.addEventListener(
-        "loadedmetadata",
-        handleVideoMetadataLoaded
-      );
+      videoElement.addEventListener("loadedmetadata", handleVideoMetadataLoaded);
       videoElement.addEventListener("resize", handleVideoMetadataLoaded);
     }
 
     return () => {
       if (videoElement) {
-        videoElement.removeEventListener(
-          "loadedmetadata",
-          handleVideoMetadataLoaded
-        );
+        videoElement.removeEventListener("loadedmetadata", handleVideoMetadataLoaded);
         videoElement.removeEventListener("resize", handleVideoMetadataLoaded);
       }
     };
-  }, [
-    webcamVideoRef.current,
-    isWebcamLiveMode,
-    webcamDetections,
-    webcamMetadata,
-  ]);
+  }, [webcamVideoRef.current, isWebcamLiveMode, webcamDetections, webcamMetadata]);
 
   // Handle file container resize
   useEffect(() => {
     const containerElement = fileContainerRef.current;
-    if (!containerElement || !fileMetadata || fileDetections.length === 0)
-      return;
+    if (!containerElement || !fileMetadata || fileDetections.length === 0) return;
 
     const resizeObserver = new ResizeObserver(() => {
       const updatedDetections = updateBoxPositions(
@@ -378,23 +324,14 @@ export const ObjectDetectionComponent: React.FC = () => {
   // Handle webcam container resize - UPDATED
   useEffect(() => {
     const containerElement = webcamContainerRef.current;
-    if (
-      !containerElement ||
-      !webcamMetadata ||
-      webcamDetections.length === 0 ||
-      !isWebcamLiveMode
-    )
+    if (!containerElement || !webcamMetadata || webcamDetections.length === 0 || !isWebcamLiveMode)
       return;
 
     // Create a more robust handler that checks video dimensions
     const updateWebcamBoxes = () => {
       // Only update if video dimensions are available
       const videoElement = webcamVideoRef.current;
-      if (
-        videoElement &&
-        videoElement.videoWidth > 0 &&
-        videoElement.videoHeight > 0
-      ) {
+      if (videoElement && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
         const updatedDetections = updateBoxPositions(
           webcamContainerRef,
           webcamVideoRef,
@@ -459,12 +396,9 @@ export const ObjectDetectionComponent: React.FC = () => {
   const DetectionResultsTable = useMemo(() => {
     const currentScaledDetections =
       selectedTab === "webcam" ? webcamScaledDetections : fileScaledDetections;
-    const currentHoveredIndex =
-      selectedTab === "webcam" ? webcamHoveredIndex : fileHoveredIndex;
+    const currentHoveredIndex = selectedTab === "webcam" ? webcamHoveredIndex : fileHoveredIndex;
     const handleHoverDetection =
-      selectedTab === "webcam"
-        ? handleWebcamHoverDetection
-        : handleFileHoverDetection;
+      selectedTab === "webcam" ? handleWebcamHoverDetection : handleFileHoverDetection;
 
     if (currentScaledDetections.length === 0) {
       return null;
@@ -489,9 +423,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                   <TableHead className="w-[100px] text-center whitespace-nowrap py-3">
                     Confidence
                   </TableHead>
-                  <TableHead className="text-left whitespace-nowrap py-3 pl-4">
-                    Object
-                  </TableHead>
+                  <TableHead className="text-left whitespace-nowrap py-3 pl-4">Object</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -499,9 +431,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                   <React.Fragment key={index}>
                     <TableRow
                       className={`hover:bg-muted/40 transition-colors ${
-                        index === currentHoveredIndex
-                          ? "bg-blue-50 dark:bg-blue-900/20"
-                          : ""
+                        index === currentHoveredIndex ? "bg-blue-50 dark:bg-blue-900/20" : ""
                       }`}
                       onMouseEnter={() => handleHoverDetection(index)}
                       onMouseLeave={() => handleHoverDetection(null)}
@@ -512,15 +442,9 @@ export const ObjectDetectionComponent: React.FC = () => {
                           className="p-1 hover:bg-muted/60 rounded-md transition-colors"
                         >
                           {expandedRows.has(index) ? (
-                            <ChevronDown
-                              size={16}
-                              className="text-muted-foreground"
-                            />
+                            <ChevronDown size={16} className="text-muted-foreground" />
                           ) : (
-                            <ChevronRight
-                              size={16}
-                              className="text-muted-foreground"
-                            />
+                            <ChevronRight size={16} className="text-muted-foreground" />
                           )}
                         </button>
                       </TableCell>
@@ -541,48 +465,28 @@ export const ObjectDetectionComponent: React.FC = () => {
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                             <div className="space-y-2">
                               <div>
-                                <span className="text-muted-foreground">
-                                  ID:{" "}
-                                </span>
-                                <span className="font-medium">
-                                  {detection.class}
-                                </span>
+                                <span className="text-muted-foreground">ID: </span>
+                                <span className="font-medium">{detection.class}</span>
                               </div>
                               <div>
-                                <span className="text-muted-foreground">
-                                  x-min:{" "}
-                                </span>
-                                <span className="font-mono">
-                                  {detection.xmin?.toFixed(3)}
-                                </span>
+                                <span className="text-muted-foreground">x-min: </span>
+                                <span className="font-mono">{detection.xmin?.toFixed(3)}</span>
                               </div>
                             </div>
                             <div className="space-y-2">
                               <div>
-                                <span className="text-muted-foreground">
-                                  y-min:{" "}
-                                </span>
-                                <span className="font-mono">
-                                  {detection.ymin?.toFixed(3)}
-                                </span>
+                                <span className="text-muted-foreground">y-min: </span>
+                                <span className="font-mono">{detection.ymin?.toFixed(3)}</span>
                               </div>
                               <div>
-                                <span className="text-muted-foreground">
-                                  x-max:{" "}
-                                </span>
-                                <span className="font-mono">
-                                  {detection.xmax?.toFixed(3)}
-                                </span>
+                                <span className="text-muted-foreground">x-max: </span>
+                                <span className="font-mono">{detection.xmax?.toFixed(3)}</span>
                               </div>
                             </div>
                             <div className="space-y-2">
                               <div>
-                                <span className="text-muted-foreground">
-                                  y-max:{" "}
-                                </span>
-                                <span className="font-mono">
-                                  {detection.ymax?.toFixed(3)}
-                                </span>
+                                <span className="text-muted-foreground">y-max: </span>
+                                <span className="font-mono">{detection.ymax?.toFixed(3)}</span>
                               </div>
                             </div>
                           </div>
@@ -613,12 +517,9 @@ export const ObjectDetectionComponent: React.FC = () => {
   const MobileDetectionResultsTable = useMemo(() => {
     const currentScaledDetections =
       selectedTab === "webcam" ? webcamScaledDetections : fileScaledDetections;
-    const currentHoveredIndex =
-      selectedTab === "webcam" ? webcamHoveredIndex : fileHoveredIndex;
+    const currentHoveredIndex = selectedTab === "webcam" ? webcamHoveredIndex : fileHoveredIndex;
     const handleHoverDetection =
-      selectedTab === "webcam"
-        ? handleWebcamHoverDetection
-        : handleFileHoverDetection;
+      selectedTab === "webcam" ? handleWebcamHoverDetection : handleFileHoverDetection;
 
     if (currentScaledDetections.length === 0) {
       return null;
@@ -635,63 +536,35 @@ export const ObjectDetectionComponent: React.FC = () => {
             <TableHeader>
               <TableRow>
                 <TableHead className="px-2 py-2 whitespace-nowrap">#</TableHead>
-                <TableHead className="px-2 py-2 whitespace-nowrap">
-                  x-min
-                </TableHead>
-                <TableHead className="px-2 py-2 whitespace-nowrap">
-                  y-min
-                </TableHead>
-                <TableHead className="px-2 py-2 whitespace-nowrap">
-                  x-max
-                </TableHead>
-                <TableHead className="px-2 py-2 whitespace-nowrap">
-                  y-max
-                </TableHead>
-                <TableHead className="px-2 py-2 whitespace-nowrap">
-                  conf
-                </TableHead>
-                <TableHead className="px-2 py-2 whitespace-nowrap">
-                  id
-                </TableHead>
-                <TableHead className="px-2 py-2 whitespace-nowrap">
-                  name
-                </TableHead>
+                <TableHead className="px-2 py-2 whitespace-nowrap">x-min</TableHead>
+                <TableHead className="px-2 py-2 whitespace-nowrap">y-min</TableHead>
+                <TableHead className="px-2 py-2 whitespace-nowrap">x-max</TableHead>
+                <TableHead className="px-2 py-2 whitespace-nowrap">y-max</TableHead>
+                <TableHead className="px-2 py-2 whitespace-nowrap">conf</TableHead>
+                <TableHead className="px-2 py-2 whitespace-nowrap">id</TableHead>
+                <TableHead className="px-2 py-2 whitespace-nowrap">name</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {currentScaledDetections.map((detection, index) => (
                 <TableRow
                   key={index}
-                  className={
-                    currentHoveredIndex === index
-                      ? "bg-blue-50 dark:bg-blue-900/20"
-                      : ""
-                  }
+                  className={currentHoveredIndex === index ? "bg-blue-50 dark:bg-blue-900/20" : ""}
                   onMouseEnter={() => handleHoverDetection(index)}
                   onMouseLeave={() => handleHoverDetection(null)}
                 >
                   <TableCell className="px-2 py-2">{index}</TableCell>
-                  <TableCell className="px-2 py-2">
-                    {detection.xmin?.toFixed(2)}
-                  </TableCell>
-                  <TableCell className="px-2 py-2">
-                    {detection.ymin?.toFixed(2)}
-                  </TableCell>
-                  <TableCell className="px-2 py-2">
-                    {detection.xmax?.toFixed(2)}
-                  </TableCell>
-                  <TableCell className="px-2 py-2">
-                    {detection.ymax?.toFixed(2)}
-                  </TableCell>
+                  <TableCell className="px-2 py-2">{detection.xmin?.toFixed(2)}</TableCell>
+                  <TableCell className="px-2 py-2">{detection.ymin?.toFixed(2)}</TableCell>
+                  <TableCell className="px-2 py-2">{detection.xmax?.toFixed(2)}</TableCell>
+                  <TableCell className="px-2 py-2">{detection.ymax?.toFixed(2)}</TableCell>
                   <TableCell
                     className={`px-2 py-2 font-medium ${getConfidenceTextColorClass(detection.confidence)}`}
                   >
                     {detection.confidence?.toFixed(2)}
                   </TableCell>
                   <TableCell className="px-2 py-2">{detection.class}</TableCell>
-                  <TableCell className="px-2 py-2 font-medium">
-                    {detection.name}
-                  </TableCell>
+                  <TableCell className="px-2 py-2 font-medium">{detection.name}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -745,17 +618,11 @@ export const ObjectDetectionComponent: React.FC = () => {
         ))}
       </div>
     );
-  }, [
-    isWebcamLiveMode,
-    webcamScaledDetections,
-    webcamHoveredIndex,
-    handleWebcamHoverDetection,
-  ]);
+  }, [isWebcamLiveMode, webcamScaledDetections, webcamHoveredIndex, handleWebcamHoverDetection]);
 
   // Memoized metadata display
   const MetadataDisplay = useMemo(() => {
-    const currentMetadata =
-      selectedTab === "webcam" ? webcamMetadata : fileMetadata;
+    const currentMetadata = selectedTab === "webcam" ? webcamMetadata : fileMetadata;
     const currentScaledDetections =
       selectedTab === "webcam" ? webcamScaledDetections : fileScaledDetections;
 
@@ -789,13 +656,7 @@ export const ObjectDetectionComponent: React.FC = () => {
         )}
       </div>
     );
-  }, [
-    selectedTab,
-    webcamMetadata,
-    fileMetadata,
-    webcamScaledDetections,
-    fileScaledDetections,
-  ]);
+  }, [selectedTab, webcamMetadata, fileMetadata, webcamScaledDetections, fileScaledDetections]);
 
   return (
     <div className="flex flex-col h-screen w-full px-2 sm:px-4 pt-8 pb-20 sm:py-6 mx-auto">
@@ -841,10 +702,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                 {/* Webcam Tab */}
                 {selectedTab === "webcam" && (
                   <div className="flex flex-col items-center gap-4 h-full">
-                    <div
-                      className="relative h-full flex-grow w-full"
-                      ref={webcamContainerRef}
-                    >
+                    <div className="relative h-full flex-grow w-full" ref={webcamContainerRef}>
                       <WebcamPicker
                         setDetections={handleSetWebcamDetections}
                         setLiveMode={handleSetWebcamLiveMode}

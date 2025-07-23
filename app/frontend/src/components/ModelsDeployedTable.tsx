@@ -9,12 +9,7 @@ import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Alert, AlertDescription } from "./ui/alert";
 // import { Separator } from "./ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
   Table,
   TableBody,
@@ -65,13 +60,7 @@ import {
   AlertTriangle,
   RefreshCw,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 
 // ANSI color code parsing utilities
@@ -329,10 +318,7 @@ function LogsDialog({
     const ref = getCurrentRef();
     if (ref.current) {
       const isAtBottom =
-        ref.current.scrollHeight -
-          ref.current.scrollTop -
-          ref.current.clientHeight <
-        10;
+        ref.current.scrollHeight - ref.current.scrollTop - ref.current.clientHeight < 10;
       setAutoScrollEnabled(isAtBottom);
       setShowScrollButton(!isAtBottom);
     }
@@ -427,13 +413,9 @@ function LogsDialog({
           timeoutIdRef.current = null;
         }
         if (isLoading) {
-          setError(
-            "Failed to connect to log stream. The container may have stopped."
-          );
+          setError("Failed to connect to log stream. The container may have stopped.");
         } else {
-          setError(
-            "Connection to log stream lost. The container may have stopped."
-          );
+          setError("Connection to log stream lost. The container may have stopped.");
         }
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
@@ -467,11 +449,7 @@ function LogsDialog({
     if (isLoading) {
       return (
         <div className="relative w-full">
-          <Tabs
-            value={activeTab}
-            onValueChange={setActiveTab}
-            className="w-full"
-          >
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="logs">Logs</TabsTrigger>
               <TabsTrigger value="events">Events</TabsTrigger>
@@ -497,9 +475,7 @@ function LogsDialog({
               <div className="bg-gray-950 text-yellow-400 p-4 rounded-lg font-mono text-sm border border-gray-700 shadow-inner flex items-center justify-center h-32">
                 <div className="flex flex-col items-center gap-2">
                   <Spinner className="w-8 h-8" />
-                  <span className="text-sm">
-                    Connecting to metrics stream...
-                  </span>
+                  <span className="text-sm">Connecting to metrics stream...</span>
                 </div>
               </div>
             </TabsContent>
@@ -561,8 +537,7 @@ function LogsDialog({
                       style={{
                         wordWrap: "break-word",
                         overflowWrap: "break-word",
-                        fontFamily:
-                          'Consolas, "Courier New", "Monaco", monospace',
+                        fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
                       }}
                     >
                       <span className="text-gray-500 text-xs mr-2 select-none">
@@ -580,9 +555,7 @@ function LogsDialog({
                           <span
                             key={segIndex}
                             style={{
-                              color:
-                                segment.color ||
-                                (parsed.level ? undefined : "#50FA7B"),
+                              color: segment.color || (parsed.level ? undefined : "#50FA7B"),
                               backgroundColor: segment.backgroundColor,
                               fontWeight: segment.bold ? "bold" : "normal",
                               fontStyle: segment.italic ? "italic" : "normal",
@@ -599,12 +572,8 @@ function LogsDialog({
               {/* Terminal cursor */}
               {logs.length > 0 && (
                 <div className="flex items-center mt-2 opacity-75">
-                  <span className="text-gray-500 text-xs mr-2 select-none">
-                    $
-                  </span>
-                  <span className="text-green-400 animate-pulse text-sm">
-                    █
-                  </span>
+                  <span className="text-gray-500 text-xs mr-2 select-none">$</span>
+                  <span className="text-green-400 animate-pulse text-sm">█</span>
                 </div>
               )}
             </div>
@@ -639,12 +608,9 @@ function LogsDialog({
                 events.map((event, index) => {
                   const parsed = parseAnsiColors(event);
                   const isError =
-                    parsed.level &&
-                    ["ERROR", "FATAL", "CRITICAL"].includes(parsed.level);
-                  const isWarning =
-                    parsed.level && ["WARN", "WARNING"].includes(parsed.level);
-                  const isInfo =
-                    parsed.level && ["INFO"].includes(parsed.level);
+                    parsed.level && ["ERROR", "FATAL", "CRITICAL"].includes(parsed.level);
+                  const isWarning = parsed.level && ["WARN", "WARNING"].includes(parsed.level);
+                  const isInfo = parsed.level && ["INFO"].includes(parsed.level);
                   const isStartupEvent =
                     event.includes("startup complete") ||
                     event.includes("Uvicorn running") ||
@@ -665,8 +631,7 @@ function LogsDialog({
                       style={{
                         wordWrap: "break-word",
                         overflowWrap: "break-word",
-                        fontFamily:
-                          'Consolas, "Courier New", "Monaco", monospace',
+                        fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
                       }}
                     >
                       <div className="flex items-start gap-2">
@@ -676,21 +641,14 @@ function LogsDialog({
 
                         {/* Event severity icon */}
                         <span className="flex-shrink-0 mt-0.5">
-                          {isError && (
-                            <span className="text-red-400 text-xs">🔴</span>
-                          )}
-                          {isWarning && (
-                            <span className="text-yellow-400 text-xs">🟡</span>
-                          )}
+                          {isError && <span className="text-red-400 text-xs">🔴</span>}
+                          {isWarning && <span className="text-yellow-400 text-xs">🟡</span>}
                           {(isInfo || isStartupEvent) && (
                             <span className="text-green-400 text-xs">🟢</span>
                           )}
-                          {!isError &&
-                            !isWarning &&
-                            !isInfo &&
-                            !isStartupEvent && (
-                              <span className="text-blue-400 text-xs">🔵</span>
-                            )}
+                          {!isError && !isWarning && !isInfo && !isStartupEvent && (
+                            <span className="text-blue-400 text-xs">🔵</span>
+                          )}
                         </span>
 
                         <div className="flex-1">
@@ -726,9 +684,7 @@ function LogsDialog({
                                           : "#8BE9FD"),
                                   backgroundColor: segment.backgroundColor,
                                   fontWeight: segment.bold ? "bold" : "normal",
-                                  fontStyle: segment.italic
-                                    ? "italic"
-                                    : "normal",
+                                  fontStyle: segment.italic ? "italic" : "normal",
                                 }}
                               >
                                 {segment.text}
@@ -774,9 +730,7 @@ function LogsDialog({
                         {name.replace(/_/g, " ").toUpperCase()}:
                       </span>
                       <span className="font-bold text-yellow-400">
-                        {typeof value === "number"
-                          ? value.toLocaleString()
-                          : value}
+                        {typeof value === "number" ? value.toLocaleString() : value}
                       </span>
                     </div>
                   ))}
@@ -812,8 +766,7 @@ function LogsDialog({
 export default function ModelsDeployedTable() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
-    useRefresh();
+  const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const { models, setModels, refreshModels } = useModels();
   const [fadingModels, setFadingModels] = useState<string[]>([]);
   const [pulsatingModels, setPulsatingModels] = useState<string[]>([]);
@@ -821,14 +774,10 @@ export default function ModelsDeployedTable() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { theme } = useTheme();
-  const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(
-    () => ({})
-  );
+  const [modelHealth, setModelHealth] = useState<Record<string, HealthStatus>>(() => ({}));
   const [showBanner, setShowBanner] = useState(true);
   const [bannerMinimized, setBannerMinimized] = useState(false);
-  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
-    null
-  );
+  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null);
   const [isRefreshingHealth, setIsRefreshingHealth] = useState(false);
   const healthBadgeRefs = useRef<Map<string, HealthBadgeRef>>(new Map());
 
@@ -1002,9 +951,7 @@ export default function ModelsDeployedTable() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setModels((prevModels) =>
-        prevModels.filter((model) => !fadingModels.includes(model.id))
-      );
+      setModels((prevModels) => prevModels.filter((model) => !fadingModels.includes(model.id)));
       setFadingModels([]);
     }, 3000);
     return () => clearTimeout(timer);
@@ -1020,13 +967,8 @@ export default function ModelsDeployedTable() {
         <div className="flex flex-col items-center justify-center gap-4">
           <AlertCircle className="w-16 h-16 text-red-500" />
           <h2 className="text-2xl font-semibold">Connection Error</h2>
-          <p className="text-center text-gray-600 dark:text-gray-300 max-w-md">
-            {loadError}
-          </p>
-          <Button
-            onClick={handleRetry}
-            className="mt-4 bg-blue-500 hover:bg-blue-600 text-white"
-          >
+          <p className="text-center text-gray-600 dark:text-gray-300 max-w-md">{loadError}</p>
+          <Button onClick={handleRetry} className="mt-4 bg-blue-500 hover:bg-blue-600 text-white">
             Retry Connection
           </Button>
         </div>
@@ -1095,10 +1037,9 @@ export default function ModelsDeployedTable() {
               <div className="flex-1 min-w-0">
                 {!bannerMinimized && (
                   <AlertDescription className="text-blue-800 dark:text-blue-200 leading-relaxed">
-                    <strong>Startup Time:</strong> Models may take 5-7 minutes
-                    to start, especially on first use. Health monitoring stops
-                    once models become healthy. Use the "Refresh Health" button
-                    for manual updates.
+                    <strong>Startup Time:</strong> Models may take 5-7 minutes to start, especially
+                    on first use. Health monitoring stops once models become healthy. Use the
+                    "Refresh Health" button for manual updates.
                   </AlertDescription>
                 )}
                 {bannerMinimized && (
@@ -1223,19 +1164,14 @@ export default function ModelsDeployedTable() {
             <TableHeader>
               <TableRow
                 className={`${
-                  theme === "dark"
-                    ? "bg-zinc-900 rounded-lg"
-                    : "bg-zinc-200 rounded-lg"
+                  theme === "dark" ? "bg-zinc-900 rounded-lg" : "bg-zinc-200 rounded-lg"
                 }`}
               >
                 {showContainerId && (
                   <TableHead className="text-left">
                     <div className="flex items-center">
-                      <FileText
-                        className="inline-block mr-2 text-blue-500"
-                        size={16}
-                      />{" "}
-                      Container Logs{" "}
+                      <FileText className="inline-block mr-2 text-blue-500" size={16} /> Container
+                      Logs{" "}
                       <span className="text-xs font-normal text-blue-600 dark:text-blue-400">
                         (live monitoring)
                       </span>
@@ -1290,21 +1226,12 @@ export default function ModelsDeployedTable() {
                         onClick={() => {
                           console.log("=== VIEW LOGS BUTTON CLICKED ===");
                           console.log("Model ID:", model.id);
-                          console.log(
-                            "Current selectedContainerId before:",
-                            selectedContainerId
-                          );
+                          console.log("Current selectedContainerId before:", selectedContainerId);
                           setSelectedContainerId(model.id);
-                          console.log(
-                            "setSelectedContainerId called with:",
-                            model.id
-                          );
+                          console.log("setSelectedContainerId called with:", model.id);
                           // Add a timeout to check if state actually updated
                           setTimeout(() => {
-                            console.log(
-                              "selectedContainerId after timeout:",
-                              selectedContainerId
-                            );
+                            console.log("selectedContainerId after timeout:", selectedContainerId);
                           }, 100);
                         }}
                         className="group h-auto p-2 flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/50 hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 min-w-[140px]"
@@ -1322,27 +1249,15 @@ export default function ModelsDeployedTable() {
                     </TableCell>
                   ) : null}
                   <TableCell className="text-left">
-                    {model.name ? (
-                      <CopyableText text={extractShortModelName(model.name)} />
-                    ) : (
-                      "N/A"
-                    )}
+                    {model.name ? <CopyableText text={extractShortModelName(model.name)} /> : "N/A"}
                   </TableCell>
                   {showImage ? (
                     <TableCell className="text-left">
-                      {model.image ? (
-                        <CopyableText text={model.image} />
-                      ) : (
-                        "N/A"
-                      )}
+                      {model.image ? <CopyableText text={model.image} /> : "N/A"}
                     </TableCell>
                   ) : null}
                   <TableCell className="text-left">
-                    {model.status ? (
-                      <StatusBadge status={model.status} />
-                    ) : (
-                      "N/A"
-                    )}
+                    {model.status ? <StatusBadge status={model.status} /> : "N/A"}
                   </TableCell>
                   <TableCell className="text-left">
                     <div className="inline-flex">
@@ -1363,20 +1278,14 @@ export default function ModelsDeployedTable() {
                   </TableCell>
                   {showPorts ? (
                     <TableCell className="text-left">
-                      {model.ports ? (
-                        <CopyableText text={model.ports} />
-                      ) : (
-                        "N/A"
-                      )}
+                      {model.ports ? <CopyableText text={model.ports} /> : "N/A"}
                     </TableCell>
                   ) : null}
                   <TableCell className="text-center">
                     <div className="flex gap-2 justify-center">
                       {fadingModels.includes(model.id) ? (
                         <Button
-                          onClick={() =>
-                            model.image && handleRedeploy(model.image)
-                          }
+                          onClick={() => model.image && handleRedeploy(model.image)}
                           variant="outline"
                           size="sm"
                           disabled={!model.image}
@@ -1407,18 +1316,13 @@ export default function ModelsDeployedTable() {
                                 <Button
                                   onClick={() =>
                                     model.name &&
-                                    handleModelNavigationClick(
-                                      model.id,
-                                      model.name,
-                                      navigate
-                                    )
+                                    handleModelNavigationClick(model.id, model.name, navigate)
                                   }
                                   variant="default"
                                   size="sm"
                                   disabled={
                                     !model.name ||
-                                    (modelHealth[model.id] ?? "unknown") !==
-                                      "healthy"
+                                    (modelHealth[model.id] ?? "unknown") !== "healthy"
                                   }
                                   className="bg-green-600 hover:bg-green-700 text-white"
                                 >
@@ -1430,24 +1334,15 @@ export default function ModelsDeployedTable() {
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent className="bg-gray-700 text-white">
-                                {(modelHealth[model.id] ?? "unknown") !==
-                                "healthy" ? (
-                                  <p>
-                                    Action unavailable: Model health is not
-                                    healthy.
-                                  </p>
+                                {(modelHealth[model.id] ?? "unknown") !== "healthy" ? (
+                                  <p>Action unavailable: Model health is not healthy.</p>
                                 ) : isLLaMAModel(model.name || "") ? (
                                   <p>
-                                    Warning: First-time inference may take up to
-                                    an hour. Subsequent runs may take 5-7
-                                    minutes.
+                                    Warning: First-time inference may take up to an hour. Subsequent
+                                    runs may take 5-7 minutes.
                                   </p>
                                 ) : (
-                                  <p>
-                                    {getTooltipText(
-                                      getModelTypeLabel(model.name)
-                                    )}
-                                  </p>
+                                  <p>{getTooltipText(getModelTypeLabel(model.name))}</p>
                                 )}
                               </TooltipContent>
                             </Tooltip>
@@ -1460,18 +1355,13 @@ export default function ModelsDeployedTable() {
               ))}
             </TableBody>
           </Table>
-          <ScrollBar
-            className="scrollbar-thumb-rounded"
-            orientation="horizontal"
-          />
+          <ScrollBar className="scrollbar-thumb-rounded" orientation="horizontal" />
         </ScrollArea>
       </CardContent>
       <LogsDialog
         isOpen={!!selectedContainerId}
         onClose={() => {
-          console.log(
-            "LogsDialog onClose called, setting selectedContainerId to null"
-          );
+          console.log("LogsDialog onClose called, setting selectedContainerId to null");
           setSelectedContainerId(null);
         }}
         containerId={selectedContainerId || ""}
@@ -1493,15 +1383,12 @@ export default function ModelsDeployedTable() {
             <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 flex-shrink-0" />
             <div>
               <div className="font-bold mb-1 text-yellow-100">
-                Warning! This action will stop and remove the model, then reset
-                the card.
+                Warning! This action will stop and remove the model, then reset the card.
               </div>
               <div className="text-sm text-yellow-200">
-                Deleting a model will attempt to stop and remove the model
-                container.
+                Deleting a model will attempt to stop and remove the model container.
                 <br />
-                After deletion, the card will automatically be reset using{" "}
-                <code>tt-smi reset</code>
+                After deletion, the card will automatically be reset using <code>tt-smi reset</code>
                 .<br />
                 <span className="font-bold text-yellow-300">
                   This may interrupt any ongoing processes on the card.
@@ -1510,10 +1397,7 @@ export default function ModelsDeployedTable() {
             </div>
           </div>
           <DialogFooter className="mt-4 flex justify-end space-x-2">
-            <Button
-              onClick={() => setShowDeleteModal(false)}
-              disabled={isProcessingDelete}
-            >
+            <Button onClick={() => setShowDeleteModal(false)} disabled={isProcessingDelete}>
               Cancel
             </Button>
             <Button

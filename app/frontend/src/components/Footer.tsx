@@ -7,15 +7,11 @@ import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
 import { useNavigate } from "react-router-dom";
 import { useModels } from "../hooks/useModels";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { ExternalLink, Github, Package, Info, FileText } from "lucide-react";
+import { ExternalLink, Github, Package, Info, FileText, RefreshCw } from "lucide-react";
+import { useGitHubReleases } from "../hooks/useGitHubReleases";
 
 interface FooterProps {
   className?: string;
@@ -54,6 +50,14 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const { models } = useModels();
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const {
+    releaseInfo,
+    parsedNotes,
+    formattedDate,
+    loading: releasesLoading,
+    error: releasesError,
+    refetch,
+  } = useGitHubReleases();
 
   // Fetch system status from API
   const fetchSystemStatus = async () => {
@@ -141,15 +145,15 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
       >
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center space-x-4">
-            <span className={`text-sm ${textColor}`}>TT Studio 0.3.11</span>
+            <span className={`text-sm ${textColor}`}>
+              TT Studio {releaseInfo?.currentVersion || "0.3.11"}
+            </span>
             <Badge variant="default" className="text-xs">
               Loading...
             </Badge>
           </div>
           <div className="flex items-center space-x-6">
-            <span className={`text-sm ${mutedTextColor}`}>
-              LOADING SYSTEM RESOURCES...
-            </span>
+            <span className={`text-sm ${mutedTextColor}`}>LOADING SYSTEM RESOURCES...</span>
           </div>
         </div>
       </motion.footer>
@@ -180,10 +184,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 className="flex items-center gap-2 px-3 py-1.5 bg-TT-purple-accent/10 dark:bg-TT-purple-accent/30 rounded-full cursor-pointer transition-all duration-200 hover:bg-TT-purple-accent/20 dark:hover:bg-TT-purple-accent/40 hover:scale-105"
                 title="Hardware status - Click to learn more"
                 onClick={() => {
-                  window.open(
-                    "https://tenstorrent.com/hardware/wormhole",
-                    "_blank"
-                  );
+                  window.open("https://tenstorrent.com/hardware/wormhole", "_blank");
                 }}
               >
                 <svg
@@ -213,9 +214,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 }
                 className={`text-xs ${textColor} cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-opacity-80`}
                 title={
-                  systemStatus.hardware_error ||
-                  error ||
-                  "Hardware status - Click to learn more"
+                  systemStatus.hardware_error || error || "Hardware status - Click to learn more"
                 }
                 onClick={() => {
                   window.open("https://www.tenstorrent.com/hardware", "_blank");
@@ -291,29 +290,21 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
           {/* Right Section - System Resources & Controls */}
           <div className="flex items-center space-x-6">
-            <span className={`text-sm ${mutedTextColor}`}>
-              SYSTEM RESOURCES USAGE:
-            </span>
+            <span className={`text-sm ${mutedTextColor}`}>SYSTEM RESOURCES USAGE:</span>
             <span className={`text-sm ${textColor}`}>
-              RAM: {systemStatus.memoryUsage.toFixed(1)}% (
-              {systemStatus.memoryTotal}) | CPU:{" "}
+              RAM: {systemStatus.memoryUsage.toFixed(1)}% ({systemStatus.memoryTotal}) | CPU:{" "}
               {systemStatus.cpuUsage.toFixed(2)}%
               {systemStatus.hardware_status === "healthy" && (
                 <> | TEMP: {systemStatus.temperature.toFixed(1)}°C</>
               )}
-              {systemStatus.hardware_status === "error" && (
-                <> | TT HARDWARE: UNAVAILABLE</>
-              )}
-              {systemStatus.hardware_status === "unknown" && (
-                <> | TT HARDWARE: CHECKING...</>
-              )}
+              {systemStatus.hardware_status === "error" && <> | TT HARDWARE: UNAVAILABLE</>}
+              {systemStatus.hardware_status === "unknown" && <> | TT HARDWARE: CHECKING...</>}
             </span>
-            {systemStatus.devices.length > 1 &&
-              systemStatus.hardware_status === "healthy" && (
-                <span className={`text-xs ${mutedTextColor}`}>
-                  ({systemStatus.devices.length} devices)
-                </span>
-              )}
+            {systemStatus.devices.length > 1 && systemStatus.hardware_status === "healthy" && (
+              <span className={`text-xs ${mutedTextColor}`}>
+                ({systemStatus.devices.length} devices)
+              </span>
+            )}
           </div>
         </div>
       </motion.footer>
@@ -322,9 +313,21 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
       <Dialog open={showTTStudioModal} onOpenChange={setShowTTStudioModal}>
         <DialogContent className="sm:max-w-2xl bg-white dark:bg-TT-black border border-TT-purple-accent/20 dark:border-TT-purple-accent/30">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-gray-900 dark:text-white">
-              <Info className="h-5 w-5 text-TT-purple-accent" />
-              TT Studio Information
+            <DialogTitle className="flex items-center justify-between text-xl font-bold text-gray-900 dark:text-white">
+              <div className="flex items-center gap-2">
+                <Info className="h-5 w-5 text-TT-purple-accent" />
+                TT Studio Information
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={refetch}
+                disabled={releasesLoading}
+                className="h-8 w-8 p-0"
+                title="Refresh release information"
+              >
+                <RefreshCw className={`h-4 w-4 ${releasesLoading ? "animate-spin" : ""}`} />
+              </Button>
             </DialogTitle>
           </DialogHeader>
 
@@ -334,18 +337,30 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    TT Studio 2.0.1
+                    TT Studio {releaseInfo?.currentVersion || "2.0.1"}
                   </h3>
                   <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                    Latest patch release with bug fixes and UI/UX improvements
+                    {releasesLoading
+                      ? "Loading release information..."
+                      : releaseInfo?.latest?.body?.split("\n")[0] ||
+                        "Latest patch release with bug fixes and UI/UX improvements"}
                   </p>
                 </div>
-                <Badge
-                  variant="default"
-                  className="bg-TT-purple-accent text-white"
-                >
-                  Latest Version
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {releasesLoading && (
+                    <RefreshCw className="h-4 w-4 animate-spin text-TT-purple-accent" />
+                  )}
+                  <Badge
+                    variant={releaseInfo?.isLatest ? "default" : "outline"}
+                    className={
+                      releaseInfo?.isLatest
+                        ? "bg-TT-purple-accent text-white"
+                        : "bg-orange-500 text-white"
+                    }
+                  >
+                    {releaseInfo?.isLatest ? "Latest Version" : "Update Available"}
+                  </Badge>
+                </div>
               </div>
             </div>
 
@@ -354,12 +369,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               <Button
                 variant="outline"
                 className="flex items-center gap-2 h-auto p-4 border-TT-purple-accent/30 hover:border-TT-purple-accent hover:bg-TT-purple-accent/5 dark:hover:bg-TT-purple-accent/10"
-                onClick={() =>
-                  window.open(
-                    "https://github.com/tenstorrent/tt-studio",
-                    "_blank"
-                  )
-                }
+                onClick={() => window.open("https://github.com/tenstorrent/tt-studio", "_blank")}
               >
                 <Github className="h-5 w-5 text-TT-purple-accent" />
                 <div className="text-left">
@@ -377,17 +387,12 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 variant="outline"
                 className="flex items-center gap-2 h-auto p-4 border-TT-purple-accent/30 hover:border-TT-purple-accent hover:bg-TT-purple-accent/5 dark:hover:bg-TT-purple-accent/10"
                 onClick={() =>
-                  window.open(
-                    "https://github.com/tenstorrent/tt-studio/releases",
-                    "_blank"
-                  )
+                  window.open("https://github.com/tenstorrent/tt-studio/releases", "_blank")
                 }
               >
                 <Package className="h-5 w-5 text-TT-purple-accent" />
                 <div className="text-left">
-                  <div className="font-semibold text-gray-900 dark:text-white">
-                    Release Notes
-                  </div>
+                  <div className="font-semibold text-gray-900 dark:text-white">Release Notes</div>
                   <div className="text-sm text-gray-600 dark:text-gray-300">
                     View latest updates and fixes
                   </div>
@@ -400,42 +405,87 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
             <div className="bg-TT-purple-accent/5 dark:bg-TT-purple-accent/10 border border-TT-purple-accent/30 rounded-lg p-4">
               <h4 className="font-semibold text-TT-purple-accent mb-3 flex items-center gap-2">
                 <Package className="h-4 w-4" />
-                Latest Release: v2.0.1 (July 21, 2025)
+                {releasesLoading
+                  ? "Loading release information..."
+                  : `Latest Release: ${releaseInfo?.latest?.tag_name || "v2.0.1"} (${formattedDate || "July 21, 2025"})`}
               </h4>
-              <div className="text-sm text-gray-800 dark:text-gray-200 space-y-3">
-                <div>
-                  <h5 className="font-medium mb-2 text-TT-purple-accent">
-                    🐛 Bug Fixes & Improvements
-                  </h5>
-                  <ul className="space-y-1 ml-4">
-                    <li>
-                      • <strong>UI Enhancement:</strong> Removed unnecessary
-                      close button (x) that was causing confusion
-                    </li>
-                    <li>
-                      • <strong>Accessibility Fix:</strong> Resolved unreadable
-                      error label text in light mode
-                    </li>
-                    <li>
-                      • <strong>Theme Enhancement:</strong> Comprehensive
-                      light/dark mode improvements across the entire application
-                    </li>
-                    <li>
-                      • <strong>User Experience:</strong> Better visual
-                      consistency and readability throughout the interface
-                    </li>
-                  </ul>
+              {releasesLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <RefreshCw className="h-6 w-6 animate-spin text-TT-purple-accent" />
+                  <span className="ml-2 text-sm text-gray-600 dark:text-gray-300">
+                    Loading release notes...
+                  </span>
                 </div>
-                <div>
-                  <h5 className="font-medium mb-2 text-TT-purple-accent">
-                    👥 Community Contributions
-                  </h5>
-                  <p>
-                    Welcome to new contributor @AnkittChauhan for their first
-                    contribution!
-                  </p>
+              ) : releasesError ? (
+                <div className="text-sm text-red-600 dark:text-red-400">
+                  Failed to load release notes. Using cached information.
                 </div>
-              </div>
+              ) : (
+                <div className="text-sm text-gray-800 dark:text-gray-200 space-y-3">
+                  {parsedNotes?.bugFixes && parsedNotes.bugFixes.length > 0 && (
+                    <div>
+                      <h5 className="font-medium mb-2 text-TT-purple-accent">
+                        🐛 Bug Fixes & Improvements
+                      </h5>
+                      <ul className="space-y-1 ml-4">
+                        {parsedNotes.bugFixes.map((fix, index) => (
+                          <li key={index}>• {fix}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {parsedNotes?.features && parsedNotes.features.length > 0 && (
+                    <div>
+                      <h5 className="font-medium mb-2 text-TT-purple-accent">✨ New Features</h5>
+                      <ul className="space-y-1 ml-4">
+                        {parsedNotes.features.map((feature, index) => (
+                          <li key={index}>• {feature}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {parsedNotes?.community && parsedNotes.community.length > 0 && (
+                    <div>
+                      <h5 className="font-medium mb-2 text-TT-purple-accent">
+                        👥 Community Contributions
+                      </h5>
+                      <ul className="space-y-1 ml-4">
+                        {parsedNotes.community.map((contribution, index) => (
+                          <li key={index}>• {contribution}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {(!parsedNotes ||
+                    (parsedNotes.bugFixes.length === 0 &&
+                      parsedNotes.features.length === 0 &&
+                      parsedNotes.community.length === 0)) && (
+                    <div>
+                      <h5 className="font-medium mb-2 text-TT-purple-accent">
+                        🐛 Bug Fixes & Improvements
+                      </h5>
+                      <ul className="space-y-1 ml-4">
+                        <li>
+                          • <strong>UI Enhancement:</strong> Removed unnecessary close button (x)
+                          that was causing confusion
+                        </li>
+                        <li>
+                          • <strong>Accessibility Fix:</strong> Resolved unreadable error label text
+                          in light mode
+                        </li>
+                        <li>
+                          • <strong>Theme Enhancement:</strong> Comprehensive light/dark mode
+                          improvements across the entire application
+                        </li>
+                        <li>
+                          • <strong>User Experience:</strong> Better visual consistency and
+                          readability throughout the interface
+                        </li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Previous Major Release */}
@@ -446,28 +496,28 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               </h4>
               <ul className="text-sm text-gray-800 dark:text-gray-200 space-y-1">
                 <li>
-                  • 🚀 <strong>AI Playground Launch:</strong> Connect to
-                  external TT hardware model endpoints
+                  • 🚀 <strong>AI Playground Launch:</strong> Connect to external TT hardware model
+                  endpoints
                 </li>
                 <li>
-                  • 🎙️ <strong>New AI Models:</strong> Whisper for
-                  speech-to-text and enhanced Stable Diffusion
+                  • 🎙️ <strong>New AI Models:</strong> Whisper for speech-to-text and enhanced
+                  Stable Diffusion
                 </li>
                 <li>
-                  • ✨ <strong>UI/UX Overhaul:</strong> Comprehensive redesign
-                  for mobile and desktop
+                  • ✨ <strong>UI/UX Overhaul:</strong> Comprehensive redesign for mobile and
+                  desktop
                 </li>
                 <li>
-                  • ⚙️ <strong>New Infrastructure:</strong> Updated run.py
-                  script and tt-inference-server integration
+                  • ⚙️ <strong>New Infrastructure:</strong> Updated run.py script and
+                  tt-inference-server integration
                 </li>
                 <li>
-                  • 🧠 <strong>Enhanced RAG and Chat:</strong> Multi-modal file
-                  uploads and granular controls
+                  • 🧠 <strong>Enhanced RAG and Chat:</strong> Multi-modal file uploads and granular
+                  controls
                 </li>
                 <li>
-                  • 👁️ <strong>Object Detection Fixes:</strong> Improved YOLOv4
-                  interface and webcam controls
+                  • 👁️ <strong>Object Detection Fixes:</strong> Improved YOLOv4 interface and webcam
+                  controls
                 </li>
               </ul>
             </div>
@@ -483,10 +533,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               </Button>
               <Button
                 onClick={() => {
-                  window.open(
-                    "https://github.com/tenstorrent/tt-studio",
-                    "_blank"
-                  );
+                  window.open("https://github.com/tenstorrent/tt-studio", "_blank");
                   setShowTTStudioModal(false);
                 }}
                 className="bg-TT-purple-accent hover:bg-TT-purple-accent/90 text-white"

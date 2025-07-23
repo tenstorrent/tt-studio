@@ -186,14 +186,13 @@ export default function StepperDemo() {
       weights_id,
     });
 
-    console.log("Deploying model with:", payload);
     try {
-      const response = await axios.post(deployUrl, payload, {
+      await axios.post(deployUrl, payload, {
         headers: {
           "Content-Type": "application/json",
         },
       });
-      console.log("Deployment response:", response);
+
       customToast.success("Model deployment started!");
       return true;
     } catch (error) {
@@ -204,9 +203,9 @@ export default function StepperDemo() {
   };
 
   return (
-    <div className="flex flex-col gap-8 w-3/4 mx-auto max-w-7xl px-4 md:px-8 pt-10 py-6">
+    <div className="flex flex-col gap-8 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-16 pb-8 md:pt-20 md:pb-12">
       <CustomToaster />
-      <Card className="h-auto py-8 px-16 border-2">
+      <Card className="h-auto py-8 px-8 md:px-12 lg:px-16 border-2">
         <Stepper
           variant="circle-alt"
           initialStep={0}

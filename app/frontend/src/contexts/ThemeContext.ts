@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-
+import React from "react";
 import { createContext } from "react";
 
 export type Theme = "dark" | "light" | "system";

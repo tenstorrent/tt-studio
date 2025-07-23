@@ -32,9 +32,7 @@ export default function SpeechToTextApp() {
     console.log("Rendering SpeechToTextApp");
   }
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selectedConversation, setSelectedConversation] = useState<
-    string | null
-  >(null);
+  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [conversationCounter, setConversationCounter] = useState(1);
   const [showRecordingInterface, setShowRecordingInterface] = useState(false);
@@ -160,9 +158,7 @@ export default function SpeechToTextApp() {
             <div
               className={cn(
                 "h-full border-r overflow-y-auto",
-                theme === "dark"
-                  ? "border-TT-purple/20"
-                  : "border-TT-purple-shade/20"
+                theme === "dark" ? "border-TT-purple/20" : "border-TT-purple-shade/20"
               )}
             >
               <AppSidebar
@@ -190,8 +186,8 @@ export default function SpeechToTextApp() {
                   <SidebarTrigger className="mr-2 md:mr-4 text-TT-purple hover:text-TT-purple-accent" />
                   <h1 className="text-lg md:text-xl font-semibold text-TT-purple truncate max-w-[150px] md:max-w-full">
                     {selectedConversation
-                      ? conversations.find((c) => c.id === selectedConversation)
-                          ?.title || "Speech to Text"
+                      ? conversations.find((c) => c.id === selectedConversation)?.title ||
+                        "Speech to Text"
                       : "New Conversation"}
                   </h1>
                   {selectedConversation && selectedConversationData && (
@@ -226,8 +222,7 @@ export default function SpeechToTextApp() {
                       {showRecordingInterface ? (
                         <>
                           <MessageSquare className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2 text-TT-purple-accent" />
-                          <span className="hidden xs:inline">View</span>{" "}
-                          Conversation
+                          <span className="hidden xs:inline">View</span> Conversation
                         </>
                       ) : (
                         <>
