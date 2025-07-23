@@ -1,27 +1,8 @@
 /* eslint-disable */
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { createContext, useContext, useEffect, useState } from "react";
-
-type Theme = "dark" | "light" | "system";
-
-type ThemeProviderProps = {
-  children: React.ReactNode;
-  defaultTheme?: Theme;
-  storageKey?: string;
-};
-
-type ThemeProviderState = {
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
-};
-
-const initialState: ThemeProviderState = {
-  theme: "system",
-  setTheme: () => null,
-};
-
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
+import { useEffect, useState } from "react";
+import { ThemeProviderContext, Theme, ThemeProviderProps } from "../contexts/ThemeContext";
 
 export function ThemeProvider({
   children,
@@ -65,11 +46,4 @@ export function ThemeProvider({
   );
 }
 
-export const useTheme = () => {
-  const context = useContext(ThemeProviderContext);
 
-  if (context === undefined)
-    throw new Error("useTheme must be used within a ThemeProvider");
-
-  return context;
-};

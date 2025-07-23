@@ -8,12 +8,7 @@ import { Input } from "../ui/input";
 import { Skeleton } from "../ui/skeleton";
 import { PlusCircle, MessageSquare, Trash2, Edit2, Search } from "lucide-react";
 import { customToast } from "../CustomToaster";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 
 interface HistoryPanelProps {
   conversations: { id: string; title: string }[];
@@ -90,9 +85,7 @@ export function HistoryPanel({
       // Otherwise sort by ID in descending order (newer chats first)
       return parseInt(b.id) - parseInt(a.id);
     })
-    .filter((conversation) =>
-      conversation.title.toLowerCase().includes(searchQuery.toLowerCase()),
-    );
+    .filter((conversation) => conversation.title.toLowerCase().includes(searchQuery.toLowerCase()));
 
   // Show skeleton if loading, regardless of mobile state
   if (isLoading) {
@@ -133,15 +126,12 @@ export function HistoryPanel({
     const parts = text.split(new RegExp(`(${query})`, "gi"));
     return parts.map((part, i) =>
       part.toLowerCase() === query.toLowerCase() ? (
-        <mark
-          key={i}
-          className="bg-yellow-200/80 dark:bg-yellow-500/50 rounded-sm px-0.5"
-        >
+        <mark key={i} className="bg-yellow-200/80 dark:bg-yellow-500/50 rounded-sm px-0.5">
           {part}
         </mark>
       ) : (
         part
-      ),
+      )
     );
   };
 
@@ -173,17 +163,13 @@ export function HistoryPanel({
           {filteredConversations.map((conversation) => (
             <div
               key={conversation.id}
-              ref={
-                conversation.id === currentConversationId ? activeChatRef : null
-              }
+              ref={conversation.id === currentConversationId ? activeChatRef : null}
               className={`group flex items-center justify-between w-full rounded-lg px-3 py-3 text-sm transition-all duration-200 cursor-pointer hover:shadow-sm ${
                 conversation.id === currentConversationId
                   ? "bg-[#7C68FA] text-white shadow-md shadow-[#7C68FA]/20"
                   : "hover:bg-slate-100 dark:hover:bg-[#2A2A2A] text-slate-700 dark:text-slate-200 hover:translate-x-0.5 hover:scale-[1.01]"
               }`}
-              onClick={() =>
-                handleChatSelection(conversation.id, conversation.title)
-              }
+              onClick={() => handleChatSelection(conversation.id, conversation.title)}
             >
               <div className="flex items-center min-w-0 flex-1">
                 <MessageSquare
@@ -246,9 +232,7 @@ export function HistoryPanel({
                   <Edit2 className="h-3.5 w-3.5" />
                 </button>
                 <button
-                  onClick={(e) =>
-                    handleDeleteChat(e, conversation.id, conversation.title)
-                  }
+                  onClick={(e) => handleDeleteChat(e, conversation.id, conversation.title)}
                   className={`p-1 rounded-md transition-all duration-200 hover:scale-110 ${
                     conversation.id === currentConversationId
                       ? "text-white/80 hover:text-red-200 hover:bg-red-500/30"

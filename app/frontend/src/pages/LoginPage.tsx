@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import React, { useState, useEffect } from "react";
-import {
-  useMotionValue,
-  useMotionTemplate,
-  motion,
-  MotionValue,
-} from "framer-motion";
+import { useMotionValue, useMotionTemplate, motion, MotionValue } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../lib/utils";
@@ -55,13 +50,7 @@ function PagePattern({
   );
 }
 
-const LoginCard = ({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) => {
+const LoginCard = ({ children, className }: { children: React.ReactNode; className?: string }) => {
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
   const [randomString, setRandomString] = useState("");
@@ -71,11 +60,7 @@ const LoginCard = ({
     setRandomString(str);
   }, []);
 
-  function onMouseMove({
-    currentTarget,
-    clientX,
-    clientY,
-  }: React.MouseEvent<HTMLDivElement>) {
+  function onMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent<HTMLDivElement>) {
     const { left, top } = currentTarget.getBoundingClientRect();
     mouseX.set(clientX - left);
     mouseY.set(clientY - top);
@@ -85,15 +70,11 @@ const LoginCard = ({
     <div
       className={cn(
         "group relative rounded-lg bg-card/80 backdrop-blur-sm transition-all duration-300 p-12 w-full max-w-xl",
-        className,
+        className
       )}
       onMouseMove={onMouseMove}
     >
-      <CardPattern
-        mouseX={mouseX}
-        mouseY={mouseY}
-        randomString={randomString}
-      />
+      <CardPattern mouseX={mouseX} mouseY={mouseY} randomString={randomString} />
       <div className="relative z-10">{children}</div>
     </div>
   );
@@ -130,8 +111,7 @@ function CardPattern({
   );
 }
 
-const characters =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const generateRandomString = (length: number) => {
   const word = "tenstorrent";
   let result = "";
@@ -140,9 +120,7 @@ const generateRandomString = (length: number) => {
       result += word;
       i += word.length - 1;
     } else {
-      result += characters.charAt(
-        Math.floor(Math.random() * characters.length),
-      );
+      result += characters.charAt(Math.floor(Math.random() * characters.length));
     }
   }
   return result;
@@ -196,10 +174,7 @@ export default function LoginPage() {
           <LoginCard className="p-12 w-full max-w-xl">
             <form onSubmit={onSubmit} className="space-y-6">
               <div>
-                <label
-                  htmlFor="username"
-                  className="block text-sm font-medium text-foreground"
-                >
+                <label htmlFor="username" className="block text-sm font-medium text-foreground">
                   Username
                 </label>
                 <Input
@@ -214,10 +189,7 @@ export default function LoginPage() {
                 />
               </div>
               <div>
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-medium text-foreground"
-                >
+                <label htmlFor="password" className="block text-sm font-medium text-foreground">
                   Password
                 </label>
                 <Input
@@ -237,27 +209,17 @@ export default function LoginPage() {
                 disabled={isLoading}
                 className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-[#323968] hover:bg-[#74C5DF] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#74C5DF] transition-colors duration-300"
               >
-                {isLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  "Sign In"
-                )}
+                {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Sign In"}
               </Button>
             </form>
           </LoginCard>
           <p className="mt-2 text-center text-sm text-muted-foreground">
             By signing in, you agree to our{" "}
-            <a
-              href="/terms"
-              className="font-medium text-[#74C5DF] hover:text-[#6FABA0]"
-            >
+            <a href="/terms" className="font-medium text-[#74C5DF] hover:text-[#6FABA0]">
               Terms of Service
             </a>{" "}
             and{" "}
-            <a
-              href="/privacy"
-              className="font-medium text-[#74C5DF] hover:text-[#6FABA0]"
-            >
+            <a href="/privacy" className="font-medium text-[#74C5DF] hover:text-[#6FABA0]">
               Privacy Policy
             </a>
             .

@@ -44,13 +44,15 @@
  * @see DeployedHome.tsx Playground home page for grid layout
  */
 
+// No static imports for model logos to avoid build errors if files missing
+
 import type { Model, Task } from "./types";
 
 export const models: Model[] = [
   {
     id: "llama",
     title: "Llama 3.3 70B",
-    image: "src/assets/aiPlayground/model-logo/llama.svg",
+    image: "/src/assets/aiPlayground/model-logo/llama.svg",
     path: "/chat",
     filter: "#323968",
     TTDevice: "LoudBox",
@@ -62,7 +64,7 @@ export const models: Model[] = [
   {
     id: "whisper",
     title: "Whisper",
-    image: "src/assets/aiPlayground/model-logo/whisper.svg",
+    image: "/src/assets/aiPlayground/model-logo/whisper.svg",
     path: "/speech-to-text",
     filter: "#74C5DF",
     TTDevice: "n150",
@@ -73,7 +75,7 @@ export const models: Model[] = [
   {
     id: "yolov4",
     title: "YOLOv4",
-    image: "src/assets/aiPlayground/model-logo/yolo.svg",
+    image: "/src/assets/aiPlayground/model-logo/yolo.svg",
     path: "/object-detection",
     filter: "#6FABA0",
     TTDevice: "n150",
@@ -84,7 +86,7 @@ export const models: Model[] = [
   {
     id: "stable-diffusion",
     title: "Stable Diffusion",
-    image: "src/assets/aiPlayground/model-logo/stable_diffusion.svg",
+    image: "/src/assets/aiPlayground/model-logo/stable_diffusion.svg",
     path: "/image-generation",
     filter: "#4A5568",
     TTDevice: "n300",

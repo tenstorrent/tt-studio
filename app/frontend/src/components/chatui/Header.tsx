@@ -211,11 +211,7 @@ const ForwardedAISelect = React.forwardRef<
     >
       <Bot className="h-4 w-4 text-gray-500 dark:text-gray-400" />
       <SelectValue placeholder="Select AI Agent">
-        {props.value
-          ? props.value === "search-agent"
-            ? "Search Agent"
-            : props.value
-          : null}
+        {props.value ? (props.value === "search-agent" ? "Search Agent" : props.value) : null}
       </SelectValue>
     </SelectTrigger>
     {props.children}
@@ -279,11 +275,7 @@ export default function Header({
       <div className="flex items-center w-full md:w-auto justify-between md:justify-start">
         <div className="flex items-center">
           {/* Logo - Mobile Only */}
-          <ImageWithFallback
-            src={logoUrl}
-            alt="TT Logo"
-            className="h-6 w-auto mr-2 md:hidden"
-          />
+          <ImageWithFallback src={logoUrl} alt="TT Logo" className="h-6 w-auto mr-2 md:hidden" />
 
           {/* Only show panel toggle and breadcrumb on desktop */}
           <div className="hidden md:flex items-center">
@@ -413,14 +405,8 @@ export default function Header({
           {/* App Title */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <ImageWithFallback
-                src={logoUrl}
-                alt="TT Logo"
-                className="h-6 w-auto mr-2"
-              />
-              <span className="text-white text-base font-bold">
-                AI Playground
-              </span>
+              <ImageWithFallback src={logoUrl} alt="TT Logo" className="h-6 w-auto mr-2" />
+              <span className="text-white text-base font-bold">AI Playground</span>
             </div>
             <Button variant="ghost" size="sm" onClick={toggleMobileMenu} className="text-white">
               <X className="h-4 w-4" />
@@ -570,9 +556,7 @@ export default function Header({
                   } else if (v === "special-all") {
                     setRagDatasource(allCollectionsOption);
                   } else {
-                    const dataSource = ragDataSources.find(
-                      (rds) => rds.name === v,
-                    );
+                    const dataSource = ragDataSources.find((rds) => rds.name === v);
                     if (dataSource) {
                       setRagDatasource(dataSource);
                     }
@@ -645,13 +629,8 @@ export default function Header({
             </div>
 
             <div>
-              <span className="text-white text-xs font-medium block mb-1">
-                AI Agent
-              </span>
-              <ForwardedAISelect
-                value={selectedAIAgent || ""}
-                onValueChange={handleAgentSelection}
-              >
+              <span className="text-white text-xs font-medium block mb-1">AI Agent</span>
+              <ForwardedAISelect value={selectedAIAgent || ""} onValueChange={handleAgentSelection}>
                 <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
                   <SelectItem
                     value="search-agent"
@@ -664,10 +643,7 @@ export default function Header({
                   </SelectItem>
 
                   {selectedAIAgent && (
-                    <SelectItem
-                      value="remove"
-                      className="text-red-500 hover:bg-red-900/20 text-xs"
-                    >
+                    <SelectItem value="remove" className="text-red-500 hover:bg-red-900/20 text-xs">
                       <span className="flex items-center">
                         <X className="mr-2 h-3 w-3" />
                         Remove AI Agent
@@ -714,9 +690,7 @@ export default function Header({
                     } else if (v === "special-all") {
                       setRagDatasource(allCollectionsOption);
                     } else {
-                      const dataSource = ragDataSources.find(
-                        (rds) => rds.name === v,
-                      );
+                      const dataSource = ragDataSources.find((rds) => rds.name === v);
                       if (dataSource) {
                         setRagDatasource(dataSource);
                       }
@@ -833,11 +807,7 @@ export default function Header({
                 </ForwardedAISelect>
               </TooltipTrigger>
               <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                <p>
-                  {selectedAIAgent
-                    ? "Change or remove AI agent"
-                    : "Select AI Agent"}
-                </p>
+                <p>{selectedAIAgent ? "Change or remove AI agent" : "Select AI Agent"}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -852,8 +822,7 @@ export default function Header({
                   onClick={() => setIsSettingsOpen(!isSettingsOpen)}
                   className={cn(
                     "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white",
-                    isSettingsOpen &&
-                      "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]",
+                    isSettingsOpen && "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
                   )}
                 >
                   <Sliders className="h-4 w-4" />

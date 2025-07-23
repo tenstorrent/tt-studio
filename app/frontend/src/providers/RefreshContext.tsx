@@ -1,19 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React, { createContext, useContext, useState } from "react";
+import React, { useState } from "react";
+import { RefreshContext } from "../contexts/RefreshContext";
 
-interface RefreshContextType {
-  refreshTrigger: number;
-  triggerRefresh: () => void;
-  triggerHardwareRefresh: () => Promise<void>; // New function for hardware cache refresh
-}
-
-const RefreshContext = createContext<RefreshContextType | undefined>(undefined);
-
-export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const triggerRefresh = () => {
@@ -29,7 +20,7 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
           "Content-Type": "application/json",
         },
       });
-      
+
       if (response.ok) {
         console.log("Hardware cache refreshed successfully");
         // Also trigger regular refresh to update UI
@@ -47,12 +38,4 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
       {children}
     </RefreshContext.Provider>
   );
-};
-
-export const useRefresh = () => {
-  const context = useContext(RefreshContext);
-  if (context === undefined) {
-    throw new Error("useRefresh must be used within a RefreshProvider");
-  }
-  return context;
 };
