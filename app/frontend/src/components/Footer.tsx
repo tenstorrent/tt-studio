@@ -15,7 +15,7 @@ import {
 } from "./ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { ExternalLink, Github, Package, Info } from "lucide-react";
+import { ExternalLink, Github, Package, Info, FileText } from "lucide-react";
 
 interface FooterProps {
   className?: string;
@@ -103,6 +103,22 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     navigate("/models-deployed");
   };
 
+  // Handle logs button click
+  const handleLogsClick = () => {
+    console.log("=== FOOTER LOGS BUTTON CLICKED ===");
+    console.log("Available models:", models);
+    if (models.length > 0) {
+      console.log("Footer: Opening logs for model ID:", models[0].id);
+      console.log("Footer: Model name:", models[0].name);
+      const targetUrl = `/models-deployed?openLogs=${models[0].id}`;
+      console.log("Footer: Navigating to:", targetUrl);
+      navigate(targetUrl);
+    } else {
+      console.log("Footer: No models available, navigating to models page");
+      navigate("/models-deployed");
+    }
+  };
+
   // Create deployed models display text using models from context
   const getDeployedModelsText = () => {
     if (models.length === 0) {
@@ -118,19 +134,19 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   if (loading) {
     return (
       <motion.footer
-        className={`fixed bottom-0 left-0 right-0 z-50 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+        className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
-        <div className="flex items-center justify-between px-4 py-2">
-          <div className="flex items-center space-x-3">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center space-x-4">
             <span className={`text-sm ${textColor}`}>TT Studio 0.3.11</span>
             <Badge variant="default" className="text-xs">
               Loading...
             </Badge>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-6">
             <span className={`text-sm ${mutedTextColor}`}>
               LOADING SYSTEM RESOURCES...
             </span>
@@ -143,14 +159,14 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   return (
     <>
       <motion.footer
-        className={`fixed bottom-0 left-0 right-0 z-50 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+        className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
-        <div className="flex items-center justify-between px-4 py-2">
+        <div className="flex items-center justify-between px-4 py-3">
           {/* Left Section - App Info & Board */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-4">
             <div
               className={`flex items-center gap-1.5 text-sm ${textColor} cursor-pointer hover:text-TT-purple-accent transition-colors duration-200`}
               onClick={() => setShowTTStudioModal(true)}
@@ -219,38 +235,62 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
             )}
 
             {/* Deployed Models Section */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="inline-block">
-                    <Badge
-                      variant={models.length > 0 ? "default" : "outline"}
-                      className={`text-xs cursor-pointer transition-colors hover:bg-opacity-80 ${
-                        models.length > 0
-                          ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-100 dark:hover:bg-green-800"
-                          : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-                      }`}
-                      onClick={handleDeployedModelsClick}
-                    >
-                      📟 {getDeployedModelsText()}
-                    </Badge>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>
-                    {models.length > 0
-                      ? `Click to view ${models.length} deployed model${
-                          models.length > 1 ? "s" : ""
-                        }${models.length === 1 ? `: ${models[0].name || "Unknown Model"}` : ""}`
-                      : "Click to view deployed models page"}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <div className="flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="inline-block">
+                      <Badge
+                        variant={models.length > 0 ? "default" : "outline"}
+                        className={`text-xs cursor-pointer transition-colors hover:bg-opacity-80 ${
+                          models.length > 0
+                            ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-100 dark:hover:bg-green-800"
+                            : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        }`}
+                        onClick={handleDeployedModelsClick}
+                      >
+                        📟 {getDeployedModelsText()}
+                      </Badge>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>
+                      {models.length > 0
+                        ? `Click to view ${models.length} deployed model${
+                            models.length > 1 ? "s" : ""
+                          }${models.length === 1 ? `: ${models[0].name || "Unknown Model"}` : ""}`
+                        : "Click to view deployed models page"}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              {/* Logs Button */}
+              {models.length > 0 && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleLogsClick}
+                        className="h-6 px-2 text-xs bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-900"
+                      >
+                        <FileText className="w-3 h-3 mr-1" />
+                        Logs
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Open logs for {models[0].name || "deployed model"}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
           </div>
 
           {/* Right Section - System Resources & Controls */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-6">
             <span className={`text-sm ${mutedTextColor}`}>
               SYSTEM RESOURCES USAGE:
             </span>

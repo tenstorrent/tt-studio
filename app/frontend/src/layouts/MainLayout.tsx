@@ -8,7 +8,7 @@ import { isDeployedEnabled } from "../utils/env";
 export const MainLayout = ({ children }: { children: React.ReactNode }) => (
   <>
     <NavBar />
-    <div className="main-content pb-16">{children}</div>
+    <div className="main-content pt-16 pb-20">{children}</div>
     {!isDeployedEnabled() && <Footer />}
   </>
 );
