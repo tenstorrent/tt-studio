@@ -744,9 +744,10 @@ export default function InputArea({
                     disabled={
                       isStreaming || (!textInput.trim() && files.length === 0)
                     }
-                    className={`
+                      className={`
                       bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 text-white 
-                      dark:text-white
+                      dark:text-gray-800 border border-[#7C68FA]/50
+                      rounded-full flex items-center transition-all duration-200 touch-manipulation
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
                       ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}
