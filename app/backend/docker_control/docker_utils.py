@@ -83,6 +83,9 @@ def run_container(impl, weights_id):
 
                 # Update deploy cache on success
                 update_deploy_cache()
+                
+                # Notify agent about new container deployment
+                notify_agent_of_new_container(api_result["container_name"])
 
                 return {
                     "status": "success",
@@ -133,6 +136,10 @@ def run_container(impl, weights_id):
             verify_container(impl, run_kwargs, container)
             # on changes to containers, update deploy cache
             update_deploy_cache()
+            
+            # Notify agent about new container deployment
+            notify_agent_of_new_container(container.name)
+            
             return {
                 "status": "success",
                 "container_id": container.id,
@@ -639,3 +646,20 @@ def detect_board_type():
     except Exception as e:
         logger.error(f"Error detecting board type: {str(e)}")
         return "unknown"
+
+
+def notify_agent_of_new_container(container_name):
+    """Notify the agent about a new container deployment"""
+    try:
+        import requests
+        agent_url = "http://tt_studio_agent:8080/refresh"
+        response = requests.post(agent_url, timeout=10)
+        
+        if response.status_code == 200:
+            logger.info(f"Successfully notified agent about new container: {container_name}")
+        else:
+            logger.warning(f"Failed to notify agent (status {response.status_code}): {response.text}")
+            
+    except Exception as e:
+        logger.warning(f"Failed to notify agent about new container {container_name}: {e}")
+        # Don't fail the deployment if agent notification fails

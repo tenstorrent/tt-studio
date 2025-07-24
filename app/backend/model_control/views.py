@@ -122,12 +122,68 @@ class AgentView(APIView):
             # Remove deploy_id from data since it's not needed for agent
             data.pop("deploy_id", None)
         
-        # Use the standalone agent service instead of dynamically created containers
-        internal_url = "http://tt_studio_agent:8080/poll_requests"
-        logger.info(f"internal_url:= {internal_url}")
-        logger.info(f"Using internal url: {internal_url}")
-        response_stream = stream_response_from_agent_api(internal_url, data)
+        # Use the enhanced agent service with discovery capabilities
+        agent_url = "http://tt_studio_agent:8080/poll_requests"
+        logger.info(f"agent_url:= {agent_url}")
+        logger.info(f"Using enhanced agent with auto-discovery: {agent_url}")
+        
+        # Add agent-specific metadata to help with discovery
+        if not deploy_id:
+            # If no specific deploy_id, let the agent use its discovery mechanism
+            data["use_agent_discovery"] = True
+            logger.info("Enabling agent auto-discovery mode")
+        
+        response_stream = stream_response_from_agent_api(agent_url, data)
         return StreamingHttpResponse(response_stream, content_type="text/plain")
+
+
+class AgentStatusView(APIView):
+    def get(self, request, *args, **kwargs):
+        """Get agent status and discovery information"""
+        try:
+            import time
+            # Get agent status directly from the agent service
+            agent_status_url = "http://tt_studio_agent:8080/status"
+            response = requests.get(agent_status_url, timeout=10)
+            
+            if response.status_code == 200:
+                agent_status = response.json()
+                
+                # Add backend-specific information
+                backend_info = {
+                    "backend_status": "running",
+                    "deployed_models_count": len(get_deploy_cache()),
+                    "agent_integration": "enhanced",
+                    "discovery_enabled": True
+                }
+                
+                # Merge agent and backend status
+                full_status = {
+                    "agent": agent_status,
+                    "backend": backend_info,
+                    "timestamp": time.time()
+                }
+                
+                return Response(full_status, status=status.HTTP_200_OK)
+            else:
+                return Response(
+                    {"error": "Agent service unavailable", "status_code": response.status_code},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get agent status: {e}")
+            return Response(
+                {"error": "Failed to connect to agent service", "details": str(e)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in AgentStatusView: {e}")
+            return Response(
+                {"error": "Internal server error", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class ModelHealthView(APIView):
     def get(self, request, *args, **kwargs):
