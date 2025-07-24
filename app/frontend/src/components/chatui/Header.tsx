@@ -85,7 +85,7 @@ const ModelSelector = React.forwardRef<
   }
 >(({ modelsDeployed, setModelID, setModelName }, ref) => (
   <DropdownMenu>
-    <DropdownMenuTrigger ref={ref} className="flex items-center gap-1 focus:outline-none">
+    <DropdownMenuTrigger ref={ref} className="flex items-center gap-1 focus:outline-hidden">
       <BreadcrumbEllipsis className="h-4 w-4 text-gray-600" />
       <span className="sr-only">Toggle menu</span>
     </DropdownMenuTrigger>

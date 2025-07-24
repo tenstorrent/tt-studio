@@ -49,7 +49,7 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
   return (
     <nav
       ref={navRef}
-      className="flex flex-shrink-0 justify-center items-center relative z-0 py-2 mb-4"
+      className="flex shrink-0 justify-center items-center relative z-0 py-2 mb-4"
       onPointerLeave={() => setHoveredTabIndex(null)}
     >
       {tabs.map((item, i) => {

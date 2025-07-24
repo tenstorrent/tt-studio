@@ -406,14 +406,14 @@ export const ObjectDetectionComponent: React.FC = () => {
 
     return (
       <div className="h-full flex flex-col p-4">
-        <div className="flex-grow overflow-hidden flex flex-col bg-background rounded-lg border shadow-sm">
+        <div className="grow overflow-hidden flex flex-col bg-background rounded-lg border shadow-sm">
           <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
             <div className="flex items-center gap-2">
               <Activity size={16} className="text-muted-foreground" />
               <span className="text-sm font-semibold">Detection Results</span>
             </div>
           </div>
-          <div className="overflow-y-auto flex-grow">
+          <div className="overflow-y-auto grow">
             <Table className="w-full">
               <TableHeader className="bg-muted/30 sticky top-0 z-10">
                 <TableRow className="hover:bg-transparent">
@@ -531,7 +531,7 @@ export const ObjectDetectionComponent: React.FC = () => {
           <Activity size={18} />
           <span className="font-semibold">Detection Results</span>
         </div>
-        <div className="overflow-auto flex-grow p-2">
+        <div className="overflow-auto grow p-2">
           <Table className="text-sm w-full">
             <TableHeader>
               <TableRow>
@@ -631,7 +631,7 @@ export const ObjectDetectionComponent: React.FC = () => {
     }
 
     return (
-      <div className="sticky top-0 pt-3 pb-2 z-10 flex flex-wrap justify-center items-center gap-2 sm:gap-3 bg-muted/70 backdrop-blur-sm px-2 sm:px-3 rounded-md flex-shrink-0 shadow-sm">
+      <div className="sticky top-0 pt-3 pb-2 z-10 flex flex-wrap justify-center items-center gap-2 sm:gap-3 bg-muted/70 backdrop-blur-sm px-2 sm:px-3 rounded-md shrink-0 shadow-sm">
         <div className="flex items-center gap-2">
           <Maximize2 size={14} className="text-muted-foreground" />
           <span className="text-xs font-medium tracking-wide">
@@ -666,7 +666,7 @@ export const ObjectDetectionComponent: React.FC = () => {
 
         <ResizablePanelGroup
           direction={isDesktopView ? "horizontal" : "vertical"}
-          className="flex-grow overflow-auto"
+          className="grow overflow-auto"
         >
           <ResizablePanel defaultSize={70} minSize={30}>
             <div className="w-full h-full flex flex-col overflow-hidden pt-3 sm:pt-1">
@@ -679,10 +679,10 @@ export const ObjectDetectionComponent: React.FC = () => {
               />
 
               {/* Content Area */}
-              <div className="flex-grow overflow-auto">
+              <div className="grow overflow-auto">
                 {/* File Tab */}
                 {selectedTab === "file" && (
-                  <div className="relative flex flex-col flex-grow min-h-0 h-full overflow-auto">
+                  <div className="relative flex flex-col grow min-h-0 h-full overflow-auto">
                     <div ref={fileContainerRef} className="h-full">
                       <SourcePicker
                         containerRef={fileContainerRef}
@@ -702,7 +702,7 @@ export const ObjectDetectionComponent: React.FC = () => {
                 {/* Webcam Tab */}
                 {selectedTab === "webcam" && (
                   <div className="flex flex-col items-center gap-4 h-full">
-                    <div className="relative h-full flex-grow w-full" ref={webcamContainerRef}>
+                    <div className="relative h-full grow w-full" ref={webcamContainerRef}>
                       <WebcamPicker
                         setDetections={handleSetWebcamDetections}
                         setLiveMode={handleSetWebcamLiveMode}

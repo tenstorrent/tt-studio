@@ -62,7 +62,7 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
         className={`bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 ${className}`}
       >
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
           <span className="text-sm text-amber-800 dark:text-amber-200">
             {deployedInfo.count} model{deployedInfo.count > 1 ? "s" : ""} already deployed
           </span>

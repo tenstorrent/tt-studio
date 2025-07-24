@@ -214,7 +214,7 @@ export default function NotFoundPage() {
             <div className="w-full flex justify-center mt-6">
               <Button
                 onClick={() => navigate("/")}
-                className="flex justify-center py-3 px-8 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-[#323968] hover:bg-[#74C5DF] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-TT-purple-accent transition-colors duration-300"
+                className="flex justify-center py-3 px-8 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-[#323968] hover:bg-[#74C5DF] focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-TT-purple-accent transition-colors duration-300"
               >
                 Return to Homepage
               </Button>
