@@ -68,7 +68,7 @@ const RagDataSourceForm = ({
         className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 items-start sm:items-center"
         onSubmit={handleFormSubmit}
       >
-        <div className="flex-grow relative w-full p-2">
+        <div className="grow relative w-full p-2">
           <Input
             type="text"
             autoComplete="off"

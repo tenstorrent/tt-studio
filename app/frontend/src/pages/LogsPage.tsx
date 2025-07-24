@@ -12,7 +12,7 @@ const HomePage = () => {
             maskImage: "radial-gradient(ellipse at center, transparent 45%, black 100%)",
           }}
         ></div>
-        <div className="flex flex-grow justify-center items-center w-full h-screen">
+        <div className="flex grow justify-center items-center w-full h-screen">
           <LogsViewer />
         </div>
       </div>

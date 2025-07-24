@@ -574,12 +574,12 @@ export const AudioRecorderWithVisualizer = ({ className, onRecordingComplete }: 
                   ref={audioRef}
                   className="w-full 
                     [&::-webkit-media-controls-panel]:bg-white/50 
-                    [&::-webkit-media-controls-panel]:dark:bg-[#1A1A1A]/90
+                    dark:[&::-webkit-media-controls-panel]:bg-[#1A1A1A]/90
                     [&::-webkit-media-controls-play-button]:hidden 
                     [&::-webkit-media-controls-current-time-display]:text-gray-700 
-                    [&::-webkit-media-controls-current-time-display]:dark:text-gray-200
+                    dark:[&::-webkit-media-controls-current-time-display]:text-gray-200
                     [&::-webkit-media-controls-time-remaining-display]:text-gray-700 
-                    [&::-webkit-media-controls-time-remaining-display]:dark:text-gray-200
+                    dark:[&::-webkit-media-controls-time-remaining-display]:text-gray-200
                     [&::-webkit-media-controls-timeline]:accent-TT-purple"
                   src={audioUrl}
                   controls

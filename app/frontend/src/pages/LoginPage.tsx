@@ -182,7 +182,7 @@ export default function LoginPage() {
                   name="username"
                   type="text"
                   required
-                  className="mt-1 block w-full px-4 py-3 bg-input border border-input rounded-md text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#74C5DF] text-lg"
+                  className="mt-1 block w-full px-4 py-3 bg-input border border-input rounded-md text-foreground placeholder-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-[#74C5DF] text-lg"
                   placeholder="Enter your username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -197,7 +197,7 @@ export default function LoginPage() {
                   name="password"
                   type="password"
                   required
-                  className="mt-1 block w-full px-4 py-3 bg-input border border-input rounded-md text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#74C5DF] text-lg"
+                  className="mt-1 block w-full px-4 py-3 bg-input border border-input rounded-md text-foreground placeholder-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-[#74C5DF] text-lg"
                   placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -207,7 +207,7 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-[#323968] hover:bg-[#74C5DF] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#74C5DF] transition-colors duration-300"
+                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-[#323968] hover:bg-[#74C5DF] focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-[#74C5DF] transition-colors duration-300"
               >
                 {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Sign In"}
               </Button>

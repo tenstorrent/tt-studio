@@ -602,7 +602,7 @@ const VerticalStep = React.forwardRef<HTMLDivElement, VerticalStepProps>(
           className={cn(
             "stepper__vertical-step-content",
             "min-h-4",
-            variant !== "line" && "ps-[--step-icon-size]",
+            variant !== "line" && "ps-(--step-icon-size)",
             variant === "line" && orientation === "vertical" && "min-h-0",
             styles?.["vertical-step-content"]
           )}
@@ -755,7 +755,7 @@ const StepButtonContainer = ({
       className={cn(
         "stepper__step-button-container",
         "rounded-full p-0 pointer-events-none",
-        "w-[var(--step-icon-size)] h-[var(--step-icon-size)]",
+        "w-(--step-icon-size) h-(--step-icon-size)",
         "border-2 flex rounded-full justify-center items-center",
         "data-[clickable=true]:pointer-events-auto",
         "data-[active=true]:bg-TT-purple-accent data-[active=true]:border-TT-purple-accent data-[active=true]:text-primary-foreground dark:data-[active=true]:text-primary",

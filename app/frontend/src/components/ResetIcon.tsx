@@ -269,7 +269,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         </DialogHeader>
         {boardInfo && boardInfo.type === "unknown" && (
           <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-md flex items-start">
-            <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 flex-shrink-0" />
+            <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 shrink-0" />
             <div>
               <div className="font-bold mb-1">No Tenstorrent device detected</div>
               <div className="text-sm">
@@ -296,7 +296,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         {errorMessage && (
           <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-md">
             <div className="flex items-start">
-              <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 flex-shrink-0" />
+              <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 shrink-0" />
               <div className="flex-1">
                 <div className="font-medium mb-2">Error:</div>
                 <pre className="whitespace-pre-wrap text-sm">{errorMessage}</pre>

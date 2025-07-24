@@ -407,7 +407,7 @@ export function MainContent({
                         <div className="flex items-center gap-2 px-2 mb-3 sm:mb-4">
                           <div
                             className={cn(
-                              "h-px flex-grow",
+                              "h-px grow",
                               theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
                             )}
                           ></div>
@@ -424,7 +424,7 @@ export function MainContent({
                           </div>
                           <div
                             className={cn(
-                              "h-px flex-grow",
+                              "h-px grow",
                               theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
                             )}
                           ></div>
@@ -605,7 +605,7 @@ export function MainContent({
                                 <textarea
                                   ref={textareaRef}
                                   className={cn(
-                                    "w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 rounded-md text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-TT-purple",
+                                    "w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 rounded-md text-sm sm:text-base focus:outline-hidden focus:ring-2 focus:ring-TT-purple",
                                     theme === "dark"
                                       ? "bg-[#1A1A1A] text-white border-TT-purple-shade/50"
                                       : "bg-white text-gray-900 border-TT-purple-shade/20"

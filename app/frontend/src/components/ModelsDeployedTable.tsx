@@ -565,12 +565,12 @@ function LogsDialog({
                       }}
                     >
                       <div className="flex items-start gap-2">
-                        <span className="text-gray-500 text-xs mr-1 select-none flex-shrink-0">
+                        <span className="text-gray-500 text-xs mr-1 select-none shrink-0">
                           {String(index + 1).padStart(3, "0")}
                         </span>
 
                         {/* Event severity icon */}
-                        <span className="flex-shrink-0 mt-0.5">
+                        <span className="shrink-0 mt-0.5">
                           {isError && <span className="text-red-400 text-xs">🔴</span>}
                           {isWarning && <span className="text-yellow-400 text-xs">🟡</span>}
                           {(isInfo || isStartupEvent) && (
@@ -1216,7 +1216,7 @@ export default function ModelsDeployedTable() {
             </div>
           </DialogHeader>
           <div className="mb-4 p-4 bg-yellow-900/20 text-yellow-200 rounded-md flex items-start">
-            <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 flex-shrink-0" />
+            <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 shrink-0" />
             <div>
               <div className="font-bold mb-1 text-yellow-100">
                 Warning! This action will stop and remove the model, then reset the card.

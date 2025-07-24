@@ -683,7 +683,7 @@ export default function NavBar() {
               {isHorizontalExpanded ? (
                 <button
                   onClick={toggleHorizontalExpand}
-                  className="focus:outline-none ml-2"
+                  className="focus:outline-hidden ml-2"
                   aria-label="Collapse menu"
                 >
                   <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
@@ -693,7 +693,7 @@ export default function NavBar() {
               ) : (
                 <button
                   onClick={toggleHorizontalExpand}
-                  className="focus:outline-none ml-2"
+                  className="focus:outline-hidden ml-2"
                   aria-label="Expand menu"
                 >
                   <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>

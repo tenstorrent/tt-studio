@@ -173,7 +173,7 @@ const Sidebar = forwardRef((_, ref) => {
             </Button>
           </div>
         </div>
-        <nav className="flex-grow p-4 overflow-y-auto">{getHelpContent()}</nav>
+        <nav className="grow p-4 overflow-y-auto">{getHelpContent()}</nav>
       </div>
       <Button
         onClick={toggleSidebar}

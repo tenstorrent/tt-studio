@@ -114,7 +114,7 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
             onClick={() => setTextInput(example.text)}
           >
             <span
-              className={`${example.color} transition-all duration-300 transform group-hover:scale-125 group-hover:rotate-[-12deg] filter group-hover:drop-shadow-lg`}
+              className={`${example.color} transition-all duration-300 transform group-hover:scale-125 group-hover:-rotate-12 filter group-hover:drop-shadow-lg`}
             >
               {React.cloneElement(example.icon as React.ReactElement, {
                 className: isMobileView ? "h-5 w-5" : "h-6 w-6",

@@ -55,7 +55,7 @@ function PdfDetectionDialog({
       <div className="relative max-w-md w-full bg-[#0A0A13] rounded-lg border border-TT-purple-accent shadow-xl z-[101] mx-4">
         <div className="p-5">
           <div className="flex items-center gap-3 mb-4">
-            <div className="bg-[#1E3A8A] p-2 rounded-full flex-shrink-0">
+            <div className="bg-[#1E3A8A] p-2 rounded-full shrink-0">
               <FileText className="h-6 w-6 text-TT-red-accent" />
             </div>
             <h2 className="text-xl font-bold text-blue-100 m-0">PDF Upload Detected</h2>
@@ -68,13 +68,13 @@ function PdfDetectionDialog({
               <div className="bg-[#1F2937] rounded-lg p-3 border border-gray-700">
                 <p className="text-sm text-gray-400 mb-1">File detected:</p>
                 <div className="flex items-center gap-2 overflow-hidden">
-                  <FileIcon className="h-5 w-5 flex-shrink-0 text-red-400" />
+                  <FileIcon className="h-5 w-5 shrink-0 text-red-400" />
                   <span className="text-blue-200 font-medium truncate">{pdfFileName}</span>
                 </div>
               </div>
             )}
             <div className="text-sm text-gray-400 flex items-center gap-2">
-              <InfoIcon className="h-4 w-4 flex-shrink-0 text-TT-purple-tint2" />
+              <InfoIcon className="h-4 w-4 shrink-0 text-TT-purple-tint2" />
               <span>PDFs require special processing.</span>
             </div>
           </div>
@@ -436,7 +436,7 @@ export default function InputArea({
         </div>
       )}
 
-      <div className="flex-shrink-0 w-full mt-2">
+      <div className="shrink-0 w-full mt-2">
         <div
           className={cn(
             "relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-2 sm:p-4 shadow-lg dark:shadow-2xl border transition-all duration-200",
@@ -479,7 +479,7 @@ export default function InputArea({
                     key={index}
                     className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-800 p-2 rounded-md shadow-sm"
                   >
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       {file.type === "image_url" ? (
                         <img
                           src={file.image_url?.url || "/placeholder.svg"}
@@ -513,7 +513,7 @@ export default function InputArea({
               onChange={handleTextAreaInput}
               onKeyDown={handleKeyPress}
               placeholder=""
-              className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
+              className="w-full h-full bg-transparent border-none focus:outline-hidden resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
               disabled={isStreaming}
               rows={1}
               style={{
@@ -694,7 +694,7 @@ export default function InputArea({
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
                       ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}
-                      border-0 outline-none focus:outline-none focus:ring-0
+                      border-0 outline-hidden focus:outline-hidden focus:ring-0
                     `}
                     aria-label={isMobileView ? "Send message" : "Generate response"}
                   >
