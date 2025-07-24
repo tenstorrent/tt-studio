@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import type React from "react";
-import type { InferenceRequest, RagDataSource, ChatMessage, InferenceStats } from "./types";
+import type {
+  InferenceRequest,
+  RagDataSource,
+  ChatMessage,
+  InferenceStats,
+} from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
@@ -52,7 +57,10 @@ export const runInference = async (
 
         // Merge with existing RAG context if any
         if (ragContext) {
-          ragContext.documents = [...ragContext.documents, ...fileRagContext.documents];
+          ragContext.documents = [
+            ...ragContext.documents,
+            ...fileRagContext.documents,
+          ];
         } else {
           ragContext = fileRagContext;
         }
@@ -64,7 +72,10 @@ export const runInference = async (
           ragContext
         );
       } else if (file.image_url?.url || file) {
-        console.log("Image file detected, using image_url message structure", file.image_url?.url);
+        console.log(
+          "Image file detected, using image_url message structure",
+          file.image_url?.url
+        );
         messages = [
           {
             role: "user",
@@ -124,9 +135,33 @@ export const runInference = async (
 
     console.log("Generated messages:", messages);
     console.log("Thread ID: ", threadId);
+    console.log("=== AGENT SELECTION DEBUG ===");
+    console.log("isAgentSelected:", isAgentSelected);
+    console.log("typeof isAgentSelected:", typeof isAgentSelected);
 
     const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
-
+    console.log("apiUrlDefined:", apiUrlDefined);
+    console.log(
+      "import.meta.env.VITE_ENABLE_DEPLOYED:",
+      import.meta.env.VITE_ENABLE_DEPLOYED
+    );
+    console.log(
+      "import.meta.env.VITE_SPECIAL_API_URL:",
+      import.meta.env.VITE_SPECIAL_API_URL
+    );
+    console.log(
+      "import.meta.env.VITE_LLAMA_AUTH_TOKEN:",
+      import.meta.env.VITE_LLAMA_AUTH_TOKEN
+    );
+    console.log("isAgentSelected:", isAgentSelected);
+    console.log(
+      "import.meta.env.VITE_SPECIAL_API_URL || '/models-api/agent/'",
+      import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
+    );
+    console.log(
+      "apiUrlDefined ? '/models-api/inference_cloud/' : '/models-api/inference/'",
+      apiUrlDefined ? "/models-api/inference_cloud/" : "/models-api/inference/"
+    );
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
       : apiUrlDefined
@@ -134,6 +169,7 @@ export const runInference = async (
         : "/models-api/inference/";
 
     console.log("API URL:", API_URL);
+    console.log("=============================");
 
     const AUTH_TOKEN = import.meta.env.VITE_LLAMA_AUTH_TOKEN || "";
 
@@ -149,9 +185,12 @@ export const runInference = async (
     const threadIdStr = threadId.toString();
 
     if (!isAgentSelected) {
+      console.log("Using normal LLM flow (not agent)");
       requestBody = {
         ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
-        ...(apiUrlDefined ? { model: "meta-llama/Llama-3.3-70B-Instruct" } : {}),
+        ...(apiUrlDefined
+          ? { model: "meta-llama/Llama-3.3-70B-Instruct" }
+          : {}),
         messages: messages,
         temperature: request.temperature,
         top_k: request.top_k,
@@ -164,6 +203,7 @@ export const runInference = async (
         },
       };
     } else {
+      console.log("Using agent flow");
       requestBody = {
         deploy_id: request.deploy_id,
         messages: messages,
@@ -266,7 +306,10 @@ export const runInference = async (
                       tokens_prefilled: jsonData.tokens_prefilled,
                       context_length: jsonData.context_length,
                     };
-                    console.log("Final Inference Stats received:", inferenceStats);
+                    console.log(
+                      "Final Inference Stats received:",
+                      inferenceStats
+                    );
                     continue; // Skip processing this chunk as part of the generated text
                   }
                 }
@@ -276,7 +319,8 @@ export const runInference = async (
                   accumulatedText += content;
                   setChatHistory((prevHistory) => {
                     const updatedHistory = [...prevHistory];
-                    const lastMessage = updatedHistory[updatedHistory.length - 1];
+                    const lastMessage =
+                      updatedHistory[updatedHistory.length - 1];
                     if (lastMessage.id === newMessageId) {
                       lastMessage.text = accumulatedText;
                     }
@@ -317,7 +361,10 @@ export const runInference = async (
     setIsStreaming(false);
 
     if (inferenceStats) {
-      console.log("Updating chat history with inference stats:", inferenceStats);
+      console.log(
+        "Updating chat history with inference stats:",
+        inferenceStats
+      );
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];

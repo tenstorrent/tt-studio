@@ -27,7 +27,11 @@ const ScalingIcon = () => (
   </motion.div>
 );
 
-const StepperFooter = ({ removeDynamicSteps }: { removeDynamicSteps: () => void }) => {
+const StepperFooter = ({
+  removeDynamicSteps,
+}: {
+  removeDynamicSteps: () => void;
+}) => {
   const { hasCompletedAllSteps, resetSteps } = useStepper();
 
   const handleReset = () => {
@@ -40,7 +44,7 @@ const StepperFooter = ({ removeDynamicSteps }: { removeDynamicSteps: () => void 
   }
 
   return (
-    <div className="mt-8 flex justify-center space-x-4 w-full">
+    <div className="mt-4 flex justify-center space-x-4 w-full">
       <Button
         onClick={handleReset}
         className="bg-white text-gray-900 hover:bg-gray-100 rounded-md py-2 px-4 text-base font-medium transition-colors flex items-center"

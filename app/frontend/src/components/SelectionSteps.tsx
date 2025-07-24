@@ -69,7 +69,8 @@ export default function StepperDemo() {
 
   const addCustomStep = () => {
     setSteps((prevSteps) => {
-      const customStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const customStepIndex =
+        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const customStep = {
         label: "Custom Step",
         description: "Upload Custom Weights",
@@ -87,7 +88,8 @@ export default function StepperDemo() {
 
   const addFineTuneStep = () => {
     setSteps((prevSteps) => {
-      const fineTuneStepIndex = prevSteps.findIndex((step) => step.label === "Step 2") + 1;
+      const fineTuneStepIndex =
+        prevSteps.findIndex((step) => step.label === "Step 2") + 1;
       const fineTuneStep = {
         label: "Fine-Tune Step",
         description: "Link to Fine Tuner",
@@ -105,13 +107,18 @@ export default function StepperDemo() {
 
   const removeDynamicSteps = () => {
     setSteps((prevSteps) =>
-      prevSteps.filter((step) => step.label !== "Custom Step" && step.label !== "Fine-Tune Step")
+      prevSteps.filter(
+        (step) =>
+          step.label !== "Custom Step" && step.label !== "Fine-Tune Step"
+      )
     );
   };
 
   const checkImageStatus = async (modelId: string) => {
     try {
-      const response = await axios.get(`${dockerAPIURL}docker/image_status/${modelId}/`);
+      const response = await axios.get(
+        `${dockerAPIURL}docker/image_status/${modelId}/`
+      );
       console.log("Image status response:", response.data);
       setImageStatus(response.data);
     } catch (error) {
@@ -179,7 +186,9 @@ export default function StepperDemo() {
 
     const model_id = selectedModel || "0";
     const weights_id =
-      selectedWeight === "Default Weights" ? "" : customWeight?.weights_id || selectedWeight;
+      selectedWeight === "Default Weights"
+        ? ""
+        : customWeight?.weights_id || selectedWeight;
 
     const payload = JSON.stringify({
       model_id,
@@ -203,9 +212,9 @@ export default function StepperDemo() {
   };
 
   return (
-    <div className="flex flex-col gap-8 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-16 pb-8 md:pt-20 md:pb-12">
+    <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
       <CustomToaster />
-      <Card className="h-auto py-8 px-8 md:px-12 lg:px-16 border-2">
+      <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
         <Stepper
           variant="circle-alt"
           initialStep={0}
@@ -217,10 +226,13 @@ export default function StepperDemo() {
               key={step.label}
               label={step.label}
               description={step.description}
-              className="mb-8"
+              className="mb-4"
             >
               {step.label === "Step 1" && (
-                <FirstStepForm setSelectedModel={setSelectedModel} setFormError={setFormError} />
+                <FirstStepForm
+                  setSelectedModel={setSelectedModel}
+                  setFormError={setFormError}
+                />
               )}
               {step.label === "Docker Step" && (
                 <DockerStepForm
@@ -254,7 +266,11 @@ export default function StepperDemo() {
               {step.label === "Fine-Tune Step" && (
                 <>
                   <div className="flex flex-col items-center w-full justify-center p-10">
-                    <Button onClick={() => customToast.success("Link to Fine Tuner activated")}>
+                    <Button
+                      onClick={() =>
+                        customToast.success("Link to Fine Tuner activated")
+                      }
+                    >
                       Link to Fine Tuner
                     </Button>
                   </div>
