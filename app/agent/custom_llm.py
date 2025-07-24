@@ -33,7 +33,9 @@ class CustomLLM(BaseChatModel):
     server_url: str
     encoded_jwt: str
     is_cloud: bool = False
+    is_discovered: bool = False
     cloud_model_name: Optional[str] = None
+    llm_info: Optional[Dict] = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -112,6 +114,39 @@ class CustomLLM(BaseChatModel):
                 "temperature": 0.7,
                 "max_tokens": 512,
                 "stream": True,
+            }
+            
+        elif self.is_discovered:
+            # Handle discovered LLM containers (same as local container but with discovered info)
+            last_message = messages[-1] # take most recent message as input to chat 
+            filled_template = str(last_message.content)
+
+            # code to structure template into format llama 3.1 70b chat/completions endpoint expects
+            end_of_template_substring = "Begin!"
+            position = filled_template.find(end_of_template_substring)
+            template = ""
+            user_content = ""
+            if position != -1:
+                template = filled_template[:position + len(end_of_template_substring)]
+                user_content = filled_template[position + len(end_of_template_substring):]
+                content_position = user_content.find("New input:")
+                if content_position != -1:
+                    user_content = user_content[content_position:]
+            # message format for llama 3.1 70b chat endpoint 
+            message_payload = [{"role": "system", "content": template}, 
+                               {"role": "user", "content": user_content}]
+            
+            headers = {"Authorization": f"Bearer {self.encoded_jwt}"}
+            hf_model_path = os.getenv("HF_MODEL_PATH")
+            json_data = {
+                "model": hf_model_path,
+                "messages": message_payload,
+                "temperature": 1,
+                "top_k": 20,
+                "top_p": 0.9,
+                "max_tokens": 512,
+                "stream": True,
+                "stop": ["<|eot_id|>"],
             }
             
         else:
