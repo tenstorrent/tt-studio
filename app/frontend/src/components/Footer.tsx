@@ -5,12 +5,24 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useModels } from "../hooks/useModels";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { ExternalLink, Github, Package, Info, FileText, RefreshCw } from "lucide-react";
+import {
+  ExternalLink,
+  Github,
+  Package,
+  Info,
+  FileText,
+  RefreshCw,
+} from "lucide-react";
 import { useGitHubReleases } from "../hooks/useGitHubReleases";
 
 interface FooterProps {
@@ -49,6 +61,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const [showTTStudioModal, setShowTTStudioModal] = useState(false);
   const { models } = useModels();
   const navigate = useNavigate();
+  const location = useLocation();
   const { theme } = useTheme();
   const {
     releaseInfo,
@@ -58,6 +71,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     error: releasesError,
     refetch,
   } = useGitHubReleases();
+
+  // Check if we should hide the footer
+  const shouldHideFooter = location.pathname === "/chat";
 
   // Fetch system status from API
   const fetchSystemStatus = async () => {
@@ -136,7 +152,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
   // Show loading state
   if (loading) {
-    return (
+    return shouldHideFooter ? null : (
       <motion.footer
         className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
         initial={{ y: 100 }}
@@ -153,14 +169,16 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
             </Badge>
           </div>
           <div className="flex items-center space-x-6">
-            <span className={`text-sm ${mutedTextColor}`}>LOADING SYSTEM RESOURCES...</span>
+            <span className={`text-sm ${mutedTextColor}`}>
+              LOADING SYSTEM RESOURCES...
+            </span>
           </div>
         </div>
       </motion.footer>
     );
   }
 
-  return (
+  return shouldHideFooter ? null : (
     <>
       <motion.footer
         className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
@@ -184,7 +202,10 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 className="flex items-center gap-2 px-3 py-1.5 bg-TT-purple-accent/10 dark:bg-TT-purple-accent/30 rounded-full cursor-pointer transition-all duration-200 hover:bg-TT-purple-accent/20 dark:hover:bg-TT-purple-accent/40 hover:scale-105"
                 title="Hardware status - Click to learn more"
                 onClick={() => {
-                  window.open("https://tenstorrent.com/hardware/wormhole", "_blank");
+                  window.open(
+                    "https://tenstorrent.com/hardware/wormhole",
+                    "_blank"
+                  );
                 }}
               >
                 <svg
@@ -214,7 +235,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 }
                 className={`text-xs ${textColor} cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-opacity-80`}
                 title={
-                  systemStatus.hardware_error || error || "Hardware status - Click to learn more"
+                  systemStatus.hardware_error ||
+                  error ||
+                  "Hardware status - Click to learn more"
                 }
                 onClick={() => {
                   window.open("https://www.tenstorrent.com/hardware", "_blank");
@@ -290,21 +313,29 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
           {/* Right Section - System Resources & Controls */}
           <div className="flex items-center space-x-6">
-            <span className={`text-sm ${mutedTextColor}`}>SYSTEM RESOURCES USAGE:</span>
+            <span className={`text-sm ${mutedTextColor}`}>
+              SYSTEM RESOURCES USAGE:
+            </span>
             <span className={`text-sm ${textColor}`}>
-              RAM: {systemStatus.memoryUsage.toFixed(1)}% ({systemStatus.memoryTotal}) | CPU:{" "}
+              RAM: {systemStatus.memoryUsage.toFixed(1)}% (
+              {systemStatus.memoryTotal}) | CPU:{" "}
               {systemStatus.cpuUsage.toFixed(2)}%
               {systemStatus.hardware_status === "healthy" && (
                 <> | TEMP: {systemStatus.temperature.toFixed(1)}°C</>
               )}
-              {systemStatus.hardware_status === "error" && <> | TT HARDWARE: UNAVAILABLE</>}
-              {systemStatus.hardware_status === "unknown" && <> | TT HARDWARE: CHECKING...</>}
+              {systemStatus.hardware_status === "error" && (
+                <> | TT HARDWARE: UNAVAILABLE</>
+              )}
+              {systemStatus.hardware_status === "unknown" && (
+                <> | TT HARDWARE: CHECKING...</>
+              )}
             </span>
-            {systemStatus.devices.length > 1 && systemStatus.hardware_status === "healthy" && (
-              <span className={`text-xs ${mutedTextColor}`}>
-                ({systemStatus.devices.length} devices)
-              </span>
-            )}
+            {systemStatus.devices.length > 1 &&
+              systemStatus.hardware_status === "healthy" && (
+                <span className={`text-xs ${mutedTextColor}`}>
+                  ({systemStatus.devices.length} devices)
+                </span>
+              )}
           </div>
         </div>
       </motion.footer>
@@ -326,7 +357,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 className="h-8 w-8 p-0"
                 title="Refresh release information"
               >
-                <RefreshCw className={`h-4 w-4 ${releasesLoading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`h-4 w-4 ${releasesLoading ? "animate-spin" : ""}`}
+                />
               </Button>
             </DialogTitle>
           </DialogHeader>
@@ -358,7 +391,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                         : "bg-orange-500 text-white"
                     }
                   >
-                    {releaseInfo?.isLatest ? "Latest Version" : "Update Available"}
+                    {releaseInfo?.isLatest
+                      ? "Latest Version"
+                      : "Update Available"}
                   </Badge>
                 </div>
               </div>
@@ -369,7 +404,12 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               <Button
                 variant="outline"
                 className="flex items-center gap-2 h-auto p-4 border-TT-purple-accent/30 hover:border-TT-purple-accent hover:bg-TT-purple-accent/5 dark:hover:bg-TT-purple-accent/10"
-                onClick={() => window.open("https://github.com/tenstorrent/tt-studio", "_blank")}
+                onClick={() =>
+                  window.open(
+                    "https://github.com/tenstorrent/tt-studio",
+                    "_blank"
+                  )
+                }
               >
                 <Github className="h-5 w-5 text-TT-purple-accent" />
                 <div className="text-left">
@@ -387,12 +427,17 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 variant="outline"
                 className="flex items-center gap-2 h-auto p-4 border-TT-purple-accent/30 hover:border-TT-purple-accent hover:bg-TT-purple-accent/5 dark:hover:bg-TT-purple-accent/10"
                 onClick={() =>
-                  window.open("https://github.com/tenstorrent/tt-studio/releases", "_blank")
+                  window.open(
+                    "https://github.com/tenstorrent/tt-studio/releases",
+                    "_blank"
+                  )
                 }
               >
                 <Package className="h-5 w-5 text-TT-purple-accent" />
                 <div className="text-left">
-                  <div className="font-semibold text-gray-900 dark:text-white">Release Notes</div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    Release Notes
+                  </div>
                   <div className="text-sm text-gray-600 dark:text-gray-300">
                     View latest updates and fixes
                   </div>
@@ -436,7 +481,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                   )}
                   {parsedNotes?.features && parsedNotes.features.length > 0 && (
                     <div>
-                      <h5 className="font-medium mb-2 text-TT-purple-accent">✨ New Features</h5>
+                      <h5 className="font-medium mb-2 text-TT-purple-accent">
+                        ✨ New Features
+                      </h5>
                       <ul className="space-y-1 ml-4">
                         {parsedNotes.features.map((feature, index) => (
                           <li key={index}>• {feature}</li>
@@ -444,18 +491,19 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                       </ul>
                     </div>
                   )}
-                  {parsedNotes?.community && parsedNotes.community.length > 0 && (
-                    <div>
-                      <h5 className="font-medium mb-2 text-TT-purple-accent">
-                        👥 Community Contributions
-                      </h5>
-                      <ul className="space-y-1 ml-4">
-                        {parsedNotes.community.map((contribution, index) => (
-                          <li key={index}>• {contribution}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {parsedNotes?.community &&
+                    parsedNotes.community.length > 0 && (
+                      <div>
+                        <h5 className="font-medium mb-2 text-TT-purple-accent">
+                          👥 Community Contributions
+                        </h5>
+                        <ul className="space-y-1 ml-4">
+                          {parsedNotes.community.map((contribution, index) => (
+                            <li key={index}>• {contribution}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   {(!parsedNotes ||
                     (parsedNotes.bugFixes.length === 0 &&
                       parsedNotes.features.length === 0 &&
@@ -466,20 +514,21 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                       </h5>
                       <ul className="space-y-1 ml-4">
                         <li>
-                          • <strong>UI Enhancement:</strong> Removed unnecessary close button (x)
-                          that was causing confusion
+                          • <strong>UI Enhancement:</strong> Removed unnecessary
+                          close button (x) that was causing confusion
                         </li>
                         <li>
-                          • <strong>Accessibility Fix:</strong> Resolved unreadable error label text
-                          in light mode
+                          • <strong>Accessibility Fix:</strong> Resolved
+                          unreadable error label text in light mode
                         </li>
                         <li>
-                          • <strong>Theme Enhancement:</strong> Comprehensive light/dark mode
-                          improvements across the entire application
+                          • <strong>Theme Enhancement:</strong> Comprehensive
+                          light/dark mode improvements across the entire
+                          application
                         </li>
                         <li>
-                          • <strong>User Experience:</strong> Better visual consistency and
-                          readability throughout the interface
+                          • <strong>User Experience:</strong> Better visual
+                          consistency and readability throughout the interface
                         </li>
                       </ul>
                     </div>
@@ -496,28 +545,28 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               </h4>
               <ul className="text-sm text-gray-800 dark:text-gray-200 space-y-1">
                 <li>
-                  • 🚀 <strong>AI Playground Launch:</strong> Connect to external TT hardware model
-                  endpoints
+                  • 🚀 <strong>AI Playground Launch:</strong> Connect to
+                  external TT hardware model endpoints
                 </li>
                 <li>
-                  • 🎙️ <strong>New AI Models:</strong> Whisper for speech-to-text and enhanced
-                  Stable Diffusion
+                  • 🎙️ <strong>New AI Models:</strong> Whisper for
+                  speech-to-text and enhanced Stable Diffusion
                 </li>
                 <li>
-                  • ✨ <strong>UI/UX Overhaul:</strong> Comprehensive redesign for mobile and
-                  desktop
+                  • ✨ <strong>UI/UX Overhaul:</strong> Comprehensive redesign
+                  for mobile and desktop
                 </li>
                 <li>
-                  • ⚙️ <strong>New Infrastructure:</strong> Updated run.py script and
-                  tt-inference-server integration
+                  • ⚙️ <strong>New Infrastructure:</strong> Updated run.py
+                  script and tt-inference-server integration
                 </li>
                 <li>
-                  • 🧠 <strong>Enhanced RAG and Chat:</strong> Multi-modal file uploads and granular
-                  controls
+                  • 🧠 <strong>Enhanced RAG and Chat:</strong> Multi-modal file
+                  uploads and granular controls
                 </li>
                 <li>
-                  • 👁️ <strong>Object Detection Fixes:</strong> Improved YOLOv4 interface and webcam
-                  controls
+                  • 👁️ <strong>Object Detection Fixes:</strong> Improved YOLOv4
+                  interface and webcam controls
                 </li>
               </ul>
             </div>
@@ -533,7 +582,10 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               </Button>
               <Button
                 onClick={() => {
-                  window.open("https://github.com/tenstorrent/tt-studio", "_blank");
+                  window.open(
+                    "https://github.com/tenstorrent/tt-studio",
+                    "_blank"
+                  );
                   setShowTTStudioModal(false);
                 }}
                 className="bg-TT-purple-accent hover:bg-TT-purple-accent/90 text-white"

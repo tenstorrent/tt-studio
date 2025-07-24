@@ -21,8 +21,12 @@ export interface ReleaseData {
   error: string | null;
 }
 
-export const useGitHubReleases = (): ReleaseData & { refetch: () => Promise<void> } => {
-  const [releaseInfo, setReleaseInfo] = useState<GitHubReleaseInfo | null>(null);
+export const useGitHubReleases = (): ReleaseData & {
+  refetch: () => Promise<void>;
+} => {
+  const [releaseInfo, setReleaseInfo] = useState<GitHubReleaseInfo | null>(
+    null
+  );
   const [parsedNotes, setParsedNotes] = useState<{
     bugFixes: string[];
     features: string[];
@@ -53,7 +57,17 @@ export const useGitHubReleases = (): ReleaseData & { refetch: () => Promise<void
       }
     } catch (err) {
       console.error("Error fetching GitHub releases:", err);
-      setError(err instanceof Error ? err.message : "Failed to fetch release information");
+      // Don't set error for CORS issues, just use fallback data silently
+      if (err instanceof Error && err.message.includes("CORS")) {
+        console.log("CORS error detected, using fallback data");
+        setError(null);
+      } else {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch release information"
+        );
+      }
     } finally {
       setLoading(false);
     }

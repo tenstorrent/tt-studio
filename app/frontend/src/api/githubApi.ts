@@ -39,15 +39,20 @@ export const fetchLatestRelease = async (): Promise<GitHubReleaseInfo> => {
 
   try {
     // Fetch releases from GitHub API
-    const response = await fetch(`${GITHUB_API_BASE}/repos/${TT_STUDIO_REPO}/releases`, {
-      headers: {
-        Accept: "application/vnd.github.v3+json",
-        "User-Agent": "TT-Studio-Client",
-      },
-    });
+    const response = await fetch(
+      `${GITHUB_API_BASE}/repos/${TT_STUDIO_REPO}/releases`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/vnd.github.v3+json",
+        },
+      }
+    );
 
     if (!response.ok) {
-      throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `GitHub API error: ${response.status} ${response.statusText}`
+      );
     }
 
     const releases: GitHubRelease[] = await response.json();
@@ -55,14 +60,19 @@ export const fetchLatestRelease = async (): Promise<GitHubReleaseInfo> => {
     // Filter out drafts and prereleases, sort by published date
     const publishedReleases = releases
       .filter((release) => !release.draft && !release.prerelease)
-      .sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+      .sort(
+        (a, b) =>
+          new Date(b.published_at).getTime() -
+          new Date(a.published_at).getTime()
+      );
 
     if (publishedReleases.length === 0) {
       throw new Error("No published releases found");
     }
 
     const latest = publishedReleases[0];
-    const previous = publishedReleases.length > 1 ? publishedReleases[1] : undefined;
+    const previous =
+      publishedReleases.length > 1 ? publishedReleases[1] : undefined;
 
     // Get current version from package.json or use a fallback
     const currentVersion = getCurrentVersion();
@@ -151,7 +161,10 @@ export const parseReleaseNotes = (
   for (const line of lines) {
     const trimmedLine = line.trim();
 
-    if (trimmedLine.toLowerCase().includes("bug") || trimmedLine.includes("🐛")) {
+    if (
+      trimmedLine.toLowerCase().includes("bug") ||
+      trimmedLine.includes("🐛")
+    ) {
       currentSection = "bugFixes";
     } else if (
       trimmedLine.toLowerCase().includes("feature") ||
