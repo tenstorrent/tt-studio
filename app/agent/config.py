@@ -24,9 +24,14 @@ class AgentConfig:
     FALLBACK_TO_CLOUD: bool = os.getenv("AGENT_FALLBACK_TO_CLOUD", "false").lower() == "true"
     
     # LLM Priority Configuration
+    # TODO: Add more models to the priority list
+    # TODO: Add a way to add models to the priority list making it dynamic and not hardcoded maybe from the backend/model_control/model_config.py file
     PRIORITY_MODELS: list = [
-        'llama-3.1-70b', 'llama-3.1-8b', 'llama-3.1-1b',
-        'mistral-7b', 'falcon-7b', 'llama-2-70b', 'llama-2-13b'
+        'meta-llama/Llama-3.2-1B-Instruct',
+        'meta-llama/Llama-3.2-3B-Instruct',
+        'meta-llama/Llama-3.2-8B-Instruct',
+        'meta-llama/Llama-3.3-70B-Instruct',
+        'meta-llama/Llama-3.1-70B-Instruct',
     ]
     
     # Network Configuration
