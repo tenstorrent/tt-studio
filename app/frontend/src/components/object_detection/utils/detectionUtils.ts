@@ -33,6 +33,16 @@ export const updateBoxPositions = (
       mediaRect = mediaEl.getBoundingClientRect();
       const containerRect = containerEl.getBoundingClientRect();
 
+      // Backend processes images at BACKEND_IMAGE_SIZE x BACKEND_IMAGE_SIZE, so coordinates are in that space
+      // Convert from BACKEND_IMAGE_SIZE x BACKEND_IMAGE_SIZE absolute coordinates to normalized coordinates
+      const normalizedDetections = detections.map(detection => ({
+        ...detection,
+        xmin: detection.xmin / BACKEND_IMAGE_SIZE,
+        ymin: detection.ymin / BACKEND_IMAGE_SIZE,
+        xmax: detection.xmax / BACKEND_IMAGE_SIZE,
+        ymax: detection.ymax / BACKEND_IMAGE_SIZE,
+      }));
+
       // Calculate the effective displayed dimensions of the video
       // This handles the object-contain scaling that the browser applies
       const containerAspect = containerRect.width / containerRect.height;
@@ -51,11 +61,11 @@ export const updateBoxPositions = (
       }
 
       // Calculate the black bars (letterboxing/pillarboxing)
-      const horizontalOffset = (mediaRect.width - displayWidth) / 2;
+      const horizontalOffset = (mediaRect.width - displayWidth) / 2;       
       const verticalOffset = (mediaRect.height - displayHeight) / 2;
 
       // Apply the calculated dimensions to the bounding boxes
-      return detections.map((detection) => {
+      return normalizedDetections.map((detection) => {
         const boxLeft = detection.xmin * displayWidth + horizontalOffset;
         const boxTop = detection.ymin * displayHeight + verticalOffset;
         const boxWidth = (detection.xmax - detection.xmin) * displayWidth;
