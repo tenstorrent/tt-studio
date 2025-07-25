@@ -83,6 +83,9 @@ def run_container(impl, weights_id):
 
                 # Update deploy cache on success
                 update_deploy_cache()
+                
+                # Notify agent about new container deployment
+                notify_agent_of_new_container(api_result["container_name"])
 
                 return {
                     "status": "success",
@@ -133,6 +136,10 @@ def run_container(impl, weights_id):
             verify_container(impl, run_kwargs, container)
             # on changes to containers, update deploy cache
             update_deploy_cache()
+            
+            # Notify agent about new container deployment
+            notify_agent_of_new_container(container.name)
+            
             return {
                 "status": "success",
                 "container_id": container.id,
@@ -305,7 +312,7 @@ def update_deploy_cache():
 
     # Get current running container IDs
     current_container_ids = set(data.keys())
-    logger.info(f"!!! current_container_ids:= {current_container_ids}")
+    # logger.info(f"!!! current_container_ids:= {current_container_ids}")  # Temporarily hidden
 
     # Remove containers from cache that are no longer running
     containers_to_remove = cached_container_ids - current_container_ids
@@ -314,10 +321,10 @@ def update_deploy_cache():
         cache.delete(container_id)
 
     # Add/update current running containers in cache
-    logger.info(f"!!! data.items():= {data.items()}")
+    # logger.info(f"!!! data.items():= {data.items()}")  # Temporarily hidden
     for con_id, con in data.items():
         con_model_id = con['env_vars'].get("MODEL_ID")
-        logger.info(f"!!! con_model_id:= {con_model_id}")
+        # logger.info(f"!!! con_model_id:= {con_model_id}")  # Temporarily hidden
         model_impl = model_implmentations.get(con_model_id)
         if not model_impl:
             # find first impl that uses that container name
@@ -333,10 +340,10 @@ def update_deploy_cache():
                     for k, v in model_implmentations.items()
                     if v.image_version == con["image_name"]
                 ]
-            logger.info(f"Container image name: {con['name']}")
-            logger.info("Available model implementations:")
-            for k, v in model_implmentations.items():
-                logger.info(f"Model ID: {k}, Image Version: {v.model_name}")
+            # logger.info(f"Container image name: {con['name']}")  # Temporarily hidden
+            # logger.info("Available model implementations:")  # Temporarily hidden
+            # for k, v in model_implmentations.items():  # Temporarily hidden
+            #     logger.info(f"Model ID: {k}, Image Version: {v.model_name}")  # Temporarily hidden
             assert (
                 len(model_impl) == 1
             ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
@@ -344,7 +351,7 @@ def update_deploy_cache():
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl
-        logger.info(f"con['networks']={con["networks"]}")
+        # logger.info(f"con['networks']={con["networks"]}")  # Temporarily hidden
         # handle containers not running within the tt-studio network
         if backend_config.docker_bridge_network_name in con["networks"].keys():
             hostname = con["networks"][backend_config.docker_bridge_network_name][
@@ -639,3 +646,20 @@ def detect_board_type():
     except Exception as e:
         logger.error(f"Error detecting board type: {str(e)}")
         return "unknown"
+
+
+def notify_agent_of_new_container(container_name):
+    """Notify the agent about a new container deployment"""
+    try:
+        import requests
+        agent_url = "http://tt_studio_agent:8080/refresh"
+        response = requests.post(agent_url, timeout=10)
+        
+        if response.status_code == 200:
+            logger.info(f"Successfully notified agent about new container: {container_name}")
+        else:
+            logger.warning(f"Failed to notify agent (status {response.status_code}): {response.text}")
+            
+    except Exception as e:
+        logger.warning(f"Failed to notify agent about new container {container_name}: {e}")
+        # Don't fail the deployment if agent notification fails

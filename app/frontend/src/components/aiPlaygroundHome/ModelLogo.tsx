@@ -29,9 +29,7 @@ export function ModelLogo({ path, alt, className = "" }: ModelLogoProps) {
       };
 
       testImage.onerror = () => {
-        console.log(
-          `Model logo not found: ${path}, not displaying icon`
-        );
+        console.log(`Model logo not found: ${path}, not displaying icon`);
         setIconUrl(null);
         setIsLoading(false);
       };
@@ -46,7 +44,5 @@ export function ModelLogo({ path, alt, className = "" }: ModelLogoProps) {
     return null;
   }
 
-  return (
-    <img src={iconUrl} alt={alt} className={className} />
-  );
-} 
+  return <img src={iconUrl} alt={alt} className={className} />;
+}

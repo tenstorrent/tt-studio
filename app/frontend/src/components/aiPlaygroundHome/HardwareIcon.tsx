@@ -22,8 +22,7 @@ export function HardwareIcon({ type, className = "" }: HardwareIconProps) {
   useEffect(() => {
     const loadIcon = async () => {
       const iconType = type.toLowerCase();
-      const iconPath =
-        HARDWARE_ICON_PATHS[iconType as keyof typeof HARDWARE_ICON_PATHS];
+      const iconPath = HARDWARE_ICON_PATHS[iconType as keyof typeof HARDWARE_ICON_PATHS];
 
       if (!iconPath) {
         setIsLoading(false);
@@ -40,9 +39,7 @@ export function HardwareIcon({ type, className = "" }: HardwareIconProps) {
       };
 
       testImage.onerror = () => {
-        console.log(
-          `Hardware icon not found: ${iconPath}, not displaying icon`
-        );
+        console.log(`Hardware icon not found: ${iconPath}, not displaying icon`);
         setIconUrl(null);
         setIsLoading(false);
       };
@@ -59,7 +56,5 @@ export function HardwareIcon({ type, className = "" }: HardwareIconProps) {
     return null;
   }
 
-  return (
-    <img src={iconUrl} alt={`${type} hardware icon`} className={className} />
-  );
+  return <img src={iconUrl} alt={`${type} hardware icon`} className={className} />;
 }

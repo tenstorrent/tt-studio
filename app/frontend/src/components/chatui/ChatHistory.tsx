@@ -365,4 +365,3 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
 // Added React.memo for potential performance optimization if props don't change often
 export default React.memo(ChatHistory);
-

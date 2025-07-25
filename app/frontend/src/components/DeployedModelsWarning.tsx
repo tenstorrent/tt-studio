@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { AlertTriangle, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
@@ -32,6 +32,7 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
     modelNames: [],
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     const checkDeployedModels = async () => {
@@ -83,51 +84,79 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
 
   return (
     <Alert
-      className={`border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 ${className}`}
+      className={`border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 ${className} pt-6 pb-4 px-6 text-left`}
     >
-      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-      <AlertTitle className="text-amber-800 dark:text-amber-200">
-        Models Already Deployed
-      </AlertTitle>
-      <AlertDescription className="text-amber-700 dark:text-amber-300 space-y-2">
-        <p>
-          {deployedInfo.count} model{deployedInfo.count > 1 ? "s are" : " is"} currently deployed:
-        </p>
-        <ul className="list-disc list-inside space-y-1 text-sm">
-          {deployedInfo.modelNames.map((name, index) => (
-            <li key={index} className="truncate">
-              {name}
-            </li>
-          ))}
-        </ul>
-        <p className="text-sm">
-          Deploying additional models may affect system performance or require stopping existing
-          deployments.
-        </p>
-        {showNavigateButton && (
-          <div className="flex gap-2 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNavigateToDeployed}
-              className="border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-800/20"
-            >
-              <ExternalLink className="h-3 w-3 mr-1" />
-              View Deployed Models
-            </Button>
-            {onClose && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                className="text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100"
-              >
-                Dismiss
-              </Button>
+      <div className="flex items-center justify-between w-full">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <AlertTitle className="text-amber-800 dark:text-amber-200 m-0 text-left">
+            Models Already Deployed
+          </AlertTitle>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 p-1 h-auto"
+        >
+          {isCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        </Button>
+      </div>
+
+      {!isCollapsed && (
+        <AlertDescription className="text-amber-700 dark:text-amber-300 space-y-4 mt-6 text-left">
+          <div className="flex items-center gap-3 text-left">
+            <span>
+              {deployedInfo.count} model
+              {deployedInfo.count > 1 ? "s are" : " is"} currently deployed:
+            </span>
+            {deployedInfo.count === 1 && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-700">
+                {deployedInfo.modelNames[0]}
+              </span>
             )}
           </div>
-        )}
-      </AlertDescription>
+          {deployedInfo.count > 1 && (
+            <div className="bg-amber-50 dark:bg-amber-900/10 rounded-md p-4 border border-amber-200 dark:border-amber-800 text-left">
+              <ul className="space-y-2">
+                {deployedInfo.modelNames.map((name, index) => (
+                  <li key={index} className="flex items-center gap-2 text-sm text-left">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0"></div>
+                    <span className="truncate font-medium">{name}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-sm leading-relaxed text-left">
+            Deploying additional models may affect system performance or require stopping existing
+            deployments.
+          </p>
+          {showNavigateButton && (
+            <div className="flex gap-2 pt-3 text-left">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNavigateToDeployed}
+                className="border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-800/20"
+              >
+                <ExternalLink className="h-3 w-3 mr-1" />
+                View Deployed Models
+              </Button>
+              {onClose && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onClose}
+                  className="text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100"
+                >
+                  Dismiss
+                </Button>
+              )}
+            </div>
+          )}
+        </AlertDescription>
+      )}
     </Alert>
   );
 };

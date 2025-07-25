@@ -84,6 +84,12 @@ proxyConfig["/reset-board"] = {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    // Inject package.json version as environment variable
+    "import.meta.env.VITE_PACKAGE_VERSION": JSON.stringify(
+      process.env.npm_package_version || "2.0.1"
+    ),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname),

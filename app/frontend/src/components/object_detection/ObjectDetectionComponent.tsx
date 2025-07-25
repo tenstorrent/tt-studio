@@ -659,7 +659,7 @@ export const ObjectDetectionComponent: React.FC = () => {
   }, [selectedTab, webcamMetadata, fileMetadata, webcamScaledDetections, fileScaledDetections]);
 
   return (
-    <div className="flex flex-col h-screen w-full px-2 sm:px-4 pt-8 pb-4 sm:py-6 mx-auto">
+    <div className="flex flex-col h-screen w-full px-2 sm:px-4 pt-8 pb-20 sm:py-6 mx-auto">
       <Card className="border-2 p-4 pt-10 sm:pt-4 mt-2 sm:mt-0 rounded-md space-y-4 h-[calc(100vh-6rem)] max-h-[calc(100vh-6rem)] flex flex-col overflow-auto">
         {/* Metadata Display */}
         {MetadataDisplay}

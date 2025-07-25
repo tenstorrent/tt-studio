@@ -681,9 +681,7 @@ export function MainContent({
                   >
                     <Mic className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                     <span className="text-sm sm:text-base text-white">
-                      {hasRecordedBefore
-                        ? "Record Another Message"
-                        : "Record New Message"}
+                      {hasRecordedBefore ? "Record Another Message" : "Record New Message"}
                     </span>
                   </Button>
 
@@ -701,9 +699,11 @@ export function MainContent({
                               "!bg-TT-purple-accent hover:!bg-TT-purple",
                               "transition-all duration-200 ease-in-out",
                               "flex items-center justify-center relative",
-                              theme === "dark" ? "border-2 border-[#1A1A1A]" : "border-2 border-white"
+                              theme === "dark"
+                                ? "border-2 border-[#1A1A1A]"
+                                : "border-2 border-white"
                             )}
-                            style={{ backgroundColor: '#7C68FA' }}
+                            style={{ backgroundColor: "#7C68FA" }}
                           >
                             {/* Pulse animation */}
                             <span className="absolute inset-0 bg-TT-purple-tint1/20 opacity-0 animate-pulse rounded-full"></span>
@@ -711,13 +711,15 @@ export function MainContent({
 
                             {/* Notification dot with improved positioning */}
                             {hasRecordedBefore && (
-                              <span className={cn(
-                                "absolute -top-1 -right-1 h-5 w-5 sm:h-6 sm:w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md",
-                                theme === "dark" ? "border border-[#1A1A1A]" : "border border-white"
-                              )}>
-                                <span className="text-xs text-white font-bold">
-                                  +
-                                </span>
+                              <span
+                                className={cn(
+                                  "absolute -top-1 -right-1 h-5 w-5 sm:h-6 sm:w-6 bg-TT-red-accent rounded-full flex items-center justify-center shadow-md",
+                                  theme === "dark"
+                                    ? "border border-[#1A1A1A]"
+                                    : "border border-white"
+                                )}
+                              >
+                                <span className="text-xs text-white font-bold">+</span>
                               </span>
                             )}
                           </Button>

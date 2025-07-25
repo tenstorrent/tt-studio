@@ -47,7 +47,9 @@ export function DeployModelStep({
         try {
           const response = await axios.get(`/docker-api/get_containers/`);
           const models = response.data;
-          const model = models.find((m: { id: string; name: string }) => m.id === selectedModel);
+          const model = models.find(
+            (m: { id: string; name: string }) => m.id === selectedModel
+          );
           if (model) {
             setModelName(model.name);
           }
@@ -80,10 +82,17 @@ export function DeployModelStep({
     if (!selectedModel) return "Select a Model";
     if (!selectedWeight && !customWeight) return "Select a Weight";
     return "Deploy Model";
-  }, [selectedModel, selectedWeight, customWeight, deployedInfo.hasDeployedModels]);
+  }, [
+    selectedModel,
+    selectedWeight,
+    customWeight,
+    deployedInfo.hasDeployedModels,
+  ]);
 
   const isDeployDisabled =
-    !selectedModel || (!selectedWeight && !customWeight) || deployedInfo.hasDeployedModels;
+    !selectedModel ||
+    (!selectedWeight && !customWeight) ||
+    deployedInfo.hasDeployedModels;
 
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return false;
@@ -100,7 +109,13 @@ export function DeployModelStep({
       await triggerHardwareRefresh();
     }
     return deploySuccess;
-  }, [handleDeploy, refreshModels, triggerRefresh, triggerHardwareRefresh, isDeployDisabled]);
+  }, [
+    handleDeploy,
+    refreshModels,
+    triggerRefresh,
+    triggerHardwareRefresh,
+    isDeployDisabled,
+  ]);
 
   const onDeploymentComplete = useCallback(() => {
     setTimeout(() => {
@@ -124,8 +139,8 @@ export function DeployModelStep({
             </h3>
             <p className="text-red-700 dark:text-red-300 mb-4">
               {deployedInfo.count} model
-              {deployedInfo.count > 1 ? "s are" : " is"} currently deployed. You must delete
-              existing models before deploying a new one.
+              {deployedInfo.count > 1 ? "s are" : " is"} currently deployed. You
+              must delete existing models before deploying a new one.
             </p>
             <div className="space-y-2 mb-4">
               <p className="text-sm font-medium text-red-800 dark:text-red-200">
@@ -153,7 +168,9 @@ export function DeployModelStep({
             <div className="mt-6 flex flex-col items-start justify-center space-y-4 opacity-50">
               <div className="flex items-center space-x-2">
                 <Cpu className="text-TT-purple-accent" />
-                <span className="text-sm text-gray-800 dark:text-gray-400">Selected Model:</span>
+                <span className="text-sm text-gray-800 dark:text-gray-400">
+                  Selected Model:
+                </span>
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                   {modelName}
                 </span>
@@ -161,7 +178,9 @@ export function DeployModelStep({
               {(selectedWeight || customWeight) && (
                 <div className="flex items-center space-x-2">
                   <Sliders className="text-TT-purple-accent" />
-                  <span className="text-sm text-gray-800 dark:text-gray-400">Selected Weight:</span>
+                  <span className="text-sm text-gray-800 dark:text-gray-400">
+                    Selected Weight:
+                  </span>
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                     {selectedWeight || (customWeight && customWeight.name)}
                   </span>
@@ -178,8 +197,8 @@ export function DeployModelStep({
   return (
     <>
       <div
-        className="flex flex-col items-center justify-center p-10 overflow-hidden"
-        style={{ minHeight: "300px" }}
+        className="flex flex-col items-center justify-center p-6 overflow-hidden"
+        style={{ minHeight: "200px" }}
       >
         <AnimatedDeployButton
           initialText={<span>{deployButtonText}</span>}
@@ -192,7 +211,9 @@ export function DeployModelStep({
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">Model:</span>
+              <span className="text-sm text-gray-800 dark:text-gray-400">
+                Model:
+              </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {modelName}
               </span>
@@ -201,7 +222,9 @@ export function DeployModelStep({
           {(selectedWeight || customWeight) && (
             <div className="flex items-center space-x-2">
               <Sliders className="text-TT-purple-accent" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">Weight:</span>
+              <span className="text-sm text-gray-800 dark:text-gray-400">
+                Weight:
+              </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {selectedWeight || (customWeight && customWeight.name)}
               </span>
