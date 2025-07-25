@@ -296,17 +296,33 @@ try:
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
     os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
     
+    # Initialize tools
+    tools = []
+    
+    # Add search tool
     search = TavilySearchResults(
         max_results=2,
         include_answer=True,
         include_raw_content=True)
-    tools = [search]
+    tools.append(search)
+    
+    # Add code interpreter tool if E2B_API_KEY is available
+    try:
+        code_tool = CodeInterpreterFunctionTool()
+        tools.append(code_tool.to_langchain_tool())
+        print("✓ Code interpreter tool enabled")
+    except Exception as e:
+        print(f"⚠ Code interpreter tool disabled: {e}")
+        print("   To enable code execution, set the E2B_API_KEY environment variable")
+        print("   Get your API key from: https://e2b.dev/docs")
+    
     agent_executer = setup_executer(current_llm, memory, tools)
     
     # Start health monitoring for local LLMs
     start_health_monitoring()
     
     print("=== Agent Initialization Complete ===")
+    print(f"Available tools: {[tool.name for tool in tools]}")
     
 except Exception as e:
     print(f"Failed to initialize agent: {e}")
