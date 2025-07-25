@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 from django.shortcuts import render
 from django.http import StreamingHttpResponse
@@ -11,8 +11,10 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.negotiation import DefaultContentNegotiation
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-import json
+import json  
 import shutil
+import subprocess
+import os
 
 import docker
 import os 
@@ -808,5 +810,152 @@ class BoardInfoView(APIView):
             logger.error(f"Error getting board info: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DockerServiceLogsView(APIView):
+    """Get recent logs from Docker services for bug reporting"""
+    
+    def get(self, request, *args, **kwargs):
+        try:
+            logger.info("Fetching Docker service logs for bug report")
+            
+            # Define the services we want to get logs from
+            services = [
+                "tt_studio_backend",
+                "tt_studio_frontend", 
+                "tt_studio_agent",
+                "tt_studio_chroma"
+            ]
+            
+            logs_data = {}
+            
+            # Try to get Docker container logs using the Docker Python library
+            # Since we're running inside a container, we use the Docker Python library instead of CLI
+            container_names = [
+                "tt_studio_backend_api_dev",
+                "tt_studio_frontend_dev", 
+                "tt_studio_agent_dev",
+                "tt_studio_chroma_dev"
+            ]
+            
+            docker_logs_found = False
+            try:
+                # Use the existing Docker client that's already imported
+                for service, container_name in zip(services, container_names):
+                    try:
+                        # Get container logs using Docker Python library
+                        container = client.containers.get(container_name)
+                        log_content = container.logs(tail=8, timestamps=False).decode('utf-8', errors='replace').strip()
+                        
+                        if log_content:
+                            # Limit the log size to prevent GitHub URL length issues
+                            if len(log_content) > 1000:  # Reduced to 1000 characters per service
+                                log_content = log_content[-1000:] + "\n\n... (truncated)"
+                            logs_data[service] = log_content
+                            docker_logs_found = True
+                        else:
+                            logs_data[service] = "No logs available for this container"
+                            
+                    except Exception as e:
+                        logger.error(f"Error fetching logs for {service}: {str(e)}")
+                        logs_data[service] = f"Failed to fetch logs: {str(e)[:500]}"
+                        
+            except Exception as e:
+                logger.error(f"Error initializing Docker client: {str(e)}")
+                for service in services:
+                    logs_data[service] = f"Docker client error: {str(e)[:500]}"
+            
+            if not docker_logs_found:
+                for service in services:
+                    if service not in logs_data:
+                        logs_data[service] = "Docker logs not accessible from container"
+            
+            # Also try to get system logs if available
+            try:
+                # Check if fastapi.log exists in multiple possible locations using relative paths
+                possible_fastapi_logs = [
+                    "fastapi.log",  # Current directory
+                    os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
+                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/docker_control/views.py
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
+                    "/app/fastapi.log",  # Container path as fallback
+                ]
+                
+                fastapi_log_found = False
+                for fastapi_log_path in possible_fastapi_logs:
+                    if os.path.exists(fastapi_log_path):
+                        try:
+                            with open(fastapi_log_path, 'r') as f:
+                                lines = f.readlines()
+                                # Get last 8 lines and limit size
+                                log_content = ''.join(lines[-8:])
+                                if len(log_content) > 800:
+                                    log_content = log_content[-800:] + "\n\n... (truncated)"
+                                logs_data["fastapi"] = log_content
+                            fastapi_log_found = True
+                            break
+                        except Exception as read_error:
+                            logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
+                            continue
+                
+                if not fastapi_log_found:
+                    logs_data["fastapi"] = "fastapi.log not accessible from container (logs available from Docker containers above)"
+                    
+            except Exception as e:
+                logger.error(f"Error reading fastapi.log: {str(e)}")
+                logs_data["fastapi"] = f"Error reading fastapi.log: {str(e)[:500]}"
+            
+            # Try to get backend log file if available
+            try:
+                # Try multiple possible paths for backend logs
+                possible_backend_log_paths = [
+                    os.path.join(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"), "backend_volume", "python_logs"),
+                    os.path.join(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"), "python_logs"),
+                    "/tt_studio_persistent_volume/backend_volume/python_logs",
+                    "/tt_studio_persistent_volume/python_logs"
+                ]
+                
+                backend_log_found = False
+                for backend_log_path in possible_backend_log_paths:
+                    if os.path.exists(backend_log_path):
+                        try:
+                            # Get the most recent log file
+                            log_files = [f for f in os.listdir(backend_log_path) if f.endswith('.log')]
+                            if log_files:
+                                latest_log = max(log_files, key=lambda x: os.path.getctime(os.path.join(backend_log_path, x)))
+                                latest_log_path = os.path.join(backend_log_path, latest_log)
+                                with open(latest_log_path, 'r') as f:
+                                    lines = f.readlines()
+                                    # Get last 8 lines and limit size
+                                    log_content = ''.join(lines[-8:])
+                                    if len(log_content) > 800:
+                                        log_content = log_content[-800:] + "\n\n... (truncated)"
+                                    logs_data["backend_log"] = log_content
+                                backend_log_found = True
+                                break
+                        except Exception as read_error:
+                            logger.error(f"Error reading from {backend_log_path}: {str(read_error)}")
+                            continue
+                
+                if not backend_log_found:
+                    logs_data["backend_log"] = "Backend logs directory not found in any expected location"
+                    
+            except Exception as e:
+                logger.error(f"Error reading backend logs: {str(e)}")
+                logs_data["backend_log"] = f"Error reading backend logs: {str(e)[:500]}"
+            
+            # Add a summary of total log size
+            total_size = sum(len(str(logs)) for logs in logs_data.values())
+            logs_data["_summary"] = f"Total log size: {total_size} characters"
+            
+            return Response(logs_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching Docker service logs: {str(e)}")
+            return Response(
+                {"error": "Failed to fetch Docker service logs", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

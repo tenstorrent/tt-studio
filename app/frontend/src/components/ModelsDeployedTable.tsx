@@ -42,6 +42,7 @@ import {
 } from "../api/modelsDeployedApis";
 import { NoModelsDialog } from "./NoModelsDeployed";
 import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
+import { ModelAPIInfo } from "./ModelAPIInfo";
 import { useRefresh } from "../hooks/useRefresh";
 import { useModels } from "../hooks/useModels";
 import {
@@ -64,6 +65,7 @@ import {
   ChevronUp,
   AlertTriangle,
   RefreshCw,
+  Code,
 } from "lucide-react";
 import {
   Dialog,
@@ -931,6 +933,13 @@ export default function ModelsDeployedTable() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
+  // API Info state
+  const [showAPIInfo, setShowAPIInfo] = useState(false);
+  const [selectedModelForAPI, setSelectedModelForAPI] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
   // Check URL params for auto-opening logs
   useEffect(() => {
     console.log("=== URL PARAM PROCESSING EFFECT ===");
@@ -1069,6 +1078,16 @@ export default function ModelsDeployedTable() {
       setLoadingModels((prev) => prev.filter((id) => id !== deleteTargetId));
       setPulsatingModels((prev) => prev.filter((id) => id !== deleteTargetId));
     }
+  };
+
+  const handleAPIInfo = (modelId: string, modelName: string) => {
+    setSelectedModelForAPI({ id: modelId, name: modelName });
+    setShowAPIInfo(true);
+  };
+
+  const handleCloseAPIInfo = () => {
+    setShowAPIInfo(false);
+    setSelectedModelForAPI(null);
   };
 
   useEffect(() => {
@@ -1532,6 +1551,26 @@ export default function ModelsDeployedTable() {
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    onClick={() =>
+                                      handleAPIInfo(model.id, model.name)
+                                    }
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-1"
+                                  >
+                                    <Code className="w-3 h-3" />
+                                    API
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>View API information and test endpoints</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </>
                         )}
                       </div>
@@ -1558,6 +1597,23 @@ export default function ModelsDeployedTable() {
         containerId={selectedContainerId || ""}
         setSelectedContainerId={setSelectedContainerId}
       />
+
+      {/* API Info Dialog */}
+      {showAPIInfo && selectedModelForAPI && (
+        <Dialog open={showAPIInfo} onOpenChange={setShowAPIInfo}>
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>API Information</DialogTitle>
+            </DialogHeader>
+            <ModelAPIInfo
+              modelId={selectedModelForAPI.id}
+              modelName={selectedModelForAPI.name}
+              onClose={handleCloseAPIInfo}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
       <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
         <DialogContent className="sm:max-w-md p-6 rounded-lg shadow-lg bg-zinc-900 text-white border border-yellow-700">
           <DialogHeader>

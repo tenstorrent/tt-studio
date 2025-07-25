@@ -159,6 +159,21 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     const userAgent = navigator.userAgent;
     const timestamp = new Date().toISOString();
 
+    // Fetch FastAPI logs
+    let fastapiLogs = "Failed to fetch FastAPI logs";
+    try {
+      const fastapiResponse = await fetch("/logs-api/fastapi/");
+      if (fastapiResponse.ok) {
+        const fastapiData = await fastapiResponse.json();
+        fastapiLogs = fastapiData.fastapi_logs || "No FastAPI logs available";
+      }
+    } catch (err) {
+      console.error("Failed to fetch FastAPI logs:", err);
+      fastapiLogs =
+        "Error fetching FastAPI logs: " +
+        (err instanceof Error ? err.message : "Unknown error");
+    }
+
     // Fetch Docker service logs
     let dockerLogs = "Failed to fetch Docker logs";
     try {
@@ -237,6 +252,9 @@ ${models.length > 0 ? models.map((model) => `- ${model.name} (${model.status})`)
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
 ${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
 
+### FastAPI Logs
+${fastapiLogs}
+
 ### Recent Docker Service Logs
 ${dockerLogs}
 
@@ -281,6 +299,21 @@ Add any other context about the problem here.
       console.error("Failed to generate bug report:", err);
       // Fallback to basic bug report without logs
       const currentVersion = releaseInfo?.currentVersion || "2.0.1";
+
+      // Fetch FastAPI logs for fallback
+      let fallbackFastapiLogs = "Failed to fetch FastAPI logs";
+      try {
+        const fastapiResponse = await fetch("/logs-api/fastapi/");
+        if (fastapiResponse.ok) {
+          const fastapiData = await fastapiResponse.json();
+          fallbackFastapiLogs =
+            fastapiData.fastapi_logs || "No FastAPI logs available";
+        }
+      } catch (fastapiErr) {
+        console.error("Failed to fetch FastAPI logs in fallback:", fastapiErr);
+        fallbackFastapiLogs = "Error fetching FastAPI logs";
+      }
+
       const issueTitle = encodeURIComponent(
         `[Bug Report] Issue in TT Studio ${currentVersion}`
       );
@@ -301,6 +334,9 @@ Add any other context about the problem here.
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
 ${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
+
+### FastAPI Logs
+${fallbackFastapiLogs}
 
 ### Bug Description
 Please describe the bug you encountered:

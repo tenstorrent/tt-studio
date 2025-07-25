@@ -767,3 +767,137 @@ class ContainerLogsView(View):
                 content=str(e)
             )
 
+
+class ModelAPIInfoView(APIView):
+    """Get API endpoint information for deployed models"""
+    def get(self, request, *args, **kwargs):
+        """Return API endpoint details for all deployed models"""
+        try:
+            deployed_data = get_deploy_cache()
+            api_info = {}
+            
+            for deploy_id, deploy_info in deployed_data.items():
+                # Get the base URL from the request
+                base_url = request.build_absolute_uri('/').rstrip('/')
+                
+                # Extract model information
+                model_name = deploy_info.get("model_impl", {}).model_name if hasattr(deploy_info.get("model_impl"), "model_name") else "Unknown"
+                model_type = deploy_info.get("model_impl", {}).model_type.value if hasattr(deploy_info.get("model_impl", {}).model_type, "value") else "ChatModel"
+                
+                # The API URL should always point to the TT Studio backend, not directly to vLLM
+                api_url = f"{base_url}/models-api/inference/"
+                
+                # Generate JWT token for this model
+                json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
+                jwt_secret = backend_config.jwt_secret
+                encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
+                
+                # Create example payload based on model type
+                example_payload = self._get_example_payload(model_type, deploy_info)
+                
+                # Create curl example
+                curl_example = self._get_curl_example(api_url, encoded_jwt, example_payload, model_type)
+                
+                api_info[deploy_id] = {
+                    "model_name": model_name,
+                    "model_type": model_type,
+                    "api_url": api_url,
+                    "jwt_secret": jwt_secret,
+                    "jwt_token": encoded_jwt,
+                    "example_payload": example_payload,
+                    "curl_example": curl_example,
+                    "internal_url": deploy_info.get("internal_url"),
+                    "health_url": deploy_info.get("health_url"),
+                    "deploy_info": {
+                        "model_impl": deploy_info.get("model_impl").asdict() if hasattr(deploy_info.get("model_impl"), "asdict") else {},
+                        "internal_url": deploy_info.get("internal_url"),
+                        "health_url": deploy_info.get("health_url")
+                    }
+                }
+            
+            return Response(api_info, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error getting API info: {str(e)}")
+            return Response(
+                {"error": "Failed to get API information", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _get_endpoint_path(self, model_type):
+        """Get the appropriate endpoint path based on model type"""
+        endpoint_map = {
+            "ChatModel": "/inference/",
+            "ImageGeneration": "/image-generation/",
+            "ObjectDetectionModel": "/object-detection/",
+            "SpeechRecognitionModel": "/speech-recognition/"
+        }
+        return endpoint_map.get(model_type, "/inference/")
+    
+    def _get_example_payload(self, model_type, deploy_info):
+        """Get example payload based on model type"""
+        # Get the actual deploy_id for this specific model
+        deploy_id = None
+        for did, dinfo in get_deploy_cache().items():
+            if dinfo.get("model_impl", {}).model_name == deploy_info.get("model_impl", {}).model_name:
+                deploy_id = did
+                break
+        
+        base_payload = {
+            "deploy_id": deploy_id or "your_deploy_id"
+        }
+        
+        if model_type == "ChatModel":
+            return {
+                **base_payload,
+                "prompt": "What is Tenstorrent?",
+                "temperature": 1.0,
+                "top_k": 20,
+                "top_p": 0.9,
+                "max_tokens": 128,
+                "stream": True,
+                "stop": ["<|eot_id|>"]
+            }
+        elif model_type == "ImageGeneration":
+            return {
+                **base_payload,
+                "prompt": "A beautiful sunset over mountains"
+            }
+        elif model_type == "ObjectDetectionModel":
+            return {
+                **base_payload,
+                "image": "base64_encoded_image_or_file_upload"
+            }
+        elif model_type == "SpeechRecognitionModel":
+            return {
+                **base_payload,
+                "file": "audio_file_upload"
+            }
+        
+        return base_payload
+    
+    def _get_curl_example(self, api_url, jwt_token, payload, model_type):
+        """Generate curl example for the API endpoint"""
+        if model_type == "ObjectDetectionModel":
+            return f"""curl -X POST "{api_url}" \\
+  -H "Authorization: Bearer {jwt_token}" \\
+  -H "Content-Type: multipart/form-data" \\
+  -F "deploy_id=your_deploy_id" \\
+  -F "image=@your_image.jpg"
+"""
+        elif model_type == "SpeechRecognitionModel":
+            return f"""curl -X POST "{api_url}" \\
+  -H "Authorization: Bearer {jwt_token}" \\
+  -H "Content-Type: multipart/form-data" \\
+  -F "deploy_id=your_deploy_id" \\
+  -F "file=@your_audio.wav"
+"""
+        else:
+            # For JSON payloads (Chat models)
+            json_payload = json.dumps(payload, indent=2)
+            return f"""curl -X POST "{api_url}" \\
+  -H "Authorization: Bearer {jwt_token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{json_payload}'
+"""
+

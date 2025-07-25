@@ -94,6 +94,7 @@ services:
       - USE_CLOUD_LLM=true
       - LLM_CONTAINER_NAME
       - BACKEND_API_HOSTNAME
+      # - E2B_API_KEY
     stdin_open: true
     tty: true
     healthcheck:
