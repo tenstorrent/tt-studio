@@ -33,14 +33,14 @@ export const updateBoxPositions = (
       mediaRect = mediaEl.getBoundingClientRect();
       const containerRect = containerEl.getBoundingClientRect();
 
-      // Backend processes images at 320x320, so coordinates are in that space
-      // Convert from 320x320 absolute coordinates to normalized coordinates
+      // Backend processes images at BACKEND_IMAGE_SIZE x BACKEND_IMAGE_SIZE, so coordinates are in that space
+      // Convert from BACKEND_IMAGE_SIZE x BACKEND_IMAGE_SIZE absolute coordinates to normalized coordinates
       const normalizedDetections = detections.map(detection => ({
         ...detection,
-        xmin: detection.xmin / 320,
-        ymin: detection.ymin / 320,
-        xmax: detection.xmax / 320,
-        ymax: detection.ymax / 320,
+        xmin: detection.xmin / BACKEND_IMAGE_SIZE,
+        ymin: detection.ymin / BACKEND_IMAGE_SIZE,
+        xmax: detection.xmax / BACKEND_IMAGE_SIZE,
+        ymax: detection.ymax / BACKEND_IMAGE_SIZE,
       }));
 
       // Calculate the effective displayed dimensions of the video
