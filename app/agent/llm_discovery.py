@@ -65,16 +65,19 @@ class LLMDiscoveryService:
             return []
     
     def _filter_healthy_llms(self, deployed_models: Dict) -> List[LLMInfo]:
-        """Filter only healthy LLM containers"""
+        """Filter only healthy LLM containers with support for different model types"""
         healthy_llms = []
         
         for deploy_id, model_info in deployed_models.items():
             try:
-                # Only process chat models
-                model_type = model_info.get('model_impl', {}).get('model_type', '')
-                if model_type != 'chat':
-                    continue
+                # Support multiple model types, not just chat
+                model_type = model_info.get('model_impl', {}).get('model_type', 'chat')
+                model_name = model_info.get('model_impl', {}).get('model_name', 'Unknown')
+                hf_model_id = model_info.get('model_impl', {}).get('hf_model_id', None)
                 
+                print(f"[DISCOVERY] Processing model: {model_name} (type: {model_type}) hf_model_id: {hf_model_id}")
+                
+                # Check health status
                 health_url = f"http://{model_info['health_url']}"
                 status = self._check_health_status(health_url)
                 
@@ -83,16 +86,22 @@ class LLMDiscoveryService:
                     container_name=model_info.get('name', ''),
                     internal_url=model_info['internal_url'],
                     health_url=model_info['health_url'],
-                    model_name=model_info.get('model_impl', {}).get('model_name', 'Unknown'),
+                    model_name=model_name,
                     model_type=model_type,
                     status=status
                 )
+                # Attach hf_model_id as an extra attribute
+                llm_info.hf_model_id = hf_model_id
                 
+                # Accept healthy and degraded models
                 if status in [HealthStatus.HEALTHY, HealthStatus.DEGRADED]:
                     healthy_llms.append(llm_info)
+                    print(f"[DISCOVERY] Added healthy model: {model_name} ({status.value})")
+                else:
+                    print(f"[DISCOVERY] Skipped unhealthy model: {model_name} ({status.value})")
                     
             except Exception as e:
-                print(f"Error processing model {deploy_id}: {e}")
+                print(f"[DISCOVERY] Error processing model {deploy_id}: {e}")
                 continue
                 
         return healthy_llms
@@ -120,40 +129,74 @@ class LLMDiscoveryService:
             return HealthStatus.UNHEALTHY
     
     def select_best_llm(self, local_llms: List[LLMInfo]) -> Optional[LLMInfo]:
-        """Select the best LLM based on priority criteria"""
+        """Select the best LLM based on dynamic priority criteria"""
         if not local_llms:
+            print("[SELECTION] No LLMs available for selection")
             return None
             
-        # Get priority models from configuration
+        print(f"[SELECTION] Selecting from {len(local_llms)} available LLMs:")
+        for llm in local_llms:
+            print(f"  - {llm.model_name} ({llm.model_type}) - {llm.status.value}")
+        
+        # Get priority models and model type priority from configuration
         from config import AgentConfig
         priority_models = AgentConfig.get_priority_models()
+        model_type_priority = AgentConfig.get_model_type_priority()
         
-        # First, try to find a healthy priority model
+        print(f"[SELECTION] Priority models: {priority_models}")
+        print(f"[SELECTION] Model type priority: {model_type_priority}")
+        
+        # First, try to find a healthy priority model (any type)
         for model_name in priority_models:
             for llm in local_llms:
-                if (model_name in llm.model_name.lower() and 
+                if (model_name.lower() in llm.model_name.lower() and 
                     llm.status == HealthStatus.HEALTHY):
+                    print(f"[SELECTION] Selected healthy priority model: {llm.model_name}")
                     return llm
         
         # If no priority model is healthy, try degraded priority models
         for model_name in priority_models:
             for llm in local_llms:
-                if (model_name in llm.model_name.lower() and 
+                if (model_name.lower() in llm.model_name.lower() and 
                     llm.status == HealthStatus.DEGRADED):
+                    print(f"[SELECTION] Selected degraded priority model: {llm.model_name}")
                     return llm
         
-        # If no priority models, return the first healthy one
+        # If no priority models, use model type priority
+        for model_type in model_type_priority:
+            # Try healthy models of this type
+            for llm in local_llms:
+                if (llm.model_type == model_type and 
+                    llm.status == HealthStatus.HEALTHY):
+                    print(f"[SELECTION] Selected healthy {model_type} model: {llm.model_name}")
+                    return llm
+            
+            # Try degraded models of this type
+            for llm in local_llms:
+                if (llm.model_type == model_type and 
+                    llm.status == HealthStatus.DEGRADED):
+                    print(f"[SELECTION] Selected degraded {model_type} model: {llm.model_name}")
+                    return llm
+        
+        # If no models match type priority, return the first healthy one (any type)
         for llm in local_llms:
             if llm.status == HealthStatus.HEALTHY:
+                print(f"[SELECTION] Selected first healthy model: {llm.model_name}")
                 return llm
         
-        # If no healthy models, return the first degraded one
+        # If no healthy models, return the first degraded one (any type)
         for llm in local_llms:
             if llm.status == HealthStatus.DEGRADED:
+                print(f"[SELECTION] Selected first degraded model: {llm.model_name}")
                 return llm
         
         # Last resort: return the first available
-        return local_llms[0] if local_llms else None
+        if local_llms:
+            print(f"[SELECTION] Last resort selection: {local_llms[0].model_name}")
+            return local_llms[0]
+        
+        print("[SELECTION] No suitable LLM found")
+        return None
     
     def clear_cache(self):
         """Clear the discovery cache"""

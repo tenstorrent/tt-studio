@@ -103,7 +103,7 @@ class InferenceView(APIView):
         
 class AgentView(APIView):
     def post(self, request, *agrs, **kwargs):
-        logger.info(f"URL '/agent/' accessed via POST method by {request.META['REMOTE_ADDR']}")        
+        logger.info('[TRACE_FLOW_STEP_2_BACKEND_AGENT_ENTRY] AgentView.post called', extra={'request_data': request.data})        
         data = request.data.copy()  # Make a copy to avoid modifying the original
         logger.info(f"AgentView data:={data}")
         

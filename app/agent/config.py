@@ -24,15 +24,27 @@ class AgentConfig:
     FALLBACK_TO_CLOUD: bool = os.getenv("AGENT_FALLBACK_TO_CLOUD", "false").lower() == "true"
     
     # LLM Priority Configuration
-    # TODO: Add more models to the priority list
-    # TODO: Add a way to add models to the priority list making it dynamic and not hardcoded maybe from the backend/model_control/model_config.py file
-    PRIORITY_MODELS: list = [
+    # Priority models can be set via environment variable AGENT_PRIORITY_MODELS
+    # Format: "model1,model2,model3" (comma-separated)
+    # Default priority models (will be used if no environment variable is set)
+    DEFAULT_PRIORITY_MODELS: list = [
         'meta-llama/Llama-3.2-1B-Instruct',
         'meta-llama/Llama-3.2-3B-Instruct',
         'meta-llama/Llama-3.2-8B-Instruct',
         'meta-llama/Llama-3.3-70B-Instruct',
         'meta-llama/Llama-3.1-70B-Instruct',
+        'microsoft/DialoGPT-medium',
+        'gpt2',
+        'bert-base-uncased'
     ]
+    
+    # Model Type Preferences (for selection when multiple models are available)
+    # Order: chat models first, then completion models, then others
+    MODEL_TYPE_PRIORITY: list = ['chat', 'completion', 'embedding', 'other']
+    
+    # Dynamic Configuration
+    DYNAMIC_CONFIG_ENABLED: bool = os.getenv("AGENT_DYNAMIC_CONFIG", "true").lower() == "true"
+    CONFIG_REFRESH_INTERVAL: int = int(os.getenv("AGENT_CONFIG_REFRESH_INTERVAL", "300"))  # 5 minutes
     
     # Network Configuration
     BACKEND_URL: str = os.getenv("AGENT_BACKEND_URL", "http://tt-studio-backend-api:8000")
@@ -62,7 +74,38 @@ class AgentConfig:
         env_priority = os.getenv("AGENT_PRIORITY_MODELS")
         if env_priority:
             return [model.strip() for model in env_priority.split(",")]
-        return cls.PRIORITY_MODELS
+        return cls.DEFAULT_PRIORITY_MODELS
+    
+    @classmethod
+    def get_model_type_priority(cls) -> list:
+        """Get model type priority order"""
+        env_priority = os.getenv("AGENT_MODEL_TYPE_PRIORITY")
+        if env_priority:
+            return [model_type.strip() for model_type in env_priority.split(",")]
+        return cls.MODEL_TYPE_PRIORITY
+    
+    @classmethod
+    def refresh_config(cls):
+        """Refresh configuration from environment variables"""
+        if not cls.DYNAMIC_CONFIG_ENABLED:
+            return
+        
+        print("[CONFIG_REFRESH] Refreshing agent configuration...")
+        
+        # Refresh priority models
+        old_priority = cls.get_priority_models()
+        new_priority = cls.get_priority_models()  # This will re-read from env
+        
+        if old_priority != new_priority:
+            print(f"[CONFIG_REFRESH] Priority models updated: {old_priority} -> {new_priority}")
+        
+        # Refresh other dynamic settings
+        cls.AUTO_DISCOVERY_ENABLED = os.getenv("AGENT_AUTO_DISCOVERY", "true").lower() == "true"
+        cls.HEALTH_CHECK_ENABLED = os.getenv("AGENT_HEALTH_CHECK_ENABLED", "true").lower() == "true"
+        cls.FALLBACK_TO_LOCAL = os.getenv("AGENT_FALLBACK_TO_LOCAL", "true").lower() == "true"
+        cls.USE_CLOUD_LLM = os.getenv("USE_CLOUD_LLM", "false").lower() == "true"
+        
+        print("[CONFIG_REFRESH] Configuration refresh complete")
     
     @classmethod
     def validate_config(cls) -> list:

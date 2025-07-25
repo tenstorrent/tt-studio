@@ -95,7 +95,7 @@ class LLMHealthMonitor:
                 # Create new LLM instance
                 from custom_llm import CustomLLM
                 new_llm = CustomLLM(
-                    server_url=f"http://{fallback_llm.internal_url}/v1/chat/completions",
+                    server_url=f"http://{fallback_llm.internal_url}",
                     encoded_jwt=self.llm.encoded_jwt,
                     streaming=True,
                     is_cloud=False,

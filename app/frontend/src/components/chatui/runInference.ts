@@ -23,6 +23,11 @@ export const runInference = async (
   threadId: number,
   abortController?: AbortController
 ) => {
+  console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
+    request,
+    isAgentSelected,
+    threadId,
+  });
   try {
     setIsStreaming(true);
 
@@ -239,6 +244,7 @@ export const runInference = async (
       headers["X-Abort-Requested"] = "true";
     });
 
+    console.log("payload", JSON.stringify(requestBody));
     const response = await fetch(API_URL, {
       method: "POST",
       headers: headers,
