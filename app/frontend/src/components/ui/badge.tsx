@@ -19,9 +19,9 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default:
-          "border-TT-green-accent bg-[#4CAF50] text-white hover:bg-[#45A049]/80 dark:bg-[#388E3C] dark:text-white dark:hover:bg-[#2E7D32]/80", // Updated green shades
+          "border-TT-green-accent bg-[#4CAF50] text-TT-yellow-shade hover:bg-[#45A049]/80 dark:bg-[#388E3C] dark:text-white dark:hover:bg-[#2E7D32]/80", // Updated green shades
         destructive:
-          "border-TT-red-accent bg-TT-red-tint2 text-white hover:bg-TT-red-tint2/80 dark:bg-TT-red-shade dark:text-white dark:hover:bg-TT-red-shade/80",
+          "border-TT-red-accent bg-TT-red-tint2 text-TT-yellow-shade hover:bg-TT-red-tint2/80 dark:bg-TT-red-shade dark:text-white dark:hover:bg-TT-red-shade/80",
         outline:
           "text-TT-slate-shade dark:text-TT-slate-tint1 border-TT-slate-accent dark:border-TT-slate-tint2",
         warning:
