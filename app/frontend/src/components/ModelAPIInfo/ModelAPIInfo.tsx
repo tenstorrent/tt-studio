@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Card, CardContent, CardHeader } from "../ui/card";
 import { Button } from "../ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Alert, AlertDescription } from "../ui/alert";
@@ -10,6 +10,7 @@ import { Spinner } from "../ui/spinner";
 import { XCircle } from "lucide-react";
 import { useModelAPIInfo, ModelAPIInfoProps } from "./useModelAPIInfo";
 import { EndpointsTab, TestTab, ExamplesTab } from "./tabs";
+import { ArrowLeft } from "lucide-react";
 
 export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
   modelId,
@@ -54,33 +55,33 @@ export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
   }
 
   return (
-    <Card className="border border-gray-700 shadow-lg rounded-lg bg-black">
-      <CardHeader className="pb-4 border-b border-gray-700 bg-gray-900 rounded-t-lg">
+    <Card className="h-auto py-4 px-4 md:px-6 lg:px-8 border-2 w-full max-w-7xl">
+      <CardHeader className="pb-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-xl text-white">
-              API Information: {modelName}
-            </CardTitle>
-            <p className="text-gray-300">
-              Access OpenAI-compatible API endpoints for this model
-            </p>
-          </div>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            className="flex items-center gap-2 p-0 h-auto text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Models
+          </Button>
           <Button
             variant="outline"
             onClick={onClose}
-            className="border-gray-600 hover:bg-gray-800 text-white"
+            className="border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-white"
           >
             Close
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="p-6 bg-black">
+      <CardContent className="p-4">
         <div className="space-y-6">
           <Tabs defaultValue="endpoints" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-3 bg-gray-800 border border-gray-700 rounded-lg p-1">
+            <TabsList className="grid w-full grid-cols-3 bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-gray-700 rounded-lg p-1">
               <TabsTrigger
                 value="endpoints"
-                className="flex items-center gap-2 data-[state=active]:bg-gray-700 data-[state=active]:shadow-sm rounded-md transition-all text-white"
+                className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-900 data-[state=active]:shadow-sm rounded-md transition-all text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white data-[state=active]:text-gray-900 dark:data-[state=active]:text-white"
               >
                 <svg
                   className="w-4 h-4"
@@ -100,7 +101,7 @@ export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
               </TabsTrigger>
               <TabsTrigger
                 value="test"
-                className="flex items-center gap-2 data-[state=active]:bg-gray-700 data-[state=active]:shadow-sm rounded-md transition-all text-white"
+                className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-900 data-[state=active]:shadow-sm rounded-md transition-all text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white data-[state=active]:text-gray-900 dark:data-[state=active]:text-white"
               >
                 <svg
                   className="w-4 h-4"
@@ -120,7 +121,7 @@ export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
               </TabsTrigger>
               <TabsTrigger
                 value="examples"
-                className="flex items-center gap-2 data-[state=active]:bg-gray-700 data-[state=active]:shadow-sm rounded-md transition-all text-white"
+                className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-900 data-[state=active]:shadow-sm rounded-md transition-all text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white data-[state=active]:text-gray-900 dark:data-[state=active]:text-white"
               >
                 <svg
                   className="w-4 h-4"
@@ -169,8 +170,8 @@ export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
             <TabsContent value="examples" className="space-y-4">
               <ExamplesTab
                 apiInfo={apiInfo}
-                getHfModelId={getHfModelId}
-                copyToClipboard={copyToClipboard}
+                modelId={modelId}
+                modelName={modelName}
               />
             </TabsContent>
           </Tabs>
@@ -178,4 +179,4 @@ export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
       </CardContent>
     </Card>
   );
-}; 
+};

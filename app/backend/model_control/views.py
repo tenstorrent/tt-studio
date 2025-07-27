@@ -788,33 +788,64 @@ class ModelAPIInfoView(APIView):
                 model_type_obj = getattr(model_impl, "model_type", None) if model_impl else None
                 model_type = getattr(model_type_obj, "value", "ChatModel") if model_type_obj else "ChatModel"
                 
-                # Get internal URL and construct proper vLLM endpoints
+                # Get internal URL and port bindings for external URL construction
                 internal_url = deploy_info.get("internal_url", "")
                 health_url = deploy_info.get("health_url", "")
+                port_bindings = deploy_info.get("port_bindings", {})
                 
-                # Construct the proper vLLM endpoints
-                # The internal_url format is: hostname:port/service_route
-                # We need to extract hostname:port and construct the proper vLLM endpoints
-                if internal_url:
-                    # Extract hostname:port from internal_url
-                    # internal_url format: hostname:port/service_route
-                    if "/v1/chat/completions" in internal_url:
-                        base_internal_url = internal_url.replace("/v1/chat/completions", "")
-                    elif "/v1/completions" in internal_url:
-                        base_internal_url = internal_url.replace("/v1/completions", "")
-                    else:
-                        # If no service route found, assume it's just hostname:port
-                        base_internal_url = internal_url
+                # Construct external URLs using port bindings
+                chat_completions_url = ""
+                completions_url = ""
+                health_endpoint_url = ""
+                
+                if internal_url and port_bindings:
+                    # Extract the service port from internal_url (e.g., "container_name:7000/v1/chat/completions" -> "7000")
+                    service_port = None
+                    if ":" in internal_url:
+                        service_port = internal_url.split(":")[1].split("/")[0]
                     
-                    # Construct the proper vLLM endpoints
-                    # These should be the actual vLLM server endpoints
-                    chat_completions_url = f"http://{base_internal_url}/v1/chat/completions"
-                    completions_url = f"http://{base_internal_url}/v1/completions"
-                    health_endpoint_url = f"http://{health_url}" if health_url else f"http://{base_internal_url}/health"
-                else:
-                    chat_completions_url = ""
-                    completions_url = ""
-                    health_endpoint_url = ""
+                    # Find the external port mapping for this service port
+                    external_host = "localhost"  # Default to localhost for external access
+                    external_port = None
+                    
+                    # Look for the port binding that matches the service port
+                    for container_port, host_bindings in port_bindings.items():
+                        if container_port and host_bindings:
+                            # container_port format: "7000/tcp"
+                            container_port_num = container_port.split("/")[0]
+                            if container_port_num == service_port:
+                                # host_bindings format: [{"HostIp": "0.0.0.0", "HostPort": "8013"}]
+                                if host_bindings and len(host_bindings) > 0:
+                                    external_port = host_bindings[0].get("HostPort")
+                                    host_ip = host_bindings[0].get("HostIp", "0.0.0.0")
+                                    # Use localhost for external access instead of 0.0.0.0
+                                    if host_ip == "0.0.0.0":
+                                        external_host = "localhost"
+                                    else:
+                                        external_host = host_ip
+                                break
+                    
+                    # Construct external URLs if we found the port mapping
+                    if external_port:
+                        base_external_url = f"http://{external_host}:{external_port}"
+                        chat_completions_url = f"{base_external_url}/v1/chat/completions"
+                        completions_url = f"{base_external_url}/v1/completions"
+                        health_endpoint_url = f"{base_external_url}/health"
+                    else:
+                        # Fallback to internal URL if no port mapping found
+                        logger.warning(f"No port mapping found for service port {service_port} in {deploy_id}")
+                        if internal_url:
+                            # Extract hostname:port from internal_url
+                            if "/v1/chat/completions" in internal_url:
+                                base_internal_url = internal_url.replace("/v1/chat/completions", "")
+                            elif "/v1/completions" in internal_url:
+                                base_internal_url = internal_url.replace("/v1/completions", "")
+                            else:
+                                base_internal_url = internal_url
+                            
+                            chat_completions_url = f"http://{base_internal_url}/v1/chat/completions"
+                            completions_url = f"http://{base_internal_url}/v1/completions"
+                            health_endpoint_url = f"http://{health_url}" if health_url else f"http://{base_internal_url}/health"
                 
                 # Generate JWT token for this model
                 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
@@ -846,7 +877,11 @@ class ModelAPIInfoView(APIView):
                         "tt_studio_backend": f"{base_url}/models-api/inference/"
                     },
                     "deploy_info": {
-                        "model_impl": getattr(model_impl, "asdict", lambda: {})() if model_impl else {},
+                        "model_impl": {
+                            "model_name": getattr(model_impl, "model_name", None) if model_impl else None,
+                            "hf_model_id": getattr(model_impl, "hf_model_id", None) if model_impl else None,
+                            "model_type": model_type,  # Use the string value instead of the enum object
+                        } if model_impl else {},
                         "internal_url": internal_url,
                         "health_url": health_url
                     }

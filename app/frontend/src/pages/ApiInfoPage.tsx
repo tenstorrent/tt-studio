@@ -6,7 +6,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { ArrowLeft } from "lucide-react";
-import { ModelAPIInfo } from "../components/ModelAPIInfo";
+import { ModelAPIInfo } from "../components/ModelAPIInfo/ModelAPIInfo";
 import { Spinner } from "../components/ui/spinner";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { XCircle } from "lucide-react";
@@ -100,50 +100,35 @@ const ApiInfoPage = () => {
   });
 
   return (
-    <div className="h-screen flex-1 w-full dark:bg-black bg-white dark:bg-dot-white/[0.2] bg-dot-black/[0.2] relative">
-      {/* Radial gradient for the container to give a faded look */}
-      <div
-        className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
-        style={{
-          maskImage:
-            "radial-gradient(ellipse at center, transparent 65%, black 100%)",
-        }}
-      ></div>
-      <div className="flex flex-col h-screen w-full md:px-20 pt-12 pb-28 overflow-auto">
-        <Card className="border-0 shadow-none">
-          <CardContent className="p-6">
-            <Button
-              variant="ghost"
-              onClick={handleBack}
-              className="mb-4 flex items-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Models
-            </Button>
-
-            {loading ? (
-              <div className="flex items-center justify-center p-8">
-                <Spinner className="w-8 h-8" />
-                <span className="ml-2">Loading API information...</span>
-              </div>
-            ) : error ? (
+    <div className="flex flex-grow justify-center w-full h-screen pt-16">
+      <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
+        {loading ? (
+          <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
+            <CardContent className="flex items-center justify-center p-8">
+              <Spinner className="w-8 h-8" />
+              <span className="ml-2">Loading API information...</span>
+            </CardContent>
+          </Card>
+        ) : error ? (
+          <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
+            <CardContent className="p-6">
               <Alert className="bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800">
                 <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
                 <AlertDescription className="text-red-800 dark:text-red-200">
                   {error}
                 </AlertDescription>
               </Alert>
-            ) : (
-              modelId && (
-                <ModelAPIInfo
-                  modelId={modelId}
-                  modelName={modelName}
-                  onClose={handleBack}
-                />
-              )
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ) : (
+          modelId && (
+            <ModelAPIInfo
+              modelId={modelId}
+              modelName={modelName}
+              onClose={handleBack}
+            />
+          )
+        )}
       </div>
     </div>
   );

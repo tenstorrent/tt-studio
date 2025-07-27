@@ -42,7 +42,6 @@ import {
 } from "../api/modelsDeployedApis";
 import { NoModelsDialog } from "./NoModelsDeployed";
 import { ModelsDeployedSkeleton } from "./ModelsDeployedSkeleton";
-import { ModelAPIInfo } from "./ModelAPIInfo";
 import { useRefresh } from "../hooks/useRefresh";
 import { useModels } from "../hooks/useModels";
 import {
