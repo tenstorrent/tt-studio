@@ -21,4 +21,5 @@ urlpatterns = [
     path("health/", views.ModelHealthView.as_view()),
     path("inference_cloud/", views.InferenceCloudView.as_view()),
     path("logs/<str:container_id>/", views.ContainerLogsView.as_view(), name="container-logs"),
+    path("api-info/", views.ModelAPIInfoView.as_view()),
 ]

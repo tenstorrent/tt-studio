@@ -64,6 +64,7 @@ import {
   ChevronUp,
   AlertTriangle,
   RefreshCw,
+  Code,
 } from "lucide-react";
 import {
   Dialog,
@@ -931,6 +932,13 @@ export default function ModelsDeployedTable() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
+  // API Info state
+  const [showAPIInfo, setShowAPIInfo] = useState(false);
+  const [selectedModelForAPI, setSelectedModelForAPI] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
   // Check URL params for auto-opening logs
   useEffect(() => {
     console.log("=== URL PARAM PROCESSING EFFECT ===");
@@ -1069,6 +1077,18 @@ export default function ModelsDeployedTable() {
       setLoadingModels((prev) => prev.filter((id) => id !== deleteTargetId));
       setPulsatingModels((prev) => prev.filter((id) => id !== deleteTargetId));
     }
+  };
+
+  // Update handleAPIInfo to navigate to the new page
+  const handleAPIInfo = (modelId: string, modelName: string) => {
+    console.log(
+      "ModelsDeployedTable: Navigating to API info page with modelId:",
+      modelId
+    );
+    // Ensure the modelId is properly encoded for the URL
+    const encodedModelId = encodeURIComponent(modelId);
+    console.log("ModelsDeployedTable: Encoded modelId:", encodedModelId);
+    navigate(`/api-info/${encodedModelId}`);
   };
 
   useEffect(() => {
@@ -1532,6 +1552,26 @@ export default function ModelsDeployedTable() {
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    onClick={() =>
+                                      handleAPIInfo(model.id, model.name)
+                                    }
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-1"
+                                  >
+                                    <Code className="w-3 h-3" />
+                                    API
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>View API information and test endpoints</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </>
                         )}
                       </div>
@@ -1558,6 +1598,7 @@ export default function ModelsDeployedTable() {
         containerId={selectedContainerId || ""}
         setSelectedContainerId={setSelectedContainerId}
       />
+
       <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
         <DialogContent className="sm:max-w-md p-6 rounded-lg shadow-lg bg-zinc-900 text-white border border-yellow-700">
           <DialogHeader>
@@ -1610,15 +1651,3 @@ export default function ModelsDeployedTable() {
     </Card>
   );
 }
-
-/* Add this to the bottom of the file or in a global CSS file if not already present */
-/*
-.resizable-dialog {
-  resize: both;
-  overflow: auto;
-  min-width: 400px;
-  min-height: 300px;
-  max-width: 90vw;
-  max-height: 90vh;
-}
-*/

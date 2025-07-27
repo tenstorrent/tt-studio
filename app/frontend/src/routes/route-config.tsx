@@ -50,6 +50,7 @@ import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import AudioDetectionPage from "../pages/AudioDetectionPage";
+import ApiInfoPage from "../pages/ApiInfoPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -109,6 +110,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/speech-to-text",
       element: <AudioDetectionPage />,
+      condition: true,
+    },
+    {
+      path: "/api-info/:modelId",
+      element: <ApiInfoPage />,
       condition: true,
     },
     {

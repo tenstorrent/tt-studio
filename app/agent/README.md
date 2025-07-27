@@ -1,360 +1,186 @@
-# Enhanced TT-Studio Agent
+# Agent Service
 
-The enhanced TT-Studio agent provides automatic discovery and health monitoring of local LLM containers, with intelligent fallback strategies and seamless switching between different LLM endpoints.
+This is the agent service for TT-Studio, which provides an intelligent assistant that can interact with various LLM (Large Language Model) endpoints.
 
 ## Features
 
-### 🔍 **Dynamic LLM Discovery**
+- **Multi-LLM Support**: Can work with cloud LLMs, local containers, and discovered models
+- **Auto-Discovery**: Automatically discovers available LLM containers
+- **Health Monitoring**: Monitors LLM health and switches to healthy alternatives
+- **LLM Polling**: Waits for LLM availability instead of crashing
+- **Dynamic Configuration**: Supports runtime configuration changes
+- **Code Execution**: Optional code interpreter tool integration
 
-- Automatically discovers local LLM containers via backend API
-- Filters only healthy and chat-compatible models
-- Intelligent model selection based on priority criteria
-- Caching for performance optimization
+## LLM Polling Feature
 
-### 🏥 **Health Monitoring**
+The agent now includes a robust LLM polling mechanism that prevents the service from crashing when no LLM is available. Instead, it will:
 
-- Continuous health checks for local LLM containers
-- Automatic failover to healthy alternatives
-- Configurable failure thresholds and intervals
-- Real-time status reporting
+1. **Wait for LLM**: Continuously poll for LLM availability every 3 minutes (configurable)
+2. **Graceful Degradation**: Return appropriate status messages while waiting
+3. **Auto-Recovery**: Automatically initialize once an LLM becomes available
+4. **Configurable**: Polling behavior can be customized via environment variables
 
-### 🔄 **Smart Fallback Strategy**
+### Configuration
 
-- Priority-based LLM selection:
-  1. Cloud LLM (if configured)
-  2. Environment-specified local container
-  3. Auto-discovered local containers
-  4. Local host LLM
-- Seamless switching without service interruption
-
-### ⚙️ **Configuration Management**
-
-- Centralized configuration via environment variables
-- Configuration validation and error reporting
-- Debug mode for troubleshooting
-
-## Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Agent API     │    │  LLM Discovery   │    │ Health Monitor  │
-│                 │    │     Service      │    │                 │
-│ • /poll_requests│◄──►│ • Auto-discovery │◄──►│ • Health checks │
-│ • /status       │    │ • Model selection│    │ • Auto-failover │
-│ • /refresh      │    │ • Caching        │    │ • Status report │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  CustomLLM      │    │ Backend API      │    │ Local LLM       │
-│                 │    │                  │    │ Containers      │
-│ • Cloud mode    │    │ • /models/deployed│   │ • Health checks │
-│ • Local mode    │    │ • Container info │    │ • Chat endpoints│
-│ • Discovered    │    │ • Network info   │    │ • Auto-recovery │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
-
-## Configuration
-
-### Environment Variables
-
-#### Discovery Configuration
+The following environment variables control the LLM polling behavior:
 
 ```bash
-# Enable/disable auto-discovery (default: true)
-AGENT_AUTO_DISCOVERY=true
+# Enable/disable LLM polling (default: true)
+AGENT_LLM_POLLING_ENABLED=true
 
-# Discovery cache TTL in seconds (default: 30)
-AGENT_DISCOVERY_CACHE_TTL=30
+# Polling interval in seconds (default: 180 = 3 minutes)
+AGENT_LLM_POLLING_INTERVAL=180
 
-# Discovery interval in seconds (default: 60)
-AGENT_DISCOVERY_INTERVAL=60
+# Maximum polling attempts (default: 0 = infinite)
+AGENT_LLM_POLLING_MAX_ATTEMPTS=0
 ```
 
-#### Health Monitoring Configuration
+### Status Endpoints
 
-```bash
-# Enable/disable health monitoring (default: true)
-AGENT_HEALTH_CHECK_ENABLED=true
+The agent provides status endpoints that reflect the current state:
 
-# Health check interval in seconds (default: 30)
-AGENT_HEALTH_CHECK_INTERVAL=30
+- **`GET /`**: Health check with initialization status
+- **`GET /status`**: Detailed status including available models
+- **`POST /poll_requests`**: Request handling (returns waiting message if not ready)
 
-# Health check timeout in seconds (default: 5)
-AGENT_HEALTH_CHECK_TIMEOUT=5
+### Example Status Responses
 
-# Maximum failures before failover (default: 3)
-AGENT_MAX_FAILURES=3
-```
+**When initializing (waiting for LLM):**
 
-#### Fallback Configuration
-
-```bash
-# Enable fallback to local host LLM (default: true)
-AGENT_FALLBACK_TO_LOCAL=true
-
-# Enable fallback to cloud LLM (default: false)
-AGENT_FALLBACK_TO_CLOUD=false
-```
-
-#### LLM Priority Configuration
-
-```bash
-# Comma-separated list of priority models (larger models first)
-AGENT_PRIORITY_MODELS=llama-3.1-70b,llama-3.1-8b,mistral-7b,falcon-7b
-```
-
-#### Network Configuration
-
-```bash
-# Backend API URL (default: http://tt-studio-backend-api:8000)
-AGENT_BACKEND_URL=http://tt-studio-backend-api:8000
-
-# Local host LLM configuration
-LOCAL_LLM_HOST=localhost
-LOCAL_LLM_PORT=7000
-LOCAL_MODEL_NAME=llama-3.1-70b
-```
-
-#### Authentication Configuration
-
-```bash
-# JWT secret for local authentication
-JWT_SECRET=your-jwt-secret
-
-# Cloud authentication token
-CLOUD_CHAT_UI_AUTH_TOKEN=your-cloud-token
-```
-
-#### Cloud Configuration
-
-```bash
-# Enable cloud LLM mode
-USE_CLOUD_LLM=true
-
-# Cloud endpoint URL
-CLOUD_CHAT_UI_URL=https://api.openai.com/v1/chat/completions
-
-# Cloud model name
-CLOUD_MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct
-```
-
-#### Local Container Configuration
-
-```bash
-# Specific container name (overrides auto-discovery)
-LLM_CONTAINER_NAME=my-llm-container
-```
-
-#### Logging Configuration
-
-```bash
-# Log level (DEBUG, INFO, WARNING, ERROR)
-AGENT_LOG_LEVEL=INFO
-
-# Enable debug mode
-AGENT_DEBUG_MODE=false
-```
-
-## API Endpoints
-
-### Health Check
-
-```http
-GET /
-```
-
-Returns basic health status and LLM information.
-
-### Detailed Status
-
-```http
-GET /status
-```
-
-Returns detailed status including:
-
-- Agent status
-- Current LLM configuration
-- Health monitoring status
-- Discovery service summary
-- Environment configuration
-
-### Manual Refresh
-
-```http
-POST /refresh
-```
-
-Manually triggers LLM discovery and refresh.
-
-### Chat Requests
-
-```http
-POST /poll_requests
-Content-Type: application/json
-
+```json
 {
-  "message": "Hello, how are you?",
-  "thread_id": "12345"
+  "message": "Agent server is running but waiting for LLM",
+  "status": "initializing",
+  "llm_mode": "none",
+  "llm_info": "No LLM available yet",
+  "next_poll": "Will retry every 3 minutes"
 }
 ```
 
-## Usage Examples
+**When ready:**
 
-### Basic Setup (Auto-Discovery)
-
-```bash
-# Start with auto-discovery enabled
-AGENT_AUTO_DISCOVERY=true
-AGENT_HEALTH_CHECK_ENABLED=true
-AGENT_FALLBACK_TO_LOCAL=true
-
-# The agent will automatically:
-# 1. Discover local LLM containers
-# 2. Select the best available model
-# 3. Start health monitoring
-# 4. Provide fallback if needed
+```json
+{
+  "message": "Agent server is running",
+  "status": "ready",
+  "llm_mode": "local",
+  "llm_info": "Discovered: Llama-3.1-70B-Instruct"
+}
 ```
 
-### Cloud-First Setup
+## Quick Start
 
-```bash
-# Prioritize cloud LLM with local fallback
-USE_CLOUD_LLM=true
-CLOUD_CHAT_UI_AUTH_TOKEN=your-token
-AGENT_FALLBACK_TO_LOCAL=true
-AGENT_AUTO_DISCOVERY=true
-```
+1. **Start the agent service:**
 
-### Local-Only Setup
+   ```bash
+   cd app/agent
+   python agent.py
+   ```
 
-```bash
-# Use only local containers
-USE_CLOUD_LLM=false
-AGENT_AUTO_DISCOVERY=true
-AGENT_FALLBACK_TO_LOCAL=true
-```
+2. **Check status:**
 
-### Specific Container Setup
+   ```bash
+   curl http://localhost:8080/
+   ```
 
-```bash
-# Use specific container (disables auto-discovery)
-LLM_CONTAINER_NAME=my-llm-container
-AGENT_AUTO_DISCOVERY=false
-```
+3. **Test with requests:**
+   ```bash
+   curl -X POST http://localhost:8080/poll_requests \
+     -H "Content-Type: application/json" \
+     -d '{"message": "Hello", "thread_id": "test-123"}'
+   ```
 
-## Monitoring and Debugging
+## Environment Variables
 
-### Status Monitoring
+### Core Configuration
 
-```bash
-# Check agent status
-curl http://localhost:8080/status
+- `JWT_SECRET`: Secret for JWT authentication
+- `TAVILY_API_KEY`: API key for search functionality
+- `E2B_API_KEY`: API key for code execution (optional)
 
-# Check basic health
-curl http://localhost:8080/
-```
+### LLM Configuration
 
-### Log Analysis
+- `USE_CLOUD_LLM`: Enable cloud LLM (true/false)
+- `CLOUD_CHAT_UI_URL`: Cloud LLM endpoint URL
+- `CLOUD_CHAT_UI_AUTH_TOKEN`: Cloud LLM authentication token
+- `LLM_CONTAINER_NAME`: Specific local container to use
+- `AGENT_BACKEND_URL`: Backend API URL for model discovery
 
-The agent provides detailed logging for:
+### Discovery Configuration
 
-- LLM discovery process
-- Health check results
-- Failover events
-- Configuration issues
+- `AGENT_AUTO_DISCOVERY`: Enable auto-discovery (true/false)
+- `AGENT_DISCOVERY_CACHE_TTL`: Discovery cache TTL in seconds
+- `AGENT_DISCOVERY_INTERVAL`: Discovery interval in seconds
 
-### Debug Mode
+### Health Monitoring
 
-Enable debug mode for detailed logging:
+- `AGENT_HEALTH_CHECK_ENABLED`: Enable health monitoring (true/false)
+- `AGENT_HEALTH_CHECK_INTERVAL`: Health check interval in seconds
+- `AGENT_HEALTH_CHECK_TIMEOUT`: Health check timeout in seconds
+- `AGENT_MAX_FAILURES`: Maximum failures before switching LLM
 
-```bash
-AGENT_DEBUG_MODE=true
-AGENT_LOG_LEVEL=DEBUG
-```
+### Polling Configuration
+
+- `AGENT_LLM_POLLING_ENABLED`: Enable LLM polling (true/false)
+- `AGENT_LLM_POLLING_INTERVAL`: Polling interval in seconds
+- `AGENT_LLM_POLLING_MAX_ATTEMPTS`: Maximum polling attempts
+
+## API Endpoints
+
+### Health and Status
+
+- `GET /`: Health check with initialization status
+- `GET /status`: Detailed status including available models
+- `GET /test_llm`: Test current LLM connection
+
+### Request Handling
+
+- `POST /poll_requests`: Process chat requests
+- `POST /refresh`: Refresh LLM selection
+- `POST /select_model`: Select specific model by deploy ID
+- `POST /refresh_config`: Refresh configuration
 
 ## Troubleshooting
 
-### Common Issues
+### Agent Not Starting
 
-#### No LLM Available
+1. Check if required environment variables are set
+2. Verify backend service is running
+3. Check logs for specific error messages
 
-- Check if any LLM containers are deployed
-- Verify backend API connectivity
-- Check authentication configuration
+### No LLM Available
 
-#### Health Check Failures
+1. The agent will now wait and poll instead of crashing
+2. Check the status endpoint to see current state
+3. Ensure LLM containers are running or cloud LLM is configured
 
-- Verify LLM container health endpoints
-- Check network connectivity
-- Review health check timeout settings
+### LLM Connection Issues
 
-#### Discovery Failures
+1. Use `/test_llm` endpoint to test current LLM
+2. Check health monitoring status
+3. Use `/refresh` endpoint to try different LLMs
 
-- Verify backend API is accessible
-- Check container network configuration
-- Review discovery cache settings
+## Development
 
-### Configuration Validation
-
-The agent validates configuration on startup and reports issues:
+### Running in Development Mode
 
 ```bash
-# Example validation output
-=== CONFIGURATION ISSUES ===
-WARNING: No authentication configured
-WARNING: Health check interval too low
-============================
+cd app/agent
+python agent.py
 ```
 
-## Performance Considerations
+### Testing
 
-### Caching
+```bash
+# Test the polling functionality
+python test_agent_polling.py
+```
 
-- Discovery results are cached for 30 seconds by default
-- Health check results are not cached for real-time monitoring
-- Cache TTL can be adjusted via `AGENT_DISCOVERY_CACHE_TTL`
+### Logs
 
-### Health Monitoring Overhead
+The agent provides detailed logging for debugging:
 
-- Health checks run every 30 seconds by default
-- Minimal impact on performance
-- Can be disabled for high-performance requirements
-
-### Network Optimization
-
-- Uses internal Docker network for container communication
-- Optimized for local container discovery
-- Supports external cloud endpoints
-
-## Security
-
-### Authentication
-
-- JWT-based authentication for local containers
-- Bearer token authentication for cloud endpoints
-- Secure token handling and validation
-
-### Network Security
-
-- Internal Docker network communication
-- Health check endpoints for security validation
-- Configurable timeouts and retry limits
-
-## Future Enhancements
-
-### Planned Features
-
-- WebSocket-based real-time updates
-- Advanced model selection algorithms
-- Metrics collection and monitoring
-- Load balancing across multiple LLMs
-- A/B testing capabilities
-
-### Extensibility
-
-- Plugin architecture for custom discovery methods
-- Custom health check implementations
-- Configurable model selection strategies
-- Integration with external monitoring systems
+- LLM discovery attempts
+- Health monitoring results
+- Polling status updates
+- Configuration changes

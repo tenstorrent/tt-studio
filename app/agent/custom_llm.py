@@ -91,6 +91,11 @@ class CustomLLM(BaseChatModel):
                 role = "user"  # Fallback
             message_payload.append({"role": role, "content": str(msg.content)})
         
+        # Check if tools are available in kwargs
+        tools = kwargs.get("tools", [])
+        if tools:
+            print(f"[DEBUG] Tools available: {[tool.get('function', {}).get('name', 'unknown') for tool in tools]}")
+        
         if self.is_cloud:
             # Handle cloud LLM endpoint (e.g., OpenAI API format)
             headers = {"Authorization": f"Bearer {self.encoded_jwt}"}
@@ -102,6 +107,11 @@ class CustomLLM(BaseChatModel):
                 "max_tokens": 512,
                 "stream": True,
             }
+            
+            # Add tools if available
+            if tools:
+                json_data["tools"] = tools
+                json_data["tool_choice"] = "auto"
             
         else:
             # Handle local or discovered LLM containers
@@ -131,6 +141,11 @@ class CustomLLM(BaseChatModel):
                 "stop": ["<|eot_id|>"],
                 "stream_options": {"include_usage": True, "continuous_usage_stats": True}
             }
+            
+            # Add tools if available
+            if tools:
+                json_data["tools"] = tools
+                json_data["tool_choice"] = "auto"
 
         print(f"***Making request to: {self.server_url}")
         redacted_headers = {key: ("<REDACTED>" if key.lower() == "authorization" else value) for key, value in headers.items()}
@@ -182,10 +197,25 @@ class CustomLLM(BaseChatModel):
                                     parsed_chunk = json.loads(chunk_data)
                                     if "choices" in parsed_chunk and len(parsed_chunk["choices"]) > 0:
                                         delta = parsed_chunk["choices"][0].get("delta", {})
-                                        content = delta.get("content", "")
-                                        if content:
-                                            new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
-                                            yield new_chunk
+                                        
+                                        # Handle tool calls
+                                        if "tool_calls" in delta:
+                                            tool_calls = delta["tool_calls"]
+                                            for tool_call in tool_calls:
+                                                # Create a tool call message
+                                                new_chunk = ChatGenerationChunk(
+                                                    message=AIMessageChunk(
+                                                        content="",
+                                                        tool_calls=[tool_call]
+                                                    )
+                                                )
+                                                yield new_chunk
+                                        else:
+                                            # Handle regular content
+                                            content = delta.get("content", "")
+                                            if content:
+                                                new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                                                yield new_chunk
                                 except json.JSONDecodeError as e:
                                     print(f"[DEBUG] JSON decode error in cloud response: {e}")
                                     continue
@@ -206,13 +236,30 @@ class CustomLLM(BaseChatModel):
                                     print(f"[DEBUG] Parsed chunk: {parsed_chunk}")
                                     if "choices" in parsed_chunk and len(parsed_chunk["choices"]) > 0:
                                         choice = parsed_chunk["choices"][0]
-                                        if "delta" in choice and "content" in choice["delta"]:
-                                            content = choice["delta"]["content"]
-                                            print(f"[DEBUG] Extracted content: {repr(content)}")
-                                            new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
-                                            yield new_chunk
+                                        if "delta" in choice:
+                                            delta = choice["delta"]
+                                            
+                                            # Handle tool calls
+                                            if "tool_calls" in delta:
+                                                tool_calls = delta["tool_calls"]
+                                                for tool_call in tool_calls:
+                                                    print(f"[DEBUG] Tool call: {tool_call}")
+                                                    new_chunk = ChatGenerationChunk(
+                                                        message=AIMessageChunk(
+                                                            content="",
+                                                            tool_calls=[tool_call]
+                                                        )
+                                                    )
+                                                    yield new_chunk
+                                            elif "content" in delta:
+                                                content = delta["content"]
+                                                print(f"[DEBUG] Extracted content: {repr(content)}")
+                                                new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                                                yield new_chunk
+                                            else:
+                                                print(f"[DEBUG] No content or tool_calls in delta: {delta}")
                                         else:
-                                            print(f"[DEBUG] No content in delta: {choice}")
+                                            print(f"[DEBUG] No delta in choice: {choice}")
                                     else:
                                         print(f"[DEBUG] No choices in response: {parsed_chunk}")
                                 except (json.JSONDecodeError, KeyError) as e:

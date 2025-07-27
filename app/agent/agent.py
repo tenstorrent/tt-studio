@@ -288,33 +288,133 @@ def start_health_monitoring():
     else:
         print("Health monitoring disabled or not applicable")
 
-# Initialize LLM and agent
-try:
-    current_llm = initialize_llm()
+# Global variables for agent state
+current_llm = None
+agent_executer = None
+memory = None
+tools = []
+llm_initialization_complete = False
+
+def initialize_agent_components():
+    """Initialize agent components once LLM is available"""
+    global current_llm, agent_executer, memory, tools, llm_initialization_complete
     
-    # Setup agent executor
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
+    if current_llm is None:
+        return False
     
-    search = TavilySearchResults(
-        max_results=2,
-        include_answer=True,
-        include_raw_content=True)
-    tools = [search]
-    agent_executer = setup_executer(current_llm, memory, tools)
+    try:
+        # Setup agent executor
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
+        
+        # Initialize tools
+        tools = []
+        
+        # Add search tool
+        search = TavilySearchResults(
+            max_results=2,
+            include_answer=True,
+            include_raw_content=True)
+        tools.append(search)
+        
+        # Add code interpreter tool if E2B_API_KEY is available
+        try:
+            code_tool = CodeInterpreterFunctionTool()
+            tools.append(code_tool.to_langchain_tool())
+            print("✓ Code interpreter tool enabled")
+        except Exception as e:
+            print(f"⚠ Code interpreter tool disabled: {e}")
+            print("   To enable code execution, set the E2B_API_KEY environment variable")
+            print("   Get your API key from: https://e2b.dev/docs")
+        
+        agent_executer = setup_executer(current_llm, memory, tools)
+        
+        # Start health monitoring for local LLMs
+        start_health_monitoring()
+        
+        llm_initialization_complete = True
+        print("=== Agent Initialization Complete ===")
+        print(f"Available tools: {[tool.name for tool in tools]}")
+        return True
+        
+    except Exception as e:
+        print(f"Failed to initialize agent components: {e}")
+        return False
+
+async def poll_for_llm():
+    """Continuously poll for LLM availability"""
+    global current_llm, llm_initialization_complete
     
-    # Start health monitoring for local LLMs
-    start_health_monitoring()
+    # Check if polling is enabled
+    if not AgentConfig.LLM_POLLING_ENABLED:
+        print("LLM polling is disabled, agent will not wait for LLM")
+        return False
     
-    print("=== Agent Initialization Complete ===")
+    poll_interval = AgentConfig.LLM_POLLING_INTERVAL
+    max_attempts = AgentConfig.LLM_POLLING_MAX_ATTEMPTS
     
-except Exception as e:
-    print(f"Failed to initialize agent: {e}")
-    raise
+    print("=== Starting LLM Polling ===")
+    print(f"Will poll every {poll_interval} seconds for LLM availability...")
+    if max_attempts > 0:
+        print(f"Maximum attempts: {max_attempts}")
+    else:
+        print("Will poll indefinitely until LLM becomes available")
+    
+    attempt = 0
+    while True:
+        attempt += 1
+        if max_attempts > 0 and attempt > max_attempts:
+            print(f"Reached maximum attempts ({max_attempts}), stopping polling")
+            break
+            
+        try:
+            print(f"\n[Attempt {attempt}] Trying to initialize LLM...")
+            current_llm = initialize_llm()
+            
+            if current_llm:
+                print(f"✓ LLM found: {current_llm}")
+                if initialize_agent_components():
+                    print("✓ Agent fully initialized and ready!")
+                    break
+                else:
+                    print("⚠ LLM found but agent initialization failed, will retry...")
+                    current_llm = None
+            else:
+                print("⚠ No LLM available yet")
+                
+        except Exception as e:
+            print(f"⚠ LLM initialization attempt {attempt} failed: {e}")
+            current_llm = None
+        
+        if current_llm is None:
+            print(f"⏳ Waiting {poll_interval} seconds before next attempt...")
+            await asyncio.sleep(poll_interval)
+    
+    return current_llm is not None
+
+# Start LLM polling in background
+@app.on_event("startup")
+async def startup_event():
+    """Start LLM polling on startup"""
+    if AgentConfig.LLM_POLLING_ENABLED:
+        print("Starting LLM polling in background...")
+        asyncio.create_task(poll_for_llm())
+    else:
+        print("LLM polling is disabled, agent will not wait for LLM")
 
 @app.post("/poll_requests")
 async def handle_requests(payload: RequestPayload):
+    global current_llm, agent_executer, llm_initialization_complete
+    
     print('[TRACE_FLOW_STEP_4_AGENT_ENTRY] handle_requests called', {'thread_id': payload.thread_id, 'message': payload.message})
+    
+    # Check if agent is ready
+    if not llm_initialization_complete or current_llm is None or agent_executer is None:
+        return StreamingResponse(
+            iter([f"data: {json.dumps({'status': 'waiting', 'message': 'Agent is still initializing, waiting for LLM to become available...'})}\n\n"]),
+            media_type="text/plain"
+        )
+    
     config = {"configurable": {"thread_id": payload.thread_id}}
     try:
         # use await to prevent handle_requests from blocking, allow other tasks to execute
@@ -325,7 +425,19 @@ async def handle_requests(payload: RequestPayload):
 @app.get("/")
 def read_root():
     """Health check endpoint with enhanced status information"""
-    global current_llm, health_monitor
+    global current_llm, health_monitor, llm_initialization_complete
+    
+    # Check if agent is ready
+    if not llm_initialization_complete or current_llm is None:
+        return {
+            "message": "Agent server is running but waiting for LLM",
+            "status": "initializing",
+            "llm_mode": "none",
+            "llm_info": "No LLM available yet",
+            "health_monitoring": "N/A",
+            "discovery_summary": "N/A",
+            "next_poll": "Will retry every 3 minutes"
+        }
     
     # Get LLM status
     llm_mode = "cloud" if current_llm and current_llm.is_cloud else "local"
@@ -349,6 +461,7 @@ def read_root():
     
     return {
         "message": "Agent server is running",
+        "status": "ready",
         "llm_mode": llm_mode,
         "llm_info": llm_info,
         "health_monitoring": health_status,
@@ -358,9 +471,27 @@ def read_root():
 @app.get("/status")
 def get_status():
     """Get dynamic status of the agent and all available LLMs"""
-    global current_llm, discovery_service
+    global current_llm, discovery_service, llm_initialization_complete
     
     try:
+        # Check if agent is ready
+        if not llm_initialization_complete or current_llm is None:
+            return {
+                "status": "initializing",
+                "message": "Agent is still initializing, waiting for LLM to become available",
+                "current_llm": None,
+                "available_models": [],
+                "discovery_summary": {"total": 0, "healthy": 0, "degraded": 0, "unhealthy": 0},
+                "configuration": {
+                    "auto_discovery_enabled": AgentConfig.AUTO_DISCOVERY_ENABLED,
+                    "health_check_enabled": AgentConfig.HEALTH_CHECK_ENABLED,
+                    "fallback_to_local": AgentConfig.FALLBACK_TO_LOCAL,
+                    "use_cloud_llm": AgentConfig.USE_CLOUD_LLM,
+                    "priority_models": AgentConfig.get_priority_models()
+                },
+                "next_poll": "Will retry every 3 minutes"
+            }
+        
         # Get current LLM info
         current_llm_info = None
         if current_llm:
@@ -395,7 +526,7 @@ def get_status():
         discovery_status = discovery_service.get_llm_status_summary()
         
         return {
-            "status": "running",
+            "status": "ready",
             "current_llm": current_llm_info,
             "available_models": available_models,
             "discovery_summary": discovery_status,
