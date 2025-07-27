@@ -13,6 +13,7 @@ import datetime
 import docker
 from docker.errors import NotFound
 import json
+import jwt
 
 from rest_framework import status
 from rest_framework.views import APIView
@@ -50,6 +51,7 @@ from model_control.model_utils import (
 )
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
+from shared_config.backend_config import backend_config
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -781,11 +783,38 @@ class ModelAPIInfoView(APIView):
                 base_url = request.build_absolute_uri('/').rstrip('/')
                 
                 # Extract model information
-                model_name = deploy_info.get("model_impl", {}).model_name if hasattr(deploy_info.get("model_impl"), "model_name") else "Unknown"
-                model_type = deploy_info.get("model_impl", {}).model_type.value if hasattr(deploy_info.get("model_impl", {}).model_type, "value") else "ChatModel"
+                model_impl = deploy_info.get("model_impl", {})
+                model_name = getattr(model_impl, "model_name", "Unknown") if model_impl else "Unknown"
+                model_type_obj = getattr(model_impl, "model_type", None) if model_impl else None
+                model_type = getattr(model_type_obj, "value", "ChatModel") if model_type_obj else "ChatModel"
                 
-                # The API URL should always point to the TT Studio backend, not directly to vLLM
-                api_url = f"{base_url}/models-api/inference/"
+                # Get internal URL and construct proper vLLM endpoints
+                internal_url = deploy_info.get("internal_url", "")
+                health_url = deploy_info.get("health_url", "")
+                
+                # Construct the proper vLLM endpoints
+                # The internal_url format is: hostname:port/service_route
+                # We need to extract hostname:port and construct the proper vLLM endpoints
+                if internal_url:
+                    # Extract hostname:port from internal_url
+                    # internal_url format: hostname:port/service_route
+                    if "/v1/chat/completions" in internal_url:
+                        base_internal_url = internal_url.replace("/v1/chat/completions", "")
+                    elif "/v1/completions" in internal_url:
+                        base_internal_url = internal_url.replace("/v1/completions", "")
+                    else:
+                        # If no service route found, assume it's just hostname:port
+                        base_internal_url = internal_url
+                    
+                    # Construct the proper vLLM endpoints
+                    # These should be the actual vLLM server endpoints
+                    chat_completions_url = f"http://{base_internal_url}/v1/chat/completions"
+                    completions_url = f"http://{base_internal_url}/v1/completions"
+                    health_endpoint_url = f"http://{health_url}" if health_url else f"http://{base_internal_url}/health"
+                else:
+                    chat_completions_url = ""
+                    completions_url = ""
+                    health_endpoint_url = ""
                 
                 # Generate JWT token for this model
                 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
@@ -795,23 +824,31 @@ class ModelAPIInfoView(APIView):
                 # Create example payload based on model type
                 example_payload = self._get_example_payload(model_type, deploy_info)
                 
-                # Create curl example
-                curl_example = self._get_curl_example(api_url, encoded_jwt, example_payload, model_type)
+                # Create curl examples for both chat completions and completions APIs
+                chat_curl_example = self._get_chat_curl_example(chat_completions_url, encoded_jwt, deploy_info)
+                completions_curl_example = self._get_completions_curl_example(completions_url, encoded_jwt, deploy_info)
                 
                 api_info[deploy_id] = {
                     "model_name": model_name,
                     "model_type": model_type,
-                    "api_url": api_url,
+                    "hf_model_id": getattr(model_impl, "hf_model_id", None) if model_impl else None,
                     "jwt_secret": jwt_secret,
                     "jwt_token": encoded_jwt,
                     "example_payload": example_payload,
-                    "curl_example": curl_example,
-                    "internal_url": deploy_info.get("internal_url"),
-                    "health_url": deploy_info.get("health_url"),
+                    "chat_curl_example": chat_curl_example,
+                    "completions_curl_example": completions_curl_example,
+                    "internal_url": internal_url,
+                    "health_url": health_url,
+                    "endpoints": {
+                        "chat_completions": chat_completions_url,
+                        "completions": completions_url,
+                        "health": health_endpoint_url,
+                        "tt_studio_backend": f"{base_url}/models-api/inference/"
+                    },
                     "deploy_info": {
-                        "model_impl": deploy_info.get("model_impl").asdict() if hasattr(deploy_info.get("model_impl"), "asdict") else {},
-                        "internal_url": deploy_info.get("internal_url"),
-                        "health_url": deploy_info.get("health_url")
+                        "model_impl": getattr(model_impl, "asdict", lambda: {})() if model_impl else {},
+                        "internal_url": internal_url,
+                        "health_url": health_url
                     }
                 }
             
@@ -838,46 +875,109 @@ class ModelAPIInfoView(APIView):
         """Get example payload based on model type"""
         # Get the actual deploy_id for this specific model
         deploy_id = None
+        current_model_impl = deploy_info.get("model_impl", {})
+        current_model_name = getattr(current_model_impl, "model_name", None) if current_model_impl else None
+        
         for did, dinfo in get_deploy_cache().items():
-            if dinfo.get("model_impl", {}).model_name == deploy_info.get("model_impl", {}).model_name:
+            dinfo_model_impl = dinfo.get("model_impl", {})
+            dinfo_model_name = getattr(dinfo_model_impl, "model_name", None) if dinfo_model_impl else None
+            if dinfo_model_name == current_model_name:
                 deploy_id = did
                 break
         
-        base_payload = {
-            "deploy_id": deploy_id or "your_deploy_id"
-        }
+        # Get the HF model ID for the model
+        hf_model_id = getattr(current_model_impl, "hf_model_id", "meta-llama/Llama-3.2-1B-Instruct") if current_model_impl else "meta-llama/Llama-3.2-1B-Instruct"
         
         if model_type == "ChatModel":
+            # Return OpenAI-compatible format for direct model testing
             return {
-                **base_payload,
-                "prompt": "What is Tenstorrent?",
-                "temperature": 1.0,
-                "top_k": 20,
-                "top_p": 0.9,
-                "max_tokens": 128,
-                "stream": True,
-                "stop": ["<|eot_id|>"]
+                "model": hf_model_id,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "What is Tenstorrent?"
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 100,
+                "stream": False
             }
         elif model_type == "ImageGeneration":
             return {
-                **base_payload,
+                "deploy_id": deploy_id or "your_deploy_id",
                 "prompt": "A beautiful sunset over mountains"
             }
         elif model_type == "ObjectDetectionModel":
             return {
-                **base_payload,
+                "deploy_id": deploy_id or "your_deploy_id",
                 "image": "base64_encoded_image_or_file_upload"
             }
         elif model_type == "SpeechRecognitionModel":
             return {
-                **base_payload,
+                "deploy_id": deploy_id or "your_deploy_id",
                 "file": "audio_file_upload"
             }
         
-        return base_payload
+        # Fallback for unknown model types
+        return {
+            "deploy_id": deploy_id or "your_deploy_id",
+            "prompt": "What is Tenstorrent?",
+            "temperature": 1.0,
+            "top_k": 20,
+            "top_p": 0.9,
+            "max_tokens": 128,
+            "stream": True,
+            "stop": ["<|eot_id|>"]
+        }
+    
+    def _get_chat_curl_example(self, chat_url, jwt_token, deploy_info):
+        """Generate curl example for chat completions API"""
+        if not chat_url:
+            return "# Chat completions endpoint not available"
+        
+        model_impl = deploy_info.get("model_impl", {})
+        hf_model_id = getattr(model_impl, "hf_model_id", "your-model-name") if model_impl else "your-model-name"
+        
+        return f"""curl -X POST "{chat_url}" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer {jwt_token}" \\
+  -d '{{
+    "model": "{hf_model_id}",
+    "messages": [
+      {{
+        "role": "user",
+        "content": "What is Tenstorrent?"
+      }}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 100,
+    "stream": false
+  }}'"""
+    
+    def _get_completions_curl_example(self, completions_url, jwt_token, deploy_info):
+        """Generate curl example for completions API"""
+        if not completions_url:
+            return "# Completions endpoint not available"
+        
+        model_impl = deploy_info.get("model_impl", {})
+        hf_model_id = getattr(model_impl, "hf_model_id", "your-model-name") if model_impl else "your-model-name"
+        
+        return f"""curl -X POST "{completions_url}" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer {jwt_token}" \\
+  -d '{{
+    "model": "{hf_model_id}",
+    "prompt": "What is Tenstorrent?",
+    "temperature": 0.9,
+    "top_k": 20,
+    "top_p": 0.9,
+    "max_tokens": 128,
+    "stream": false,
+    "stop": ["<|eot_id|>"]
+  }}'"""
     
     def _get_curl_example(self, api_url, jwt_token, payload, model_type):
-        """Generate curl example for the API endpoint"""
+        """Generate curl example for the API endpoint (legacy method)"""
         if model_type == "ObjectDetectionModel":
             return f"""curl -X POST "{api_url}" \\
   -H "Authorization: Bearer {jwt_token}" \\

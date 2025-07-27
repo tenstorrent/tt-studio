@@ -1080,14 +1080,16 @@ export default function ModelsDeployedTable() {
     }
   };
 
+  // Update handleAPIInfo to navigate to the new page
   const handleAPIInfo = (modelId: string, modelName: string) => {
-    setSelectedModelForAPI({ id: modelId, name: modelName });
-    setShowAPIInfo(true);
-  };
-
-  const handleCloseAPIInfo = () => {
-    setShowAPIInfo(false);
-    setSelectedModelForAPI(null);
+    console.log(
+      "ModelsDeployedTable: Navigating to API info page with modelId:",
+      modelId
+    );
+    // Ensure the modelId is properly encoded for the URL
+    const encodedModelId = encodeURIComponent(modelId);
+    console.log("ModelsDeployedTable: Encoded modelId:", encodedModelId);
+    navigate(`/api-info/${encodedModelId}`);
   };
 
   useEffect(() => {
@@ -1598,22 +1600,6 @@ export default function ModelsDeployedTable() {
         setSelectedContainerId={setSelectedContainerId}
       />
 
-      {/* API Info Dialog */}
-      {showAPIInfo && selectedModelForAPI && (
-        <Dialog open={showAPIInfo} onOpenChange={setShowAPIInfo}>
-          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>API Information</DialogTitle>
-            </DialogHeader>
-            <ModelAPIInfo
-              modelId={selectedModelForAPI.id}
-              modelName={selectedModelForAPI.name}
-              onClose={handleCloseAPIInfo}
-            />
-          </DialogContent>
-        </Dialog>
-      )}
-
       <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
         <DialogContent className="sm:max-w-md p-6 rounded-lg shadow-lg bg-zinc-900 text-white border border-yellow-700">
           <DialogHeader>
@@ -1666,15 +1652,3 @@ export default function ModelsDeployedTable() {
     </Card>
   );
 }
-
-/* Add this to the bottom of the file or in a global CSS file if not already present */
-/*
-.resizable-dialog {
-  resize: both;
-  overflow: auto;
-  min-width: 400px;
-  min-height: 300px;
-  max-width: 90vw;
-  max-height: 90vh;
-}
-*/
