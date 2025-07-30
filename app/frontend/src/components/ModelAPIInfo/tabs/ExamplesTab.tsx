@@ -93,7 +93,6 @@ const LanguageToggleCodeBlock: React.FC<LanguageToggleCodeBlockProps> = ({
               </div>
             )}
           </div>
-
           {/* Copy Button */}
           <Button
             variant="ghost"
@@ -107,15 +106,14 @@ const LanguageToggleCodeBlock: React.FC<LanguageToggleCodeBlockProps> = ({
               <Copy className="w-5 h-5" />
             )}
           </Button>
-
           {/* Star Button */}
-          <Button
+          {/* <Button
             variant="ghost"
             size="sm"
             className="p-2 h-10 w-10 hover:bg-gray-600 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-300 transition-colors duration-150 rounded-lg"
           >
             <Star className="w-5 h-5" />
-          </Button>
+          </Button> */}
         </div>
       </div>
 

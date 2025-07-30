@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
-import { ArrowLeft } from "lucide-react";
 import { ModelAPIInfo } from "../components/ModelAPIInfo/ModelAPIInfo";
 import { Spinner } from "../components/ui/spinner";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -100,35 +98,37 @@ const ApiInfoPage = () => {
   });
 
   return (
-    <div className="flex flex-grow justify-center w-full h-screen pt-16">
-      <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
-        {loading ? (
-          <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
-            <CardContent className="flex items-center justify-center p-8">
-              <Spinner className="w-8 h-8" />
-              <span className="ml-2">Loading API information...</span>
-            </CardContent>
-          </Card>
-        ) : error ? (
-          <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
-            <CardContent className="p-6">
-              <Alert className="bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800">
-                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                <AlertDescription className="text-red-800 dark:text-red-200">
-                  {error}
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
-        ) : (
-          modelId && (
-            <ModelAPIInfo
-              modelId={modelId}
-              modelName={modelName}
-              onClose={handleBack}
-            />
-          )
-        )}
+    <div className="flex flex-col w-full min-h-screen bg-grid-pattern dark:bg-grid-pattern-dark">
+      <div className="flex flex-grow justify-center w-full pt-16 pb-0">
+        <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-16 md:pt-12 md:pb-24">
+          {loading ? (
+            <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
+              <CardContent className="flex items-center justify-center p-8">
+                <Spinner className="w-8 h-8" />
+                <span className="ml-2">Loading API information...</span>
+              </CardContent>
+            </Card>
+          ) : error ? (
+            <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
+              <CardContent className="p-6">
+                <Alert className="bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800">
+                  <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                  <AlertDescription className="text-red-800 dark:text-red-200">
+                    {error}
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          ) : (
+            modelId && (
+              <ModelAPIInfo
+                modelId={modelId}
+                modelName={modelName}
+                onClose={handleBack}
+              />
+            )
+          )}
+        </div>
       </div>
     </div>
   );
