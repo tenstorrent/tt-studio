@@ -17,22 +17,10 @@ export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
   modelName,
   onClose,
 }) => {
-  const {
-    apiInfo,
-    loading,
-    testLoading,
-    requestPayload,
-    response,
-    responseStatus,
-    isDirectModelTest,
-    setRequestPayload,
-    handleTestAPI,
-    copyToClipboard,
-    getHfModelId,
-    resetToExample,
-    switchToBackendAPI,
-    switchToDirectModel,
-  } = useModelAPIInfo(modelId, modelName);
+  const { apiInfo, loading, copyToClipboard, getHfModelId } = useModelAPIInfo(
+    modelId,
+    modelName
+  );
 
   if (loading) {
     return (
@@ -128,8 +116,6 @@ export const ModelAPIInfo: React.FC<ModelAPIInfoProps> = ({
                 getHfModelId={getHfModelId}
               />
             </TabsContent>
-
-
 
             <TabsContent value="examples" className="space-y-4">
               <ExamplesTab

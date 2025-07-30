@@ -18,6 +18,20 @@ interface CodeBlockProps {
   className?: string;
 }
 
+// Utility function to determine if the current theme is dark
+const isDarkTheme = (theme: string): boolean => {
+  if (theme === "dark") return true;
+  if (theme === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  return false;
+};
+
+// Utility function to get the appropriate Shiki theme
+const getShikiTheme = (theme: string): string => {
+  return isDarkTheme(theme) ? "one-dark-pro" : "github-light";
+};
+
 const CodeBlock: React.FC<CodeBlockProps> = ({
   blockMatch,
   code,
@@ -36,40 +50,23 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
 
   // Get theme-aware background classes
   const getBackgroundClasses = () => {
-    const isDark =
-      theme === "dark" ||
-      (theme === "system" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const isDark = isDarkTheme(theme);
     return isDark
       ? "bg-black border border-gray-700"
       : "bg-gray-50 border-2 border-gray-400 shadow-md";
   };
 
   const getCopyButtonClasses = () => {
-    const isDark =
-      theme === "dark" ||
-      (theme === "system" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const isDark = isDarkTheme(theme);
     return isDark
       ? "absolute top-2 right-2 bg-gray-600 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-500 border border-gray-500"
       : "absolute top-2 right-2 bg-white text-gray-800 px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-50 border border-gray-400 shadow-sm";
   };
 
   useEffect(() => {
-    // Determine the appropriate Shiki theme based on current theme
-    const getShikiTheme = () => {
-      if (theme === "system") {
-        // Check system preference if theme is set to system
-        return window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "one-dark-pro"
-          : "github-light";
-      }
-      return theme === "dark" ? "one-dark-pro" : "github-light";
-    };
-
     const highlightCode = async () => {
       try {
-        const shikiTheme = getShikiTheme();
+        const shikiTheme = getShikiTheme(theme);
 
         const html = await codeToHtml(actualCode, {
           lang: actualLanguage,
@@ -98,7 +95,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
         // Shiki will gracefully fallback to plain text for unknown languages
         const fallbackHtml = await codeToHtml(actualCode, {
           lang: "text",
-          theme: getShikiTheme(),
+          theme: getShikiTheme(theme),
         });
         setHighlightedCode(fallbackHtml);
       } finally {
