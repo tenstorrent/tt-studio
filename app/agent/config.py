@@ -33,9 +33,6 @@ class AgentConfig:
         'meta-llama/Llama-3.2-8B-Instruct',
         'meta-llama/Llama-3.3-70B-Instruct',
         'meta-llama/Llama-3.1-70B-Instruct',
-        'microsoft/DialoGPT-medium',
-        'gpt2',
-        'bert-base-uncased'
     ]
     
     # Model Type Preferences (for selection when multiple models are available)

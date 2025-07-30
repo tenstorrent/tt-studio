@@ -18,6 +18,7 @@ import os
 
 import docker
 import os 
+import concurrent.futures
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
@@ -843,7 +844,10 @@ class DockerServiceLogsView(APIView):
             docker_logs_found = False
             try:
                 # Use the existing Docker client that's already imported
-                for service, container_name in zip(services, container_names):
+                
+                def fetch_container_logs(service_container_pair):
+                    """Fetch logs for a single container"""
+                    service, container_name = service_container_pair
                     try:
                         # Get container logs using Docker Python library
                         container = client.containers.get(container_name)
@@ -853,14 +857,33 @@ class DockerServiceLogsView(APIView):
                             # Limit the log size to prevent GitHub URL length issues
                             if len(log_content) > 1000:  # Reduced to 1000 characters per service
                                 log_content = log_content[-1000:] + "\n\n... (truncated)"
-                            logs_data[service] = log_content
-                            docker_logs_found = True
+                            return service, log_content
                         else:
-                            logs_data[service] = "No logs available for this container"
+                            return service, "No logs available for this container"
                             
                     except Exception as e:
                         logger.error(f"Error fetching logs for {service}: {str(e)}")
-                        logs_data[service] = f"Failed to fetch logs: {str(e)[:500]}"
+                        return service, f"Failed to fetch logs: {str(e)[:500]}"
+                
+                # Use ThreadPoolExecutor to fetch logs concurrently
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                    # Submit all log fetching tasks
+                    future_to_service = {
+                        executor.submit(fetch_container_logs, (service, container_name)): service 
+                        for service, container_name in zip(services, container_names)
+                    }
+                    
+                    # Collect results as they complete
+                    for future in concurrent.futures.as_completed(future_to_service):
+                        try:
+                            service, log_content = future.result()
+                            logs_data[service] = log_content
+                            if log_content and log_content != "No logs available for this container":
+                                docker_logs_found = True
+                        except Exception as e:
+                            service = future_to_service[future]
+                            logger.error(f"Unexpected error fetching logs for {service}: {str(e)}")
+                            logs_data[service] = f"Unexpected error: {str(e)[:500]}"
                         
             except Exception as e:
                 logger.error(f"Error initializing Docker client: {str(e)}")

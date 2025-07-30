@@ -848,7 +848,9 @@ class ModelAPIInfoView(APIView):
                             health_endpoint_url = f"http://{health_url}" if health_url else f"http://{base_internal_url}/health"
                 
                 # Generate JWT token for this model
-                json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
+                team_id = os.getenv("TEAM_ID", "tenstorrent")
+                token_id = os.getenv("TOKEN_ID", "debug-test")
+                json_payload = {"team_id": team_id, "token_id": token_id}
                 jwt_secret = backend_config.jwt_secret
                 encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")
                 
