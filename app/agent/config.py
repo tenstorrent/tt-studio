@@ -33,9 +33,6 @@ class AgentConfig:
         'meta-llama/Llama-3.2-8B-Instruct',
         'meta-llama/Llama-3.3-70B-Instruct',
         'meta-llama/Llama-3.1-70B-Instruct',
-        'microsoft/DialoGPT-medium',
-        'gpt2',
-        'bert-base-uncased'
     ]
     
     # Model Type Preferences (for selection when multiple models are available)
@@ -45,6 +42,11 @@ class AgentConfig:
     # Dynamic Configuration
     DYNAMIC_CONFIG_ENABLED: bool = os.getenv("AGENT_DYNAMIC_CONFIG", "true").lower() == "true"
     CONFIG_REFRESH_INTERVAL: int = int(os.getenv("AGENT_CONFIG_REFRESH_INTERVAL", "300"))  # 5 minutes
+    
+    # LLM Polling Configuration
+    LLM_POLLING_ENABLED: bool = os.getenv("AGENT_LLM_POLLING_ENABLED", "true").lower() == "true"
+    LLM_POLLING_INTERVAL: int = int(os.getenv("AGENT_LLM_POLLING_INTERVAL", "180"))  # 3 minutes
+    LLM_POLLING_MAX_ATTEMPTS: int = int(os.getenv("AGENT_LLM_POLLING_MAX_ATTEMPTS", "0"))  # 0 means infinite
     
     # Network Configuration
     BACKEND_URL: str = os.getenv("AGENT_BACKEND_URL", "http://tt-studio-backend-api:8000")
@@ -139,6 +141,9 @@ class AgentConfig:
         print(f"Max Failures: {cls.MAX_FAILURES}")
         print(f"Fallback to Local: {cls.FALLBACK_TO_LOCAL}")
         print(f"Use Cloud LLM: {cls.USE_CLOUD_LLM}")
+        print(f"LLM Polling Enabled: {cls.LLM_POLLING_ENABLED}")
+        print(f"LLM Polling Interval: {cls.LLM_POLLING_INTERVAL}s")
+        print(f"LLM Polling Max Attempts: {cls.LLM_POLLING_MAX_ATTEMPTS}")
         print(f"Backend URL: {cls.BACKEND_URL}")
         print(f"Priority Models: {cls.get_priority_models()}")
         print(f"Debug Mode: {cls.DEBUG_MODE}")
