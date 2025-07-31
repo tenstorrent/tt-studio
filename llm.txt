@@ -43,6 +43,3 @@ Important notes:
 - **Computer Vision (YOLO)**: Object detection and image analysis
 - **Speech Recognition (Whisper)**: Audio-to-text transcription
 - **Image Generation (Stable Diffusion)**: AI-powered image creation
-
-
-u
