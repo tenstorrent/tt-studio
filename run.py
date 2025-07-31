@@ -36,6 +36,7 @@ import webbrowser
 import socket
 import tempfile
 import signal
+import requests
 
 # --- Color Definitions ---
 C_RESET = '\033[0m'
@@ -1610,13 +1611,44 @@ def main():
         if args.wait_for_services:
             wait_for_all_services(skip_fastapi=args.skip_fastapi, is_deployed_mode=is_deployed_mode)
         
-        # Try to open the browser automatically (unless disabled)
+        
+        # Wait for the port:3000 and a healthy HTTP response
+        def wait_for_healthy_service(host: str, port: int, timeout: int = 60) -> bool:
+            url = f"http://{host}:{port}"
+            print(f"{C_YELLOW}⏳ Waiting for {url} to be ready...{C_RESET}")
+            start_time = time.time()
+
+            while True:
+                try:
+                    # Check port
+                    with socket.create_connection((host, port), timeout=2):
+                        pass
+                    # Check HTTP 200 OK
+                    response = requests.get(url)
+                    if response.status_code == 200:
+                        print(f"{C_GREEN}✅ Service at {url} is healthy!{C_RESET}")
+                        return True
+                    else:
+                        print(f"{C_YELLOW}🔄 Status {response.status_code}, waiting for healthy service...{C_RESET}")
+                except (OSError, requests.RequestException):
+                    pass
+
+                if time.time() - start_time > timeout:
+                    print(f"{C_RED}❌ Timeout: Service at {url} not healthy after {timeout} seconds{C_RESET}")
+                    return False
+                time.sleep(1)
+        
+        # Control browser open only if service is healthy
         if not args.no_browser:
-            try:
-                webbrowser.open("http://localhost:3000")
-                print(f"{C_GREEN}🌐 Browser opened automatically to http://localhost:3000{C_RESET}")
-            except:
-                print(f"{C_YELLOW}⚠️  Could not open browser automatically. Please open http://localhost:3000 manually{C_RESET}")
+            healthy = wait_for_healthy_service("localhost", 3000)
+            if healthy:
+                try:
+                    webbrowser.open("http://localhost:3000")
+                    print(f"{C_GREEN}🌐 Browser opened automatically to http://localhost:3000{C_RESET}")
+                except:
+                    print(f"{C_YELLOW}⚠️  Could not open browser automatically. Please open http://localhost:3000 manually{C_RESET}")
+            else:
+                print(f"{C_RED}🚫 Skipping browser open due to unhealthy service{C_RESET}")
         else:
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://localhost:3000{C_RESET}")
         
