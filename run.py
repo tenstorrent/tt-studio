@@ -36,7 +36,12 @@ import webbrowser
 import socket
 import tempfile
 import signal
-import requests
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    import urllib.request
+    HAS_REQUESTS = False
 
 # --- Color Definitions ---
 C_RESET = '\033[0m'
@@ -723,61 +728,106 @@ def check_port_available(port):
 
 
 def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
-    """Wait for a service to become healthy."""
-    print(f"⏳ Waiting for {service_name} to become healthy at {health_url}...")
+    """
+    Wait for a service to become healthy (HTTP 200 at the given URL).
+    Returns True if healthy within timeout, else False.
+    Prints live status messages.
+    """
     start_time = time.time()
+    sys.stdout.write(f"⏳ Waiting for {service_name} to become healthy at {health_url}...\n")
+    sys.stdout.flush()
     
     while time.time() - start_time < timeout:
-        try:
-            result = subprocess.run(["curl", "-f", health_url], 
-                                   capture_output=True, text=True, timeout=10, check=False)
-            if result.returncode == 0:
-                print(f"✅ {service_name} is healthy!")
-                return True
-        except:
-            # Fallback to urllib if curl is not available
+        elapsed = int(time.time() - start_time)
+        if HAS_REQUESTS:
             try:
-                import urllib.request
-                response = urllib.request.urlopen(health_url, timeout=10)
-                if response.getcode() == 200:
-                    print(f"✅ {service_name} is healthy!")
+                response = requests.get(health_url, timeout=5)
+                if response.status_code == 200:
+                    print(f"\n✅ {service_name} is healthy!")
                     return True
-            except:
+            except requests.RequestException:
+                pass
+        else:
+            try:
+                resp = urllib.request.urlopen(health_url, timeout=5)
+                if resp.getcode() == 200:
+                    print(f"\n✅ {service_name} is healthy!")
+                    return True
+            except Exception:
                 pass
         
-        elapsed = time.time() - start_time
-        print(f"⏳ {service_name} not ready yet... ({elapsed:.1f}s/{timeout}s)")
+        sys.stdout.write(f"\r⏳ {service_name} not ready yet... ({elapsed}s/{timeout}s)")
+        sys.stdout.flush()
         time.sleep(interval)
     
-    print(f"⚠️  {service_name} did not become healthy within {timeout} seconds")
+    print(f"\n⚠️  {service_name} did not become healthy within {timeout} seconds")
     return False
 
 
 def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
-    """Wait for all TT-Studio services to become healthy."""
-    print(f"\n{C_BLUE}⏳ Waiting for all services to become healthy...{C_RESET}")
-    
+    """
+    Wait for all core services to become healthy before continuing.
+    Returns True if all are healthy.
+    """
+    print("\n⏳ Waiting for all services to become healthy...")
+
     services_to_check = [
         ("ChromaDB", "http://localhost:8111/api/v1/heartbeat"),
         ("Backend API", "http://localhost:8000/up/"),
         ("Frontend", "http://localhost:3000/"),
     ]
-    
-    # Add FastAPI if not skipped and not in AI Playground mode
+    # Optionally add FastAPI
     if not skip_fastapi and not is_deployed_mode:
         services_to_check.append(("FastAPI Server", "http://localhost:8001/"))
     
     all_healthy = True
     for service_name, health_url in services_to_check:
-        if not wait_for_service_health(service_name, health_url):
+        if not wait_for_service_health(service_name, health_url, timeout=120, interval=3):
             all_healthy = False
     
     if all_healthy:
-        print(f"\n{C_GREEN}✅ All services are healthy and ready!{C_RESET}")
+        print("\n✅ All services are healthy and ready!")
     else:
-        print(f"\n{C_YELLOW}⚠️  Some services may not be fully ready. TT-Studio should still be accessible.{C_RESET}")
-    
+        print("\n⚠️  Some services may not be fully ready, but main app may still be accessible.")
     return all_healthy
+
+def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60):
+    """
+    Wait for frontend service to be healthy before opening browser.
+    
+    Returns:
+        bool: True if browser opened successfully, False otherwise
+    """
+    frontend_url = f"http://{host}:{port}/"
+    
+    print(f"\n🌐 Ensuring frontend is ready before opening browser...")
+    
+    if wait_for_service_health("Frontend", frontend_url, timeout=timeout, interval=2):
+        print(f"🚀 Opening browser to {frontend_url}")
+        try:
+            webbrowser.open(frontend_url)
+            return True
+        except Exception as e:
+            print(f"⚠️  Could not open browser automatically: {e}")
+            print(f"💡 Please manually open: {frontend_url}")
+            return False
+    else:
+        print(f"⚠️  Frontend not ready within {timeout} seconds")
+        print(f"💡 You can try opening {frontend_url} manually once services are ready")
+        return False
+
+def get_frontend_config():
+    """
+    Getting frontend configuration from environment or defaults.
+    """
+    # Read from environment variables or use defaults
+    host = os.getenv('FRONTEND_HOST', 'localhost')
+    port = int(os.getenv('FRONTEND_PORT', '3000'))
+    timeout = int(os.getenv('FRONTEND_TIMEOUT', '60'))
+    
+    return host, port, timeout
+
+
 
 def kill_process_on_port(port, no_sudo=False):
     """
@@ -1408,6 +1458,8 @@ def main():
                            help="🚫 Skip automatic browser opening")
         parser.add_argument("--wait-for-services", action="store_true", 
                            help="⏳ Wait for all services to be healthy before completing")
+        parser.add_argument("--browser-timeout", type=int, default=60,
+                   help="⏳ Timeout in seconds for waiting for frontend before opening browser")
         
         args = parser.parse_args()
         
@@ -1612,45 +1664,17 @@ def main():
             wait_for_all_services(skip_fastapi=args.skip_fastapi, is_deployed_mode=is_deployed_mode)
         
         
-        # Wait for the port:3000 and a healthy HTTP response
-        def wait_for_healthy_service(host: str, port: int, timeout: int = 60) -> bool:
-            url = f"http://{host}:{port}"
-            print(f"{C_YELLOW}⏳ Waiting for {url} to be ready...{C_RESET}")
-            start_time = time.time()
-
-            while True:
-                try:
-                    # Check port
-                    with socket.create_connection((host, port), timeout=2):
-                        pass
-                    # Check HTTP 200 OK
-                    response = requests.get(url)
-                    if response.status_code == 200:
-                        print(f"{C_GREEN}✅ Service at {url} is healthy!{C_RESET}")
-                        return True
-                    else:
-                        print(f"{C_YELLOW}🔄 Status {response.status_code}, waiting for healthy service...{C_RESET}")
-                except (OSError, requests.RequestException):
-                    pass
-
-                if time.time() - start_time > timeout:
-                    print(f"{C_RED}❌ Timeout: Service at {url} not healthy after {timeout} seconds{C_RESET}")
-                    return False
-                time.sleep(1)
-        
         # Control browser open only if service is healthy
         if not args.no_browser:
-            healthy = wait_for_healthy_service("localhost", 3000)
-            if healthy:
-                try:
-                    webbrowser.open("http://localhost:3000")
-                    print(f"{C_GREEN}🌐 Browser opened automatically to http://localhost:3000{C_RESET}")
-                except:
-                    print(f"{C_YELLOW}⚠️  Could not open browser automatically. Please open http://localhost:3000 manually{C_RESET}")
-            else:
-                print(f"{C_RED}🚫 Skipping browser open due to unhealthy service{C_RESET}")
+            # Get configurable frontend settings
+            host, port, timeout = get_frontend_config()
+            
+            # Use the new function that reuses existing infrastructure
+            if not wait_for_frontend_and_open_browser(host, port, timeout):
+                print(f"{C_YELLOW}⚠️  Browser opening failed. Please manually navigate to http://{host}:{port}{C_RESET}")
         else:
-            print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://localhost:3000{C_RESET}")
+            host, port, _ = get_frontend_config()
+            print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{C_RESET}")
         
         # If in dev mode, show logs similar to startup.sh
         if args.dev:
