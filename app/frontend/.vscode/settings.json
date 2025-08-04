@@ -1,0 +1,184 @@
+{
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "files.autoSave": "onFocusChange",
+  "files.associations": {
+    "*.js": "javascript",
+    "*.jsx": "javascriptreact", 
+    "*.ts": "typescript",
+    "*.tsx": "typescriptreact"
+  },
+  "fileheader.configObj": {
+    "createFileTime": true,
+    "autoAdd": true,
+    "autoAddLine": 100,
+    "autoAlready": true,
+    "annotationStr": {
+      "head": "/*",
+      "middle": " * ",
+      "end": " */",
+      "use": true
+    },
+    "headInsertLine": {
+      "javascript": 1,
+      "typescript": 1,
+      "javascriptreact": 1,
+      "typescriptreact": 1
+    },
+    "beforeAnnotation": {},
+    "afterAnnotation": {
+      "javascript": "\n",
+      "typescript": "\n", 
+      "javascriptreact": "\n",
+      "typescriptreact": "\n"
+    },
+    "specialOptions": {},
+    "switch": {
+      "newlineAddAnnotation": true
+    },
+    "supportAutoLanguage": ["javascript", "typescript", "javascriptreact", "typescriptreact"],
+    "prohibitAutoAdd": [
+      "json",
+      "md",
+      "txt",
+      "yml",
+      "yaml"
+    ],
+    "folderBlacklist": [
+      "node_modules",
+      "dist",
+      "build",
+      ".next",
+      "coverage"
+    ],
+    "prohibitItemAutoAdd": [
+      "*.d.ts",
+      "*.config.js",
+      "*.config.ts",
+      "*.test.js",
+      "*.test.ts",
+      "*.spec.js",
+      "*.spec.ts",
+      "vite.config.*",
+      "vitest.config.*",
+      "jest.config.*"
+    ],
+    "moveCursor": true,
+    "dateFormat": "YYYY",
+    "customHasHeadEnd": {},
+    "throttleTime": 60000,
+    "CheckFileChange": false,
+    "createHeader": true,
+    "useWorker": false,
+    "designAddHead": false,
+    "headDesignName": "random",
+    "headDesign": false,
+    "showErrorMessage": false,
+    "writeLog": false,
+    "wideSame": false,
+    "wideNum": 13,
+    "CheckAnnotationStr": false,
+    "headAnnotation": "/*",
+    "endAnnotation": "*/",
+    "middleAnnotation": " * ",
+    "customStringObj": {
+      "License": "SPDX-License-Identifier: Apache-2.0",
+      "Copyright": "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC",
+      "Company": "Tenstorrent AI ULC"
+    },
+    "language": {
+      "javascript": {
+        "head": "/*",
+        "middle": " * ",
+        "end": " */",
+        "functionSymbol": {
+          "custom": ""
+        }
+      },
+      "typescript": {
+        "head": "/*",
+        "middle": " * ",
+        "end": " */",
+        "functionSymbol": {
+          "custom": ""
+        }
+      },
+      "javascriptreact": {
+        "head": "/*",
+        "middle": " * ",
+        "end": " */",
+        "functionSymbol": {
+          "custom": ""
+        }
+      },
+      "typescriptreact": {
+        "head": "/*",
+        "middle": " * ",
+        "end": " */",
+        "functionSymbol": {
+          "custom": ""
+        }
+      }
+    }
+  },
+  "fileheader.customMade": {
+    "License": "SPDX-License-Identifier: Apache-2.0",
+    "Copyright": "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+  },
+  "fileheader.cursorMode": {
+    "description": "",
+    "custom_string_objs": {
+      "License": "SPDX-License-Identifier: Apache-2.0",
+      "Copyright": "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC",
+      "Company": "Tenstorrent AI ULC"
+    }
+  },
+  "psi-header.config": {
+    "forceToTop": true,
+    "blankLinesAfter": 1,
+    "license": "Custom",
+    "author": "Tenstorrent AI ULC",
+    "initials": "TT"
+  },
+  "psi-header.lang-config": [
+    {
+      "language": "javascript",
+      "begin": "/*",
+      "prefix": " * ",
+      "end": " */",
+      "blankLinesAfter": 1
+    },
+    {
+      "language": "typescript", 
+      "begin": "/*",
+      "prefix": " * ",
+      "end": " */",
+      "blankLinesAfter": 1
+    },
+    {
+      "language": "javascriptreact",
+      "begin": "/*",
+      "prefix": " * ",
+      "end": " */",
+      "blankLinesAfter": 1
+    },
+    {
+      "language": "typescriptreact",
+      "begin": "/*",
+      "prefix": " * ",
+      "end": " */", 
+      "blankLinesAfter": 1
+    }
+  ],
+  "psi-header.templates": [
+    {
+      "language": "*",
+      "template": [
+        "SPDX-License-Identifier: Apache-2.0",
+        "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+      ]
+    }
+  ]
+}
