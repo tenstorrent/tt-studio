@@ -34,7 +34,7 @@
     ],
     "customStringObj": {
       "License": "SPDX-License-Identifier: Apache-2.0",
-      "Copyright": "SPDX-FileCopyrightText: © ${now_year} Tenstorrent AI ULC"
+      "Copyright": "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
     }
   },
   "psi-header.config": {
@@ -57,7 +57,7 @@
       "language": "*",
       "template": [
         "SPDX-License-Identifier: Apache-2.0",
-        "SPDX-FileCopyrightText: © <<year>> Tenstorrent AI ULC"
+        "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
       ]
     }
   ]
