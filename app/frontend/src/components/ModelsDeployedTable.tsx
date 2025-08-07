@@ -74,6 +74,7 @@ import {
   DialogFooter,
 } from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { Switch } from "./ui/switch";
 
 // ANSI color code parsing utilities
 const ANSI_REGEX = /\\u001b\[[0-9;]*m/g;
@@ -280,7 +281,7 @@ function LogsDialog({
   onClose: () => void;
   containerId: string;
   setSelectedContainerId: React.Dispatch<React.SetStateAction<string | null>>;
-}) {
+}): JSX.Element {
   console.log("LogsDialog rendered with:", { isOpen, containerId });
   const [logs, setLogs] = useState<string[]>([]);
   const [events, setEvents] = useState<string[]>([]);
@@ -551,102 +552,177 @@ function LogsDialog({
       );
     }
 
-    return (
-      <div className="relative w-full">
-        <div className="mb-4 flex items-center gap-4 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium">Filters:</label>
-            <Button
-              variant={filters.showHealthChecks ? "default" : "outline"}
-              size="sm"
-              onClick={() =>
-                setFilters((prev) => ({
-                  ...prev,
-                  showHealthChecks: !prev.showHealthChecks,
-                }))
-              }
-              className="h-7 px-2 text-xs"
-            >
-              Health Checks {filters.showHealthChecks ? "✓" : ""}
-            </Button>
-            <Button
-              variant={filters.showMetrics ? "default" : "outline"}
-              size="sm"
-              onClick={() =>
-                setFilters((prev) => ({
-                  ...prev,
-                  showMetrics: !prev.showMetrics,
-                }))
-              }
-              className="h-7 px-2 text-xs"
-            >
-              Metrics {filters.showMetrics ? "✓" : ""}
-            </Button>
-            <Button
-              variant={filters.showErrors ? "default" : "outline"}
-              size="sm"
-              onClick={() =>
-                setFilters((prev) => ({
-                  ...prev,
-                  showErrors: !prev.showErrors,
-                }))
-              }
-              className="h-7 px-2 text-xs text-red-600 dark:text-red-400"
-            >
-              Errors {filters.showErrors ? "✓" : ""}
-            </Button>
-          </div>
-        </div>
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="logs">Logs</TabsTrigger>
-            <TabsTrigger value="events">Events</TabsTrigger>
-            <TabsTrigger value="metrics">Metrics</TabsTrigger>
-          </TabsList>
-          <TabsContent value="logs" className="mt-4">
-            <div
-              ref={logsRef}
-              onScroll={handleScroll}
-              className="bg-gray-950 text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative border border-gray-700 shadow-inner"
-              style={{
-                minHeight: 200,
-                lineHeight: "1.5",
-                scrollBehavior: "smooth",
-                fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
-              }}
-            >
-              {logs.length === 0 ? (
-                <div className="text-gray-500 italic">
-                  No logs available - waiting for container output...
-                </div>
-              ) : (
-                logs.filter(filterLogs).map((log, index) => {
-                  const parsed = parseAnsiColors(log);
-                  return (
-                    <div
-                      key={index}
-                      className={`whitespace-pre-wrap leading-relaxed py-0.5 hover:bg-gray-900 hover:bg-opacity-30 transition-colors duration-150 group ${
-                        log.includes("ERROR") || log.includes(" 500 ")
-                          ? "text-red-400"
-                          : ""
-                      }`}
-                      style={{
-                        wordWrap: "break-word",
-                        overflowWrap: "break-word",
-                        fontFamily:
-                          'Consolas, "Courier New", "Monaco", monospace',
-                      }}
+    if (activeTab === "logs") {
+      return (
+        <div
+          ref={logsRef}
+          onScroll={handleScroll}
+          className="bg-gray-950 text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto h-full relative border border-gray-700 shadow-inner"
+          style={{
+            lineHeight: "1.5",
+            scrollBehavior: "smooth",
+            fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
+          }}
+        >
+          {logs.length === 0 ? (
+            <div className="text-gray-500 italic">
+              No logs available - waiting for container output...
+            </div>
+          ) : (
+            logs.filter(filterLogs).map((log, index) => {
+              const parsed = parseAnsiColors(log);
+              return (
+                <div
+                  key={index}
+                  className={`whitespace-pre-wrap leading-relaxed py-0.5 hover:bg-gray-900 hover:bg-opacity-30 transition-colors duration-150 group ${
+                    log.includes("ERROR") || log.includes(" 500 ")
+                      ? "text-red-400"
+                      : ""
+                  }`}
+                  style={{
+                    wordWrap: "break-word",
+                    overflowWrap: "break-word",
+                    fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
+                  }}
+                >
+                  <span className="text-gray-500 text-xs mr-2 select-none">
+                    {String(index + 1).padStart(3, "0")}
+                  </span>
+                  {parsed.level && (
+                    <span
+                      className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
                     >
-                      <span className="text-gray-500 text-xs mr-2 select-none">
-                        {String(index + 1).padStart(3, "0")}
+                      [{parsed.level}]
+                    </span>
+                  )}
+                  <span className="terminal-content">
+                    {parsed.segments.map((segment, segIndex) => (
+                      <span
+                        key={segIndex}
+                        style={{
+                          color:
+                            segment.color ||
+                            (parsed.level ? undefined : "#50FA7B"),
+                          backgroundColor: segment.backgroundColor,
+                          fontWeight: segment.bold ? "bold" : "normal",
+                          fontStyle: segment.italic ? "italic" : "normal",
+                        }}
+                      >
+                        {segment.text}
                       </span>
+                    ))}
+                  </span>
+                </div>
+              );
+            })
+          )}
+          {/* Terminal cursor */}
+          {logs.length > 0 && (
+            <div className="flex items-center mt-2 opacity-75">
+              <span className="text-gray-500 text-xs mr-2 select-none">$</span>
+              <span className="text-green-400 animate-pulse text-sm">█</span>
+            </div>
+          )}
+          {showScrollButton && (
+            <button
+              onClick={scrollToBottom}
+              className="absolute bottom-4 right-4 bg-gray-700 hover:bg-gray-600 text-white p-2 rounded-full shadow-lg transition-all duration-200 z-10"
+              title="Scroll to bottom"
+            >
+              <ChevronDown className="w-6 h-6" />
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (activeTab === "events") {
+      return (
+        <div
+          ref={eventsRef}
+          onScroll={handleScroll}
+          className="bg-gray-950 text-blue-400 p-4 rounded-lg font-mono text-sm overflow-auto h-full relative border border-gray-700 shadow-inner"
+          style={{
+            lineHeight: "1.5",
+            scrollBehavior: "smooth",
+            fontFamily:
+              'Consolas, "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace',
+          }}
+        >
+          {events.length === 0 ? (
+            <div className="text-gray-500 italic">
+              No events available - container events will appear here...
+            </div>
+          ) : (
+            events.map((event, index) => {
+              const parsed = parseAnsiColors(event);
+              const isError =
+                parsed.level &&
+                ["ERROR", "FATAL", "CRITICAL"].includes(parsed.level);
+              const isWarning =
+                parsed.level && ["WARN", "WARNING"].includes(parsed.level);
+              const isInfo = parsed.level && ["INFO"].includes(parsed.level);
+              const isStartupEvent =
+                event.includes("startup complete") ||
+                event.includes("Uvicorn running") ||
+                event.includes("Started server process");
+
+              return (
+                <div
+                  key={index}
+                  className={`whitespace-pre-wrap leading-relaxed py-1 px-2 rounded hover:bg-gray-900 hover:bg-opacity-50 transition-colors duration-150 group mb-1 border-l-4 ${
+                    isError
+                      ? "border-red-500 bg-red-900 bg-opacity-20"
+                      : isWarning
+                        ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
+                        : isInfo || isStartupEvent
+                          ? "border-green-500 bg-green-900 bg-opacity-20"
+                          : "border-blue-500 bg-blue-900 bg-opacity-20"
+                  }`}
+                  style={{
+                    wordWrap: "break-word",
+                    overflowWrap: "break-word",
+                    fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
+                  }}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-gray-500 text-xs mr-1 select-none flex-shrink-0">
+                      {String(index + 1).padStart(3, "0")}
+                    </span>
+
+                    {/* Event severity icon */}
+                    <span className="flex-shrink-0 mt-0.5">
+                      {isError && (
+                        <span className="text-red-400 text-xs">🔴</span>
+                      )}
+                      {isWarning && (
+                        <span className="text-yellow-400 text-xs">🟡</span>
+                      )}
+                      {(isInfo || isStartupEvent) && (
+                        <span className="text-green-400 text-xs">🟢</span>
+                      )}
+                      {!isError && !isWarning && !isInfo && !isStartupEvent && (
+                        <span className="text-blue-400 text-xs">🔵</span>
+                      )}
+                    </span>
+
+                    <div className="flex-1">
                       {parsed.level && (
                         <span
-                          className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
+                          className={`text-xs font-bold mr-2 px-1 py-0.5 rounded ${
+                            isError
+                              ? "bg-red-500 text-white"
+                              : isWarning
+                                ? "bg-yellow-500 text-black"
+                                : isInfo || isStartupEvent
+                                  ? "bg-green-500 text-white"
+                                  : "bg-blue-500 text-white"
+                          }`}
                         >
-                          [{parsed.level}]
+                          {parsed.level}
                         </span>
                       )}
+
                       <span className="terminal-content">
                         {parsed.segments.map((segment, segIndex) => (
                           <span
@@ -654,7 +730,13 @@ function LogsDialog({
                             style={{
                               color:
                                 segment.color ||
-                                (parsed.level ? undefined : "#50FA7B"),
+                                (isError
+                                  ? "#FF6B6B"
+                                  : isWarning
+                                    ? "#FFD93D"
+                                    : isInfo || isStartupEvent
+                                      ? "#50FA7B"
+                                      : "#8BE9FD"),
                               backgroundColor: segment.backgroundColor,
                               fontWeight: segment.bold ? "bold" : "normal",
                               fontStyle: segment.italic ? "italic" : "normal",
@@ -665,206 +747,66 @@ function LogsDialog({
                         ))}
                       </span>
                     </div>
-                  );
-                })
-              )}
-              {/* Terminal cursor */}
-              {logs.length > 0 && (
-                <div className="flex items-center mt-2 opacity-75">
-                  <span className="text-gray-500 text-xs mr-2 select-none">
-                    $
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      );
+    }
+
+    if (activeTab === "metrics") {
+      return (
+        <div
+          ref={metricsRef}
+          onScroll={handleScroll}
+          className="bg-gray-950 text-yellow-400 p-4 rounded-lg font-mono text-sm overflow-auto h-full relative border border-gray-700 shadow-inner"
+          style={{
+            lineHeight: "1.5",
+            scrollBehavior: "smooth",
+            fontFamily:
+              'Consolas, "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace',
+          }}
+        >
+          {Object.keys(metrics).length === 0 ? (
+            <div className="text-gray-500 italic">
+              No metrics available - container metrics will appear here...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {Object.entries(metrics).map(([name, value]) => (
+                <div
+                  key={name}
+                  className="flex justify-between items-center p-2 bg-gray-900 bg-opacity-30 rounded hover:bg-opacity-50 transition-colors duration-150"
+                  style={{
+                    fontFamily: 'Consolas, "Courier New", monospace',
+                  }}
+                >
+                  <span className="text-yellow-300 font-medium">
+                    {name.replace(/_/g, " ").toUpperCase()}:
                   </span>
-                  <span className="text-green-400 animate-pulse text-sm">
-                    █
+                  <span className="font-bold text-yellow-400">
+                    {typeof value === "number" ? value.toLocaleString() : value}
                   </span>
                 </div>
-              )}
+              ))}
             </div>
-            {showScrollButton && (
-              <button
-                onClick={scrollToBottom}
-                className="fixed bottom-8 right-8 z-50 bg-blue-600 text-white rounded-full p-2 shadow-lg"
-                title="Scroll to bottom"
-              >
-                <ChevronDown className="w-6 h-6" />
-              </button>
-            )}
-          </TabsContent>
-          <TabsContent value="events" className="mt-4">
-            <div
-              ref={eventsRef}
-              onScroll={handleScroll}
-              className="bg-gray-950 text-blue-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative border border-gray-700 shadow-inner"
-              style={{
-                minHeight: 200,
-                lineHeight: "1.5",
-                scrollBehavior: "smooth",
-                fontFamily:
-                  'Consolas, "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace',
-              }}
-            >
-              {events.length === 0 ? (
-                <div className="text-gray-500 italic">
-                  No events available - container events will appear here...
-                </div>
-              ) : (
-                events.map((event, index) => {
-                  const parsed = parseAnsiColors(event);
-                  const isError =
-                    parsed.level &&
-                    ["ERROR", "FATAL", "CRITICAL"].includes(parsed.level);
-                  const isWarning =
-                    parsed.level && ["WARN", "WARNING"].includes(parsed.level);
-                  const isInfo =
-                    parsed.level && ["INFO"].includes(parsed.level);
-                  const isStartupEvent =
-                    event.includes("startup complete") ||
-                    event.includes("Uvicorn running") ||
-                    event.includes("Started server process");
+          )}
+        </div>
+      );
+    }
 
-                  return (
-                    <div
-                      key={index}
-                      className={`whitespace-pre-wrap leading-relaxed py-1 px-2 rounded hover:bg-gray-900 hover:bg-opacity-50 transition-colors duration-150 group mb-1 border-l-4 ${
-                        isError
-                          ? "border-red-500 bg-red-900 bg-opacity-20"
-                          : isWarning
-                            ? "border-yellow-500 bg-yellow-900 bg-opacity-20"
-                            : isInfo || isStartupEvent
-                              ? "border-green-500 bg-green-900 bg-opacity-20"
-                              : "border-blue-500 bg-blue-900 bg-opacity-20"
-                      }`}
-                      style={{
-                        wordWrap: "break-word",
-                        overflowWrap: "break-word",
-                        fontFamily:
-                          'Consolas, "Courier New", "Monaco", monospace',
-                      }}
-                    >
-                      <div className="flex items-start gap-2">
-                        <span className="text-gray-500 text-xs mr-1 select-none flex-shrink-0">
-                          {String(index + 1).padStart(3, "0")}
-                        </span>
-
-                        {/* Event severity icon */}
-                        <span className="flex-shrink-0 mt-0.5">
-                          {isError && (
-                            <span className="text-red-400 text-xs">🔴</span>
-                          )}
-                          {isWarning && (
-                            <span className="text-yellow-400 text-xs">🟡</span>
-                          )}
-                          {(isInfo || isStartupEvent) && (
-                            <span className="text-green-400 text-xs">🟢</span>
-                          )}
-                          {!isError &&
-                            !isWarning &&
-                            !isInfo &&
-                            !isStartupEvent && (
-                              <span className="text-blue-400 text-xs">🔵</span>
-                            )}
-                        </span>
-
-                        <div className="flex-1">
-                          {parsed.level && (
-                            <span
-                              className={`text-xs font-bold mr-2 px-1 py-0.5 rounded ${
-                                isError
-                                  ? "bg-red-500 text-white"
-                                  : isWarning
-                                    ? "bg-yellow-500 text-black"
-                                    : isInfo || isStartupEvent
-                                      ? "bg-green-500 text-white"
-                                      : "bg-blue-500 text-white"
-                              }`}
-                            >
-                              {parsed.level}
-                            </span>
-                          )}
-
-                          <span className="terminal-content">
-                            {parsed.segments.map((segment, segIndex) => (
-                              <span
-                                key={segIndex}
-                                style={{
-                                  color:
-                                    segment.color ||
-                                    (isError
-                                      ? "#FF6B6B"
-                                      : isWarning
-                                        ? "#FFD93D"
-                                        : isInfo || isStartupEvent
-                                          ? "#50FA7B"
-                                          : "#8BE9FD"),
-                                  backgroundColor: segment.backgroundColor,
-                                  fontWeight: segment.bold ? "bold" : "normal",
-                                  fontStyle: segment.italic
-                                    ? "italic"
-                                    : "normal",
-                                }}
-                              >
-                                {segment.text}
-                              </span>
-                            ))}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </TabsContent>
-          <TabsContent value="metrics" className="mt-4">
-            <div
-              ref={metricsRef}
-              onScroll={handleScroll}
-              className="bg-gray-950 text-yellow-400 p-4 rounded-lg font-mono text-sm overflow-auto max-h-[50vh] relative border border-gray-700 shadow-inner"
-              style={{
-                minHeight: 200,
-                lineHeight: "1.5",
-                scrollBehavior: "smooth",
-                fontFamily:
-                  'Consolas, "Monaco", "Lucida Console", "Liberation Mono", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Courier New", monospace',
-              }}
-            >
-              {Object.keys(metrics).length === 0 ? (
-                <div className="text-gray-500 italic">
-                  No metrics available - container metrics will appear here...
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {Object.entries(metrics).map(([name, value]) => (
-                    <div
-                      key={name}
-                      className="flex justify-between items-center p-2 bg-gray-900 bg-opacity-30 rounded hover:bg-opacity-50 transition-colors duration-150"
-                      style={{
-                        fontFamily: 'Consolas, "Courier New", monospace',
-                      }}
-                    >
-                      <span className="text-yellow-300 font-medium">
-                        {name.replace(/_/g, " ").toUpperCase()}:
-                      </span>
-                      <span className="font-bold text-yellow-400">
-                        {typeof value === "number"
-                          ? value.toLocaleString()
-                          : value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
-    );
+    return null;
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] min-w-[400px] min-h-[300px] resize-both overflow-auto">
-        <DialogHeader>
+      <DialogContent
+        className="max-w-6xl max-h-[95vh] min-w-[600px] min-h-[400px] resize flex flex-col"
+        style={{ resize: "both" }}
+      >
+        <DialogHeader className="flex-shrink-0 pb-4 border-b border-gray-200 dark:border-gray-700">
           <DialogTitle className="flex items-center gap-2">
             <span>Container Monitoring - {containerId}</span>
             {!isLoading && !error && (
@@ -875,7 +817,97 @@ function LogsDialog({
             )}
           </DialogTitle>
         </DialogHeader>
-        {renderContent()}
+
+        {/* Fixed Filters Section */}
+        <div className="flex-shrink-0 mb-4 p-4 bg-gradient-to-r from-stone-50 to-stone-100 dark:from-stone-900 dark:to-stone-800 rounded-lg border border-stone-200 dark:border-stone-700 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-md bg-stone-900/10 dark:bg-stone-100/10">
+                <svg
+                  className="w-4 h-4 text-stone-700 dark:text-stone-300"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                  />
+                </svg>
+              </div>
+              <span className="text-sm font-semibold text-stone-800 dark:text-stone-200">
+                Filters
+              </span>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-stone-600 dark:text-stone-400">
+                    Health Checks
+                  </span>
+                  <Switch
+                    checked={filters.showHealthChecks}
+                    onCheckedChange={(checked) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        showHealthChecks: checked,
+                      }))
+                    }
+                    className="data-[state=checked]:bg-green-600 dark:data-[state=checked]:bg-green-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-stone-600 dark:text-stone-400">
+                    Metrics
+                  </span>
+                  <Switch
+                    checked={filters.showMetrics}
+                    onCheckedChange={(checked) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        showMetrics: checked,
+                      }))
+                    }
+                    className="data-[state=checked]:bg-blue-600 dark:data-[state=checked]:bg-blue-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-stone-600 dark:text-stone-400">
+                    Errors
+                  </span>
+                  <Switch
+                    checked={filters.showErrors}
+                    onCheckedChange={(checked) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        showErrors: checked,
+                      }))
+                    }
+                    className="data-[state=checked]:bg-red-600 dark:data-[state=checked]:bg-red-500"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Fixed Tabs Navigation */}
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="flex-1 min-h-0 flex flex-col"
+        >
+          <TabsList className="grid w-full grid-cols-3 flex-shrink-0 mb-4">
+            <TabsTrigger value="logs">Logs</TabsTrigger>
+            <TabsTrigger value="events">Events</TabsTrigger>
+            <TabsTrigger value="metrics">Metrics</TabsTrigger>
+          </TabsList>
+
+          {/* Scrollable Content Area */}
+          <div className="flex-1 min-h-0 overflow-auto">{renderContent()}</div>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
