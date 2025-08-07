@@ -5,7 +5,7 @@ import React, { useState, useEffect } from "react";
 import { motion, MotionProps } from "framer-motion";
 
 // Import logo SVG properly so Vite can handle it during build
-const ttLogoSvg = "https://github.com/tenstorrent/tt-metal/raw/main/docs/source/common/images/favicon.png";
+import ttLogoSvg from "../../assets/tt_logo.svg";
 
 // Fallback logo URL from GitHub
 export const FALLBACK_LOGO_URL =
