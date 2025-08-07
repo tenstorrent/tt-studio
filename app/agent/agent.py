@@ -2,14 +2,25 @@
 #
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-from custom_llm import CustomLLM
-from utils import poll_requests, setup_executer
-from code_tool import CodeInterpreterFunctionTool
+try:
+    # Try relative imports first (when used as a package)
+    from .custom_llm import CustomLLM
+    from .utils import poll_requests, setup_executer
+    from .code_tool import CodeInterpreterFunctionTool
+    from .llm_discovery import LLMDiscoveryService, LLMInfo
+    from .health_monitor import LLMHealthMonitor, HealthStatus
+    from .config import AgentConfig
+except ImportError:
+    # Fall back to absolute imports (when run directly)
+    from custom_llm import CustomLLM
+    from utils import poll_requests, setup_executer
+    from code_tool import CodeInterpreterFunctionTool
+    from llm_discovery import LLMDiscoveryService, LLMInfo
+    from health_monitor import LLMHealthMonitor, HealthStatus
+    from config import AgentConfig
+
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools.tavily_search import TavilySearchResults
-from llm_discovery import LLMDiscoveryService, LLMInfo
-from health_monitor import LLMHealthMonitor, HealthStatus
-from config import AgentConfig
 import os 
 import jwt
 import json
@@ -288,8 +299,8 @@ def start_health_monitoring():
     else:
         print("Health monitoring disabled or not applicable")
 
-# Global variables for agent state
-current_llm = None
+# Reset global variables for agent state (removing duplicates)
+# current_llm is already declared above
 agent_executer = None
 memory = None
 tools = []

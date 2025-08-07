@@ -5,7 +5,7 @@ Test script to verify the code tool functionality
 
 import os
 import sys
-from code_tool import CodeInterpreterFunctionTool
+from .code_tool import CodeInterpreterFunctionTool
 
 def test_code_tool():
     """Test the code interpreter tool"""

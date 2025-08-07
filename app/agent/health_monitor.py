@@ -6,11 +6,17 @@ import asyncio
 import time
 import requests
 from typing import Optional, Callable, Dict, Any
-from llm_discovery import LLMDiscoveryService, LLMInfo, HealthStatus
+try:
+    from .llm_discovery import LLMDiscoveryService, LLMInfo, HealthStatus
+except ImportError:
+    from llm_discovery import LLMDiscoveryService, LLMInfo, HealthStatus
 
 class LLMHealthMonitor:
     def __init__(self, llm, discovery_service: LLMDiscoveryService):
-        from config import AgentConfig
+        try:
+            from .config import AgentConfig
+        except ImportError:
+            from config import AgentConfig
         self.llm = llm
         self.discovery_service = discovery_service
         self.health_check_interval = AgentConfig.HEALTH_CHECK_INTERVAL

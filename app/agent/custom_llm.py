@@ -2,7 +2,7 @@
 #
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-from pydantic.v1 import BaseModel
+from pydantic import BaseModel
 from typing import (
     List,
     Sequence,
@@ -13,7 +13,8 @@ from typing import (
     Dict,
     Type,
     Callable,
-    Literal
+    Literal,
+    AsyncGenerator
 )
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
@@ -36,6 +37,9 @@ class CustomLLM(BaseChatModel):
     is_discovered: bool = False
     cloud_model_name: Optional[str] = None
     llm_info: Optional[Dict] = None
+
+    class Config:
+        arbitrary_types_allowed = True
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -73,7 +77,7 @@ class CustomLLM(BaseChatModel):
         stop: Optional[List[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = FinalStreamingStdOutCallbackHandler(),
         **kwargs: Any,
-    ) -> Iterator[ChatGenerationChunk]:
+    ) -> AsyncGenerator[ChatGenerationChunk, None]:
         print('[TRACE_FLOW_STEP_5_AGENT_TO_LLM] _astream called', {'server_url': self.server_url, 'is_cloud': self.is_cloud, 'is_discovered': self.is_discovered, 'llm_info': self.llm_info})
         
         # Convert LangChain messages to standard role/content format
