@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React from "react";
+import { Card } from "./ui/card";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { CardContent, CardHeader, CardTitle } from "./ui/card";
+import ElevatedCard from "./ui/elevated-card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Alert, AlertDescription } from "./ui/alert";
@@ -26,7 +28,7 @@ import {
 } from "./ui/table";
 import { ScrollArea, ScrollBar } from "./ui/scroll-area";
 import { useTheme } from "../hooks/useTheme";
-import CustomToaster, { customToast } from "./CustomToaster";
+import { customToast } from "./CustomToaster";
 import { Spinner } from "./ui/spinner";
 import CopyableText from "./CopyableText";
 import StatusBadge from "./StatusBadge";
@@ -59,6 +61,8 @@ import {
   AudioLines,
   X,
   FileText,
+  ScrollText,
+  Copy as CopyIcon,
   // ChevronLeft,
   ChevronDown,
   ChevronUp,
@@ -276,11 +280,13 @@ function LogsDialog({
   onClose,
   containerId,
   setSelectedContainerId,
+  modelName,
 }: {
   isOpen: boolean;
   onClose: () => void;
   containerId: string;
   setSelectedContainerId: React.Dispatch<React.SetStateAction<string | null>>;
+  modelName?: string | null;
 }): JSX.Element {
   console.log("LogsDialog rendered with:", { isOpen, containerId });
   const [logs, setLogs] = useState<string[]>([]);
@@ -294,6 +300,22 @@ function LogsDialog({
     showMetrics: true,
     showErrors: true,
   });
+
+  const shortName = React.useMemo(
+    () => (modelName ? extractShortModelName(modelName) : null),
+    [modelName]
+  );
+
+  const isHFModel = React.useMemo(
+    () => !!modelName && /.+\/.+/.test(modelName),
+    [modelName]
+  );
+
+  const HuggingFaceBadge = () => (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-yellow-400 text-black text-[11px] leading-none mr-1">
+      🤗
+    </span>
+  );
 
   // Filter functions
   const filterLogs = useCallback(
@@ -808,7 +830,10 @@ function LogsDialog({
       >
         <DialogHeader className="flex-shrink-0 pb-4 border-b border-gray-200 dark:border-gray-700">
           <DialogTitle className="flex items-center gap-2">
-            <span>Container Monitoring - {containerId}</span>
+            <span className="flex items-center gap-2">
+              {isHFModel && <HuggingFaceBadge />}
+              <span>Container Monitoring - {shortName || containerId}</span>
+            </span>
             {!isLoading && !error && (
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -936,6 +961,15 @@ export default function ModelsDeployedTable() {
   const [isRefreshingHealth, setIsRefreshingHealth] = useState(false);
   const healthBadgeRefs = useRef<Map<string, HealthBadgeRef>>(new Map());
 
+  // Show persistent startup notice as a toast (once, until dismissed)
+  useEffect(() => {
+    if (showBanner) {
+      customToast.persistentNotice(
+        'Startup Time: Models may take 5-7 minutes to start, especially on first use. Health monitoring stops once models become healthy. Use the "Refresh Health" button for manual updates.'
+      );
+    }
+  }, [showBanner]);
+
   // Debug selectedContainerId changes
   useEffect(() => {
     console.log("selectedContainerId changed to:", selectedContainerId);
@@ -965,11 +999,11 @@ export default function ModelsDeployedTable() {
   const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
   // API Info state
-  const [showAPIInfo, setShowAPIInfo] = useState(false);
-  const [selectedModelForAPI, setSelectedModelForAPI] = useState<{
-    id: string;
-    name: string;
-  } | null>(null);
+  // const [showAPIInfo, setShowAPIInfo] = useState(false);
+  // const [selectedModelForAPI, setSelectedModelForAPI] = useState<{
+  //   id: string;
+  //   name: string;
+  // } | null>(null);
 
   // Check URL params for auto-opening logs
   useEffect(() => {
@@ -1070,11 +1104,11 @@ export default function ModelsDeployedTable() {
     return { success: true };
   };
 
-  const handleDelete = (modelId: string) => {
-    setDeleteTargetId(modelId);
-    setShowDeleteModal(true);
-    setPulsatingModels((prev) => [...prev, modelId]);
-  };
+  // const handleDelete = (modelId: string) => {
+  //   setDeleteTargetId(modelId);
+  //   setShowDeleteModal(true);
+  //   setPulsatingModels((prev) => [...prev, modelId]);
+  // };
 
   const handleConfirmDelete = async () => {
     if (!deleteTargetId) return;
@@ -1209,51 +1243,7 @@ export default function ModelsDeployedTable() {
   };
 
   return (
-    <Card className="border-0 shadow-none">
-      {showBanner && (
-        <div className="px-6 pt-4 pb-2">
-          <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50">
-            <div className="flex items-start gap-3 w-full">
-              <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                {!bannerMinimized && (
-                  <AlertDescription className="text-blue-800 dark:text-blue-200 leading-relaxed">
-                    <strong>Startup Time:</strong> Models may take 5-7 minutes
-                    to start, especially on first use. Health monitoring stops
-                    once models become healthy. Use the "Refresh Health" button
-                    for manual updates.
-                  </AlertDescription>
-                )}
-                {bannerMinimized && (
-                  <AlertDescription className="text-blue-800 dark:text-blue-200">
-                    <strong>Startup Info</strong> (click to expand)
-                  </AlertDescription>
-                )}
-              </div>
-              <div className="flex gap-1 flex-shrink-0">
-                <button
-                  className="p-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                  onClick={() => setBannerMinimized(!bannerMinimized)}
-                  title={bannerMinimized ? "Expand" : "Minimize"}
-                >
-                  {bannerMinimized ? (
-                    <ChevronDown className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  ) : (
-                    <ChevronUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  )}
-                </button>
-                <button
-                  className="p-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                  onClick={() => setShowBanner(false)}
-                  title="Dismiss"
-                >
-                  <X className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                </button>
-              </div>
-            </div>
-          </Alert>
-        </div>
-      )}
+    <ElevatedCard accent="neutral" depth="lg" hover>
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
           <CardTitle className="text-xl">Models Deployed</CardTitle>
@@ -1262,7 +1252,7 @@ export default function ModelsDeployedTable() {
               variant="outline"
               size="sm"
               onClick={refreshAllHealth}
-              className="flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/50"
+              className="flex items-center gap-2 border-TT-purple/30 hover:border-TT-purple-accent hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20 hover:shadow-lg hover:shadow-TT-purple/20 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0"
               title="Refresh health status for all models"
               disabled={isRefreshingHealth}
             >
@@ -1288,7 +1278,7 @@ export default function ModelsDeployedTable() {
                     <TooltipTrigger asChild>
                       <Badge
                         variant={showContainerId ? "default" : "outline"}
-                        className="cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                        className="cursor-pointer hover:bg-TT-purple-tint2/30 dark:hover:bg-TT-purple-shade/30 transition-all duration-200 hover:scale-105 hover:shadow-md border-TT-purple/30 hover:border-TT-purple-accent"
                         onClick={() => setShowContainerId(!showContainerId)}
                       >
                         <FileText className="w-3 h-3 mr-1" />
@@ -1305,7 +1295,7 @@ export default function ModelsDeployedTable() {
                     <TooltipTrigger asChild>
                       <Badge
                         variant={showImage ? "default" : "outline"}
-                        className="cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                        className="cursor-pointer hover:bg-TT-purple-tint2/30 dark:hover:bg-TT-purple-shade/30 transition-all duration-200 hover:scale-105 hover:shadow-md border-TT-purple/30 hover:border-TT-purple-accent"
                         onClick={() => setShowImage(!showImage)}
                       >
                         <Image className="w-3 h-3 mr-1" />
@@ -1322,7 +1312,7 @@ export default function ModelsDeployedTable() {
                     <TooltipTrigger asChild>
                       <Badge
                         variant={showPorts ? "default" : "outline"}
-                        className="cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors"
+                        className="cursor-pointer hover:bg-TT-purple-tint2/30 dark:hover:bg-TT-purple-shade/30 transition-all duration-200 hover:scale-105 hover:shadow-md border-TT-purple/30 hover:border-TT-purple-accent"
                         onClick={() => setShowPorts(!showPorts)}
                       >
                         <Network className="w-3 h-3 mr-1" />
@@ -1344,56 +1334,72 @@ export default function ModelsDeployedTable() {
       >
         <CardContent className="p-0">
           <ScrollArea className="whitespace-nowrap rounded-md">
-            <CustomToaster />
             <Table>
               <TableHeader>
-                <TableRow
-                  className={`${
-                    theme === "dark"
-                      ? "bg-zinc-900 rounded-lg"
-                      : "bg-zinc-200 rounded-lg"
-                  }`}
-                >
+                <TableRow className="bg-stone-50/70 dark:bg-stone-900/40 border-b-2 border-stone-200 dark:border-stone-800">
                   {showContainerId && (
-                    <TableHead className="text-left">
+                    <TableHead className="text-left font-semibold">
                       <div className="flex items-center">
                         <FileText
-                          className="inline-block mr-2 text-blue-500"
+                          className="inline-block mr-2 text-TT-purple-accent"
                           size={16}
                         />{" "}
                         Container Logs{" "}
-                        <span className="text-xs font-normal text-blue-600 dark:text-blue-400">
+                        <span className="text-xs font-normal text-TT-purple-accent dark:text-TT-purple">
                           (live monitoring)
                         </span>
                       </div>
                     </TableHead>
                   )}
-                  <TableHead className="text-left">
-                    <Tag className="inline-block mr-2" size={16} /> Model Name
+                  <TableHead className="text-left font-semibold">
+                    <Tag
+                      className="inline-block mr-2 text-TT-purple-accent"
+                      size={16}
+                    />{" "}
+                    Model Name
                   </TableHead>
                   {showImage && (
-                    <TableHead className="text-left">
+                    <TableHead className="text-left font-semibold">
                       <div className="flex items-center">
-                        <Image className="inline-block mr-2" size={16} /> Image
+                        <Image
+                          className="inline-block mr-2 text-TT-purple-accent"
+                          size={16}
+                        />{" "}
+                        Image
                       </div>
                     </TableHead>
                   )}
-                  <TableHead className="text-left">
-                    <Activity className="inline-block mr-2" size={16} /> Status
+                  <TableHead className="text-left font-semibold">
+                    <Activity
+                      className="inline-block mr-2 text-TT-purple-accent"
+                      size={16}
+                    />{" "}
+                    Status
                   </TableHead>
-                  <TableHead className="text-left">
-                    <Heart className="inline-block mr-2" size={16} /> Health
+                  <TableHead className="text-left font-semibold">
+                    <Heart
+                      className="inline-block mr-2 text-TT-purple-accent"
+                      size={16}
+                    />{" "}
+                    Health
                   </TableHead>
                   {showPorts && (
-                    <TableHead className="text-left">
+                    <TableHead className="text-left font-semibold">
                       <div className="flex items-center">
-                        <Network className="inline-block mr-2" size={16} />{" "}
+                        <Network
+                          className="inline-block mr-2 text-TT-purple-accent"
+                          size={16}
+                        />{" "}
                         Ports
                       </div>
                     </TableHead>
                   )}
-                  <TableHead className="text-center">
-                    <Settings className="inline-block mr-2" size={16} /> Manage
+                  <TableHead className="text-center font-semibold">
+                    <Settings
+                      className="inline-block mr-2 text-TT-purple-accent"
+                      size={16}
+                    />{" "}
+                    Manage
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -1401,11 +1407,9 @@ export default function ModelsDeployedTable() {
                 {models.map((model: { id: string; [key: string]: any }) => (
                   <TableRow
                     key={model.id}
-                    className={`transition-all duration-1000 ${
+                    className={`transition-all duration-1000 hover:bg-stone-50 dark:hover:bg-stone-900/30 border-b border-stone-200 dark:border-stone-800 ${
                       fadingModels.includes(model.id)
-                        ? theme === "dark"
-                          ? "bg-zinc-900 opacity-50"
-                          : "bg-zinc-200 opacity-50"
+                        ? "bg-stone-100/40 dark:bg-stone-900/30 opacity-50"
                         : ""
                     } ${pulsatingModels.includes(model.id) ? "animate-pulse" : ""} rounded-lg`}
                   >
@@ -1434,15 +1438,43 @@ export default function ModelsDeployedTable() {
                               );
                             }, 100);
                           }}
-                          className="group h-auto p-2 flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/50 hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-200 min-w-[140px]"
+                          className="group h-auto p-3 flex items-center gap-3 border-TT-purple/30 hover:border-TT-purple-accent hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20 hover:shadow-lg hover:shadow-TT-purple/20 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 min-w-[180px] rounded-xl"
                         >
-                          <FileText className="w-4 h-4 text-blue-500" />
-                          <div className="flex flex-col items-start">
-                            <span className="text-xs font-mono font-medium">
-                              {model.id.substring(0, 8)}...
-                            </span>
-                            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                              📊 View Logs
+                          <div className="relative w-9 h-9 rounded-lg border border-TT-purple-accent/40 bg-gradient-to-br from-TT-purple-tint2/25 to-transparent dark:from-TT-purple-shade/30 dark:to-transparent flex items-center justify-center">
+                            <ScrollText className="w-4 h-4 text-TT-purple-accent" />
+                            <Activity className="w-3 h-3 text-TT-purple-accent absolute -bottom-1 -right-1 drop-shadow-sm" />
+                          </div>
+                          <div className="flex flex-col items-start leading-tight">
+                            <div className="flex items-center gap-2">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigator.clipboard.writeText(model.id);
+                                        customToast.success(
+                                          "Copied container ID"
+                                        );
+                                      }}
+                                      className="text-xs font-mono font-medium opacity-80 underline-offset-2 hover:underline cursor-copy flex items-center gap-1"
+                                      title="Copy container ID"
+                                    >
+                                      {model.id.substring(0, 8)}...
+                                      <CopyIcon className="w-3 h-3 opacity-60 group-hover:opacity-100 transition-opacity" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Click to copy full container ID</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              <span className="text-[10px] text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                Copy
+                              </span>
+                            </div>
+                            <span className="text-sm text-TT-purple-accent dark:text-TT-purple font-medium group-hover:text-TT-purple-shade dark:group-hover:text-TT-purple-tint1 transition-colors duration-200">
+                              View Logs
                             </span>
                           </div>
                         </Button>
@@ -1512,7 +1544,7 @@ export default function ModelsDeployedTable() {
                             variant="outline"
                             size="sm"
                             disabled={!model.image}
-                            className="border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-600 dark:text-orange-300 dark:hover:bg-orange-950/50"
+                            className="h-10 px-4 rounded-xl font-medium border-orange-400/50 text-orange-700 hover:border-orange-500 hover:bg-orange-50 dark:border-orange-500/50 dark:text-orange-300 dark:hover:bg-orange-950/30 hover:shadow-md hover:shadow-orange-200/40 dark:hover:shadow-orange-900/40 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 gap-2"
                           >
                             <RefreshCw className="w-4 h-4 mr-1" />
                             Redeploy
@@ -1525,9 +1557,14 @@ export default function ModelsDeployedTable() {
                               </Button>
                             ) : (
                               <Button
-                                onClick={() => handleDelete(model.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTargetId(model.id);
+                                  setShowDeleteModal(true);
+                                }}
                                 variant="destructive"
                                 size="sm"
+                                className="h-10 px-4 rounded-xl font-medium gap-2 shadow-sm hover:shadow-md hover:shadow-red-200/50 dark:hover:shadow-red-900/50 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0"
                               >
                                 <Trash2 className="w-4 h-4 mr-1" />
                                 Delete
@@ -1552,7 +1589,7 @@ export default function ModelsDeployedTable() {
                                       (modelHealth[model.id] ?? "unknown") !==
                                         "healthy"
                                     }
-                                    className="bg-green-600 hover:bg-green-700 text-white"
+                                    className="h-10 px-4 min-w-[120px] rounded-xl font-medium bg-TT-green-accent hover:bg-TT-green-shade text-white gap-2 shadow-sm hover:shadow-md hover:shadow-TT-green/30 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 border border-TT-green/30"
                                   >
                                     {getModelIcon(model.name)}
                                     {getModelTypeLabel(model.name)}
@@ -1571,8 +1608,9 @@ export default function ModelsDeployedTable() {
                                   ) : isLLaMAModel(model.name || "") ? (
                                     <p>
                                       Warning: First-time inference may take up
-                                      to an hour. Subsequent runs may take 5-7
-                                      minutes.
+                                      to an hour for model weights to be
+                                      downloaded. Subsequent runs may take 5-7
+                                      min minutes.
                                     </p>
                                   ) : (
                                     <p>
@@ -1593,7 +1631,7 @@ export default function ModelsDeployedTable() {
                                     }
                                     variant="outline"
                                     size="sm"
-                                    className="flex items-center gap-1"
+                                    className="h-10 px-4 min-w-[120px] rounded-xl font-medium flex items-center gap-2 border-TT-blue-accent/40 bg-TT-blue-tint2/40 text-TT-blue-accent dark:bg-TT-blue-accent/25 dark:text-TT-blue-tint2 hover:bg-TT-blue-tint2/60 dark:hover:bg-TT-blue-accent/40 hover:border-TT-blue-accent shadow-sm hover:shadow-md hover:shadow-TT-blue/25 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0"
                                   >
                                     <Code className="w-3 h-3" />
                                     API
@@ -1629,10 +1667,11 @@ export default function ModelsDeployedTable() {
         }}
         containerId={selectedContainerId || ""}
         setSelectedContainerId={setSelectedContainerId}
+        modelName={models.find((m) => m.id === selectedContainerId)?.name}
       />
 
       <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
-        <DialogContent className="sm:max-w-md p-6 rounded-lg shadow-lg bg-zinc-900 text-white border border-yellow-700">
+        <DialogContent className="sm:max-w-md p-6 rounded-xl shadow-2xl bg-stone-900/95 text-white border-2 border-yellow-500/50 backdrop-blur-md">
           <DialogHeader>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center">
@@ -1643,7 +1682,7 @@ export default function ModelsDeployedTable() {
               </div>
             </div>
           </DialogHeader>
-          <div className="mb-4 p-4 bg-yellow-900/20 text-yellow-200 rounded-md flex items-start">
+          <div className="mb-4 p-4 bg-yellow-900/30 text-yellow-100 rounded-lg border border-yellow-500/30 backdrop-blur-sm flex items-start">
             <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 flex-shrink-0" />
             <div>
               <div className="font-bold mb-1 text-yellow-100">
@@ -1667,12 +1706,13 @@ export default function ModelsDeployedTable() {
             <Button
               onClick={() => setShowDeleteModal(false)}
               disabled={isProcessingDelete}
+              className="hover:shadow-lg hover:shadow-stone-200/20 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 rounded-lg"
             >
               Cancel
             </Button>
             <Button
               onClick={handleConfirmDelete}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-red-600 text-white hover:bg-red-700 hover:shadow-lg hover:shadow-red-500/30 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 rounded-lg border border-red-500/30"
               disabled={isProcessingDelete}
             >
               {isProcessingDelete ? "Processing..." : "Yes, Delete & Reset"}
@@ -1680,6 +1720,6 @@ export default function ModelsDeployedTable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </ElevatedCard>
   );
 }

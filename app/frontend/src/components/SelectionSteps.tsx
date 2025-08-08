@@ -4,7 +4,7 @@
 
 import axios from "axios";
 import { useState, useEffect } from "react";
-import { Card } from "./ui/card";
+import ElevatedCard from "./ui/elevated-card";
 import { Button } from "./ui/button";
 import { Step, Stepper } from "./ui/stepper";
 import CustomToaster, { customToast } from "./CustomToaster";
@@ -214,7 +214,12 @@ export default function StepperDemo() {
   return (
     <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
       <CustomToaster />
-      <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">
+      <ElevatedCard
+        accent="neutral"
+        depth="lg"
+        hover
+        className="h-auto py-4 px-8 md:px-12 lg:px-16"
+      >
         <Stepper
           variant="circle-alt"
           initialStep={0}
@@ -291,7 +296,7 @@ export default function StepperDemo() {
             <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>
         </Stepper>
-      </Card>
+      </ElevatedCard>
     </div>
   );
 }
