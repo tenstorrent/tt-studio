@@ -112,7 +112,7 @@ jobs:
             echo "No files with missing licenses found"
           fi
           
-      - name: Comment on PR with missing licenses
+- name: Comment on PR with missing licenses
         if: env.FILES_WITH_ISSUES != ''
         uses: actions/github-script@v7
         with:
@@ -131,18 +131,36 @@ jobs:
               
               const commentBody = `## 📋 SPDX License Check Results
               
-Our automated SPDX license verification has found **${fileCount} file(s)** missing license headers:
+            Our automated SPDX license verification has found **${fileCount} file(s)** missing license headers:
 
-\`\`\`
-${filesWithIssues.trim()}
-\`\`\`
+            \`\`\`
+            ${filesWithIssues.trim()}
+            \`\`\`
 
-### ✅ Next Steps
-Please add a valid SPDX license identifier to each file. For example:
-\`\`\`
-# SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2024 Your Organization
-\`\`\`
+            ### ✅ Next Steps
+            Please add a valid SPDX license identifier to each file. For example:
+            \`\`\`
+            # SPDX-License-Identifier: MIT
+            # SPDX-FileCopyrightText: 2024 Your Organization
+            \`\`\`
+
+            This ensures proper licensing compliance. Thank you for your cooperation! 🙏`;
+              
+              try {
+                await github.rest.issues.createComment({
+                  issue_number: issueNumber,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: commentBody
+                });
+                console.log(`Comment posted for ${fileCount} files with missing licenses`);
+              } catch (error) {
+                console.error('Failed to post comment:', error);
+              }
+              
+              // Set job as failed
+              core.setFailed(`Found ${fileCount} files with missing SPDX license headers`);
+            }
 
 This ensures proper licensing compliance. Thank you for your cooperation! 🙏`;
               
