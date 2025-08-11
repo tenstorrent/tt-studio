@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React from "react";
 import {
   TableBody,
   TableCell,
@@ -131,7 +130,7 @@ export default function ModelsTable({
         {rows.map((row) => (
           <TableRow
             key={row.id}
-            className="transition-all duration-1000 hover:bg-stone-50 dark:hover:bg-stone-900/30 border-b border-stone-200 dark:border-stone-800 rounded-lg"
+            className="transition-all duration-1000 hover:bg-stone-50 dark:hover:bg-stone-900/30 border-b border-stone-200 dark:border-stone-800 rounded-lg group"
           >
             {containerId ? (
               <TableCell className="text-left">

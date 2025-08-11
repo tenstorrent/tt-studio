@@ -32,7 +32,7 @@ export default React.memo(function ContainerLogsCell({
                 navigator.clipboard.writeText(id);
                 customToast.success("Copied container ID");
               }}
-              className="flex items-center gap-2 rounded-lg border border-TT-purple-accent/30 px-2 py-1 text-xs font-mono text-stone-300 hover:text-white hover:border-TT-purple-accent hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20 transition-colors"
+              className="flex items-center gap-2 rounded-lg border border-TT-purple-accent/30 px-2 py-1 text-xs font-mono text-stone-300 hover:text-white hover:border-TT-purple-accent hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20 transition-colors opacity-0 group-hover:opacity-100"
               title="Copy container ID"
             >
               <span>{id.substring(0, 8)}...</span>
