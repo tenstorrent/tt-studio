@@ -134,7 +134,14 @@ export default {
           "Arial",
           "sans-serif",
         ],
-        mono: ["Roboto Mono", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono"],
+        mono: [
+          "Roboto Mono",
+          "SFMono-Regular",
+          "Menlo",
+          "Monaco",
+          "Consolas",
+          "Liberation Mono",
+        ],
       },
       keyframes: {
         "accordion-down": {
@@ -161,6 +168,16 @@ export default {
           "0%": { transform: "scaleX(0)", opacity: "1" },
           "100%": { transform: "scaleX(1)", opacity: "0" },
         },
+        shine: {
+          "0%": { backgroundPosition: "200% 0" },
+          "25%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "-200% 0" },
+        },
+        gradientFlow: {
+          "0%": { "background-position": "0% 50%" },
+          "50%": { "background-position": "100% 50%" },
+          "100%": { "background-position": "0% 50%" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -170,6 +187,9 @@ export default {
         "sound-wave-3": "sound-wave-3 0.8s infinite 0.4s",
         "pulse-ripple-x": "pulse-ripple-x 1s ease-out infinite",
         ripple: "ripple 3s ease-out infinite",
+        shine: "shine 3s ease-out infinite",
+        "gradient-flow":
+          "gradientFlow 10s ease 0s infinite normal none running",
       },
     },
   },

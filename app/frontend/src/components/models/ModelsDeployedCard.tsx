@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ElevatedCard from "../ui/elevated-card";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
@@ -32,6 +38,7 @@ import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
 import { useNavigate } from "react-router-dom";
+import { useTablePrefs } from "../../hooks/useTablePrefs";
 
 export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels } = useModels();
@@ -53,18 +60,6 @@ export default function ModelsDeployedCard(): JSX.Element {
   });
 
   const navigate = useNavigate();
-
-  // Logs dialog state
-  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
-    null
-  );
-  useOpenLogsFromUrl(!!selectedContainerId, setSelectedContainerId);
-
-  // Delete state
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
-
   const loadModels = useCallback(async () => {
     setLoadError(null);
     try {
@@ -84,6 +79,63 @@ export default function ModelsDeployedCard(): JSX.Element {
       setLoading(false);
     }
   }, [setModels, triggerRefresh]);
+
+  // Density/refresh prefs
+  const { prefs, setDensity, setAutoRefreshSec, setHealthRefreshSec } =
+    useTablePrefs("models-deployed", {
+      density: "normal",
+      autoRefreshSec: 0,
+      healthRefreshSec: 0,
+    });
+
+  // Auto-refresh timer for data
+  const autoRefreshTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (autoRefreshTimer.current) {
+      window.clearInterval(autoRefreshTimer.current);
+      autoRefreshTimer.current = null;
+    }
+    if (prefs.autoRefreshSec > 0) {
+      autoRefreshTimer.current = window.setInterval(() => {
+        loadModels();
+      }, prefs.autoRefreshSec * 1000) as unknown as number;
+    }
+    return () => {
+      if (autoRefreshTimer.current) {
+        window.clearInterval(autoRefreshTimer.current);
+      }
+    };
+  }, [prefs.autoRefreshSec, loadModels]);
+
+  // Auto health refresh timer
+  const healthTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (healthTimer.current) {
+      window.clearInterval(healthTimer.current);
+      healthTimer.current = null;
+    }
+    if (prefs.healthRefreshSec > 0) {
+      healthTimer.current = window.setInterval(() => {
+        refreshAllHealth();
+      }, prefs.healthRefreshSec * 1000) as unknown as number;
+    }
+    return () => {
+      if (healthTimer.current) {
+        window.clearInterval(healthTimer.current);
+      }
+    };
+  }, [prefs.healthRefreshSec, refreshAllHealth]);
+
+  // Logs dialog state
+  const [selectedContainerId, setSelectedContainerId] = useState<string | null>(
+    null
+  );
+  useOpenLogsFromUrl(!!selectedContainerId, setSelectedContainerId);
+
+  // Delete state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
   useEffect(() => {
     loadModels();
@@ -130,6 +182,72 @@ export default function ModelsDeployedCard(): JSX.Element {
     }
   }, [deleteTargetId, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
 
+  const exportVisible = useCallback(() => {
+    const visibleRows = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      image: (columns.image && r.image) || undefined,
+      ports: (columns.ports && r.ports) || undefined,
+      status: r.status,
+    }));
+    const blob = new Blob([JSON.stringify(visibleRows, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "models-visible.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [rows, columns]);
+
+  const copyAllVisible = useCallback(() => {
+    const text = rows
+      .map((r) => {
+        const parts = [
+          `id: ${r.id}`,
+          `name: ${r.name}`,
+          columns.image ? `image: ${r.image}` : undefined,
+          `status: ${r.status}`,
+          columns.ports ? `ports: ${r.ports}` : undefined,
+        ].filter(Boolean);
+        return parts.join(" | ");
+      })
+      .join("\n");
+    navigator.clipboard.writeText(text);
+    customToast.success("Copied visible table data");
+  }, [rows, columns]);
+
+  const refreshHealthById = useCallback(
+    (id: string) => {
+      // delegate to registered ref using the provided register function's internal map
+      // augment register with a weak map for direct lookup
+      // We maintain our own map as well by listening to register callbacks
+      // Since useHealthRefresh keeps refs internally, add a minimal mirror
+      const anyRegister: any = register;
+      if (!anyRegister._refsMirror) return;
+      const node = anyRegister._refsMirror.get(id);
+      if (node && typeof node.refreshHealth === "function")
+        node.refreshHealth();
+    },
+    [register]
+  );
+
+  // Wrap the register to keep a mirror map for quick lookups
+  const mirroredRegister = useCallback(
+    (id: string, node: any | null) => {
+      const anyRegister: any = register;
+      if (!anyRegister._refsMirror) anyRegister._refsMirror = new Map();
+      if (node) {
+        anyRegister._refsMirror.set(id, node);
+      } else {
+        anyRegister._refsMirror.delete(id);
+      }
+      register(id, node);
+    },
+    [register]
+  );
+
   if (loading) {
     return <ModelsDeployedSkeleton />;
   }
@@ -161,8 +279,12 @@ export default function ModelsDeployedCard(): JSX.Element {
   return (
     <ElevatedCard accent="neutral" depth="lg" hover>
       <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
+          {/* Left */}
           <CardTitle className="text-xl">Models Deployed</CardTitle>
+          {/* Center intentionally empty per redesign */}
+          <div className="flex-1" />
+          {/* Right */}
           <ModelsToolbar
             tableId="models-deployed"
             visibleMap={columns}
@@ -170,6 +292,17 @@ export default function ModelsDeployedCard(): JSX.Element {
             onPreset={setPreset}
             isRefreshing={isRefreshing}
             onRefresh={refreshAllHealth}
+            density={prefs.density}
+            onDensity={setDensity}
+            autoRefreshSec={prefs.autoRefreshSec}
+            onAutoRefreshSec={setAutoRefreshSec}
+            healthRefreshSec={prefs.healthRefreshSec}
+            onHealthRefreshSec={setHealthRefreshSec}
+            onExportVisible={exportVisible}
+            onCopyAll={copyAllVisible}
+            visibleCount={Object.values(columns).filter(Boolean).length}
+            totalCount={Object.keys(columns).length}
+            onRefreshHealthNow={refreshAllHealth}
           />
         </div>
       </CardHeader>
@@ -196,10 +329,12 @@ export default function ModelsDeployedCard(): JSX.Element {
                   const encoded = encodeURIComponent(id);
                   window.location.href = `/api-info/${encoded}`;
                 }}
-                registerHealthRef={register}
+                registerHealthRef={mirroredRegister}
                 onHealthChange={(id: string, h: HealthStatus) =>
                   setHealthMap((prev) => ({ ...prev, [id]: h }))
                 }
+                refreshHealthById={refreshHealthById}
+                density={prefs.density}
               />
             </Table>
             <ScrollBar
