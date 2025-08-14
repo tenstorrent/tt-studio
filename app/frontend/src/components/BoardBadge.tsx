@@ -3,6 +3,7 @@
 
 import React from "react";
 import { Cpu } from "lucide-react";
+import { HardwareIcon } from "./aiPlaygroundHome/HardwareIcon";
 
 interface BoardBadgeProps {
   boardName: string;
@@ -11,8 +12,10 @@ interface BoardBadgeProps {
 }
 
 const BoardBadge: React.FC<BoardBadgeProps> = ({ boardName, className = "", onClick }) => {
-  // Use the n150.svg for N300 boards
-  const useCustomIcon = boardName.toLowerCase().includes("n300");
+  // Determine which icon to render based on board name
+  const lower = boardName.toLowerCase();
+  const isN300 = lower.includes("n300");
+  const isT3K = lower.includes("t3k") || lower.includes("t3000");
 
   const BadgeContent = (
     <div
@@ -22,7 +25,9 @@ const BoardBadge: React.FC<BoardBadgeProps> = ({ boardName, className = "", onCl
           : ""
       } ${className}`}
     >
-      {useCustomIcon ? (
+      {isT3K ? (
+        <HardwareIcon type="loudbox" className="h-4 w-4" />
+      ) : isN300 ? (
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="16"

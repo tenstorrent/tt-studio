@@ -94,28 +94,18 @@ const EnhancedButton = React.forwardRef<
         {...props}
       >
         {Icon &&
-          iconPlacement === "left" &&
-          (effect === "expandIcon" ? (
-            <div className="w-6 pr-1 opacity-0 transition-opacity duration-200 group-hover/btn:opacity-100 flex items-center justify-center">
+          iconPlacement === "left" && (
+            <div className="w-6 pr-1 opacity-100 flex items-center justify-center">
               <Icon />
             </div>
-          ) : (
-            <div className="w-6 pr-1 opacity-0 transition-opacity duration-200 group-hover/btn:opacity-100 flex items-center justify-center">
-              <Icon />
-            </div>
-          ))}
+          )}
         <Slottable>{props.children}</Slottable>
         {Icon &&
-          iconPlacement === "right" &&
-          (effect === "expandIcon" ? (
-            <div className="w-6 pl-1 opacity-0 transition-opacity duration-200 group-hover/btn:opacity-100 flex items-center justify-center">
+          iconPlacement === "right" && (
+            <div className="w-6 pl-1 opacity-100 flex items-center justify-center">
               <Icon />
             </div>
-          ) : (
-            <div className="w-6 pl-1 opacity-0 transition-opacity duration-200 group-hover/btn:opacity-100 flex items-center justify-center">
-              <Icon />
-            </div>
-          ))}
+          )}
       </Comp>
     );
   }

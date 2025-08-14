@@ -109,7 +109,7 @@ export default function ModelsTable({
       <TableHeader>
         <TableRow className="bg-stone-50/70 dark:bg-stone-900/40 border-b-2 border-stone-200 dark:border-stone-800">
           {containerId && (
-            <TableHead className="text-left font-semibold">
+            <TableHead className="text-right font-semibold">
               <div className="flex items-center">
                 <FileText
                   className="inline-block mr-2 text-TT-purple-accent"
@@ -122,7 +122,7 @@ export default function ModelsTable({
               </div>
             </TableHead>
           )}
-          <TableHead className="text-left font-semibold">
+          <TableHead className="text-right font-semibold">
             <Tag
               className="inline-block mr-2 text-TT-purple-accent"
               size={16}
@@ -130,7 +130,7 @@ export default function ModelsTable({
             Model Name
           </TableHead>
           {image && (
-            <TableHead className="text-left font-semibold">
+            <TableHead className="text-right font-semibold">
               <div className="flex items-center">
                 <ImageIcon
                   className="inline-block mr-2 text-TT-purple-accent"
@@ -140,14 +140,14 @@ export default function ModelsTable({
               </div>
             </TableHead>
           )}
-          <TableHead className="text-left font-semibold">
+          <TableHead className="text-right font-semibold">
             <Activity
               className="inline-block mr-2 text-TT-purple-accent"
               size={16}
             />
             Status
           </TableHead>
-          <TableHead className="text-left font-semibold">
+          <TableHead className="text-right font-semibold">
             <Heart
               className="inline-block mr-2 text-TT-purple-accent"
               size={16}
@@ -155,7 +155,7 @@ export default function ModelsTable({
             Health
           </TableHead>
           {ports && (
-            <TableHead className="text-left font-semibold">
+            <TableHead className="text-right font-semibold">
               <div className="flex items-center">
                 <Network
                   className="inline-block mr-2 text-TT-purple-accent"
@@ -165,7 +165,7 @@ export default function ModelsTable({
               </div>
             </TableHead>
           )}
-          <TableHead className="text-center font-semibold">
+          <TableHead className="text-right font-semibold">
             <Settings
               className="inline-block mr-2 text-TT-purple-accent"
               size={16}
@@ -191,13 +191,13 @@ export default function ModelsTable({
                 className={`transition-all duration-300 hover:bg-stone-50 dark:hover:bg-stone-900/30 border-b border-stone-200 dark:border-stone-800 rounded-lg group ${rowHeightClass}`}
               >
                 {containerId ? (
-                  <TableCell className="text-left">
+                  <TableCell className="text-right">
                     <ContainerLogsCell id={row.id} onOpenLogs={onOpenLogs} />
                   </TableCell>
                 ) : null}
-                <TableCell className="text-left">
+                <TableCell className="text-right">
                   <button
-                    className="inline-flex items-center gap-2 text-left hover:text-TT-purple-accent"
+                    className="inline-flex items-center gap-2 text-right hover:text-TT-purple-accent"
                     onClick={() => toggleExpanded(row.id)}
                     title={isExpanded ? "Collapse details" : "Expand details"}
                   >
@@ -208,14 +208,14 @@ export default function ModelsTable({
                   </button>
                 </TableCell>
                 {image ? (
-                  <TableCell className="text-left">
+                  <TableCell className="text-right">
                     <ImageCell image={row.image} />
                   </TableCell>
                 ) : null}
-                <TableCell className="text-left">
+                <TableCell className="text-right">
                   <StatusCell status={row.status} />
                 </TableCell>
-                <TableCell className="text-left">
+                <TableCell className="text-right">
                   <HealthCell
                     id={row.id}
                     register={registerHealthRef}
@@ -223,11 +223,11 @@ export default function ModelsTable({
                   />
                 </TableCell>
                 {ports ? (
-                  <TableCell className="text-left">
+                  <TableCell className="text-right">
                     <PortsCell ports={row.ports} />
                   </TableCell>
                 ) : null}
-                <TableCell className="text-center">
+                <TableCell className="text-right">
                   <ManageCell
                     id={row.id}
                     name={row.name}

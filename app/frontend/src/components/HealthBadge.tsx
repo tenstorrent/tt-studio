@@ -132,10 +132,11 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
         <Tooltip>
           <TooltipTrigger asChild>
             <div
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap ${getStatusColor()} transition-colors duration-200`}
+              className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap leading-none ${getStatusColor()} transition-colors duration-200`}
+              style={{ minHeight: 28 }}
             >
               <div
-                className={`w-2 h-2 rounded-full ${getDotColor()} ${health === "healthy" ? "animate-pulse" : ""}`}
+                className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${health === "healthy" ? "animate-pulse" : ""}`}
               />
               {isLoading ? "Loading..." : health}
             </div>

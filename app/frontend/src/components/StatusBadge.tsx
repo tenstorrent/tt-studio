@@ -33,8 +33,8 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div>
-            <Badge statusColor={statusColor} variant={variant}>
+          <div className="leading-none">
+            <Badge statusColor={statusColor} variant={variant} className="px-3 py-1 text-sm leading-none" style={{ minHeight: 28 }}>
               {status}
             </Badge>
           </div>

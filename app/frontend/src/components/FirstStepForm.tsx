@@ -390,22 +390,28 @@ export function FirstStepForm({
                     </span>
                     <div className="px-2 py-2">
                       {currentBoard !== "unknown" ? (
-                        <BoardBadge
-                          boardName={currentBoard}
-                          onClick={() => {
-                            if (currentBoard.toLowerCase().includes("n300")) {
-                              window.open(
-                                "https://tenstorrent.com/hardware/wormhole",
-                                "_blank"
-                              );
-                            } else {
-                              window.open(
-                                "https://www.tenstorrent.com/hardware",
-                                "_blank"
-                              );
-                            }
-                          }}
-                        />
+                          <BoardBadge
+                            boardName={currentBoard}
+                            onClick={() => {
+                              const lower = currentBoard.toLowerCase();
+                              if (lower.includes("t3k") || lower.includes("t3000")) {
+                                window.open(
+                                  "https://tenstorrent.com/hardware/tt-quietbox",
+                                  "_blank"
+                                );
+                              } else if (lower.includes("n300")) {
+                                window.open(
+                                  "https://tenstorrent.com/hardware/wormhole",
+                                  "_blank"
+                                );
+                              } else {
+                                window.open(
+                                  "https://www.tenstorrent.com/hardware",
+                                  "_blank"
+                                );
+                              }
+                            }}
+                          />
                       ) : (
                         <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
                           Unknown
