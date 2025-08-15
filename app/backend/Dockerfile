@@ -14,7 +14,10 @@ RUN apt-get update && \
     build-essential \
     libsqlite3-dev \
     ca-certificates \
-    $(if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then echo "git curl pkg-config libssl-dev"; fi) && \
+    curl \
+    git \
+    pkg-config \
+    libssl-dev && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
