@@ -128,7 +128,14 @@ class CustomLLM(BaseChatModel):
                 model_name = self.llm_info.get('model_name')
                 print(f"[DEBUG] hf_model_id from llm_info: {hf_model_id}")
                 print(f"[DEBUG] model_name from llm_info: {model_name}")
-                hf_model_path = hf_model_id or model_name
+                
+                # Use hf_model_id if it exists and is not None/empty, otherwise fall back to model_name
+                if hf_model_id and hf_model_id.strip():
+                    hf_model_path = hf_model_id
+                    print(f"[DEBUG] Using hf_model_id: {hf_model_path}")
+                else:
+                    hf_model_path = model_name
+                    print(f"[DEBUG] Falling back to model_name: {hf_model_path}")
                 print(f"[DEBUG] Final model path selected: {hf_model_path}")
             else:
                 hf_model_path = os.getenv("HF_MODEL_PATH")
