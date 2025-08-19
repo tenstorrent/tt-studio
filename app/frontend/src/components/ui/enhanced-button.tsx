@@ -19,7 +19,7 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       effect: {
-        expandIcon: "group gap-0 relative",
+        expandIcon: "group/btn gap-1 relative",
         ringHover:
           "transition-all duration-300 hover:ring-2 hover:ring-primary/90 hover:ring-offset-2",
         shine:
@@ -94,24 +94,18 @@ const EnhancedButton = React.forwardRef<
         {...props}
       >
         {Icon &&
-          iconPlacement === "left" &&
-          (effect === "expandIcon" ? (
-            <div className="w-0 translate-x-[0%] pr-0 opacity-0 transition-all duration-200 group-hover:w-5 group-hover:translate-x-100 group-hover:pr-2 group-hover:opacity-100">
+          iconPlacement === "left" && (
+            <div className="w-6 pr-1 opacity-100 flex items-center justify-center">
               <Icon />
             </div>
-          ) : (
-            <Icon />
-          ))}
+          )}
         <Slottable>{props.children}</Slottable>
         {Icon &&
-          iconPlacement === "right" &&
-          (effect === "expandIcon" ? (
-            <div className="w-0 translate-x-[100%] pl-0 opacity-0 transition-all duration-200 group-hover:w-5 group-hover:translate-x-0 group-hover:pl-2 group-hover:opacity-100">
+          iconPlacement === "right" && (
+            <div className="w-6 pl-1 opacity-100 flex items-center justify-center">
               <Icon />
             </div>
-          ) : (
-            <Icon />
-          ))}
+          )}
       </Comp>
     );
   }

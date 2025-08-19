@@ -2,7 +2,7 @@
 #
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-from pydantic.v1 import BaseModel
+from pydantic import BaseModel
 from typing import (
     List,
     Sequence,
@@ -13,7 +13,8 @@ from typing import (
     Dict,
     Type,
     Callable,
-    Literal
+    Literal,
+    AsyncGenerator
 )
 
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
@@ -36,6 +37,9 @@ class CustomLLM(BaseChatModel):
     is_discovered: bool = False
     cloud_model_name: Optional[str] = None
     llm_info: Optional[Dict] = None
+
+    class Config:
+        arbitrary_types_allowed = True
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -73,7 +77,7 @@ class CustomLLM(BaseChatModel):
         stop: Optional[List[str]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = FinalStreamingStdOutCallbackHandler(),
         **kwargs: Any,
-    ) -> Iterator[ChatGenerationChunk]:
+    ) -> AsyncGenerator[ChatGenerationChunk, None]:
         print('[TRACE_FLOW_STEP_5_AGENT_TO_LLM] _astream called', {'server_url': self.server_url, 'is_cloud': self.is_cloud, 'is_discovered': self.is_discovered, 'llm_info': self.llm_info})
         
         # Convert LangChain messages to standard role/content format
@@ -124,7 +128,14 @@ class CustomLLM(BaseChatModel):
                 model_name = self.llm_info.get('model_name')
                 print(f"[DEBUG] hf_model_id from llm_info: {hf_model_id}")
                 print(f"[DEBUG] model_name from llm_info: {model_name}")
-                hf_model_path = hf_model_id or model_name
+                
+                # Use hf_model_id if it exists and is not None/empty, otherwise fall back to model_name
+                if hf_model_id and hf_model_id.strip():
+                    hf_model_path = hf_model_id
+                    print(f"[DEBUG] Using hf_model_id: {hf_model_path}")
+                else:
+                    hf_model_path = model_name
+                    print(f"[DEBUG] Falling back to model_name: {hf_model_path}")
                 print(f"[DEBUG] Final model path selected: {hf_model_path}")
             else:
                 hf_model_path = os.getenv("HF_MODEL_PATH")

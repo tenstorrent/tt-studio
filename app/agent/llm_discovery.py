@@ -28,7 +28,10 @@ class LLMInfo:
 
 class LLMDiscoveryService:
     def __init__(self):
-        from config import AgentConfig
+        try:
+            from .config import AgentConfig
+        except ImportError:
+            from config import AgentConfig
         self.backend_url = AgentConfig.BACKEND_URL
         self.cache = {}
         self.cache_ttl = AgentConfig.DISCOVERY_CACHE_TTL
@@ -139,7 +142,10 @@ class LLMDiscoveryService:
             print(f"  - {llm.model_name} ({llm.model_type}) - {llm.status.value}")
         
         # Get priority models and model type priority from configuration
-        from config import AgentConfig
+        try:
+            from .config import AgentConfig
+        except ImportError:
+            from config import AgentConfig
         priority_models = AgentConfig.get_priority_models()
         model_type_priority = AgentConfig.get_model_type_priority()
         
