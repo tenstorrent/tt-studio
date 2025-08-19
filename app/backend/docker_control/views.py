@@ -17,6 +17,7 @@ import subprocess
 import os
 
 import docker
+import re
 import os 
 import concurrent.futures
 from .forms import DockerForm
@@ -822,78 +823,77 @@ class DockerServiceLogsView(APIView):
         try:
             logger.info("Fetching Docker service logs for bug report")
             
-            # Define the services we want to get logs from
-            services = [
-                "tt_studio_backend",
-                "tt_studio_frontend", 
-                "tt_studio_agent",
-                "tt_studio_chroma"
-            ]
-            
+            # Build logs for all TT Studio containers dynamically (backend, frontend, agent, chroma)
+            # and include any that look like part of the stack, regardless of exact name
             logs_data = {}
-            
-            # Try to get Docker container logs using the Docker Python library
-            # Since we're running inside a container, we use the Docker Python library instead of CLI
-            container_names = [
-                "tt_studio_backend_api_dev",
-                "tt_studio_frontend_dev", 
-                "tt_studio_agent_dev",
-                "tt_studio_chroma_dev"
-            ]
-            
             docker_logs_found = False
+
             try:
-                # Use the existing Docker client that's already imported
-                
-                def fetch_container_logs(service_container_pair):
-                    """Fetch logs for a single container"""
-                    service, container_name = service_container_pair
+                def classify_service(container) -> str:
+                    name = (container.name or "").lower()
+                    image = (container.image.tags[0] if container.image.tags else container.image.short_id).lower()
+                    candidates = name + " " + image
+                    if "backend" in candidates:
+                        return "tt_studio_backend"
+                    if "frontend" in candidates:
+                        return "tt_studio_frontend"
+                    if "agent" in candidates:
+                        return "tt_studio_agent"
+                    if "chroma" in candidates:
+                        return "tt_studio_chroma"
+                    if "tt-studio" in candidates or "tt_studio" in candidates:
+                        return "tt_studio_other"
+                    return "other"
+
+                containers = client.containers.list(all=True)
+
+                service_to_containers = {}
+                for c in containers:
+                    service = classify_service(c)
+                    if service == "other":
+                        continue
+                    service_to_containers.setdefault(service, []).append(c)
+
+                def fetch_logs_for_container(container) -> str:
                     try:
-                        # Get container logs using Docker Python library
-                        container = client.containers.get(container_name)
-                        log_content = container.logs(tail=8, timestamps=False).decode('utf-8', errors='replace').strip()
-                        
-                        if log_content:
-                            # Limit the log size to prevent GitHub URL length issues
-                            if len(log_content) > 1000:  # Reduced to 1000 characters per service
-                                log_content = log_content[-1000:] + "\n\n... (truncated)"
-                            return service, log_content
-                        else:
-                            return service, "No logs available for this container"
-                            
+                        raw = container.logs(tail=200, timestamps=False)
+                        txt = raw.decode('utf-8', errors='replace').strip()
+                        if len(txt) > 2000:
+                            txt = txt[-2000:] + "\n\n... (truncated)"
+                        header = f"Container {container.name} ({container.id[:12]})\n"
+                        return header + txt
                     except Exception as e:
-                        logger.error(f"Error fetching logs for {service}: {str(e)}")
-                        return service, f"Failed to fetch logs: {str(e)[:500]}"
-                
-                # Use ThreadPoolExecutor to fetch logs concurrently
-                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                    # Submit all log fetching tasks
-                    future_to_service = {
-                        executor.submit(fetch_container_logs, (service, container_name)): service 
-                        for service, container_name in zip(services, container_names)
-                    }
-                    
-                    # Collect results as they complete
-                    for future in concurrent.futures.as_completed(future_to_service):
+                        return f"Container {container.name}: Failed to fetch logs: {str(e)[:500]}"
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                    futures = {}
+                    for service, conts in service_to_containers.items():
+                        for c in conts:
+                            futures[executor.submit(fetch_logs_for_container, c)] = (service, c.name)
+
+                    combined: dict[str, list[str]] = {}
+                    for future in concurrent.futures.as_completed(futures):
+                        service, _ = futures[future]
                         try:
-                            service, log_content = future.result()
-                            logs_data[service] = log_content
-                            if log_content and log_content != "No logs available for this container":
+                            content = future.result()
+                            combined.setdefault(service, []).append(content)
+                            if content and "Failed to fetch" not in content and "No logs" not in content:
                                 docker_logs_found = True
                         except Exception as e:
-                            service = future_to_service[future]
-                            logger.error(f"Unexpected error fetching logs for {service}: {str(e)}")
-                            logs_data[service] = f"Unexpected error: {str(e)[:500]}"
-                        
+                            combined.setdefault(service, []).append(f"Unexpected error: {str(e)[:500]}")
+
+                # Flatten combined results to string blocks
+                for service, blocks in combined.items():
+                    title = service
+                    logs_data[title] = "\n\n".join(blocks)
+
             except Exception as e:
-                logger.error(f"Error initializing Docker client: {str(e)}")
-                for service in services:
-                    logs_data[service] = f"Docker client error: {str(e)[:500]}"
+                logger.error(f"Error initializing or fetching Docker logs: {str(e)}")
+                logs_data["docker"] = f"Docker client error: {str(e)[:500]}"
             
             if not docker_logs_found:
-                for service in services:
-                    if service not in logs_data:
-                        logs_data[service] = "Docker logs not accessible from container"
+                if not logs_data:
+                    logs_data["docker"] = "Docker logs not accessible from container"
             
             # Also try to get system logs if available
             try:

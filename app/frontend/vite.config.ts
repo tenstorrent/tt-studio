@@ -6,6 +6,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { ClientRequest, IncomingMessage, ServerResponse } from "http";
 
+
 const VITE_BACKEND_URL = "http://tt-studio-backend-api:8000";
 // define mapping of backend apis proxy strings -> routes
 const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {

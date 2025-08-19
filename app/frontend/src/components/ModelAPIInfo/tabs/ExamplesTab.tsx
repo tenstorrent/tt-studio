@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Copy, Code, ChevronDown, Check, Star } from "lucide-react";
+import { Copy, Code, ChevronDown, Check } from "lucide-react";
 import { Button } from "../../ui/button";
 import CodeBlock from "../../chatui/CodeBlock";
 
@@ -146,6 +146,8 @@ export default function ExamplesTab({
 }: ExamplesTabProps) {
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
+    // mark variables as used to satisfy linter for this simple passthrough
+    void label;
   };
 
   // Generate dynamic examples based on the actual model data
@@ -159,9 +161,9 @@ export default function ExamplesTab({
     }
 
     const modelIdValue = apiInfo.hf_model_id || modelId;
-    const baseUrl = window.location.origin;
-    const chatEndpoint = `${baseUrl}/api/chat/completions`;
-    const completionsEndpoint = `${baseUrl}/api/completions`;
+    // Use backend-provided endpoints which include correct host:port (e.g., :7000)
+    const chatEndpoint = apiInfo.endpoints.chat_completions;
+    const completionsEndpoint = apiInfo.endpoints.completions;
 
     return [
       {
@@ -211,7 +213,7 @@ const response = await fetch("${chatEndpoint}", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "Authorization": "Bearer "${apiInfo.jwt_token}"
+    "Authorization": "Bearer ${apiInfo.jwt_token}"
   },
   body: JSON.stringify({
     model: "${modelIdValue}",
@@ -238,7 +240,7 @@ const response = await fetch("${chatEndpoint}", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "Authorization": "Bearer "${apiInfo.jwt_token}"
+    "Authorization": "Bearer ${apiInfo.jwt_token}"
   },
   body: JSON.stringify({
     model: "${modelIdValue}",
@@ -267,7 +269,7 @@ import json
 url = "${chatEndpoint}"
 headers = {
     "Content-Type": "application/json",
-    "Authorization": "Bearer "${apiInfo.jwt_token}"
+    "Authorization": "Bearer ${apiInfo.jwt_token}"
 }
 
 data = {
@@ -299,6 +301,9 @@ print(result)`,
       </div>
     );
   }
+
+  // mark prop as used to satisfy linter in case it is not referenced elsewhere
+  void modelName;
 
   return (
     <div className="space-y-6 p-6 bg-black">
