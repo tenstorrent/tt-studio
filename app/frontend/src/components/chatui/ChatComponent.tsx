@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
@@ -40,9 +40,7 @@ export default function ChatComponent() {
   const [files, setFiles] = useState<FileData[]>([]);
   const location = useLocation();
   const [textInput, setTextInput] = useState<string>("");
-  const [ragDatasource, setRagDatasource] = useState<
-    RagDataSource | undefined
-  >();
+  const [ragDatasource, setRagDatasource] = useState<RagDataSource | undefined>();
   // TODO: RAG explicit deselection feature is incomplete - setter is commented out in Header.tsx
   // const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
   //   useState(false);
@@ -53,27 +51,29 @@ export default function ChatComponent() {
   const { logoUrl } = useLogo();
 
   // Create a default thread to start with
-  const defaultThread: ChatThread = {
-    id: "0",
-    title: "New Chat 1",
-    messages: [],
-  };
-
-  // Updated structure to include titles directly in the threads
-  const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>(
-    "chat_threads",
-    [defaultThread],
+  const defaultThread: ChatThread = useMemo(
+    () => ({
+      id: "0",
+      title: "New Chat 1",
+      messages: [],
+    }),
+    []
   );
 
-  const [currentThreadIndex, setCurrentThreadIndex] =
-    usePersistentState<number>("current_thread_index", 0);
+  // Updated structure to include titles directly in the threads
+  const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>("chat_threads", [
+    defaultThread,
+  ]);
+
+  const [currentThreadIndex, setCurrentThreadIndex] = usePersistentState<number>(
+    "current_thread_index",
+    0
+  );
   const [modelID, setModelID] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
-  const [reRenderingMessageId, setReRenderingMessageId] = useState<
-    string | null
-  >(null);
+  const [reRenderingMessageId, setReRenderingMessageId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
   const [isAgentSelected, setIsAgentSelected] = useState<boolean>(false);
@@ -129,9 +129,7 @@ export default function ChatComponent() {
   // Validate and fix chat threads if needed
   useEffect(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
-      console.warn(
-        "ChatThreads is not an array or is empty, resetting to default",
-      );
+      console.warn("ChatThreads is not an array or is empty, resetting to default");
       setChatThreads([defaultThread]);
       setCurrentThreadIndex(0);
       return;
@@ -167,13 +165,7 @@ export default function ChatComponent() {
         }
       }
     }
-  }, [
-    chatThreads,
-    setChatThreads,
-    currentThreadIndex,
-    setCurrentThreadIndex,
-    defaultThread,
-  ]);
+  }, [chatThreads, setChatThreads, currentThreadIndex, setCurrentThreadIndex, defaultThread]);
 
   // Load model information from location state and fetch deployed models
   useEffect(() => {
@@ -245,8 +237,7 @@ export default function ChatComponent() {
       // Only prevent default for touches near edges
       if (
         (e.touches[0].clientX < 20 ||
-          (isHistoryPanelOpen &&
-            e.touches[0].clientX > window.innerWidth - 20)) &&
+          (isHistoryPanelOpen && e.touches[0].clientX > window.innerWidth - 20)) &&
         e.cancelable
       ) {
         e.preventDefault();
@@ -291,10 +282,7 @@ export default function ChatComponent() {
       const deltaTime = Date.now() - touchStartTimeRef.current;
 
       // Open panel on right swipe
-      if (
-        (deltaX > 70 || (deltaX > 40 && deltaTime < 250)) &&
-        !isHistoryPanelOpen
-      ) {
+      if ((deltaX > 70 || (deltaX > 40 && deltaTime < 250)) && !isHistoryPanelOpen) {
         setIsHistoryPanelOpen(true);
       }
 
@@ -366,8 +354,7 @@ export default function ChatComponent() {
 
       // Calculate distance from bottom
       const { scrollTop, scrollHeight } = container;
-      const distanceFromBottom =
-        scrollHeight - scrollTop - container.clientHeight;
+      const distanceFromBottom = scrollHeight - scrollTop - container.clientHeight;
 
       // Store last scroll position
       lastScrollPositionRef.current = scrollTop;
@@ -448,8 +435,7 @@ export default function ChatComponent() {
     // Wait a tick for the DOM to update
     setTimeout(() => {
       if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop =
-          chatContainerRef.current.scrollHeight;
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
       }
     }, 0);
   }, [currentThreadIndex]);
@@ -469,17 +455,16 @@ export default function ChatComponent() {
 
   // Handle settings changes
   const handleSettingsChange = (key: string, value: number | boolean) => {
-    console.log(`=== Settings Change ===`);
-    console.log(`Parameter: ${key}`);
-    console.log(`New Value: ${value}`);
-    console.log(`Previous Settings:`, modelSettings);
+    // console.log(`=== Settings Change ===`);
+    // console.log(`Parameter: ${key}`);
+    // console.log(`New Value: ${value}`);
+    // console.log(`Previous Settings:`, modelSettings);
 
     setModelSettings((prev) => {
       const newSettings = {
         ...prev,
         [key]: value,
       };
-      console.log(`Updated Settings:`, newSettings);
       return newSettings;
     });
   };
@@ -524,7 +509,7 @@ export default function ChatComponent() {
                 uploadDate: new Date().toISOString(),
               },
             };
-          }),
+          })
         );
 
         // Update files with processed metadata
@@ -532,12 +517,12 @@ export default function ChatComponent() {
       }
 
       // Log current model settings before creating request
-      console.log("=== Current Model Settings ===");
-      console.log("Temperature:", modelSettings.temperature);
-      console.log("Top K:", modelSettings.topK);
-      console.log("Top P:", modelSettings.topP);
-      console.log("Max Tokens:", modelSettings.maxLength);
-      console.log("=============================");
+      // console.log("=== Current Model Settings ===");
+      // console.log("Temperature:", modelSettings.temperature);
+      // console.log("Top K:", modelSettings.topK);
+      // console.log("Top P:", modelSettings.topP);
+      // console.log("Max Tokens:", modelSettings.maxLength);
+      // console.log("=============================");
 
       // Create a new AbortController for this request
       const controller = new AbortController();
@@ -558,9 +543,7 @@ export default function ChatComponent() {
 
       if (continuationMessageId) {
         updatedMessages = (threadToUse.messages || []).map((msg) =>
-          msg.id === continuationMessageId
-            ? { ...msg, text: msg.text + " [Continuing...] " }
-            : msg,
+          msg.id === continuationMessageId ? { ...msg, text: msg.text + " [Continuing...] " } : msg
         );
       } else {
         // Store ragDatasource in the user message
@@ -591,7 +574,7 @@ export default function ChatComponent() {
                     title: userMessage.text.substring(0, 30),
                     messages: updatedMessages,
                   }
-                : thread,
+                : thread
             );
           });
         }
@@ -599,13 +582,10 @@ export default function ChatComponent() {
 
       if (!continuationMessageId) {
         setChatThreads((prevThreads) => {
-          if (!Array.isArray(prevThreads))
-            return [{ ...threadToUse, messages: updatedMessages }];
+          if (!Array.isArray(prevThreads)) return [{ ...threadToUse, messages: updatedMessages }];
 
           return prevThreads.map((thread, idx) =>
-            idx === currentThreadIndex
-              ? { ...thread, messages: updatedMessages }
-              : thread,
+            idx === currentThreadIndex ? { ...thread, messages: updatedMessages } : thread
           );
         });
       }
@@ -626,14 +606,14 @@ export default function ChatComponent() {
       };
 
       // Log the complete inference request
-      console.log("=== Creating Inference Request ===");
-      console.log("Model ID:", inferenceRequest.deploy_id);
-      console.log("Temperature:", inferenceRequest.temperature);
-      console.log("Top K:", inferenceRequest.top_k);
-      console.log("Top P:", inferenceRequest.top_p);
-      console.log("Max Tokens:", inferenceRequest.max_tokens);
-      console.log("Text:", inferenceRequest.text);
-      console.log("===============================");
+      // console.log("=== Creating Inference Request ===");
+      // console.log("Model ID:", inferenceRequest.deploy_id);
+      // console.log("Temperature:", inferenceRequest.temperature);
+      // console.log("Top K:", inferenceRequest.top_k);
+      // console.log("Top P:", inferenceRequest.top_p);
+      // console.log("Max Tokens:", inferenceRequest.max_tokens);
+      // console.log("Text:", inferenceRequest.text);
+      // console.log("===============================");
 
       setIsStreaming(true);
 
@@ -658,39 +638,30 @@ export default function ChatComponent() {
 
               const currentMessages = currentThreadFromState.messages || [];
               const processedHistory =
-                typeof newHistory === "function"
-                  ? newHistory(currentMessages)
-                  : newHistory;
+                typeof newHistory === "function" ? newHistory(currentMessages) : newHistory;
 
               // Safety check for processedHistory
               if (!Array.isArray(processedHistory)) return prevThreads;
 
               const lastMessage = processedHistory[processedHistory.length - 1];
               const finalMessages =
-                lastMessage &&
-                lastMessage.sender === "assistant" &&
-                !lastMessage.id
-                  ? [
-                      ...processedHistory.slice(0, -1),
-                      { ...lastMessage, id: uuidv4() },
-                    ]
+                lastMessage && lastMessage.sender === "assistant" && !lastMessage.id
+                  ? [...processedHistory.slice(0, -1), { ...lastMessage, id: uuidv4() }]
                   : processedHistory;
 
               return prevThreads.map((thread, idx) =>
-                idx === currentThreadIndex
-                  ? { ...thread, messages: finalMessages }
-                  : thread,
+                idx === currentThreadIndex ? { ...thread, messages: finalMessages } : thread
               );
             });
           },
           setIsStreaming,
           isAgentSelected,
           currentThreadIndex,
-          controller,
+          controller
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-          console.log("Request was aborted");
+          // console.log("Request was aborted");
         } else {
           console.error("Error during inference:", error);
         }
@@ -715,7 +686,7 @@ export default function ChatComponent() {
       defaultThread,
       setCurrentThreadIndex,
       modelSettings,
-    ],
+    ]
   );
 
   const handleStopInference = useCallback(() => {
@@ -732,21 +703,13 @@ export default function ChatComponent() {
       const currentThread = getCurrentThread();
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
-      const messageToReRender = currentThread.messages.find(
-        (msg) => msg.id === messageId,
-      );
-      if (
-        !messageToReRender ||
-        messageToReRender.sender !== "assistant" ||
-        !modelID
-      )
-        return;
+      const messageToReRender = currentThread.messages.find((msg) => msg.id === messageId);
+      if (!messageToReRender || messageToReRender.sender !== "assistant" || !modelID) return;
 
       const userMessage = currentThread.messages.find(
         (msg) =>
           msg.sender === "user" &&
-          currentThread.messages.indexOf(msg) <
-            currentThread.messages.indexOf(messageToReRender),
+          currentThread.messages.indexOf(msg) < currentThread.messages.indexOf(messageToReRender)
       );
       if (!userMessage) return;
 
@@ -772,10 +735,7 @@ export default function ChatComponent() {
             if (!Array.isArray(prevThreads)) return [defaultThread];
 
             const currentThreadFromState = prevThreads[currentThreadIndex];
-            if (
-              !currentThreadFromState ||
-              !Array.isArray(currentThreadFromState.messages)
-            )
+            if (!currentThreadFromState || !Array.isArray(currentThreadFromState.messages))
               return prevThreads;
 
             let currentHistory;
@@ -783,9 +743,7 @@ export default function ChatComponent() {
               currentHistory = newHistory;
             } else if (typeof newHistory === "function") {
               const result = newHistory(currentThreadFromState.messages);
-              currentHistory = Array.isArray(result)
-                ? result
-                : currentThreadFromState.messages;
+              currentHistory = Array.isArray(result) ? result : currentThreadFromState.messages;
             } else {
               currentHistory = currentThreadFromState.messages;
             }
@@ -794,34 +752,28 @@ export default function ChatComponent() {
               return prevThreads;
             }
 
-            const updatedMessages = currentThreadFromState.messages.map(
-              (msg) => {
-                if (msg.id === messageId) {
-                  const updatedMessage =
-                    currentHistory[currentHistory.length - 1];
-                  if (!updatedMessage) return msg;
+            const updatedMessages = currentThreadFromState.messages.map((msg) => {
+              if (msg.id === messageId) {
+                const updatedMessage = currentHistory[currentHistory.length - 1];
+                if (!updatedMessage) return msg;
 
-                  return {
-                    ...msg,
-                    text: updatedMessage.text || msg.text,
-                    inferenceStats:
-                      updatedMessage.inferenceStats as InferenceStats,
-                  };
-                }
-                return msg;
-              },
-            );
+                return {
+                  ...msg,
+                  text: updatedMessage.text || msg.text,
+                  inferenceStats: updatedMessage.inferenceStats as InferenceStats,
+                };
+              }
+              return msg;
+            });
 
             return prevThreads.map((thread, idx) =>
-              idx === currentThreadIndex
-                ? { ...thread, messages: updatedMessages }
-                : thread,
+              idx === currentThreadIndex ? { ...thread, messages: updatedMessages } : thread
             );
           });
         },
         setIsStreaming,
         isAgentSelected,
-        currentThreadIndex,
+        currentThreadIndex
       );
 
       setReRenderingMessageId(null);
@@ -834,7 +786,7 @@ export default function ChatComponent() {
       setChatThreads,
       isAgentSelected,
       defaultThread,
-    ],
+    ]
   );
 
   const handleContinue = useCallback(
@@ -842,15 +794,12 @@ export default function ChatComponent() {
       const currentThread = getCurrentThread();
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
-      const messageToContinue = currentThread.messages.find(
-        (msg) => msg.id === messageId,
-      );
-      if (!messageToContinue || messageToContinue.sender !== "assistant")
-        return;
+      const messageToContinue = currentThread.messages.find((msg) => msg.id === messageId);
+      if (!messageToContinue || messageToContinue.sender !== "assistant") return;
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [getCurrentThread],
+    [getCurrentThread]
   );
 
   const handleSelectConversation = useCallback(
@@ -879,7 +828,7 @@ export default function ChatComponent() {
       screenSize.isMobileView,
       setChatThreads,
       defaultThread,
-    ],
+    ]
   );
 
   // Create a new conversation with a unique ID
@@ -919,13 +868,7 @@ export default function ChatComponent() {
     if (screenSize.isMobileView) {
       setIsHistoryPanelOpen(false);
     }
-  }, [
-    chatThreads,
-    setChatThreads,
-    setCurrentThreadIndex,
-    screenSize.isMobileView,
-    defaultThread,
-  ]);
+  }, [chatThreads, setChatThreads, setCurrentThreadIndex, screenSize.isMobileView, defaultThread]);
 
   // Function to toggle history panel with smooth transition
   const toggleHistoryPanel = () => {
@@ -947,13 +890,8 @@ export default function ChatComponent() {
   useEffect(() => {
     const currentThread = getCurrentThread();
     if (currentThread && Array.isArray(currentThread.messages)) {
-      const lastMessage =
-        currentThread.messages[currentThread.messages.length - 1];
-      if (
-        lastMessage &&
-        lastMessage.sender === "assistant" &&
-        lastMessage.inferenceStats
-      ) {
+      const lastMessage = currentThread.messages[currentThread.messages.length - 1];
+      if (lastMessage && lastMessage.sender === "assistant" && lastMessage.inferenceStats) {
         // console.log("Inference stats updated:", lastMessage.inferenceStats);
       }
     }
@@ -972,8 +910,7 @@ export default function ChatComponent() {
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Header */}
         <div className="flex-grow space-y-4 overflow-hidden">
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
-          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" />{" "}
-          {/* Response */}
+          <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" /> {/* Response */}
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
         </div>
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Input area */}
@@ -984,8 +921,7 @@ export default function ChatComponent() {
   // Scroll to bottom function
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop =
-        chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
       setUserScrolled(false);
       setShowScrollToBottom(false);
     }
@@ -1065,35 +1001,33 @@ export default function ChatComponent() {
         )}
 
         {/* Left swipe indicator for closing panel */}
-        {leftSwipeX !== null &&
-          isHistoryPanelOpen &&
-          screenSize.isMobileView && (
-            <div
-              className="fixed top-0 right-0 h-full bg-red-800 z-60 opacity-70"
-              style={{
-                width: `${Math.min(Math.abs(leftSwipeX), window.innerWidth * 0.3)}px`,
-                borderLeft: "2px solid rgba(255,255,255,0.4)",
-                boxShadow: "0 0 15px rgba(0,0,0,0.3)",
-                transition: "width 0.05s ease",
-              }}
-            >
-              <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
-                <svg
-                  className="w-6 h-6 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-              </div>
+        {leftSwipeX !== null && isHistoryPanelOpen && screenSize.isMobileView && (
+          <div
+            className="fixed top-0 right-0 h-full bg-red-800 z-60 opacity-70"
+            style={{
+              width: `${Math.min(Math.abs(leftSwipeX), window.innerWidth * 0.3)}px`,
+              borderLeft: "2px solid rgba(255,255,255,0.4)",
+              boxShadow: "0 0 15px rgba(0,0,0,0.3)",
+              transition: "width 0.05s ease",
+            }}
+          >
+            <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
+              <svg
+                className="w-6 h-6 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
             </div>
-          )}
+          </div>
+        )}
 
         {/* Mobile history panel overlay */}
         <AnimatePresence initial={false} mode="wait">
@@ -1152,9 +1086,7 @@ export default function ChatComponent() {
                   Array.isArray(chatThreads)
                     ? chatThreads.map((thread) => ({
                         id: thread?.id || "0",
-                        title:
-                          thread?.title ||
-                          `New Chat ${parseInt(thread?.id || "0") + 1}`,
+                        title: thread?.title || `New Chat ${parseInt(thread?.id || "0") + 1}`,
                       }))
                     : [{ id: "0", title: "New Chat 1" }]
                 }
@@ -1163,16 +1095,11 @@ export default function ChatComponent() {
                 onCreateNewConversation={createNewConversation}
                 onDeleteConversation={(id) => {
                   setChatThreads((prevThreads) => {
-                    if (
-                      !Array.isArray(prevThreads) ||
-                      prevThreads.length <= 1
-                    ) {
+                    if (!Array.isArray(prevThreads) || prevThreads.length <= 1) {
                       return [defaultThread];
                     }
 
-                    const newThreads = prevThreads.filter(
-                      (thread) => thread.id !== id,
-                    );
+                    const newThreads = prevThreads.filter((thread) => thread.id !== id);
 
                     if (newThreads.length === 0) {
                       return [defaultThread];
@@ -1193,9 +1120,7 @@ export default function ChatComponent() {
                     if (!Array.isArray(prevThreads)) return [defaultThread];
 
                     return prevThreads.map((thread) =>
-                      thread.id === id
-                        ? { ...thread, title: newTitle }
-                        : thread,
+                      thread.id === id ? { ...thread, title: newTitle } : thread
                     );
                   });
                 }}
@@ -1218,9 +1143,7 @@ export default function ChatComponent() {
             screenSize.isMobileView ? "h-[100dvh] fixed inset-0" : "p-2 sm:p-4"
           } ${getContentMaxWidth()} overflow-hidden`}
         >
-          <div
-            className={`${screenSize.isMobileView ? "sticky top-0 z-10 bg-background" : ""}`}
-          >
+          <div className={`${screenSize.isMobileView ? "sticky top-0 z-10 bg-background" : ""}`}>
             <Header
               modelName={modelName}
               modelsDeployed={headerModelsDeployed}
@@ -1243,17 +1166,13 @@ export default function ChatComponent() {
           <div
             ref={chatContainerRef}
             className={`flex-grow overflow-y-auto relative ${
-              screenSize.isMobileView
-                ? "px-1 pb-[140px] pt-2"
-                : "px-1 sm:px-2 md:px-4"
+              screenSize.isMobileView ? "px-1 pb-[140px] pt-2" : "px-1 sm:px-2 md:px-4"
             }`}
           >
             <ChatHistory
               chatHistory={(() => {
                 const currentThread = getCurrentThread();
-                return Array.isArray(currentThread?.messages)
-                  ? currentThread.messages
-                  : [];
+                return Array.isArray(currentThread?.messages) ? currentThread.messages : [];
               })()}
               logo={logoUrl || ""}
               setTextInput={setTextInput}
@@ -1280,12 +1199,7 @@ export default function ChatComponent() {
                     boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
                   }}
                 >
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -1345,6 +1259,7 @@ export default function ChatComponent() {
               isMobileView={screenSize.isMobileView}
               onCreateNewConversation={createNewConversation}
               onStopInference={handleStopInference}
+              modelID={modelID || undefined}
             />
           </div>
         </div>

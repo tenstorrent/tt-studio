@@ -15,6 +15,7 @@ import {
   Info as InfoIcon,
 } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
+import { AgenticVoiceInput } from "./AgenticVoiceInput";
 import { FileUpload } from "../ui/file-upload";
 import {
   isImageFile,
@@ -130,6 +131,7 @@ interface InputAreaProps {
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
   onStopInference?: () => void;
+  modelID?: string;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -152,6 +154,7 @@ export default function InputArea({
   isMobileView = false,
   onCreateNewConversation,
   onStopInference,
+  modelID,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
@@ -247,6 +250,24 @@ export default function InputArea({
     }, 1000);
     adjustTextareaHeight();
   };
+
+  // Handlers for agentic chat functionality
+  const handleAgenticTranscriptReceived = useCallback((transcript: string) => {
+    setTextInput(transcript);
+    setIsTyping(true);
+    clearTimeout((window as any).typingTimeout);
+    (window as any).typingTimeout = setTimeout(() => {
+      setIsTyping(false);
+    }, 1000);
+    adjustTextareaHeight();
+  }, []);
+
+  const handleAgenticAutoSend = useCallback(async () => {
+    if (textInput.trim() !== "" || files.length > 0) {
+      await handleInference(textInput, files);
+      setTextInput("");
+    }
+  }, [textInput, files, handleInference]);
 
   const handleTouchStart = (message: string) => {
     setTouchFeedback(message);
@@ -647,6 +668,15 @@ export default function InputArea({
                   </div>
                 )}
               </div>
+
+              {/* Agentic Chat Button */}
+              <AgenticVoiceInput
+                onTranscriptReceived={handleAgenticTranscriptReceived}
+                onAutoSendMessage={handleAgenticAutoSend}
+                modelID={modelID}
+                disabled={isStreaming}
+                className={isMobileView ? "" : ""}
+              />
             </div>
 
             <div className="flex items-center gap-2">
