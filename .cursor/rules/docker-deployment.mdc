@@ -1,0 +1,146 @@
+---
+description: Docker containerization and deployment rules for TT Studio
+globs: "**/Dockerfile*,**/docker-compose*,**/run.py,**/*deploy*"
+alwaysApply: false
+---
+
+# Docker & Deployment Rules
+
+Rules for containerization, deployment, and infrastructure management in TT Studio.
+
+## Deployment Architecture
+
+TT Studio uses a multi-container architecture:
+- **Frontend Container**: React app served via Vite
+- **Backend Container**: Django REST API
+- **TT Inference Server**: FastAPI model inference service
+- **Hardware Integration**: Automatic `/dev/tenstorrent` mounting
+
+## Setup Script (`run.py`) Guidelines
+
+The `run.py` script is the primary interface for TT Studio management:
+
+### Core Functionality
+- Automatic submodule initialization and management
+- Environment variable configuration and validation
+- Docker container orchestration
+- Hardware detection and integration
+- Development and production mode support
+
+### Environment Variables
+Required variables that must be configured:
+- `JWT_SECRET`: Authentication token secret
+- `HF_TOKEN`: Hugging Face API token for model access
+- `DJANGO_SECRET_KEY`: Django security key
+- `TAVILY_API_KEY`: Search functionality (optional)
+
+### Command Patterns
+```bash
+# Standard setup
+python run.py
+
+# Development mode with live reload
+python run.py --dev
+
+# Cleanup containers and services
+python run.py --cleanup
+```
+
+## Docker Best Practices
+
+### Container Design
+- Use multi-stage builds for optimization
+- Implement proper health checks
+- Handle graceful shutdown signals
+- Mount only necessary volumes
+
+### Hardware Integration
+- Automatically detect Tenstorrent devices
+- Mount `/dev/tenstorrent` when available
+- Provide fallback behavior for missing hardware
+- Handle device permissions correctly
+
+### Development Mode
+- Mount source code volumes for live reload
+- Support hot reloading for both frontend and backend
+- Maintain development dependencies in separate layers
+- Enable debug modes and logging
+
+### Production Mode
+- Optimize container sizes
+- Use production-ready web servers
+- Implement proper logging and monitoring
+- Handle environment-specific configurations
+
+## Port Management
+
+Standard port allocation:
+- **Frontend**: 3000 (Vite dev server)
+- **TT Inference Server**: 8001 (FastAPI)
+- **Backend**: Integrated with frontend container
+
+For remote access, support SSH port forwarding:
+```bash
+ssh -L 3000:localhost:3000 -L 8001:localhost:8001 user@remote
+```
+
+## Submodule Management
+
+### Automatic Handling
+- Never require manual `git submodule` commands
+- Automatically initialize required submodules
+- Handle submodule updates and branch switching
+- Validate submodule integrity before startup
+
+### TT Inference Server Integration
+- Ensure proper submodule initialization
+- Handle submodule-specific build requirements
+- Integrate submodule services into container orchestration
+
+## Environment Configuration
+
+### Configuration Validation
+- Validate all required environment variables at startup
+- Provide clear error messages for missing configuration
+- Support interactive configuration prompts
+- Handle optional configurations gracefully
+
+### Security Considerations
+- Never log sensitive environment variables
+- Use secure defaults where possible
+- Validate JWT secret strength
+- Handle API token rotation
+
+## Error Handling & Troubleshooting
+
+### Startup Diagnostics
+- Check Docker daemon availability
+- Validate hardware device access
+- Test network connectivity for model downloads
+- Verify container build success
+
+### Common Issues
+- Docker permission errors
+- Hardware device mounting failures
+- Network connectivity for model downloads
+- Port conflicts with existing services
+
+### Recovery Procedures
+- Implement automatic retry mechanisms
+- Provide cleanup commands for corrupted state
+- Support partial service restart
+- Handle container rebuild scenarios
+
+## Monitoring & Logging
+
+### Container Monitoring
+- Track container health and resource usage
+- Monitor model inference performance
+- Log hardware utilization when available
+- Implement proper log rotation
+
+### Service Discovery
+- Handle service startup order dependencies
+- Implement proper health checks
+- Support service restart without full rebuild
+- Monitor inter-service communication
