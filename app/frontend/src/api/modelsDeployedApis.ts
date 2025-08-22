@@ -31,8 +31,6 @@ interface ContainerData {
   networks: { [key: string]: Network };
 }
 
-
-
 interface StopResponse {
   status: string;
   stop_response: {

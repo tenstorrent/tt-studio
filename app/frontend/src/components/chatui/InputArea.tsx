@@ -16,7 +16,13 @@ import {
 } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
 import { FileUpload } from "../ui/file-upload";
-import { isImageFile, validateFile, encodeFile, isTextFile, isPdfFile } from "./fileUtils";
+import {
+  isImageFile,
+  validateFile,
+  encodeFile,
+  isTextFile,
+  isPdfFile,
+} from "./fileUtils";
 import { cn } from "../../lib/utils";
 import type { FileData } from "./types";
 import { customToast } from "../CustomToaster";
@@ -30,7 +36,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 import { useNavigate } from "react-router-dom";
 import { TypingAnimation } from "../ui/typing-animation";
 
@@ -51,25 +62,33 @@ function PdfDetectionDialog({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="fixed inset-0 bg-black opacity-75" onClick={() => onOpenChange(false)} />
+      <div
+        className="fixed inset-0 bg-black opacity-75"
+        onClick={() => onOpenChange(false)}
+      />
       <div className="relative max-w-md w-full bg-[#0A0A13] rounded-lg border border-TT-purple-accent shadow-xl z-[101] mx-4">
         <div className="p-5">
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-[#1E3A8A] p-2 rounded-full flex-shrink-0">
               <FileText className="h-6 w-6 text-TT-red-accent" />
             </div>
-            <h2 className="text-xl font-bold text-blue-100 m-0">PDF Upload Detected</h2>
+            <h2 className="text-xl font-bold text-blue-100 m-0">
+              PDF Upload Detected
+            </h2>
           </div>
           <div className="space-y-4">
             <p className="text-gray-300 text-base">
-              PDFs need to be uploaded to the RAG management page for processing.
+              PDFs need to be uploaded to the RAG management page for
+              processing.
             </p>
             {pdfFileName && (
               <div className="bg-[#1F2937] rounded-lg p-3 border border-gray-700">
                 <p className="text-sm text-gray-400 mb-1">File detected:</p>
                 <div className="flex items-center gap-2 overflow-hidden">
                   <FileIcon className="h-5 w-5 flex-shrink-0 text-red-400" />
-                  <span className="text-blue-200 font-medium truncate">{pdfFileName}</span>
+                  <span className="text-blue-200 font-medium truncate">
+                    {pdfFileName}
+                  </span>
                 </div>
               </div>
             )}
@@ -296,7 +315,9 @@ export default function InputArea({
       } catch (error) {
         console.error("File upload error:", error);
         customToast.error(
-          error instanceof Error ? error.message : "Failed to upload file(s). Please try again."
+          error instanceof Error
+            ? error.message
+            : "Failed to upload file(s). Please try again."
         );
         setShowErrorIndicator(true);
         setTimeout(() => setShowErrorIndicator(false), 3000);
@@ -320,7 +341,9 @@ export default function InputArea({
       );
     }
 
-    const validFiles = uploadedFiles.filter((file) => isImageFile(file) || isTextFile(file));
+    const validFiles = uploadedFiles.filter(
+      (file) => isImageFile(file) || isTextFile(file)
+    );
 
     const imageFiles = validFiles.filter(isImageFile);
     const textFiles = validFiles.filter(isTextFile);
@@ -332,9 +355,13 @@ export default function InputArea({
         setShowReplaceDialog(true);
 
         if (textFiles.length > 0) {
-          const encodedTextFiles = await Promise.all(textFiles.map(processFile));
+          const encodedTextFiles = await Promise.all(
+            textFiles.map(processFile)
+          );
           setFiles((prevFiles) => [...prevFiles, ...encodedTextFiles]);
-          customToast.success(`Successfully uploaded ${textFiles.length} text file(s)!`);
+          customToast.success(
+            `Successfully uploaded ${textFiles.length} text file(s)!`
+          );
         }
         return;
       }
@@ -342,7 +369,11 @@ export default function InputArea({
       const encodedImage = await processFile(imageFiles[0]);
       const encodedTextFiles = await Promise.all(textFiles.map(processFile));
 
-      setFiles((prevFiles) => [...prevFiles, encodedImage, ...encodedTextFiles]);
+      setFiles((prevFiles) => [
+        ...prevFiles,
+        encodedImage,
+        ...encodedTextFiles,
+      ]);
       customToast.success(
         `Successfully uploaded ${
           imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
@@ -351,7 +382,9 @@ export default function InputArea({
     } else if (textFiles.length > 0) {
       const encodedFiles = await Promise.all(textFiles.map(processFile));
       setFiles((prevFiles) => [...prevFiles, ...encodedFiles]);
-      customToast.success(`Successfully uploaded ${textFiles.length} text file(s)!`);
+      customToast.success(
+        `Successfully uploaded ${textFiles.length} text file(s)!`
+      );
     }
   };
 
@@ -359,7 +392,10 @@ export default function InputArea({
     if (pendingImageFile) {
       try {
         const encodedImage = await processFile(pendingImageFile);
-        setFiles((prevFiles) => [...prevFiles.filter((f) => f.type !== "image_url"), encodedImage]);
+        setFiles((prevFiles) => [
+          ...prevFiles.filter((f) => f.type !== "image_url"),
+          encodedImage,
+        ]);
         customToast.success("Image replaced successfully!");
       } catch (error) {
         console.error("Error replacing image:", error);
@@ -416,16 +452,22 @@ export default function InputArea({
           <AlertDialogHeader>
             <AlertDialogTitle>Replace Existing Image?</AlertDialogTitle>
             <AlertDialogDescription>
-              You can only have one image at a time. Do you want to replace the existing image with
-              the new one?
+              You can only have one image at a time. Do you want to replace the
+              existing image with the new one?
               {pendingImageFile && (
-                <div className="mt-2 text-sm">New image: {pendingImageFile.name}</div>
+                <div className="mt-2 text-sm">
+                  New image: {pendingImageFile.name}
+                </div>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleReplaceCancel}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleReplaceConfirm}>Replace</AlertDialogAction>
+            <AlertDialogCancel onClick={handleReplaceCancel}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleReplaceConfirm}>
+              Replace
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -463,7 +505,9 @@ export default function InputArea({
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
               <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
                 <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
-                <span className="text-2xl animate-pulse">Drop files to upload</span>
+                <span className="text-2xl animate-pulse">
+                  Drop files to upload
+                </span>
                 <span className="text-sm mt-2">
                   Limited to one image, multiple text files allowed
                 </span>
@@ -490,7 +534,9 @@ export default function InputArea({
                         <File className="w-6 h-6 text-gray-500 dark:text-gray-400" />
                       )}
                     </div>
-                    <span className="text-sm truncate max-w-[150px]">{file.name}</span>
+                    <span className="text-sm truncate max-w-[150px]">
+                      {file.name}
+                    </span>
                     <button
                       type="button"
                       className="text-red-500 hover:text-red-700"
@@ -513,7 +559,7 @@ export default function InputArea({
               onChange={handleTextAreaInput}
               onKeyDown={handleKeyPress}
               placeholder=""
-              className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
+              className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1 text-gray-900 dark:text-white font-medium"
               disabled={isStreaming}
               rows={1}
               style={{
@@ -539,7 +585,7 @@ export default function InputArea({
                   texts={EXAMPLE_PROMPTS}
                   duration={50}
                   cycleDelay={2000}
-                  className="absolute inset-0 flex items-center px-1 text-gray-400 dark:text-gray-500"
+                  className="absolute inset-0 flex items-center px-1 text-gray-600 dark:text-gray-200"
                 />
               </div>
             )}
@@ -555,13 +601,15 @@ export default function InputArea({
                         type="button"
                         variant="ghost"
                         size={isMobileView ? "sm" : "default"}
-                        className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
+                        className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
                         onClick={() => setIsFileUploadOpen((prev) => !prev)}
                         aria-label="Attach files"
                         onTouchStart={() => handleTouchStart("Attach files")}
                         onTouchEnd={handleTouchEnd}
                       >
-                        <Paperclip className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`} />
+                        <Paperclip
+                          className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`}
+                        />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -614,7 +662,7 @@ export default function InputArea({
                     onTouchEnd={handleTouchEnd}
                     size="sm"
                     className={`
-                      bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] 
+                      bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] dark:text-[#7C68FA] dark:border-[#7C68FA]/60
                       rounded-full flex items-center transition-all duration-200 touch-manipulation
                       ${
                         isMobileView
@@ -674,7 +722,10 @@ export default function InputArea({
                 <div className="relative group">
                   <Button
                     onClick={() => {
-                      if ((textInput.trim() !== "" || files.length > 0) && !isStreaming) {
+                      if (
+                        (textInput.trim() !== "" || files.length > 0) &&
+                        !isStreaming
+                      ) {
                         handleTouchStart("Sending message");
                         handleInference(textInput, files);
                         setTextInput("");
@@ -682,21 +733,30 @@ export default function InputArea({
                       }
                     }}
                     onTouchStart={() => {
-                      if ((textInput.trim() !== "" || files.length > 0) && !isStreaming) {
+                      if (
+                        (textInput.trim() !== "" || files.length > 0) &&
+                        !isStreaming
+                      ) {
                         handleTouchStart("Sending message");
                       }
                     }}
                     onTouchEnd={handleTouchEnd}
-                    disabled={isStreaming || (!textInput.trim() && files.length === 0)}
+                    disabled={
+                      isStreaming || (!textInput.trim() && files.length === 0)
+                    }
                     className={`
-                      bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 text-white 
-                      dark:text-white
+                      ${
+                        (!textInput.trim() && files.length === 0) || isStreaming
+                          ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
+                          : "bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:active:bg-emerald-800 text-white font-semibold cursor-pointer"
+                      }
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
-                      ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}
                       border-0 outline-none focus:outline-none focus:ring-0
                     `}
-                    aria-label={isMobileView ? "Send message" : "Generate response"}
+                    aria-label={
+                      isMobileView ? "Send message" : "Generate response"
+                    }
                   >
                     {isMobileView ? (
                       <Send className="h-4 w-4" />
@@ -739,13 +799,13 @@ export default function InputArea({
                 ${isMobileView ? "p-2 text-xs" : "p-3 text-sm"}
               `}
             >
-              <div className="text-gray-300">
+              <div className="text-gray-300 dark:text-gray-100">
                 {isMobileView
                   ? "LLM's can make mistakes."
                   : "LLM's can make mistakes. Check important infos"}
               </div>
               <button
-                className="text-gray-400 hover:text-gray-300 ml-2"
+                className="text-gray-400 dark:text-gray-300 hover:text-gray-300 dark:hover:text-gray-200 ml-2"
                 onClick={() => setShowBanner(false)}
                 title="Dismiss"
               >
@@ -757,7 +817,10 @@ export default function InputArea({
       </div>
 
       {isFileUploadOpen && (
-        <FileUpload onChange={handleFileUpload} onClose={() => setIsFileUploadOpen(false)} />
+        <FileUpload
+          onChange={handleFileUpload}
+          onClose={() => setIsFileUploadOpen(false)}
+        />
       )}
     </>
   );

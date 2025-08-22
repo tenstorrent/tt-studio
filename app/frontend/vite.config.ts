@@ -6,6 +6,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { ClientRequest, IncomingMessage, ServerResponse } from "http";
 
+
 const VITE_BACKEND_URL = "http://tt-studio-backend-api:8000";
 // define mapping of backend apis proxy strings -> routes
 const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {
@@ -84,6 +85,12 @@ proxyConfig["/reset-board"] = {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    // Inject package.json version as environment variable
+    "import.meta.env.VITE_PACKAGE_VERSION": JSON.stringify(
+      process.env.npm_package_version || "2.0.1"
+    ),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname),

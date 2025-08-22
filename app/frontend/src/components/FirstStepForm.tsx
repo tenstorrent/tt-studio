@@ -18,10 +18,28 @@ import {
   Palette,
   // Camera,
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "./ui/form";
 import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
 import { StepperFormActions } from "./StepperFormActions";
@@ -81,7 +99,11 @@ export function FirstStepForm({
   setFormError: (hasError: boolean) => void;
 }) {
   const { nextStep } = useStepper();
-  const { models: deployedModels, hasDeployedModels, refreshModels } = useModels();
+  const {
+    models: deployedModels,
+    hasDeployedModels,
+    refreshModels,
+  } = useModels();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -207,15 +229,9 @@ export function FirstStepForm({
 
   return (
     <Form {...form}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          form.handleSubmit(onSubmit)();
-        }}
-        className="space-y-10"
-      >
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {/* Always show deployed models warning prominently */}
-        <DeployedModelsWarning className="mb-6" />
+        <DeployedModelsWarning className="mb-8 mt-8" />
 
         <FormField
           control={form.control}
@@ -244,7 +260,11 @@ export function FirstStepForm({
               >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder={isLoading ? "Loading models..." : "Select a model"} />
+                    <SelectValue
+                      placeholder={
+                        isLoading ? "Loading models..." : "Select a model"
+                      }
+                    />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
@@ -252,7 +272,9 @@ export function FirstStepForm({
                   {allModelsUnknown && (
                     <div className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 mb-2">
                       <XCircle className="w-3 h-3" />
-                      <span>Board detection failed - compatibility unknown</span>
+                      <span>
+                        Board detection failed - compatibility unknown
+                      </span>
                     </div>
                   )}
 
@@ -260,7 +282,9 @@ export function FirstStepForm({
                   {Object.entries(groupedModels).map(
                     ([modelType, modelsByCompatibility], typeIndex) => {
                       const typeConfig =
-                        MODEL_TYPE_CONFIG[modelType as keyof typeof MODEL_TYPE_CONFIG];
+                        MODEL_TYPE_CONFIG[
+                          modelType as keyof typeof MODEL_TYPE_CONFIG
+                        ];
                       const hasModels =
                         modelsByCompatibility.compatible.length +
                           modelsByCompatibility.incompatible.length +
@@ -292,9 +316,13 @@ export function FirstStepForm({
                               className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
                             >
                               <div className="flex items-center w-full">
-                                <span className="text-green-500 mr-2 text-xs">●</span>
+                                <span className="text-green-500 mr-2 text-xs">
+                                  ●
+                                </span>
                                 <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-green-600 ml-2">Compatible</span>
+                                <span className="text-xs text-green-600 ml-2">
+                                  Compatible
+                                </span>
                               </div>
                             </SelectItem>
                           ))}
@@ -308,9 +336,15 @@ export function FirstStepForm({
                               className="pl-6 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
                             >
                               <div className="flex items-center w-full">
-                                <span className="text-red-500 mr-2 text-xs">●</span>
-                                <span className="text-gray-500 flex-1">{model.name}</span>
-                                <span className="text-xs text-red-500 ml-2">Incompatible</span>
+                                <span className="text-red-500 mr-2 text-xs">
+                                  ●
+                                </span>
+                                <span className="text-gray-500 flex-1">
+                                  {model.name}
+                                </span>
+                                <span className="text-xs text-red-500 ml-2">
+                                  Incompatible
+                                </span>
                               </div>
                             </SelectItem>
                           ))}
@@ -323,9 +357,13 @@ export function FirstStepForm({
                               className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
                             >
                               <div className="flex items-center w-full">
-                                <span className="text-yellow-500 mr-2 text-xs">●</span>
+                                <span className="text-yellow-500 mr-2 text-xs">
+                                  ●
+                                </span>
                                 <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-yellow-600 ml-2">Unknown</span>
+                                <span className="text-xs text-yellow-600 ml-2">
+                                  Unknown
+                                </span>
                               </div>
                             </SelectItem>
                           ))}
@@ -336,26 +374,49 @@ export function FirstStepForm({
 
                   {/* If no models loaded yet */}
                   {models.length === 0 && !isLoading && (
-                    <div className="px-2 py-4 text-center text-gray-500">No models available</div>
+                    <div className="px-2 py-4 text-center text-gray-500">
+                      No models available
+                    </div>
                   )}
                 </SelectContent>
               </Select>
 
               {/* Summary info */}
               {models.length > 0 && !isLoading && (
-                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900/20 rounded-lg">
+                <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
                   <div className="flex items-center justify-between text-sm mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-600 dark:text-gray-300">Detected board:</span>
-                      <div className="px-2 py-2">
-                        {currentBoard !== "unknown" ? (
-                          <BoardBadge boardName={currentBoard} />
-                        ) : (
-                          <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
-                            Unknown
-                          </span>
-                        )}
-                      </div>
+                    <span className="text-gray-600 dark:text-gray-300">
+                      Detected Tenstorrent board:
+                    </span>
+                    <div className="px-2 py-2">
+                      {currentBoard !== "unknown" ? (
+                          <BoardBadge
+                            boardName={currentBoard}
+                            onClick={() => {
+                              const lower = currentBoard.toLowerCase();
+                              if (lower.includes("t3k") || lower.includes("t3000")) {
+                                window.open(
+                                  "https://tenstorrent.com/hardware/tt-quietbox",
+                                  "_blank"
+                                );
+                              } else if (lower.includes("n300")) {
+                                window.open(
+                                  "https://tenstorrent.com/hardware/wormhole",
+                                  "_blank"
+                                );
+                              } else {
+                                window.open(
+                                  "https://www.tenstorrent.com/hardware",
+                                  "_blank"
+                                );
+                              }
+                            }}
+                          />
+                      ) : (
+                        <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                          Unknown
+                        </span>
+                      )}
                     </div>
                   </div>
                   <TooltipProvider>
@@ -369,21 +430,33 @@ export function FirstStepForm({
                             <span className="flex items-center gap-1">
                               <span className="text-green-500 text-xs">●</span>
                               <span className="text-gray-700 dark:text-gray-200">
-                                {models.filter((model) => model.is_compatible === true).length}{" "}
+                                {
+                                  models.filter(
+                                    (model) => model.is_compatible === true
+                                  ).length
+                                }{" "}
                                 compatible
                               </span>
                             </span>
                             <span className="flex items-center gap-1">
                               <span className="text-red-500 text-xs">●</span>
                               <span className="text-gray-700 dark:text-gray-200">
-                                {models.filter((model) => model.is_compatible === false).length}{" "}
+                                {
+                                  models.filter(
+                                    (model) => model.is_compatible === false
+                                  ).length
+                                }{" "}
                                 incompatible
                               </span>
                             </span>
                             <span className="flex items-center gap-1">
                               <span className="text-yellow-500 text-xs">●</span>
                               <span className="text-gray-700 dark:text-gray-200">
-                                {models.filter((model) => model.is_compatible === null).length}{" "}
+                                {
+                                  models.filter(
+                                    (model) => model.is_compatible === null
+                                  ).length
+                                }{" "}
                                 unknown
                               </span>
                             </span>
@@ -396,18 +469,29 @@ export function FirstStepForm({
                         sideOffset={4}
                         className="max-w-sm text-xs text-left leading-relaxed"
                       >
-                        <div className="font-semibold mb-1">Board Compatibility</div>
+                        <div className="font-semibold mb-1">
+                          Board Compatibility
+                        </div>
                         <div>
-                          <span className="text-green-500 font-bold">Compatible</span>
+                          <span className="text-green-500 font-bold">
+                            Compatible
+                          </span>
                           <span>: Model will run on your detected board.</span>
                         </div>
                         <div>
-                          <span className="text-red-500 font-bold">Incompatible</span>
+                          <span className="text-red-500 font-bold">
+                            Incompatible
+                          </span>
                           <span>: Model will not run on your board.</span>
                         </div>
                         <div>
-                          <span className="text-yellow-500 font-bold">Unknown</span>
-                          <span>: Board detection failed; compatibility cannot be determined.</span>
+                          <span className="text-yellow-500 font-bold">
+                            Unknown
+                          </span>
+                          <span>
+                            : Board detection failed; compatibility cannot be
+                            determined.
+                          </span>
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -421,7 +505,11 @@ export function FirstStepForm({
             </FormItem>
           )}
         />
-        <StepperFormActions form={form} removeDynamicSteps={() => {}} isSubmitting={isSubmitting} />
+        <StepperFormActions
+          form={form}
+          removeDynamicSteps={() => {}}
+          isSubmitting={isSubmitting}
+        />
       </form>
     </Form>
   );

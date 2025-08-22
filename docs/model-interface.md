@@ -5,14 +5,16 @@ TT-Studio provides a unified frontend interface for interacting with various AI 
 ## Supported Models
 
 ### 1. Chat-based Language Models (LLMs)
+
 - Interactive chat interface for text generation
 - Support for various LLM models through vLLM integration
 - Real-time conversation capabilities
-- **Requirements**: 
+- **Requirements**:
   - TT Inference Server must be enabled (do not use `--skip-fastapi`)
   - Valid Hugging Face token (`HF_TOKEN`) for model access
 
 ### 2. Computer Vision (YOLO)
+
 - Object detection and recognition
 - Real-time video processing capabilities
 - Support for multiple object classes
@@ -21,6 +23,7 @@ TT-Studio provides a unified frontend interface for interacting with various AI 
 - Supports both local and cloud-based YOLO models
 
 ### 3. Speech Recognition (Whisper)
+
 - Audio transcription and processing
 - Support for multiple languages
 - Real-time speech-to-text capabilities
@@ -28,6 +31,7 @@ TT-Studio provides a unified frontend interface for interacting with various AI 
 - Microphone input support
 
 ### 4. Image Generation (Stable Diffusion)
+
 - Text-to-image generation
 - Image editing and manipulation
 - Style transfer capabilities
@@ -39,6 +43,7 @@ TT-Studio provides a unified frontend interface for interacting with various AI 
 ### 1. Enable AI Playground Mode
 
 Set the following in your `.env` file:
+
 ```env
 VITE_ENABLE_DEPLOYED=true
 ```
@@ -68,15 +73,18 @@ CLOUD_STABLE_DIFFUSION_AUTH_TOKEN=<your-auth-token>
 ### 3. Additional Requirements
 
 1. **For LLM Models**:
+
    - Ensure TT Inference Server is running (do not use `--skip-fastapi`)
    - Configure `HF_TOKEN` in your `.env` file
    - Sufficient system resources for model loading
 
 2. **For Computer Vision**:
+
    - Webcam access (for real-time processing)
    - Sufficient storage for image uploads
 
 3. **For Speech Recognition**:
+
    - Microphone access
    - Audio file support (.wav, .mp3)
 
@@ -89,11 +97,13 @@ CLOUD_STABLE_DIFFUSION_AUTH_TOKEN=<your-auth-token>
 ### Accessing the Interface
 
 1. Start TT-Studio:
+
    ```bash
    python run.py
    ```
 
 2. Open your browser and navigate to:
+
    ```
    http://localhost:3000
    ```
@@ -103,18 +113,21 @@ CLOUD_STABLE_DIFFUSION_AUTH_TOKEN=<your-auth-token>
 ### Model-Specific Features
 
 #### LLM Chat
+
 - Start conversations with natural language
 - Configure model parameters (temperature, max tokens)
 - View conversation history
 - Export chat logs
 
 #### YOLO Vision
+
 - Upload images or use webcam
 - Adjust detection confidence threshold
 - Real-time object tracking
 - Export detection results
 
 #### Whisper Speech
+
 - Record audio directly
 - Upload audio files
 - Select target language
@@ -122,6 +135,7 @@ CLOUD_STABLE_DIFFUSION_AUTH_TOKEN=<your-auth-token>
 - Export transcriptions
 
 #### Stable Diffusion
+
 - Enter text prompts
 - Adjust generation parameters
 - Apply style modifications
@@ -132,11 +146,13 @@ CLOUD_STABLE_DIFFUSION_AUTH_TOKEN=<your-auth-token>
 ### Common Issues
 
 1. **Model Not Available**
+
    - Verify endpoint configurations
    - Check authentication tokens
    - Ensure services are running
 
 2. **Performance Issues**
+
    - Check system resources
    - Verify network connectivity
    - Adjust model parameters
