@@ -62,6 +62,8 @@ git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python
 python3 run.py --cleanup
 ```
 
+> **Note:** This command will stop and remove all running Docker containers, including any currently deployed models. It cleans up containers and networks but preserves your data and configuration files.
+
 **🎯 What Can You Do Next?**
 
 Once TT-Studio is running:
