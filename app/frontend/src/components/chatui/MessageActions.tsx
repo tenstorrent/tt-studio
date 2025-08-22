@@ -17,8 +17,6 @@ interface MessageActionsProps {
   inferenceStats?: InferenceStatsType;
   messageContent?: string;
   modelName?: string | null;
-  statsOpen?: boolean;
-  onToggleStats?: () => void;
   toggleableInlineStats?: boolean;
 }
 
@@ -35,10 +33,14 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onToggleStats,
   toggleableInlineStats = true,
 }) => {
-  const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");
+  const [completeMessage, setCompleteMessage] = useState<string>(
+    messageContent || ""
+  );
 
   // Add state for tracking feedback status
-  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(null);
+  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(
+    null
+  );
 
   // Update the complete message when streaming finishes
   useEffect(() => {
@@ -141,30 +143,13 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             <span className="sr-only">Thumbs down</span>
           </Button>
 
-          {/* Speed Insights toggle button - only show if stats are available and feature is enabled */}
+          {/* Always show inline stats when toggleableInlineStats is enabled */}
           {inferenceStats && toggleableInlineStats && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleStats}
-              className={`h-8 w-8 p-0 transition-colors ${
-                statsOpen
-                  ? "bg-TT-purple-tint2 text-TT-purple-accent dark:bg-TT-purple-shade dark:text-TT-purple hover:bg-TT-purple-tint1 dark:hover:bg-TT-purple"
-                  : "hover:bg-gray-100 dark:hover:bg-gray-800"
-              }`}
-              style={{ outline: "none" }}
-              title={statsOpen ? "Hide Speed Insights" : "Show Speed Insights"}
-            >
-              <BarChart2 className="h-4 w-4" />
-              <span className="sr-only">
-                {statsOpen ? "Hide Speed Insights" : "Show Speed Insights"}
-              </span>
-            </Button>
-          )}
-
-          {/* Conditionally render InferenceStats inline when toggled open and feature is enabled */}
-          {inferenceStats && toggleableInlineStats && statsOpen && (
-            <InferenceStats stats={inferenceStats} modelName={modelName} inline={true} />
+            <InferenceStats
+              stats={inferenceStats}
+              modelName={modelName}
+              inline={true}
+            />
           )}
 
           {/* Show original stats component when feature is disabled */}

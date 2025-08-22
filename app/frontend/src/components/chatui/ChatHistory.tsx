@@ -43,7 +43,10 @@ interface FileViewerDialogProps {
   onClose: () => void;
 }
 
-const FileViewerDialog: React.FC<FileViewerDialogProps> = ({ file, onClose }) => {
+const FileViewerDialog: React.FC<FileViewerDialogProps> = ({
+  file,
+  onClose,
+}) => {
   if (!file) return null;
 
   return (
@@ -52,7 +55,9 @@ const FileViewerDialog: React.FC<FileViewerDialogProps> = ({ file, onClose }) =>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
         <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-900 rounded-lg p-4 max-w-3xl max-h-[90vh] w-[90vw] overflow-auto z-50">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-white truncate max-w-[80%]">{file.name}</h3>
+            <h3 className="text-lg font-medium text-white truncate max-w-[80%]">
+              {file.name}
+            </h3>
             <Dialog.Close asChild>
               <button className="text-gray-400 hover:text-white">
                 <X className="h-6 w-6" />
@@ -131,14 +136,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     isExtraLargeScreen: boolean;
   }>({ isLargeScreen: false, isExtraLargeScreen: false });
 
-  // Add state for tracking which message has stats toggled open
-  const [openStatsMessageId, setOpenStatsMessageId] = useState<string | null>(null);
-
-  // Handler to toggle stats for a specific message
-  const handleToggleStats = useCallback((messageId: string) => {
-    setOpenStatsMessageId((prev) => (prev === messageId ? null : messageId));
-  }, []);
-
   const shouldShowMessageIndicator = useCallback(() => {
     // Check if streaming AND last message is from user
     return (
@@ -177,7 +174,8 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   const handleFileClick = useCallback((fileUrl: string, fileName: string) => {
     const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
     const extension = fileName.split(".").pop()?.toLowerCase() || "";
-    const isImage = imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
+    const isImage =
+      imageExtensions.includes(extension) || fileUrl.startsWith("data:image/");
     setSelectedFile({ url: fileUrl, name: fileName, isImage });
   }, []);
 
@@ -201,7 +199,11 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} relative`}
     >
       {chatHistory.length === 0 && !isStreaming ? (
-        <ChatExamples logo={logo} setTextInput={setTextInput} isMobileView={isMobileView} />
+        <ChatExamples
+          logo={logo}
+          setTextInput={setTextInput}
+          isMobileView={isMobileView}
+        />
       ) : (
         <div className="relative flex flex-col flex-grow">
           {/* INNER CONTAINER - ADJUSTED PADDING WITH WIDER WIDTH */}
@@ -265,15 +267,21 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                         <p className="text-white whitespace-pre-wrap break-words">
                           {message.text.split(/(\s+)/).map((segment, i) => {
                             // Split by space, keeping spaces
-                            const isUrl = /^(https?:\/\/|www\.)\S+/i.test(segment);
+                            const isUrl = /^(https?:\/\/|www\.)\S+/i.test(
+                              segment
+                            );
                             if (isUrl) {
                               const cleanUrl = segment.replace(/[.,!?;:]$/, "");
-                              const punctuation = segment.slice(cleanUrl.length);
+                              const punctuation = segment.slice(
+                                cleanUrl.length
+                              );
                               return (
                                 <React.Fragment key={i}>
                                   <a
                                     href={
-                                      cleanUrl.startsWith("www.") ? `https://${cleanUrl}` : cleanUrl
+                                      cleanUrl.startsWith("www.")
+                                        ? `https://${cleanUrl}`
+                                        : cleanUrl
                                     }
                                     target="_blank"
                                     rel="noopener noreferrer"
@@ -309,8 +317,6 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       inferenceStats={message.inferenceStats}
                       messageContent={message.text}
                       modelName={modelName}
-                      statsOpen={openStatsMessageId === (message.id || "")}
-                      onToggleStats={() => handleToggleStats(message.id || "")}
                       toggleableInlineStats={toggleableInlineStats}
                     />
                   </div>
@@ -358,7 +364,10 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
       )}
 
       {/* FILE VIEWER DIALOG */}
-      <FileViewerDialog file={selectedFile} onClose={() => setSelectedFile(null)} />
+      <FileViewerDialog
+        file={selectedFile}
+        onClose={() => setSelectedFile(null)}
+      />
     </div>
   );
 };
