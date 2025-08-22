@@ -8,7 +8,10 @@ services:
     # hostnames must not contain underscores
     hostname: tt-studio-backend-api
     image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
-    build: ./backend
+    build: 
+      context: ./backend
+      args:
+        - VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
     #* DEV: Uncomment devices to use Tenstorrent hardware
     # devices:
     #* mounts all tenstorrent devices to backend container
