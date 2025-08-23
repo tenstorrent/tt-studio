@@ -28,9 +28,9 @@ RUN if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . "$HOME/.cargo/env" && \
     # Clone and install tt-smi
-    mkdir -p tenstorrent-tools && \
-    git clone https://github.com/tenstorrent/tt-smi.git tenstorrent-tools/tt-smi && \
-    cd tenstorrent-tools/tt-smi && \
+    mkdir -p /opt/tenstorrent-tools && \
+    git clone https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
+    cd /opt/tenstorrent-tools/tt-smi && \
     pip3 install --upgrade pip && \
     pip3 install .; \
     else \
