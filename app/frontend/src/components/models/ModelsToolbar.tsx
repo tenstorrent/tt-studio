@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React from "react";
 import SettingsMenu from "./SettingsMenu";
 import type { ColumnVisibilityMap } from "../../types/models";
-import { Button } from "../ui/button";
-import { Spinner } from "../ui/spinner";
 
 interface Props {
   tableId: string;
@@ -33,7 +30,7 @@ export default function ModelsToolbar({
   onToggle,
   onPreset,
   isRefreshing,
-  onRefresh,
+  onRefresh: _onRefresh, // Marked as intentionally unused for now
   density = "normal",
   onDensity,
   autoRefreshSec = 0,

@@ -3,7 +3,7 @@
 import type React from "react";
 import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
-import { Clipboard, ThumbsUp, ThumbsDown, BarChart2 } from "lucide-react";
+import { Clipboard, ThumbsUp, ThumbsDown } from "lucide-react";
 import CustomToaster, { customToast } from "../CustomToaster";
 import InferenceStats from "./InferenceStats";
 import type { InferenceStats as InferenceStatsType } from "./types";
@@ -18,6 +18,8 @@ interface MessageActionsProps {
   messageContent?: string;
   modelName?: string | null;
   toggleableInlineStats?: boolean;
+  statsOpen?: boolean;
+  onToggleStats?: () => void;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -29,18 +31,14 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   inferenceStats,
   messageContent,
   modelName,
-  statsOpen = false,
-  onToggleStats,
+  statsOpen: _statsOpen = false, // Marked as intentionally unused for now
+  onToggleStats: _onToggleStats, // Marked as intentionally unused for now
   toggleableInlineStats = true,
 }) => {
-  const [completeMessage, setCompleteMessage] = useState<string>(
-    messageContent || ""
-  );
+  const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");
 
   // Add state for tracking feedback status
-  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(
-    null
-  );
+  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(null);
 
   // Update the complete message when streaming finishes
   useEffect(() => {
@@ -145,11 +143,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
           {/* Always show inline stats when toggleableInlineStats is enabled */}
           {inferenceStats && toggleableInlineStats && (
-            <InferenceStats
-              stats={inferenceStats}
-              modelName={modelName}
-              inline={true}
-            />
+            <InferenceStats stats={inferenceStats} modelName={modelName} inline={true} />
           )}
 
           {/* Show original stats component when feature is disabled */}

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "../../ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "../../ui/tabs";
 import { Spinner } from "../../ui/spinner";
 import { Button } from "../../ui/button";
 import { ChevronDown } from "lucide-react";

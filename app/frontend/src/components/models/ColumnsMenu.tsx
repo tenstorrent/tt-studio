@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React, { useMemo } from "react";
+import { useMemo } from "react";
 import type { ColumnVisibilityMap } from "../../types/models";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 interface Props {
-  tableId: string;
   value: ColumnVisibilityMap;
   onChange: (key: keyof ColumnVisibilityMap, visible: boolean) => void;
   onPreset: (preset: "Minimal" | "Default" | "Full") => void;
 }
 
 export default function ColumnsMenu({
-  tableId,
   value,
   onChange,
   onPreset,

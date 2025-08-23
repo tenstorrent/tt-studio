@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import React from "react";
+// React import not needed for modern JSX transform
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,7 @@ interface Props {
 
 export default function DeleteModelDialog({
   open,
-  modelId,
+  modelId: _modelId, // Marked as intentionally unused for now
   isLoading,
   onConfirm,
   onCancel,
