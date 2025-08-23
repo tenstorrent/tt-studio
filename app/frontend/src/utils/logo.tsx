@@ -4,12 +4,12 @@
 import React, { useState, useEffect } from "react";
 import { motion, MotionProps } from "framer-motion";
 
-// Import logo SVG properly so Vite can handle it during build
-import ttLogoSvg from "../assets/logo/tt_logo.svg";
-
 // Fallback logo URL from GitHub
 export const FALLBACK_LOGO_URL =
   "https://github.com/tenstorrent/tt-metal/raw/main/docs/source/common/images/favicon.png";
+
+// Local logo path - will be checked at runtime, not build time
+const LOCAL_LOGO_PATH = "/src/assets/logo/tt_logo.svg";
 
 // Logo hook - this replaces your current logo imports
 export const useLogo = () => {
@@ -18,25 +18,25 @@ export const useLogo = () => {
 
   useEffect(() => {
     const loadLogo = async () => {
-      console.log("Starting logo load process...");
+      // Starting logo load process
 
       // Try to load local logo by creating an image element to test if it exists
       const testImage = new Image();
 
       testImage.onload = () => {
-        console.log("Found local logo: tt_logo.svg");
-        setLogoUrl(ttLogoSvg);
+        // Found local logo: tt_logo.svg
+        setLogoUrl(LOCAL_LOGO_PATH);
         setIsLoading(false);
       };
 
       testImage.onerror = () => {
-        console.log("Local logo not found, using GitHub fallback");
+        // Local logo not found, using GitHub fallback
         setLogoUrl(FALLBACK_LOGO_URL);
         setIsLoading(false);
       };
 
       // Start loading the test image
-      testImage.src = ttLogoSvg;
+      testImage.src = LOCAL_LOGO_PATH;
     };
 
     loadLogo();
@@ -67,17 +67,19 @@ export const Logo: React.FC<LogoProps> = ({
   const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.currentTarget;
     if (target.src !== FALLBACK_LOGO_URL) {
-      console.log("Image failed to load, switching to GitHub fallback");
+      // Image failed to load, switching to GitHub fallback
       target.src = FALLBACK_LOGO_URL;
     } else {
-      console.log("GitHub fallback also failed, hiding image");
+      // GitHub fallback also failed, hiding image
       target.style.display = "none";
     }
   };
 
   if (isLoading) {
     return (
-      <div className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`} />
+      <div
+        className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`}
+      />
     );
   }
 
@@ -134,22 +136,27 @@ export const MotionLogo: React.FC<MotionLogoProps> = ({
   const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.currentTarget;
     if (target.src !== FALLBACK_LOGO_URL) {
-      console.log("Image failed to load, switching to GitHub fallback");
+      // Image failed to load, switching to GitHub fallback
       target.src = FALLBACK_LOGO_URL;
     } else {
-      console.log("GitHub fallback also failed, hiding image");
+      // GitHub fallback also failed, hiding image
       target.style.display = "none";
     }
   };
 
   if (isLoading) {
     return (
-      <div className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`} />
+      <div
+        className={`${sizeClasses[size]} ${className} bg-gray-200 animate-pulse rounded`}
+      />
     );
   }
 
   // Merge preset animations with custom props
-  const motionProps = animation === "custom" ? props : { ...animationPresets[animation], ...props };
+  const motionProps =
+    animation === "custom"
+      ? props
+      : { ...animationPresets[animation], ...props };
 
   return (
     <motion.img
@@ -168,14 +175,14 @@ export const ttLogo = FALLBACK_LOGO_URL;
 // Logo configuration for advanced usage
 export const logoConfig = {
   fallbackUrl: FALLBACK_LOGO_URL,
-  localPath: ttLogoSvg,
+  localPath: LOCAL_LOGO_PATH,
 
   async getLogoUrl(): Promise<string> {
     return new Promise((resolve) => {
       const testImage = new Image();
 
       testImage.onload = () => {
-        resolve(ttLogoSvg);
+        resolve(LOCAL_LOGO_PATH);
       };
 
       testImage.onerror = () => {
@@ -183,7 +190,7 @@ export const logoConfig = {
         resolve(FALLBACK_LOGO_URL);
       };
 
-      testImage.src = ttLogoSvg;
+      testImage.src = LOCAL_LOGO_PATH;
     });
   },
 };
