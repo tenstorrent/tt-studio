@@ -23,22 +23,20 @@ RUN apt-get update && \
 
 # Install tt-smi conditionally for local mode only
 RUN if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then \
-    echo "🔧 Local mode - installing Rust and TT-SMI"; \
+    echo "🔧 Local mode - installing Rust and TT-SMI" && \
+    # Install Rust
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . "$HOME/.cargo/env" && \
+    # Clone and install tt-smi
+    mkdir -p /opt/tenstorrent-tools && \
+    git clone https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
+    cd /opt/tenstorrent-tools/tt-smi && \
     pip3 install --upgrade pip && \
-    git clone https://github.com/tenstorrent/tt-smi /tmp/tt-smi && \
-    cd /tmp/tt-smi && \
-    . "$HOME/.cargo/env" && \
-    pip3 install . && \
-    rm -rf /tmp/tt-smi; \
+    pip3 install .; \
     else \
     echo "🌐 AI Playground mode - skipping TT-SMI installation"; \
     fi
 
-# Set Rust environment variables (will be empty if not installed)
-ENV PATH="/root/.cargo/bin:${PATH}" \
-    CARGO_HOME="/root/.cargo"
 
 # Set working directory and copy requirements first for better caching
 WORKDIR /backend
