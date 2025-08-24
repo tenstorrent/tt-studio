@@ -115,10 +115,8 @@ To set up TT-Studio step by step:
    Run the `run.py` script:
 
    ```bash
-   # On Linux
-   python run.py
 
-   # On macOS
+   # On macOS/Linux
    python3 run.py
    ```
 
@@ -147,10 +145,8 @@ To set up TT-Studio step by step:
    - To stop and remove Docker services, run:
 
      ```bash
-     # On Linux
-     python run.py --cleanup
 
-     # On macOS
+     # On macOS/Linux
      python3 run.py --cleanup
      ```
 
@@ -191,10 +187,9 @@ Developers can run the app with live code reloading for easier development.
    Run the `run.py` script with the dev flag:
 
    ```bash
-   # On Linux
-   python run.py --dev
+   # On 
 
-   # On macOS
+   # On macOS/Linux
    python3 run.py --dev
    ```
 
@@ -217,10 +212,8 @@ Developers can run the app with live code reloading for easier development.
    To shut down the application and remove running containers:
 
    ```bash
-   # On Linux
-   python run.py --cleanup
 
-   # On macOS
+   # On macOS/Linux
    python3 run.py --cleanup
    ```
 
