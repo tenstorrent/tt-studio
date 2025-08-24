@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { cn } from "@/src/lib/utils";
-import { useRef, useState } from "react";
+import  { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { IconUpload } from "@tabler/icons-react";
 import { useDropzone } from "react-dropzone";
@@ -27,7 +27,7 @@ const secondaryVariant = {
   },
 };
 
-export const FileUpload = ({
+export const GentleFileUpload = ({
   onChange,
 }: {
   onChange?: (files: File[]) => void;
@@ -45,7 +45,7 @@ export const FileUpload = ({
   };
 
   const { getRootProps, isDragActive } = useDropzone({
-    multiple: false,
+    multiple: true,
     noClick: true,
     onDrop: handleFileChange,
     onDropRejected: (error) => {
@@ -66,16 +66,18 @@ export const FileUpload = ({
           type="file"
           onChange={(e) => handleFileChange(Array.from(e.target.files || []))}
           className="hidden"
+          multiple
+          accept=".pdf,.txt,.docx,.doc,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/html,application/json,text/xml,text/csv"
         />
         <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,white,transparent)]">
           <GridPattern />
         </div>
         <div className="flex flex-col items-center justify-center">
           <p className="relative z-20 font-sans font-bold text-neutral-700 dark:text-neutral-300 text-base">
-            Upload file
+            Upload Documents to Create RAG Datasources
           </p>
           <p className="relative z-20 font-sans font-normal text-neutral-400 dark:text-neutral-400 text-base mt-2">
-            Drag or drop your files here or click to upload
+            Drag & drop files here or click to browse. Datasources will be created automatically using file names.
           </p>
           <div className="relative w-full mt-10 max-w-xl mx-auto">
             {files.length > 0 &&

@@ -13,7 +13,7 @@ import {
   Activity,
   Heart,
   Network,
-  Settings,
+  // Settings,
   Tag,
   Image as ImageIcon,
   FileText,
@@ -166,11 +166,10 @@ export default function ModelsTable({
             </TableHead>
           )}
           <TableHead className="text-right font-semibold">
-            <Settings
-              className="inline-block mr-2 text-TT-purple-accent"
+            {/* <Settings
+              className="inline-block text-TT-purple-accent"
               size={16}
-            />
-            Manage
+            /> */}
           </TableHead>
         </TableRow>
       </TableHeader>
