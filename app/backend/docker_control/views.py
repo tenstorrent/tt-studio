@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 from django.shortcuts import render
 from django.http import StreamingHttpResponse
@@ -11,11 +11,15 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.negotiation import DefaultContentNegotiation
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-import json
+import json  
 import shutil
+import subprocess
+import os
 
 import docker
+import re
 import os 
+import concurrent.futures
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
@@ -808,5 +812,173 @@ class BoardInfoView(APIView):
             logger.error(f"Error getting board info: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DockerServiceLogsView(APIView):
+    """Get recent logs from Docker services for bug reporting"""
+    
+    def get(self, request, *args, **kwargs):
+        try:
+            logger.info("Fetching Docker service logs for bug report")
+            
+            # Build logs for all TT Studio containers dynamically (backend, frontend, agent, chroma)
+            # and include any that look like part of the stack, regardless of exact name
+            logs_data = {}
+            docker_logs_found = False
+
+            try:
+                def classify_service(container) -> str:
+                    name = (container.name or "").lower()
+                    image = (container.image.tags[0] if container.image.tags else container.image.short_id).lower()
+                    candidates = name + " " + image
+                    if "backend" in candidates:
+                        return "tt_studio_backend"
+                    if "frontend" in candidates:
+                        return "tt_studio_frontend"
+                    if "agent" in candidates:
+                        return "tt_studio_agent"
+                    if "chroma" in candidates:
+                        return "tt_studio_chroma"
+                    if "tt-studio" in candidates or "tt_studio" in candidates:
+                        return "tt_studio_other"
+                    return "other"
+
+                containers = client.containers.list(all=True)
+
+                service_to_containers = {}
+                for c in containers:
+                    service = classify_service(c)
+                    if service == "other":
+                        continue
+                    service_to_containers.setdefault(service, []).append(c)
+
+                def fetch_logs_for_container(container) -> str:
+                    try:
+                        raw = container.logs(tail=200, timestamps=False)
+                        txt = raw.decode('utf-8', errors='replace').strip()
+                        if len(txt) > 2000:
+                            txt = txt[-2000:] + "\n\n... (truncated)"
+                        header = f"Container {container.name} ({container.id[:12]})\n"
+                        return header + txt
+                    except Exception as e:
+                        return f"Container {container.name}: Failed to fetch logs: {str(e)[:500]}"
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                    futures = {}
+                    for service, conts in service_to_containers.items():
+                        for c in conts:
+                            futures[executor.submit(fetch_logs_for_container, c)] = (service, c.name)
+
+                    combined: dict[str, list[str]] = {}
+                    for future in concurrent.futures.as_completed(futures):
+                        service, _ = futures[future]
+                        try:
+                            content = future.result()
+                            combined.setdefault(service, []).append(content)
+                            if content and "Failed to fetch" not in content and "No logs" not in content:
+                                docker_logs_found = True
+                        except Exception as e:
+                            combined.setdefault(service, []).append(f"Unexpected error: {str(e)[:500]}")
+
+                # Flatten combined results to string blocks
+                for service, blocks in combined.items():
+                    title = service
+                    logs_data[title] = "\n\n".join(blocks)
+
+            except Exception as e:
+                logger.error(f"Error initializing or fetching Docker logs: {str(e)}")
+                logs_data["docker"] = f"Docker client error: {str(e)[:500]}"
+            
+            if not docker_logs_found:
+                if not logs_data:
+                    logs_data["docker"] = "Docker logs not accessible from container"
+            
+            # Also try to get system logs if available
+            try:
+                # Check if fastapi.log exists in multiple possible locations using relative paths
+                possible_fastapi_logs = [
+                    "fastapi.log",  # Current directory
+                    os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
+                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/docker_control/views.py
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
+                    "/app/fastapi.log",  # Container path as fallback
+                ]
+                
+                fastapi_log_found = False
+                for fastapi_log_path in possible_fastapi_logs:
+                    if os.path.exists(fastapi_log_path):
+                        try:
+                            with open(fastapi_log_path, 'r') as f:
+                                lines = f.readlines()
+                                # Get last 8 lines and limit size
+                                log_content = ''.join(lines[-8:])
+                                if len(log_content) > 800:
+                                    log_content = log_content[-800:] + "\n\n... (truncated)"
+                                logs_data["fastapi"] = log_content
+                            fastapi_log_found = True
+                            break
+                        except Exception as read_error:
+                            logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
+                            continue
+                
+                if not fastapi_log_found:
+                    logs_data["fastapi"] = "fastapi.log not accessible from container (logs available from Docker containers above)"
+                    
+            except Exception as e:
+                logger.error(f"Error reading fastapi.log: {str(e)}")
+                logs_data["fastapi"] = f"Error reading fastapi.log: {str(e)[:500]}"
+            
+            # Try to get backend log file if available
+            try:
+                # Try multiple possible paths for backend logs
+                possible_backend_log_paths = [
+                    os.path.join(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"), "backend_volume", "python_logs"),
+                    os.path.join(os.getenv("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/path/to/fallback"), "python_logs"),
+                    "/tt_studio_persistent_volume/backend_volume/python_logs",
+                    "/tt_studio_persistent_volume/python_logs"
+                ]
+                
+                backend_log_found = False
+                for backend_log_path in possible_backend_log_paths:
+                    if os.path.exists(backend_log_path):
+                        try:
+                            # Get the most recent log file
+                            log_files = [f for f in os.listdir(backend_log_path) if f.endswith('.log')]
+                            if log_files:
+                                latest_log = max(log_files, key=lambda x: os.path.getctime(os.path.join(backend_log_path, x)))
+                                latest_log_path = os.path.join(backend_log_path, latest_log)
+                                with open(latest_log_path, 'r') as f:
+                                    lines = f.readlines()
+                                    # Get last 8 lines and limit size
+                                    log_content = ''.join(lines[-8:])
+                                    if len(log_content) > 800:
+                                        log_content = log_content[-800:] + "\n\n... (truncated)"
+                                    logs_data["backend_log"] = log_content
+                                backend_log_found = True
+                                break
+                        except Exception as read_error:
+                            logger.error(f"Error reading from {backend_log_path}: {str(read_error)}")
+                            continue
+                
+                if not backend_log_found:
+                    logs_data["backend_log"] = "Backend logs directory not found in any expected location"
+                    
+            except Exception as e:
+                logger.error(f"Error reading backend logs: {str(e)}")
+                logs_data["backend_log"] = f"Error reading backend logs: {str(e)[:500]}"
+            
+            # Add a summary of total log size
+            total_size = sum(len(str(logs)) for logs in logs_data.values())
+            logs_data["_summary"] = f"Total log size: {total_size} characters"
+            
+            return Response(logs_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching Docker service logs: {str(e)}")
+            return Response(
+                {"error": "Failed to fetch Docker service logs", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

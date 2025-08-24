@@ -15,9 +15,7 @@ interface NoModelsDialogProps {
   messageKey?: "reset" | "noModels";
 }
 
-export function NoModelsDialog({
-  messageKey = "noModels",
-}: NoModelsDialogProps) {
+export function NoModelsDialog({ messageKey = "noModels" }: NoModelsDialogProps) {
   const navigate = useNavigate();
 
   const messages = {

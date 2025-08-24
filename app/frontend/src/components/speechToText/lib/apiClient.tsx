@@ -45,10 +45,7 @@ export function getApiConfig(): ApiConfig {
 /**
  * Send an audio recording to the server
  */
-export async function sendAudioRecording(
-  audioBlob: Blob,
-  metadata?: Record<string, any>,
-) {
+export async function sendAudioRecording(audioBlob: Blob, metadata?: Record<string, any>) {
   try {
     console.log("Original audio blob:", {
       type: audioBlob.type,
@@ -101,15 +98,11 @@ export async function sendAudioRecording(
 
     // Create AbortController for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      currentConfig.timeout,
-    );
+    const timeoutId = setTimeout(() => controller.abort(), currentConfig.timeout);
 
     // Determine which endpoint to use
     const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
-    const useCloudEndpoint =
-      !metadata?.modelID || metadata.modelID === "null" || apiUrlDefined;
+    const useCloudEndpoint = !metadata?.modelID || metadata.modelID === "null" || apiUrlDefined;
     const endpoint = useCloudEndpoint
       ? "/models-api/speech-recognition-cloud/"
       : "/models-api/speech-recognition/";

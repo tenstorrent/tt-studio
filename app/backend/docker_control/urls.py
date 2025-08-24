@@ -17,6 +17,7 @@ from .views import (
     ModelCatalogView,
     CancelPullView,
     BoardInfoView,
+    DockerServiceLogsView,
 )
 
 urlpatterns = [
@@ -31,4 +32,5 @@ urlpatterns = [
     path("docker/cancel_pull/", views.CancelPullView.as_view(), name="docker-cancel-pull"),
     path("catalog/", views.ModelCatalogView.as_view(), name="model_catalog"),
     path("board-info/", views.BoardInfoView.as_view(), name="board-info"),
+    path("service-logs/", views.DockerServiceLogsView.as_view(), name="docker-service-logs"),
 ]

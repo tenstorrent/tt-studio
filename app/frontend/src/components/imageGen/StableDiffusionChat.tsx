@@ -83,7 +83,11 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                         : "bg-gray-100 dark:bg-TT-slate text-gray-900 dark:text-white text-left"
                     } p-3 rounded-lg mb-1`}
                   >
-                    <p className={message.sender === "user" ? "text-white" : "text-gray-900 dark:text-white"}>
+                    <p
+                      className={
+                        message.sender === "user" ? "text-white" : "text-gray-900 dark:text-white"
+                      }
+                    >
                       {message.text}
                     </p>
                     {message.image && (
