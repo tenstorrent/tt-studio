@@ -25,9 +25,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [isRocketFlying, setIsRocketFlying] = useState<boolean>(false);
   const [deploymentFailed, setDeploymentFailed] = useState<boolean>(false);
-  const [displayText, setDisplayText] = useState<React.ReactElement | string>(
-    initialText,
-  );
+  const [displayText, setDisplayText] = useState<React.ReactElement | string>(initialText);
 
   useEffect(() => {
     if (isDeployed) {

@@ -185,16 +185,19 @@ class ModelImpl:
         # check volumes
         if self.setup_type == SetupTypes.TT_INFERENCE_SERVER:
             if self.volume_path.exists():
-                logger.info(f"Found {self.volume_path}")
+                # logger.info(f"Found {self.volume_path}")  # Temporarily hidden
+                pass
             else:
-                logger.info(f"Model volume does not exist: {self.volume_path}")
-                logger.error(f"Initialize this model by running the tt-inference-server setup.sh script")
+                # logger.info(f"Model volume does not exist: {self.volume_path}")  # Temporarily hidden
+                # logger.error(f"Initialize this model by running the tt-inference-server setup.sh script")  # Temporarily hidden
+                pass
         elif self.setup_type == SetupTypes.MAKE_VOLUMES:
             if not self.volume_path.exists():
                 # if not setup is required for the model, backend can make the volume
                 self.volume_path.mkdir(parents=True, exist_ok=True)
         elif self.setup_type == SetupTypes.NO_SETUP:
-            logger.info(f"Model {self.model_id} does not require a volume")
+            # logger.info(f"Model {self.model_id} does not require a volume")  # Temporarily hidden
+            pass
 
     def asdict(self):
         return asdict(self)

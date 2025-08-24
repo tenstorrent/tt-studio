@@ -46,7 +46,7 @@ import { StepperFormActions } from "./StepperFormActions";
 import { Model, getModelsUrl } from "./SelectionSteps";
 import BoardBadge from "./BoardBadge";
 import { DeployedModelsWarning } from "./DeployedModelsWarning";
-import { useModels } from "../providers/ModelsContext";
+import { useModels } from "../hooks/useModels";
 
 // Model type configuration with icons and labels
 const MODEL_TYPE_CONFIG = {
@@ -117,7 +117,7 @@ export function FirstStepForm({
   useEffect(() => {
     if (hasDeployedModels && deployedModels.length > 0) {
       customToast.warning(
-        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`,
+        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`
       );
     }
   }, [hasDeployedModels, deployedModels]);
@@ -159,21 +159,21 @@ export function FirstStepForm({
       if (selectedModel) {
         if (selectedModel.is_compatible === false) {
           customToast.error(
-            `This model is not compatible with your ${selectedModel.current_board} board`,
+            `This model is not compatible with your ${selectedModel.current_board} board`
           );
           setFormError(true);
           return;
         }
         if (selectedModel.is_compatible === null) {
           customToast.warning(
-            `Board detection failed - this model's compatibility is unknown. It may not work properly.`,
+            `Board detection failed - this model's compatibility is unknown. It may not work properly.`
           );
         }
 
         // Extra warning if models are deployed
         if (hasDeployedModels && deployedModels.length > 0) {
           customToast.warning(
-            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`,
+            `Warning: ${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} already deployed. You'll need to delete ${deployedModels.length > 1 ? "them" : "it"} before deploying this model.`
           );
         }
 
@@ -229,15 +229,9 @@ export function FirstStepForm({
 
   return (
     <Form {...form}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          form.handleSubmit(onSubmit)();
-        }}
-        className="space-y-10"
-      >
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {/* Always show deployed models warning prominently */}
-        <DeployedModelsWarning className="mb-6" />
+        <DeployedModelsWarning className="mb-8 mt-8" />
 
         <FormField
           control={form.control}
@@ -375,7 +369,7 @@ export function FirstStepForm({
                           ))}
                         </div>
                       );
-                    },
+                    }
                   )}
 
                   {/* If no models loaded yet */}
@@ -389,21 +383,40 @@ export function FirstStepForm({
 
               {/* Summary info */}
               {models.length > 0 && !isLoading && (
-                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-900/20 rounded-lg">
+                <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
                   <div className="flex items-center justify-between text-sm mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-600 dark:text-gray-300">
-                        Detected board:
-                      </span>
-                      <div className="px-2 py-2">
-                        {currentBoard !== "unknown" ? (
-                          <BoardBadge boardName={currentBoard} />
-                        ) : (
-                          <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
-                            Unknown
-                          </span>
-                        )}
-                      </div>
+                    <span className="text-gray-600 dark:text-gray-300">
+                      Detected Tenstorrent board:
+                    </span>
+                    <div className="px-2 py-2">
+                      {currentBoard !== "unknown" ? (
+                          <BoardBadge
+                            boardName={currentBoard}
+                            onClick={() => {
+                              const lower = currentBoard.toLowerCase();
+                              if (lower.includes("t3k") || lower.includes("t3000")) {
+                                window.open(
+                                  "https://tenstorrent.com/hardware/tt-quietbox",
+                                  "_blank"
+                                );
+                              } else if (lower.includes("n300")) {
+                                window.open(
+                                  "https://tenstorrent.com/hardware/wormhole",
+                                  "_blank"
+                                );
+                              } else {
+                                window.open(
+                                  "https://www.tenstorrent.com/hardware",
+                                  "_blank"
+                                );
+                              }
+                            }}
+                          />
+                      ) : (
+                        <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                          Unknown
+                        </span>
+                      )}
                     </div>
                   </div>
                   <TooltipProvider>
@@ -419,7 +432,7 @@ export function FirstStepForm({
                               <span className="text-gray-700 dark:text-gray-200">
                                 {
                                   models.filter(
-                                    (model) => model.is_compatible === true,
+                                    (model) => model.is_compatible === true
                                   ).length
                                 }{" "}
                                 compatible
@@ -430,7 +443,7 @@ export function FirstStepForm({
                               <span className="text-gray-700 dark:text-gray-200">
                                 {
                                   models.filter(
-                                    (model) => model.is_compatible === false,
+                                    (model) => model.is_compatible === false
                                   ).length
                                 }{" "}
                                 incompatible
@@ -441,7 +454,7 @@ export function FirstStepForm({
                               <span className="text-gray-700 dark:text-gray-200">
                                 {
                                   models.filter(
-                                    (model) => model.is_compatible === null,
+                                    (model) => model.is_compatible === null
                                   ).length
                                 }{" "}
                                 unknown

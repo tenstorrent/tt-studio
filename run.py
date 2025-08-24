@@ -36,6 +36,12 @@ import webbrowser
 import socket
 import tempfile
 import signal
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    import urllib.request
+    HAS_REQUESTS = False
 
 # --- Color Definitions ---
 C_RESET = '\033[0m'
@@ -66,6 +72,7 @@ TENSTORRENT_ASCII_ART = r"""   __                  __                           
 # --- File Paths ---
 DOCKER_COMPOSE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.yml")
 DOCKER_COMPOSE_DEV_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.dev-mode.yml")
+DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.prod.yml")
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
@@ -76,18 +83,23 @@ FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
 # Global flag to determine if we should overwrite existing values
 FORCE_OVERWRITE = False
 
-def run_command(command, check=False, cwd=None):
+def run_command(command, check=False, cwd=None, capture_output=False, shell=False):
     """Helper function to run a shell command."""
     try:
-        cmd_str = ' '.join(command) if isinstance(command, list) else command
-        # Run command and show its output directly in the terminal
-        subprocess.run(command, check=check, cwd=cwd, text=True, stderr=sys.stderr, stdout=sys.stdout)
+        cmd_str = command if shell else ' '.join(command)
+        return subprocess.run(command, check=check, cwd=cwd, text=True, capture_output=capture_output, shell=shell)
     except FileNotFoundError as e:
         print(f"{C_RED}⛔ Error: Command not found: {e.filename}{C_RESET}")
         sys.exit(1)
     except subprocess.CalledProcessError as e:
-        print(f"{C_RED}⛔ Error executing command: {cmd_str}{C_RESET}")
-        sys.exit(1)
+        # Don't exit if check=False, just return the result
+        if check:
+            print(f"{C_RED}⛔ Error executing command: {cmd_str}{C_RESET}")
+            if capture_output:
+                print(f"{C_RED}Stderr: {e.stderr}{C_RESET}")
+            sys.exit(1)
+        return e
+
 
 def check_docker_installation():
     """Function to check Docker installation."""
@@ -668,10 +680,16 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True):
     """
     compose_files = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE]
     
-    # Add dev mode override if in dev mode and file exists
-    if dev_mode and os.path.exists(DOCKER_COMPOSE_DEV_FILE):
-        compose_files.extend(["-f", DOCKER_COMPOSE_DEV_FILE])
-        print(f"{C_MAGENTA}🚀 Adding development mode overrides...{C_RESET}")
+    if dev_mode:
+        # Add dev mode override if in dev mode and file exists
+        if os.path.exists(DOCKER_COMPOSE_DEV_FILE):
+            compose_files.extend(["-f", DOCKER_COMPOSE_DEV_FILE])
+            print(f"{C_MAGENTA}🚀 Applying development mode overrides...{C_RESET}")
+    else:
+        # Add production mode override if not in dev mode and file exists
+        if os.path.exists(DOCKER_COMPOSE_PROD_FILE):
+            compose_files.extend(["-f", DOCKER_COMPOSE_PROD_FILE])
+            print(f"{C_GREEN}🚀 Applying production mode overrides...{C_RESET}")
     
     # Add TT hardware override if hardware is detected
     if detect_tt_hardware():
@@ -708,74 +726,187 @@ def check_port_available(port):
         except OSError:
             return False
 
-def kill_process_on_port(port):
-    """Kill any process using the specified port (like startup.sh)."""
-    try:
-        # Try to find the PID using the port with different methods (like startup.sh)
-        port_pid = None
-        
-        # Method 1: lsof
-        result = subprocess.run(["lsof", "-Pi", f":{port}", "-sTCP:LISTEN", "-t"], 
-                               capture_output=True, text=True, check=False)
-        if result.stdout.strip():
-            port_pid = result.stdout.strip()
-        
-        # Method 2: netstat (if lsof didn't work)
-        if not port_pid:
-            result = subprocess.run(["netstat", "-anp"], capture_output=True, text=True, check=False)
-            if result.stdout:
-                for line in result.stdout.split('\n'):
-                    if f":{port}" in line and "LISTEN" in line:
-                        parts = line.split()
-                        if len(parts) >= 7:
-                            pid_part = parts[6]
-                            if '/' in pid_part:
-                                port_pid = pid_part.split('/')[0]
-                                break
-        
-        if port_pid:
-            print(f"🛑 Found process using port {port} (PID: {port_pid}). Stopping it...")
-            # Try graceful kill first
-            subprocess.run(["sudo", "kill", "-15", port_pid], check=False)
-            time.sleep(2)
-            
-            # Check if process is still running
-            result = subprocess.run(["kill", "-0", port_pid], capture_output=True, check=False)
-            if result.returncode == 0:
-                print(f"⚠️  Process still running. Attempting force kill...")
-                subprocess.run(["sudo", "kill", "-9", port_pid], check=False)
-                time.sleep(1)
+
+def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
+    """
+    Wait for a service to become healthy (HTTP 200 at the given URL).
+    Returns True if healthy within timeout, else False.
+    Prints live status messages.
+    """
+    start_time = time.time()
+    sys.stdout.write(f"⏳ Waiting for {service_name} to become healthy at {health_url}...\n")
+    sys.stdout.flush()
+    
+    while time.time() - start_time < timeout:
+        elapsed = int(time.time() - start_time)
+        if HAS_REQUESTS:
+            try:
+                response = requests.get(health_url, timeout=5)
+                if response.status_code == 200:
+                    print(f"\n✅ {service_name} is healthy!")
+                    return True
+            except requests.RequestException:
+                pass
         else:
-            print(f"⚠️  Could not find specific process. Attempting to kill any process on port {port}...")
-            # On macOS, use a different approach
-            if OS_NAME == "Darwin":
-                subprocess.run(["sudo", "lsof", "-i", f":{port}", "-sTCP:LISTEN", "-t"], 
-                              capture_output=True, check=False)
-                result = subprocess.run(["sudo", "lsof", "-i", f":{port}", "-sTCP:LISTEN", "-t"], 
-                                       capture_output=True, text=True, check=False)
-                if result.stdout.strip():
-                    pids = result.stdout.strip().split('\n')
-                    for pid in pids:
-                        if pid:
-                            subprocess.run(["sudo", "kill", "-9", pid], check=False)
-            else:
-                # Linux
-                subprocess.run(["sudo", "fuser", "-k", f"{port}/tcp"], check=False)
-            time.sleep(1)
+            try:
+                resp = urllib.request.urlopen(health_url, timeout=5)
+                if resp.getcode() == 200:
+                    print(f"\n✅ {service_name} is healthy!")
+                    return True
+            except Exception:
+                pass
         
-        # Final check
-        if check_port_available(port):
-            print(f"✅ Port {port} is now available")
+        sys.stdout.write(f"\r⏳ {service_name} not ready yet... ({elapsed}s/{timeout}s)")
+        sys.stdout.flush()
+        time.sleep(interval)
+    
+    print(f"\n⚠️  {service_name} did not become healthy within {timeout} seconds")
+    return False
+
+
+def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
+    """
+    Wait for all core services to become healthy before continuing.
+    Returns True if all are healthy.
+    """
+    print("\n⏳ Waiting for all services to become healthy...")
+
+    services_to_check = [
+        ("ChromaDB", "http://localhost:8111/api/v1/heartbeat"),
+        ("Backend API", "http://localhost:8000/up/"),
+        ("Frontend", "http://localhost:3000/"),
+    ]
+    # Optionally add FastAPI
+    if not skip_fastapi and not is_deployed_mode:
+        services_to_check.append(("FastAPI Server", "http://localhost:8001/"))
+    
+    all_healthy = True
+    for service_name, health_url in services_to_check:
+        if not wait_for_service_health(service_name, health_url, timeout=120, interval=3):
+            all_healthy = False
+    
+    if all_healthy:
+        print("\n✅ All services are healthy and ready!")
+    else:
+        print("\n⚠️  Some services may not be fully ready, but main app may still be accessible.")
+    return all_healthy
+
+def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60):
+    """
+    Wait for frontend service to be healthy before opening browser.
+    
+    Returns:
+        bool: True if browser opened successfully, False otherwise
+    """
+    frontend_url = f"http://{host}:{port}/"
+    
+    print(f"\n🌐 Ensuring frontend is ready before opening browser...")
+    
+    if wait_for_service_health("Frontend", frontend_url, timeout=timeout, interval=2):
+        print(f"🚀 Opening browser to {frontend_url}")
+        try:
+            webbrowser.open(frontend_url)
             return True
-        else:
-            print(f"❌ Failed to free port {port}. Please manually stop any process using this port.")
-            print(f"   Try: sudo lsof -i :{port} (to identify the process)")
-            print(f"   Then: sudo kill -9 <PID> (to forcibly terminate it)")
+        except Exception as e:
+            print(f"⚠️  Could not open browser automatically: {e}")
+            print(f"💡 Please manually open: {frontend_url}")
             return False
-            
-    except Exception as e:
-        print(f"{C_YELLOW}Warning: Could not kill process on port {port}: {e}{C_RESET}")
+    else:
+        print(f"⚠️  Frontend not ready within {timeout} seconds")
+        print(f"💡 You can try opening {frontend_url} manually once services are ready")
         return False
+
+def get_frontend_config():
+    """
+    Getting frontend configuration from environment or defaults.
+    """
+    # Read from environment variables or use defaults
+    host = os.getenv('FRONTEND_HOST', 'localhost')
+    port = int(os.getenv('FRONTEND_PORT', '3000'))
+    timeout = int(os.getenv('FRONTEND_TIMEOUT', '60'))
+    
+    return host, port, timeout
+
+
+
+def kill_process_on_port(port, no_sudo=False):
+    """
+    Find and kill a process using a specific port. More robust and cross-platform.
+    Handles permissions by trying commands with and without sudo.
+    """
+    pid = None
+    
+
+    # --- macOS and Linux logic ---
+    
+    # Define commands to try
+    lsof_cmd = ["lsof", "-ti", f"tcp:{port}"]
+    ss_cmd = ["ss", "-lptn", f"sport = :{port}"]
+    
+    # Function to run a command and extract PID
+    def find_pid_with_command(base_cmd, use_sudo):
+        cmd_to_run = base_cmd.copy()
+        if use_sudo:
+            cmd_to_run.insert(0, "sudo")
+        
+        # Run command but don't exit on failure
+        result = run_command(cmd_to_run, check=False, capture_output=True)
+        
+        if result.returncode == 0 and result.stdout.strip():
+            if "ss" in base_cmd[0]: # ss needs parsing
+                match = re.search(r'pid=(\d+)', result.stdout.strip())
+                return match.group(1) if match else None
+            else: # lsof directly returns PID
+                return result.stdout.strip().split('\n')[0]
+        return None
+
+    # Try lsof, then lsof with sudo
+    if shutil.which("lsof"):
+        pid = find_pid_with_command(lsof_cmd, use_sudo=False)
+        if not pid and not no_sudo:
+            pid = find_pid_with_command(lsof_cmd, use_sudo=True)
+
+    # If lsof failed, try ss, then ss with sudo
+    if not pid and shutil.which("ss"):
+        pid = find_pid_with_command(ss_cmd, use_sudo=False)
+        if not pid and not no_sudo:
+            pid = find_pid_with_command(ss_cmd, use_sudo=True)
+
+    if not pid:
+        print(f"{C_YELLOW}⚠️  Could not find a specific process using port {port}. This is likely okay.{C_RESET}")
+        return True
+
+    print(f"🛑 Found process with PID {pid} using port {port}. Attempting to stop it...")
+    
+    # Build kill commands
+    kill_cmd_graceful = ["kill", "-15", pid]
+    kill_cmd_force = ["kill", "-9", pid]
+    check_alive_cmd = ["kill", "-0", pid]
+    use_sudo_for_kill = not no_sudo and os.geteuid() != 0
+
+    if use_sudo_for_kill:
+        kill_cmd_graceful.insert(0, "sudo")
+        kill_cmd_force.insert(0, "sudo")
+        check_alive_cmd.insert(0, "sudo")
+
+    try:
+        run_command(kill_cmd_graceful, check=False)
+        time.sleep(2)
+        
+        result = run_command(check_alive_cmd, check=False, capture_output=True)
+        if result.returncode == 0:
+            print(f"⚠️  Process {pid} still alive. Forcing termination...")
+            run_command(kill_cmd_force, check=True)
+            print(f"{C_GREEN}✅ Process {pid} terminated by force.{C_RESET}")
+        else:
+            print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
+
+    except Exception as e:
+        print(f"{C_RED}⛔ Failed to kill process {pid}: {e}{C_RESET}")
+        print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
+        return False
+        
+    return True
 
 def initialize_submodules():
     """Initialize git submodules if they don't exist or are not properly set up."""
@@ -980,10 +1111,8 @@ def start_fastapi_server(no_sudo=False):
     # Check if port 8001 is available
     if not check_port_available(8001):
         print(f"⚠️  Port 8001 is already in use. Attempting to free the port...")
-        if not kill_process_on_port(8001):
+        if not kill_process_on_port(8001, no_sudo=no_sudo):
             print(f"{C_RED}❌ Failed to free port 8001. Please manually stop any process using this port.{C_RESET}")
-            print(f"   Try: sudo lsof -i :8001 (to identify the process)")
-            print(f"   Then: sudo kill -9 <PID> (to forcibly terminate it)")
             return False
         print(f"✅ Port 8001 is now available")
     else:
@@ -1179,7 +1308,7 @@ def cleanup_fastapi_server(no_sudo=False):
             print(f"{C_YELLOW}Warning: Could not kill FastAPI process: {e}{C_RESET}")
     
     # Kill any process on port 8001
-    kill_process_on_port(8001)
+    kill_process_on_port(8001, no_sudo=no_sudo)
     
     # Remove PID and log files
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
@@ -1214,59 +1343,73 @@ def request_sudo_authentication():
         return False
 
 def ensure_frontend_dependencies():
-    """Ensure frontend dependencies are installed before starting Docker services."""
+    """
+    Ensures frontend dependencies are available locally for IDE support.
+    This is optional for running the app, as dependencies are always installed
+    inside the Docker container, but it greatly improves the development experience
+    (e.g., for TypeScript autocompletion).
+    """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
     package_json_path = os.path.join(frontend_dir, "package.json")
-    
+
+    print(f"\n{C_BLUE}📦 Checking frontend dependencies for IDE support...{C_RESET}")
+
     if not os.path.exists(package_json_path):
-        print(f"{C_RED}⛔ Error: package.json not found in {frontend_dir}{C_RESET}")
+        print(f"{C_RED}⛔ Error: package.json not found in {frontend_dir}. Cannot continue.{C_RESET}")
         return False
-    
-    print(f"\n{C_BLUE}📦 Checking frontend dependencies...{C_RESET}")
-    
-    # Check if node_modules exists and is not empty
+
+    # If node_modules already exists and is populated, we're good.
     if os.path.exists(node_modules_dir) and os.listdir(node_modules_dir):
-        print(f"{C_GREEN}✅ Frontend dependencies already installed locally{C_RESET}")
+        print(f"{C_GREEN}✅ Local node_modules found. IDE support is active.{C_RESET}")
         return True
-    
-    if not os.path.exists(node_modules_dir):
-        print(f"{C_YELLOW}📦 node_modules directory not found - will be created for development mode{C_RESET}")
-    else:
-        print(f"{C_YELLOW}📦 node_modules directory is empty - dependencies need to be installed{C_RESET}")
-    
-    # Check if npm is available
-    if not shutil.which("npm"):
-        print(f"{C_YELLOW}⚠️  npm not found locally. Dependencies will be installed in Docker container.{C_RESET}")
-        print(f"{C_CYAN}   The updated Dockerfile will handle this automatically.{C_RESET}")
-        return True
-    
-    print(f"{C_BLUE}📦 Installing frontend dependencies locally...{C_RESET}")
-    print(f"{C_CYAN}   This ensures node_modules are available for development mode and IDE support{C_RESET}")
-    
+
+    print(f"{C_YELLOW}💡 Local node_modules directory not found or is empty.{C_RESET}")
+    print(f"{C_CYAN}   Installing them locally will enable IDE features like autocompletion.{C_RESET}")
+    print(f"{C_CYAN}   This is optional; the application will still run correctly using the dependencies inside the Docker container.{C_RESET}")
+
+    # Check for local npm installation
+    has_local_npm = shutil.which("npm")
+
     try:
-        # Change to frontend directory and install dependencies
-        original_dir = os.getcwd()
-        os.chdir(frontend_dir)
-        
-        # Create node_modules directory if it doesn't exist
-        if not os.path.exists(node_modules_dir):
-            os.makedirs(node_modules_dir, exist_ok=True)
-        
-        # Install dependencies
-        run_command(["npm", "install"], check=True)
-        
-        print(f"{C_GREEN}✅ Frontend dependencies installed successfully{C_RESET}")
-        print(f"{C_CYAN}   node_modules is now available for development mode volume mounting{C_RESET}")
-        return True
-        
+        if has_local_npm:
+            choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip()
+            if choice in ['n', 'no']:
+                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                return True # It's not a failure, just a choice.
+            
+            print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
+            run_command(["npm", "install"], check=True, cwd=frontend_dir)
+            print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+
+        else: # No local npm found
+            print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
+            choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip()
+            if choice in ['n', 'no']:
+                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                return True
+
+            print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
+            # This command runs `npm install` inside a container and mounts the result back to the host.
+            docker_cmd = [
+                "docker", "run", "--rm",
+                "-v", f"{frontend_dir}:/app",
+                "-w", "/app",
+                "node:22-alpine3.20",
+                "npm", "install"
+            ]
+            run_command(docker_cmd, check=True)
+            print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
+
     except (subprocess.CalledProcessError, SystemExit) as e:
-        print(f"{C_YELLOW}⚠️  Warning: Failed to install frontend dependencies locally: {e}{C_RESET}")
-        print(f"{C_CYAN}   Dependencies will be installed in Docker container instead{C_RESET}")
-        print(f"{C_CYAN}   The updated Dockerfile will handle this automatically.{C_RESET}")
+        print(f"{C_RED}⛔ Error installing frontend dependencies: {e}{C_RESET}")
+        print(f"{C_YELLOW}   Could not install dependencies locally. IDE features may be limited, but the app will still run.{C_RESET}")
+        return True # Still return True, as this is not a fatal error for the application itself.
+    except KeyboardInterrupt:
+        print(f"\n{C_YELLOW}🛑 Installation cancelled by user.{C_RESET}")
         return True
-    finally:
-        os.chdir(original_dir)
+
+    return True
 
 def main():
     """Main function to orchestrate the script."""
@@ -1292,6 +1435,8 @@ def main():
   {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
+  {C_CYAN}python run.py --no-browser{C_RESET}      🚫 Skip automatic browser opening
+  {C_CYAN}python run.py --wait-for-services{C_RESET} ⏳ Wait for all services to be healthy before completing
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1309,6 +1454,12 @@ def main():
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--no-sudo", action="store_true", 
                            help="🚫 Skip sudo usage for FastAPI setup (may limit functionality)")
+        parser.add_argument("--no-browser", action="store_true", 
+                           help="🚫 Skip automatic browser opening")
+        parser.add_argument("--wait-for-services", action="store_true", 
+                           help="⏳ Wait for all services to be healthy before completing")
+        parser.add_argument("--browser-timeout", type=int, default=60,
+                   help="⏳ Timeout in seconds for waiting for frontend before opening browser")
         
         args = parser.parse_args()
         
@@ -1389,7 +1540,7 @@ def main():
             print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
 
         # Ensure frontend dependencies are installed
-        # ensure_frontend_dependencies()
+        ensure_frontend_dependencies()
 
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
@@ -1508,11 +1659,22 @@ def main():
             print(f"\n{C_BLUE}🏠 Your TT Studio is running in Local Mode with local model inference.{C_RESET}")
             print(f"{C_CYAN}   You can deploy and manage local models through the interface.{C_RESET}")
         
-        # Try to open the browser automatically
-        try:
-            webbrowser.open("http://localhost:3000")
-        except:
-            print(f"{C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually{C_RESET}")
+        # Wait for services if requested
+        if args.wait_for_services:
+            wait_for_all_services(skip_fastapi=args.skip_fastapi, is_deployed_mode=is_deployed_mode)
+        
+        
+        # Control browser open only if service is healthy
+        if not args.no_browser:
+            # Get configurable frontend settings
+            host, port, timeout = get_frontend_config()
+            
+            # Use the new function that reuses existing infrastructure
+            if not wait_for_frontend_and_open_browser(host, port, timeout):
+                print(f"{C_YELLOW}⚠️  Browser opening failed. Please manually navigate to http://{host}:{port}{C_RESET}")
+        else:
+            host, port, _ = get_frontend_config()
+            print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{C_RESET}")
         
         # If in dev mode, show logs similar to startup.sh
         if args.dev:

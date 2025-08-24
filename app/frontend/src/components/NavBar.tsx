@@ -38,16 +38,16 @@ import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import CustomToaster from "./CustomToaster";
 
-import { useTheme } from "../providers/ThemeProvider";
-import { useRefresh } from "../providers/RefreshContext";
-import { useModels } from "../providers/ModelsContext";
+import { useTheme } from "../hooks/useTheme";
+import { useRefresh } from "../hooks/useRefresh";
+import { useModels } from "../hooks/useModels";
 import {
   handleModelNavigationClick,
   getDestinationFromModelType,
   ModelType,
   getModelTypeFromName,
 } from "../api/modelsDeployedApis";
-import { useHeroSection } from "../providers/HeroSectionContext";
+import { useHeroSection } from "../hooks/useHeroSection";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -98,7 +98,7 @@ const AnimatedIcon = forwardRef<HTMLDivElement, AnimatedIconProps>(
     >
       <Icon {...props} />
     </motion.div>
-  ),
+  )
 );
 
 AnimatedIcon.displayName = "AnimatedIcon";
@@ -446,71 +446,100 @@ export default function NavBar() {
       label: "Rag Management",
       tooltip: "Manage Retrieval Augmented Generation data",
     },
-  ];
-
-  // Define deployed feature navigation items (shown only when isDeployedEnabled is false)
-  const deployedNavItems: NavItemData[] = [
     {
       type: "link",
       to: "/models-deployed",
       icon: Boxes,
       label: "Models Deployed",
+      tooltip: "Manage deployed models",
     },
     {
       type: "link",
       to: "/logs",
       icon: FileText,
       label: "Logs",
+      tooltip: "View system logs",
     },
   ];
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
+    console.log(
+      "createModelNavItems called - isDeployedEnabled:",
+      isDeployedEnabled
+    );
+    console.log("models array:", models);
+    console.log("models length:", models.length);
+
     if (isDeployedEnabled) {
-      // In AI Playground mode, show all model types regardless of deployment status
-      return [
-        {
-          type: "button",
-          icon: BotMessageSquare,
-          label: "Chat UI",
-          onClick: () => handleNavigation("/chat"),
-          isDisabled: false,
-          tooltipText: "Open Chat UI",
-          route: "/chat",
-        },
-        {
-          type: "button",
-          icon: Image,
-          label: "Image Generation",
-          onClick: () => handleNavigation("/image-generation"),
-          isDisabled: false,
-          tooltipText: "Open Image Generation",
-          route: "/image-generation",
-        },
-        {
-          type: "button",
-          icon: Eye,
-          label: "Object Detection",
-          onClick: () => handleNavigation("/object-detection"),
-          isDisabled: false,
-          tooltipText: "Open Object Detection",
-          route: "/object-detection",
-        },
-        {
-          type: "button",
-          icon: AudioLines,
-          label: "Speech Recognition",
-          onClick: () => handleNavigation("/speech-to-text"),
-          isDisabled: false,
-          tooltipText: "Open Speech Recognition",
-          route: "/speech-to-text",
-        },
-      ];
+      // In AI Playground mode, show navigation based on deployed models
+      if (models.length > 0) {
+        // Show navigation items for each deployed model
+        return models.map((model) => {
+          const modelType = getModelTypeFromName(model.name);
+          console.log(`Model: ${model.name}, Type: ${modelType}`);
+          return {
+            type: "button",
+            icon: getNavIconFromModelType(modelType),
+            label: getModelPageNameFromModelType(modelType),
+            onClick: () =>
+              handleNavigation(getDestinationFromModelType(modelType)),
+            isDisabled: false,
+            tooltipText: `Open ${getModelPageNameFromModelType(modelType)} (${model.name})`,
+            route: getDestinationFromModelType(modelType),
+          };
+        });
+      } else {
+        // If no models are deployed, show all available model types as disabled
+        return [
+          {
+            type: "button",
+            icon: BotMessageSquare,
+            label: "Chat UI",
+            onClick: () => handleNavigation("/chat"),
+            isDisabled: true,
+            tooltipText: "Deploy a chat model to use Chat UI",
+            route: "/chat",
+          },
+          {
+            type: "button",
+            icon: Image,
+            label: "Image Generation",
+            onClick: () => handleNavigation("/image-generation"),
+            isDisabled: true,
+            tooltipText:
+              "Deploy an image generation model to use Image Generation",
+            route: "/image-generation",
+          },
+          {
+            type: "button",
+            icon: Eye,
+            label: "Object Detection",
+            onClick: () => handleNavigation("/object-detection"),
+            isDisabled: true,
+            tooltipText:
+              "Deploy an object detection model to use Object Detection",
+            route: "/object-detection",
+          },
+          {
+            type: "button",
+            icon: AudioLines,
+            label: "Speech Recognition",
+            onClick: () => handleNavigation("/speech-to-text"),
+            isDisabled: true,
+            tooltipText:
+              "Deploy a speech recognition model to use Speech Recognition",
+            route: "/speech-to-text",
+          },
+        ];
+      }
     } else {
       // In TT-Studio mode, show only deployed models
+      console.log("TT-Studio mode - creating navigation for deployed models");
       return models.map((model) => {
         const modelType = getModelTypeFromName(model.name);
+        console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",
           icon: getNavIconFromModelType(modelType),
@@ -529,10 +558,10 @@ export default function NavBar() {
   };
 
   // Select the appropriate navigation items based on the environment variable
-  const navItems: NavItemData[] = [
-    ...baseNavItems,
-    ...(isDeployedEnabled ? createModelNavItems() : deployedNavItems),
-  ];
+  const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
+
+  console.log("Final navItems:", navItems);
+  console.log("navItems length:", navItems.length);
 
   // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [
@@ -819,9 +848,14 @@ export default function NavBar() {
               />
             )}
             <h4
-              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto`}
+              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto flex items-center`}
             >
               {isDeployedEnabled ? "AI Playground" : "TT-Studio"}
+              {import.meta.env.DEV && (
+                <span className="ml-2 px-2 py-1 text-xs bg-orange-500 text-white rounded-md font-mono">
+                  DEV
+                </span>
+              )}
             </h4>
           </a>
 
