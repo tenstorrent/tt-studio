@@ -816,12 +816,7 @@ export default function InputArea({
         )}
       </div>
 
-      {isFileUploadOpen && (
-        <FileUpload
-          onChange={handleFileUpload}
-          onClose={() => setIsFileUploadOpen(false)}
-        />
-      )}
+      {isFileUploadOpen && <FileUpload onChange={handleFileUpload} />}
     </>
   );
 }
