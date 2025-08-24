@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-"use client";
-import React, { useState } from "react";
-import { FileUpload } from "@/components/ui/file-upload";
+
+import { FileUpload } from "../components/ui/file-upload";
 
 export default function FileUploadDemo() {
-  const [files, setFiles] = useState<File[]>([]);
-  const handleFileUpload = (files: File[]) => {
-    setFiles(files);
-    console.log(files);
+  const handleFileUpload = (_files: File[]) => {
+    // console.log(files);
   };
 
   return (
