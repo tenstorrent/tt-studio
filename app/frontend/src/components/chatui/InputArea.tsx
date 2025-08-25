@@ -177,7 +177,7 @@ export default function InputArea({
     if (viewportMeta) {
       viewportMeta.setAttribute(
         "content",
-        "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no",
+        "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
       );
     }
   }, []);
@@ -206,7 +206,7 @@ export default function InputArea({
       const minHeight = isMobileView ? 36 : 24;
       const scrollHeight = Math.min(
         Math.max(textareaRef.current.scrollHeight, minHeight),
-        maxHeight,
+        maxHeight
       );
 
       textareaRef.current.style.height = `${scrollHeight}px`;
@@ -317,7 +317,7 @@ export default function InputArea({
         customToast.error(
           error instanceof Error
             ? error.message
-            : "Failed to upload file(s). Please try again.",
+            : "Failed to upload file(s). Please try again."
         );
         setShowErrorIndicator(true);
         setTimeout(() => setShowErrorIndicator(false), 3000);
@@ -326,23 +326,23 @@ export default function InputArea({
         setIsFileUploadOpen(false);
       }
     },
-    [files, processFile, setFiles],
+    [files, processFile, setFiles]
   );
 
   const handleNonPdfFiles = async (uploadedFiles: File[]) => {
     const unsupportedFiles = uploadedFiles.filter(
-      (file) => !isImageFile(file) && !isTextFile(file),
+      (file) => !isImageFile(file) && !isTextFile(file)
     );
 
     if (unsupportedFiles.length > 0) {
       const fileNames = unsupportedFiles.map((f) => f.name).join(", ");
       customToast.error(
-        `Unsupported file type(s): ${fileNames}. Only images (PNG, JPG, GIF) and text files are supported.`,
+        `Unsupported file type(s): ${fileNames}. Only images (PNG, JPG, GIF) and text files are supported.`
       );
     }
 
     const validFiles = uploadedFiles.filter(
-      (file) => isImageFile(file) || isTextFile(file),
+      (file) => isImageFile(file) || isTextFile(file)
     );
 
     const imageFiles = validFiles.filter(isImageFile);
@@ -356,11 +356,11 @@ export default function InputArea({
 
         if (textFiles.length > 0) {
           const encodedTextFiles = await Promise.all(
-            textFiles.map(processFile),
+            textFiles.map(processFile)
           );
           setFiles((prevFiles) => [...prevFiles, ...encodedTextFiles]);
           customToast.success(
-            `Successfully uploaded ${textFiles.length} text file(s)!`,
+            `Successfully uploaded ${textFiles.length} text file(s)!`
           );
         }
         return;
@@ -377,13 +377,13 @@ export default function InputArea({
       customToast.success(
         `Successfully uploaded ${
           imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
-        }${textFiles.length > 0 ? ` and ${textFiles.length} text file(s)` : ""}!`,
+        }${textFiles.length > 0 ? ` and ${textFiles.length} text file(s)` : ""}!`
       );
     } else if (textFiles.length > 0) {
       const encodedFiles = await Promise.all(textFiles.map(processFile));
       setFiles((prevFiles) => [...prevFiles, ...encodedFiles]);
       customToast.success(
-        `Successfully uploaded ${textFiles.length} text file(s)!`,
+        `Successfully uploaded ${textFiles.length} text file(s)!`
       );
     }
   };
@@ -489,7 +489,7 @@ export default function InputArea({
                 : isHovered
                   ? "border-gray-400/70 dark:border-white/30"
                   : "border-gray-200 dark:border-[#7C68FA]/20",
-            "overflow-hidden",
+            "overflow-hidden"
           )}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -559,7 +559,7 @@ export default function InputArea({
               onChange={handleTextAreaInput}
               onKeyDown={handleKeyPress}
               placeholder=""
-              className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1"
+              className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base leading-normal overflow-y-auto py-1 px-1 text-gray-900 dark:text-white font-medium"
               disabled={isStreaming}
               rows={1}
               style={{
@@ -585,7 +585,7 @@ export default function InputArea({
                   texts={EXAMPLE_PROMPTS}
                   duration={50}
                   cycleDelay={2000}
-                  className="absolute inset-0 flex items-center px-1 text-gray-400 dark:text-gray-500"
+                  className="absolute inset-0 flex items-center px-1 text-gray-600 dark:text-gray-200"
                 />
               </div>
             )}
@@ -601,7 +601,7 @@ export default function InputArea({
                         type="button"
                         variant="ghost"
                         size={isMobileView ? "sm" : "default"}
-                        className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
+                        className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
                         onClick={() => setIsFileUploadOpen((prev) => !prev)}
                         aria-label="Attach files"
                         onTouchStart={() => handleTouchStart("Attach files")}
@@ -662,7 +662,7 @@ export default function InputArea({
                     onTouchEnd={handleTouchEnd}
                     size="sm"
                     className={`
-                      bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] 
+                      bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] dark:text-[#7C68FA] dark:border-[#7C68FA]/60
                       rounded-full flex items-center transition-all duration-200 touch-manipulation
                       ${
                         isMobileView
@@ -744,13 +744,14 @@ export default function InputArea({
                     disabled={
                       isStreaming || (!textInput.trim() && files.length === 0)
                     }
-                      className={`
-                      bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 text-white 
-                      dark:text-gray-800 border border-[#7C68FA]/50
-                      rounded-full flex items-center transition-all duration-200 touch-manipulation
+                    className={`
+                      ${
+                        (!textInput.trim() && files.length === 0) || isStreaming
+                          ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
+                          : "bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:active:bg-emerald-800 text-white font-semibold cursor-pointer"
+                      }
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
-                      ${(!textInput.trim() && files.length === 0) || isStreaming ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}
                       border-0 outline-none focus:outline-none focus:ring-0
                     `}
                     aria-label={
@@ -798,13 +799,13 @@ export default function InputArea({
                 ${isMobileView ? "p-2 text-xs" : "p-3 text-sm"}
               `}
             >
-              <div className="text-gray-300">
+              <div className="text-gray-300 dark:text-gray-100">
                 {isMobileView
                   ? "LLM's can make mistakes."
                   : "LLM's can make mistakes. Check important infos"}
               </div>
               <button
-                className="text-gray-400 hover:text-gray-300 ml-2"
+                className="text-gray-400 dark:text-gray-300 hover:text-gray-300 dark:hover:text-gray-200 ml-2"
                 onClick={() => setShowBanner(false)}
                 title="Dismiss"
               >
@@ -815,12 +816,7 @@ export default function InputArea({
         )}
       </div>
 
-      {isFileUploadOpen && (
-        <FileUpload
-          onChange={handleFileUpload}
-          onClose={() => setIsFileUploadOpen(false)}
-        />
-      )}
+      {isFileUploadOpen && <FileUpload onChange={handleFileUpload} />}
     </>
   );
 }

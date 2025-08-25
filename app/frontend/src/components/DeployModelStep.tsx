@@ -7,8 +7,8 @@ import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { useStepper } from "./ui/stepper";
 import { Weight } from "./SelectionSteps";
 import { StepperFormActions } from "./StepperFormActions";
-import { useModels } from "../providers/ModelsContext";
-import { useRefresh } from "../providers/RefreshContext";
+import { useModels } from "../hooks/useModels";
+import { useRefresh } from "../hooks/useRefresh";
 import { Cpu, Sliders, AlertTriangle, ExternalLink } from "lucide-react";
 import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
 import { Button } from "./ui/button";
@@ -48,7 +48,7 @@ export function DeployModelStep({
           const response = await axios.get(`/docker-api/get_containers/`);
           const models = response.data;
           const model = models.find(
-            (m: { id: string; name: string }) => m.id === selectedModel,
+            (m: { id: string; name: string }) => m.id === selectedModel
           );
           if (model) {
             setModelName(model.name);
@@ -104,12 +104,18 @@ export function DeployModelStep({
 
       // Trigger a global refresh
       triggerRefresh();
-      
+
       // Trigger hardware cache refresh after successful deployment
       await triggerHardwareRefresh();
     }
     return deploySuccess;
-  }, [handleDeploy, refreshModels, triggerRefresh, triggerHardwareRefresh, isDeployDisabled]);
+  }, [
+    handleDeploy,
+    refreshModels,
+    triggerRefresh,
+    triggerHardwareRefresh,
+    isDeployDisabled,
+  ]);
 
   const onDeploymentComplete = useCallback(() => {
     setTimeout(() => {
@@ -191,8 +197,8 @@ export function DeployModelStep({
   return (
     <>
       <div
-        className="flex flex-col items-center justify-center p-10 overflow-hidden"
-        style={{ minHeight: "300px" }}
+        className="flex flex-col items-center justify-center p-6 overflow-hidden"
+        style={{ minHeight: "200px" }}
       >
         <AnimatedDeployButton
           initialText={<span>{deployButtonText}</span>}

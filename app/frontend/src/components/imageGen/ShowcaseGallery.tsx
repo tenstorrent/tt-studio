@@ -51,10 +51,7 @@ const showcaseImages = [
   },
 ];
 
-const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({
-  onStartGenerating,
-  onImageClick,
-}) => {
+const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({ onStartGenerating, onImageClick }) => {
   const handleImageClick = (prompt: string) => {
     if (onImageClick) {
       onImageClick(prompt);
@@ -65,10 +62,7 @@ const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({
   return (
     <div className="flex flex-col items-center w-full h-full overflow-x-hidden">
       <div className="w-full flex-grow overflow-y-auto">
-        <FocusCards
-          cards={showcaseImages}
-          onCardClick={(card) => handleImageClick(card.title)}
-        />
+        <FocusCards cards={showcaseImages} onCardClick={(card) => handleImageClick(card.title)} />
       </div>
       <div className="w-full py-6 px-4 bg-gradient-to-t from-background to-transparent">
         <Button

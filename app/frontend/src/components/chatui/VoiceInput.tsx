@@ -23,7 +23,7 @@ export function VoiceInput({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const barsRef = useRef<(HTMLDivElement | null)[]>([]);
@@ -39,7 +39,7 @@ export function VoiceInput({
       });
       return uniqueWords.join(" ");
     },
-    [],
+    []
   );
 
   const stopAudioAnalysis = useCallback(() => {
@@ -75,7 +75,7 @@ export function VoiceInput({
       const bar = bars[i];
       if (bar) {
         const barIndex = Math.floor(
-          (i / barCount) * dataArrayRef.current.length,
+          (i / barCount) * dataArrayRef.current.length
         );
         const barHeight = (dataArrayRef.current[barIndex] / 255) * 100;
         bar.style.height = `${Math.max(4, barHeight)}%`;
@@ -98,12 +98,14 @@ export function VoiceInput({
       audioContextRef.current = new AudioContextConstructor();
       analyserRef.current = audioContextRef.current.createAnalyser();
       sourceRef.current = audioContextRef.current.createMediaStreamSource(
-        streamRef.current,
+        streamRef.current
       );
       sourceRef.current.connect(analyserRef.current);
       analyserRef.current.fftSize = 32;
       const bufferLength = analyserRef.current.frequencyBinCount;
-      dataArrayRef.current = new Uint8Array(bufferLength);
+      dataArrayRef.current = new Uint8Array(
+        bufferLength
+      ) as Uint8Array<ArrayBuffer>;
       updateBars();
     } catch (error) {
       console.error("Error starting audio analysis:", error);
@@ -143,7 +145,7 @@ export function VoiceInput({
 
         if (!SpeechRecognitionConstructor) {
           throw new Error(
-            "SpeechRecognition is not supported in this browser.",
+            "SpeechRecognition is not supported in this browser."
           );
         }
 
@@ -168,7 +170,7 @@ export function VoiceInput({
         };
 
         recognitionRef.current.onerror = (
-          event: SpeechRecognitionErrorEvent,
+          event: SpeechRecognitionErrorEvent
         ) => {
           console.error("Speech recognition error", event.error);
           setErrorMessage(`Error: ${event.error}`);
@@ -227,7 +229,7 @@ export function VoiceInput({
       <Button
         onClick={toggleListening}
         variant="ghost"
-        className={`relative text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300 ${
+        className={`relative text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300 ${
           isListening ? "bg-[#7C68FA]/20" : ""
         }`}
       >

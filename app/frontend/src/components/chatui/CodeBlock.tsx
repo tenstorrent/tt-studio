@@ -1,124 +1,146 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import React from "react";
-import type { CodeToHtmlOptions } from "@llm-ui/code";
-import {
-  loadHighlighter,
-  useCodeBlockToHtml,
-  allLangs,
-  allLangsAlias,
-} from "@llm-ui/code";
-import parseHtml from "html-react-parser";
-import { getHighlighterCore } from "shiki/core";
-import { bundledLanguagesInfo } from "shiki/langs";
-import githubDark from "shiki/themes/github-dark.mjs";
-import getWasm from "shiki/wasm";
-
-const highlighter = loadHighlighter(
-  getHighlighterCore({
-    langs: allLangs(bundledLanguagesInfo),
-    langAlias: allLangsAlias(bundledLanguagesInfo),
-    themes: [githubDark],
-    loadWasm: getWasm,
-  }),
-);
-
-const codeToHtmlOptions: CodeToHtmlOptions = {
-  theme: "github-dark",
-};
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import React, { useEffect, useState } from "react";
+import { codeToHtml } from "shiki";
+import { useTheme } from "../../hooks/useTheme";
 
 interface CodeBlockProps {
-  blockMatch: {
+  // For chat UI compatibility
+  blockMatch?: {
     output: string;
     language: string;
   };
+  // For generic use
+  code?: string;
+  language?: string;
+  showLineNumbers?: boolean;
+  showCopyButton?: boolean;
+  className?: string;
 }
 
-const normalizeLanguage = (lang: string): string => {
-  const normalized = lang.toLowerCase().trim();
-  switch (normalized) {
-    case "pyt":
-    case "pytho":
-    case "py":
-    case "python":
-      return "python";
-    case "js":
-    case "javascript":
-      return "javascript";
-    case "ts":
-    case "typescript":
-      return "typescript";
-    case "html":
-    case "htm":
-      return "html";
-    case "css":
-      return "css";
-    case "json":
-      return "json";
-    case "java":
-      return "java";
-    case "cpp":
-    case "c++":
-      return "cpp";
-    case "c#":
-    case "csharp":
-    case "cs":
-      return "csharp";
-    case "go":
-    case "golang":
-      return "go";
-    case "rust":
-    case "rs":
-      return "rust";
-    case "swift":
-      return "swift";
-    case "kotlin":
-    case "kt":
-      return "kotlin";
-    case "ruby":
-    case "rb":
-      return "ruby";
-    case "php":
-      return "php";
-    // Add more language mappings as needed
-    default:
-      // If the language is not recognized, default to 'plaintext'
-      return "plaintext";
+// Utility function to determine if the current theme is dark
+const isDarkTheme = (theme: string): boolean => {
+  if (theme === "dark") return true;
+  if (theme === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
+  return false;
 };
 
-const CodeBlock: React.FC<CodeBlockProps> = ({ blockMatch }) => {
-  const language = normalizeLanguage(blockMatch.language);
+// Utility function to get the appropriate Shiki theme
+const getShikiTheme = (theme: string): string => {
+  return isDarkTheme(theme) ? "one-dark-pro" : "github-light";
+};
 
-  const { html, code } = useCodeBlockToHtml({
-    markdownCodeBlock: `\`\`\`${language}\n${blockMatch.output}\n\`\`\``,
-    highlighter,
-    codeToHtmlOptions,
-  });
+const CodeBlock: React.FC<CodeBlockProps> = ({
+  blockMatch,
+  code,
+  language,
+  showLineNumbers = false,
+  showCopyButton = true,
+  className = "",
+}) => {
+  const [highlightedCode, setHighlightedCode] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
+  const { theme } = useTheme();
 
-  const renderCode = () => {
-    if (html) {
-      return parseHtml(html);
-    }
-    // Fallback to plain text rendering if HTML generation fails
-    return (
-      <pre className="text-white text-sm">
-        <code>{code}</code>
-      </pre>
-    );
+  // Extract code and language from props (support both interfaces)
+  const actualCode = blockMatch?.output || code || "";
+  const actualLanguage = blockMatch?.language || language || "text";
+
+  // Get theme-aware background classes
+  const getBackgroundClasses = () => {
+    const isDark = isDarkTheme(theme);
+    return isDark
+      ? "bg-black border border-gray-700"
+      : "bg-gray-50 border-2 border-gray-400 shadow-md";
   };
 
-  return (
-    <div className="relative group">
-      <div className="bg-gray-800 rounded-md p-4 my-4 overflow-x-auto">
-        {renderCode()}
+  const getCopyButtonClasses = () => {
+    const isDark = isDarkTheme(theme);
+    return isDark
+      ? "absolute top-2 right-2 bg-gray-600 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-500 border border-gray-500"
+      : "absolute top-2 right-2 bg-white text-gray-800 px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-50 border border-gray-400 shadow-sm";
+  };
+
+  useEffect(() => {
+    const highlightCode = async () => {
+      try {
+        const shikiTheme = getShikiTheme(theme);
+
+        const html = await codeToHtml(actualCode, {
+          lang: actualLanguage,
+          theme: shikiTheme,
+          ...(showLineNumbers && {
+            transformers: [
+              {
+                name: "line-numbers",
+                line(node, line) {
+                  this.addClassToHast(node, "line");
+                  node.children.unshift({
+                    type: "element",
+                    tagName: "span",
+                    properties: { className: ["line-number"] },
+                    children: [{ type: "text", value: line.toString() }],
+                  });
+                },
+              },
+            ],
+          }),
+        });
+
+        setHighlightedCode(html);
+      } catch (error) {
+        console.error("Error highlighting code:", error);
+        // Shiki will gracefully fallback to plain text for unknown languages
+        const fallbackHtml = await codeToHtml(actualCode, {
+          lang: "text",
+          theme: getShikiTheme(theme),
+        });
+        setHighlightedCode(fallbackHtml);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    highlightCode();
+  }, [actualCode, actualLanguage, showLineNumbers, theme]); // Add theme to dependencies
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(actualCode);
+    } catch (error) {
+      console.error("Failed to copy code:", error);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className={`code-block-loading ${className}`}>
+        <pre className="bg-black text-green-400 p-4 rounded-md font-mono">
+          <code>{actualCode}</code>
+        </pre>
       </div>
-      <button
-        className="absolute top-2 right-2 bg-gray-700 text-white px-2 py-1 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={() => navigator.clipboard.writeText(code)}
-      >
-        Copy
-      </button>
+    );
+  }
+
+  return (
+    <div className={`relative group ${className}`}>
+      <div
+        className={`code-block ${showLineNumbers ? "with-line-numbers" : ""} ${getBackgroundClasses()} rounded-md overflow-x-auto font-mono text-sm`}
+        style={{
+          padding: "1rem",
+          fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+          fontSize: "0.875rem",
+          lineHeight: "1.4",
+        }}
+        dangerouslySetInnerHTML={{ __html: highlightedCode }}
+      />
+      {showCopyButton && (
+        <button className={getCopyButtonClasses()} onClick={handleCopy}>
+          Copy
+        </button>
+      )}
     </div>
   );
 };

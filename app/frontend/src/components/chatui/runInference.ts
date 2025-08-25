@@ -21,8 +21,13 @@ export const runInference = async (
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
   isAgentSelected: boolean,
   threadId: number,
-  abortController?: AbortController,
+  abortController?: AbortController
 ) => {
+  console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
+    request,
+    isAgentSelected,
+    threadId,
+  });
   try {
     setIsStreaming(true);
 
@@ -33,7 +38,7 @@ export const runInference = async (
 
     if (ragDatasource) {
       console.log(
-        `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`,
+        `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
       );
       ragContext = await getRagContext(request, ragDatasource);
       console.log("RAG context fetched:", ragContext);
@@ -69,12 +74,12 @@ export const runInference = async (
         console.log("Processing with combined RAG context:", ragContext);
         messages = generatePrompt(
           chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-          ragContext,
+          ragContext
         );
       } else if (file.image_url?.url || file) {
         console.log(
           "Image file detected, using image_url message structure",
-          file.image_url?.url,
+          file.image_url?.url
         );
         messages = [
           {
@@ -129,15 +134,39 @@ export const runInference = async (
       console.log("RAG context being passed to generatePrompt:", ragContext);
       messages = generatePrompt(
         chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-        ragContext,
+        ragContext
       );
     }
 
     console.log("Generated messages:", messages);
     console.log("Thread ID: ", threadId);
+    console.log("=== AGENT SELECTION DEBUG ===");
+    console.log("isAgentSelected:", isAgentSelected);
+    console.log("typeof isAgentSelected:", typeof isAgentSelected);
 
     const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
-
+    console.log("apiUrlDefined:", apiUrlDefined);
+    console.log(
+      "import.meta.env.VITE_ENABLE_DEPLOYED:",
+      import.meta.env.VITE_ENABLE_DEPLOYED
+    );
+    console.log(
+      "import.meta.env.VITE_SPECIAL_API_URL:",
+      import.meta.env.VITE_SPECIAL_API_URL
+    );
+    console.log(
+      "import.meta.env.VITE_LLAMA_AUTH_TOKEN:",
+      import.meta.env.VITE_LLAMA_AUTH_TOKEN
+    );
+    console.log("isAgentSelected:", isAgentSelected);
+    console.log(
+      "import.meta.env.VITE_SPECIAL_API_URL || '/models-api/agent/'",
+      import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
+    );
+    console.log(
+      "apiUrlDefined ? '/models-api/inference_cloud/' : '/models-api/inference/'",
+      apiUrlDefined ? "/models-api/inference_cloud/" : "/models-api/inference/"
+    );
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
       : apiUrlDefined
@@ -145,6 +174,7 @@ export const runInference = async (
         : "/models-api/inference/";
 
     console.log("API URL:", API_URL);
+    console.log("=============================");
 
     const AUTH_TOKEN = import.meta.env.VITE_LLAMA_AUTH_TOKEN || "";
 
@@ -160,6 +190,7 @@ export const runInference = async (
     const threadIdStr = threadId.toString();
 
     if (!isAgentSelected) {
+      console.log("Using normal LLM flow (not agent)");
       requestBody = {
         ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
         ...(apiUrlDefined
@@ -177,6 +208,7 @@ export const runInference = async (
         },
       };
     } else {
+      console.log("Using agent flow");
       requestBody = {
         deploy_id: request.deploy_id,
         messages: messages,
@@ -212,6 +244,7 @@ export const runInference = async (
       headers["X-Abort-Requested"] = "true";
     });
 
+    console.log("payload", JSON.stringify(requestBody));
     const response = await fetch(API_URL, {
       method: "POST",
       headers: headers,
@@ -281,7 +314,7 @@ export const runInference = async (
                     };
                     console.log(
                       "Final Inference Stats received:",
-                      inferenceStats,
+                      inferenceStats
                     );
                     continue; // Skip processing this chunk as part of the generated text
                   }
@@ -336,7 +369,7 @@ export const runInference = async (
     if (inferenceStats) {
       console.log(
         "Updating chat history with inference stats:",
-        inferenceStats,
+        inferenceStats
       );
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
