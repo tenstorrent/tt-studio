@@ -178,6 +178,8 @@ a.button {
   --sidebar-accent-foreground: 240 5.9% 10%;
   --sidebar-border: 220 13% 91%;
   --sidebar-ring: 217.2 91.2% 59.8%;
+  --grid-color: rgba(0, 0, 0, 0.05);
+  --grid-size: 40px;
 }
 .dark {
   --background: 20 14.3% 4.1%;
@@ -211,6 +213,7 @@ a.button {
   --sidebar-accent-foreground: 240 4.8% 95.9%;
   --sidebar-border: 240 3.7% 15.9%;
   --sidebar-ring: 217.2 91.2% 59.8%;
+  --grid-color: rgba(255, 255, 255, 0.05);
 }
 
 /* Neumorphism effect for all buttons and similar components */
@@ -290,6 +293,24 @@ a.button {
   .animate-line-shadow {
     animation: line-shadow 15s linear infinite;
   }
+
+  .bg-grid-pattern {
+    background-image:
+      linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
+    background-position: 0 0;
+    background-attachment: fixed;
+  }
+
+  .bg-grid-pattern-dark {
+    background-image:
+      linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
+    background-position: 0 0;
+    background-attachment: fixed;
+  }
 }
 
 @keyframes line-shadow {
@@ -299,4 +320,51 @@ a.button {
   100% {
     background-position: 100% -100%;
   }
+}
+
+/* Code block styling */
+.code-block {
+  border-radius: 6px;
+  overflow: auto;
+  font-family: "Fira Code", "Monaco", "Menlo", "Ubuntu Mono", monospace;
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  overflow: auto;
+}
+
+.code-block.with-line-numbers .line {
+  display: block;
+  padding-left: 3.5rem;
+  position: relative;
+}
+
+.code-block.with-line-numbers .line-number {
+  position: absolute;
+  left: 0;
+  width: 3rem;
+  text-align: right;
+  padding-right: 1rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+  user-select: none;
+}
+
+.code-block-loading {
+  background: #282a36;
+  border-radius: 6px;
+  padding: 1rem;
+  color: #f8f8f2;
+}
+
+.code-block-loading pre {
+  margin: 0;
+  background: transparent;
+  border: none;
+  color: inherit;
 }

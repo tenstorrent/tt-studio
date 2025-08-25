@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { Moon, Sun } from "lucide-react";
 import { Button } from "./ui/button";
-import { useTheme } from "../providers/ThemeProvider";
+import { useTheme } from "../hooks/useTheme";
 
 const ModeToggle = () => {
   const { setTheme, theme } = useTheme();

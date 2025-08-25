@@ -7,11 +7,8 @@ import { InferenceRequest } from "../types/objectDetection";
 
 export const startCapture = (
   videoRef: React.RefObject<HTMLVideoElement>,
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void,
-  setIsLoading: (isLoading: boolean) => void,
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void,
+  setIsLoading: (isLoading: boolean) => void
 ) => {
   return new Promise<void>((resolve, reject) => {
     navigator.mediaDevices
@@ -39,11 +36,8 @@ export const startCapture = (
 
 export const sendSnapshot = async (
   videoRef: React.RefObject<HTMLVideoElement>,
-  setDetections: (data: {
-    boxes: Detection[];
-    metadata: DetectionMetadata;
-  }) => void,
-  modelID: string,
+  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void,
+  modelID: string
 ) => {
   if (videoRef.current) {
     const canvas = document.createElement("canvas");
@@ -52,7 +46,7 @@ export const sendSnapshot = async (
     canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0);
 
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.8),
+      canvas.toBlob(resolve, "image/jpeg", 0.8)
     );
     if (!blob) {
       throw new Error("Failed to create blob from canvas");
@@ -63,9 +57,7 @@ export const sendSnapshot = async (
   }
 };
 
-export const stopCapture = (
-  videoRef: React.RefObject<HTMLVideoElement> | null,
-) => {
+export const stopCapture = (videoRef: React.RefObject<HTMLVideoElement> | null) => {
   if (videoRef && videoRef.current && videoRef.current.srcObject) {
     const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
     tracks.forEach((track) => track.stop());

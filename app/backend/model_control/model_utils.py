@@ -52,6 +52,7 @@ def health_check(url, json_data, timeout=5):
         return False, str(e)
 
 def stream_response_from_agent_api(url, json_data):
+    logger.info('[TRACE_FLOW_STEP_3_BACKEND_TO_AGENT] stream_response_from_agent_api called', extra={'url': url, 'json_data': json_data})
     try:
         new_json_data = {}
         new_json_data["thread_id"] = json_data["thread_id"]
@@ -350,10 +351,11 @@ def stream_response_from_external_api(url, json_data):
     logger.info(f"Top P: {json_data['top_p']} (type: {type(json_data['top_p'])})")
     logger.info(f"Max Tokens: {json_data['max_tokens']} (type: {type(json_data['max_tokens'])})")
     logger.info("=============================")
-
+    # log the payload request
+    logger.info(f"stream_response_from_external_api payload request:={json_data}")
     try:
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
-        logger.info(f"stream_response_from_external_api headers:={headers}")
+        # logger.info(f"stream_response_from_external_api headers:={headers}")
         logger.info(f"Received request data:={json_data}")
 
         ttft = 0
@@ -365,10 +367,10 @@ def stream_response_from_external_api(url, json_data):
         with requests.post(
             url, json=json_data, headers=headers, stream=True, timeout=None
         ) as response:
-            logger.info(f"stream_response_from_external_api response:={response}")
+            # logger.info(f"stream_response_from_external_api response:={response}")
             response.raise_for_status()
-            logger.info(f"response.headers:={response.headers}")
-            logger.info(f"response.encoding:={response.encoding}")
+            # logger.info(f"response.headers:={response.headers}")
+            # logger.info(f"response.encoding:={response.encoding}")
             # only allow HTTP 1.1 chunked encoding
             assert response.headers.get("transfer-encoding") == "chunked"
 
