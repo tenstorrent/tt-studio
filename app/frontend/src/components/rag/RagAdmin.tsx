@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/src/components/ui/table";
 import CopyableText from "@/src/components/CopyableText";
-import { useTheme } from "@/src/providers/ThemeProvider";
+import { useTheme } from "@/src/hooks/useTheme";
 import CustomToaster, { customToast } from "@/src/components/CustomToaster";
 import { Spinner } from "@/src/components/ui/spinner";
 import axios from "axios";
@@ -45,10 +45,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/src/components/ui/alert-dialog";
-import {
-  RagAdminSkeleton,
-  RagAdminLoginSkeleton,
-} from "@/src/components/rag/RagSkeletons";
+import { RagAdminSkeleton, RagAdminLoginSkeleton } from "@/src/components/rag/RagSkeletons";
 
 // Interface for RagDataSource with admin fields
 interface AdminRagDataSource {
@@ -69,9 +66,7 @@ export default function RagAdmin() {
 
   const [collections, setCollections] = useState<AdminRagDataSource[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [deletingCollection, setDeletingCollection] = useState<string | null>(
-    null,
-  );
+  const [deletingCollection, setDeletingCollection] = useState<string | null>(null);
 
   const { theme } = useTheme();
 
@@ -126,9 +121,7 @@ export default function RagAdmin() {
       customToast.success(`Retrieved ${response.data.length} collections`);
     } catch (err: any) {
       console.error("Error fetching collections:", err);
-      customToast.error(
-        err.response?.data?.error || "Failed to fetch collections",
-      );
+      customToast.error(err.response?.data?.error || "Failed to fetch collections");
       setError(err.response?.data?.error || "Failed to fetch collections");
 
       // If unauthorized, log out
@@ -147,18 +140,13 @@ export default function RagAdmin() {
     try {
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      const response = await axios.post(
-        "/collections-api/admin/delete-collection",
-        {
-          collection_name: collectionId,
-          password,
-        },
-      );
+      const response = await axios.post("/collections-api/admin/delete-collection", {
+        collection_name: collectionId,
+        password,
+      });
 
       if (response.data.success) {
-        customToast.success(
-          `Collection '${collectionId}' deleted successfully`,
-        );
+        customToast.success(`Collection '${collectionId}' deleted successfully`);
         // Refresh collections list
         fetchCollections();
       } else {
@@ -166,9 +154,7 @@ export default function RagAdmin() {
       }
     } catch (err: any) {
       console.error("Error deleting collection:", err);
-      customToast.error(
-        err.response?.data?.error || "Failed to delete collection",
-      );
+      customToast.error(err.response?.data?.error || "Failed to delete collection");
 
       // If unauthorized, log out
       if (err.response?.status === 401) {
@@ -268,17 +254,10 @@ export default function RagAdmin() {
             className="bg-blue-600 hover:bg-blue-700"
             disabled={dataLoading}
           >
-            {dataLoading ? (
-              <Spinner className="mr-2" />
-            ) : (
-              <RefreshCw className="w-4 h-4 mr-2" />
-            )}
+            {dataLoading ? <Spinner className="mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
             Refresh
           </Button>
-          <Button
-            onClick={handleLogout}
-            className="bg-red-600 hover:bg-red-700"
-          >
+          <Button onClick={handleLogout} className="bg-red-600 hover:bg-red-700">
             <Lock className="w-4 h-4 mr-2" />
             Logout
           </Button>
@@ -291,15 +270,12 @@ export default function RagAdmin() {
             All Collections ({collections.length})
             {collections.length === 0 && !dataLoading && (
               <div className="mt-4 text-gray-500">
-                No collections found. Create a collection or check your
-                authentication.
+                No collections found. Create a collection or check your authentication.
               </div>
             )}
           </TableCaption>
           <TableHeader>
-            <TableRow
-              className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}
-            >
+            <TableRow className={theme === "dark" ? "bg-zinc-900" : "bg-zinc-200"}>
               <TableHead className="text-left">
                 <div className="flex items-center gap-2">
                   <Fingerprint className="w-4 h-4" />
@@ -366,9 +342,7 @@ export default function RagAdmin() {
                   {item.metadata?.last_uploaded_document ? (
                     <div className="flex items-center gap-2">
                       <FileType color="red" className="w-4 h-4" />
-                      <CopyableText
-                        text={item.metadata.last_uploaded_document}
-                      />
+                      <CopyableText text={item.metadata.last_uploaded_document} />
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
@@ -400,13 +374,11 @@ export default function RagAdmin() {
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete Collection</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Are you sure you want to delete the collection "
-                          {item.name}" (ID: {item.id})?
+                          Are you sure you want to delete the collection "{item.name}" (ID:{" "}
+                          {item.id})?
                           <br />
                           <br />
-                          <strong className="text-red-500">
-                            This action cannot be undone.
-                          </strong>
+                          <strong className="text-red-500">This action cannot be undone.</strong>
                           <br />
                           <br />
                           Owner: {item.user_type} ({item.user_identifier})

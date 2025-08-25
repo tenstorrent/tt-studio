@@ -11,11 +11,9 @@ import { Button } from "../ui/button";
 import { TypewriterEffectSmooth } from "../ui/typewriter-effect";
 // import { LineShadowText } from "../ui/line-shadow-text";
 // import { useState, useEffect } from "react";
-import { useHeroSection } from "../../providers/HeroSectionContext";
+import { useHeroSection } from "../../hooks/useHeroSection";
 
-export function DeployedHome({
-  onlyCards = false,
-}: { onlyCards?: boolean } = {}) {
+export function DeployedHome({ onlyCards = false }: { onlyCards?: boolean } = {}) {
   const { showHero } = useHeroSection();
 
   const scrollToModels = () => {
@@ -48,9 +46,9 @@ export function DeployedHome({
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center mb-10 sm:mb-12 md:mb-16 text-gray-900 dark:text-white">
             Available Models
           </h2>
-          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full">
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full items-start">
             {models.map((model: Model) => (
-              <div key={model.id} className="w-full max-w-[400px] mx-auto">
+              <div key={model.id} className="w-full h-full flex justify-center">
                 <ModelCard
                   title={model.title}
                   image={model.image}
@@ -98,11 +96,7 @@ export function DeployedHome({
                 className="w-full sm:w-auto min-w-[180px] border-[#7C68FA] text-[#7C68FA] hover:bg-[#7C68FA]/10 dark:border-[#7C68FA] dark:text-[#7C68FA] dark:hover:bg-[#7C68FA]/10 transition-all duration-200"
                 asChild
               >
-                <a
-                  href="https://tenstorrent.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href="https://tenstorrent.com" target="_blank" rel="noopener noreferrer">
                   Learn More
                 </a>
               </Button>
@@ -141,9 +135,9 @@ export function DeployedHome({
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center mb-10 sm:mb-12 md:mb-16 text-gray-900 dark:text-white">
             Available Models
           </h2>
-          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full">
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full items-start">
             {models.map((model: Model) => (
-              <div key={model.id} className="w-full max-w-[400px] mx-auto">
+              <div key={model.id} className="w-full h-full flex justify-center">
                 <ModelCard
                   title={model.title}
                   image={model.image}

@@ -8,6 +8,9 @@ import { motion, MotionProps } from "framer-motion";
 export const FALLBACK_LOGO_URL =
   "https://github.com/tenstorrent/tt-metal/raw/main/docs/source/common/images/favicon.png";
 
+// Local logo path - will be checked at runtime, not build time
+const LOCAL_LOGO_PATH = "/src/assets/logo/tt_logo.svg";
+
 // Logo hook - this replaces your current logo imports
 export const useLogo = () => {
   const [logoUrl, setLogoUrl] = useState<string>(FALLBACK_LOGO_URL);
@@ -15,26 +18,25 @@ export const useLogo = () => {
 
   useEffect(() => {
     const loadLogo = async () => {
-      console.log("Starting logo load process...");
+      // Starting logo load process
 
       // Try to load local logo by creating an image element to test if it exists
       const testImage = new Image();
-      const localLogoPath = "/src/assets/logo/tt_logo.svg";
 
       testImage.onload = () => {
-        console.log("Found local logo: tt_logo.svg");
-        setLogoUrl(localLogoPath);
+        // Found local logo: tt_logo.svg
+        setLogoUrl(LOCAL_LOGO_PATH);
         setIsLoading(false);
       };
 
       testImage.onerror = () => {
-        console.log("Local logo not found, using GitHub fallback");
+        // Local logo not found, using GitHub fallback
         setLogoUrl(FALLBACK_LOGO_URL);
         setIsLoading(false);
       };
 
       // Start loading the test image
-      testImage.src = localLogoPath;
+      testImage.src = LOCAL_LOGO_PATH;
     };
 
     loadLogo();
@@ -65,10 +67,10 @@ export const Logo: React.FC<LogoProps> = ({
   const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.currentTarget;
     if (target.src !== FALLBACK_LOGO_URL) {
-      console.log("Image failed to load, switching to GitHub fallback");
+      // Image failed to load, switching to GitHub fallback
       target.src = FALLBACK_LOGO_URL;
     } else {
-      console.log("GitHub fallback also failed, hiding image");
+      // GitHub fallback also failed, hiding image
       target.style.display = "none";
     }
   };
@@ -134,10 +136,10 @@ export const MotionLogo: React.FC<MotionLogoProps> = ({
   const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.currentTarget;
     if (target.src !== FALLBACK_LOGO_URL) {
-      console.log("Image failed to load, switching to GitHub fallback");
+      // Image failed to load, switching to GitHub fallback
       target.src = FALLBACK_LOGO_URL;
     } else {
-      console.log("GitHub fallback also failed, hiding image");
+      // GitHub fallback also failed, hiding image
       target.style.display = "none";
     }
   };
@@ -173,15 +175,14 @@ export const ttLogo = FALLBACK_LOGO_URL;
 // Logo configuration for advanced usage
 export const logoConfig = {
   fallbackUrl: FALLBACK_LOGO_URL,
-  localPath: "/src/assets/logo/tt_logo.svg",
+  localPath: LOCAL_LOGO_PATH,
 
   async getLogoUrl(): Promise<string> {
     return new Promise((resolve) => {
       const testImage = new Image();
-      const localLogoPath = "/src/assets/logo/tt_logo.svg";
 
       testImage.onload = () => {
-        resolve(localLogoPath);
+        resolve(LOCAL_LOGO_PATH);
       };
 
       testImage.onerror = () => {
@@ -189,7 +190,7 @@ export const logoConfig = {
         resolve(FALLBACK_LOGO_URL);
       };
 
-      testImage.src = localLogoPath;
+      testImage.src = LOCAL_LOGO_PATH;
     });
   },
 };
