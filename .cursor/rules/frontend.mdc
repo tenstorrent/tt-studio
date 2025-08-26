@@ -1,0 +1,117 @@
+---
+description: Frontend development rules for TT Studio - AI model management interface
+globs: app/frontend/**/*.ts,app/frontend/**/*.tsx,app/frontend/**/*.jsx,app/frontend/**/*.js
+alwaysApply: false
+---
+
+# TT Studio Frontend Development Rules
+
+You are a Senior Front-End Developer working on TT Studio, an AI model management and interaction platform for Tenstorrent hardware.
+
+- If there were previous comments, keep them! They might be useful
+- If you do not know the answer, say so, instead of guessing.
+- Always include SPDX headers as required by the project
+
+### Coding Environment
+The user asks questions about the following coding languages:
+- React v18.3.1
+- TypeScript v5.6.3
+- Vite for build tooling
+- TanStack Query v5 (@tanstack/react-query)
+- React Router DOM v6.28.0
+- React Hook Form v7.53.2
+- Zod v3.23.8 for validation
+- Tailwind CSS v3.4.15 + DaisyUI v4.12.14
+- Radix UI components
+- Framer Motion v11 for animations
+
+## SPDX License Requirements
+
+**CRITICAL**: Every new file MUST include the SPDX header:
+```javascript
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+```
+
+## Best Practices
+
+1. **Error Handling**
+   - Implement proper error boundaries for AI model failures
+   - Show user-friendly error messages for hardware connection issues
+   - Handle network errors gracefully for model deployment failures
+   - Use React Hot Toast for user notifications
+
+2. **Performance**
+   - Use React.memo and useCallback for heavy AI model components
+   - Implement proper loading states for model deployment operations
+   - Use React Window for virtualizing large model lists
+   - Optimize re-renders during real-time model inference
+
+## Development Guidelines
+
+- Use `import type` for TypeScript type imports
+- Follow the established path mapping: `@/*` maps to project root
+- Always use Zod for form validation with React Hook Form
+
+### Components
+- Keep components focused on single AI/model responsibilities
+- Use Radix UI components as the foundation for complex interactions
+- Combine with Tailwind CSS and DaisyUI for styling
+- Implement proper loading states for model operations
+- Use Framer Motion for smooth UI transitions during model state changes
+
+### Hooks & Data Management
+- Use TanStack Query (not the old react-query v3) for server state
+- Create custom hooks for model management operations
+- Follow this pattern for API calls:
+  ```typescript
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['models', modelId],
+    queryFn: () => fetchModel(modelId)
+  });
+  ```
+- Implement proper cleanup in useEffect for WebSocket connections
+- Use proper dependency arrays
+
+### Forms & Validation
+- Use React Hook Form with Zod for all model configuration forms
+- Example pattern:
+  ```typescript
+  const form = useForm({
+    resolver: zodResolver(modelConfigSchema)
+  });
+  ```
+- Implement proper error handling for model deployment forms
+- Disable submit buttons during model deployment operations
+
+### AI Model Interface Guidelines
+- Implement intuitive chat interfaces for LLM interactions
+- Support file uploads for vision models (YOLO) and speech models (Whisper)
+- Provide clear feedback during model inference operations
+- Handle streaming responses for real-time AI interactions
+- Implement proper state management for conversation history
+
+### Hardware Integration
+- Provide clear status indicators for Tenstorrent hardware connection
+- Show hardware utilization metrics when available
+- Handle graceful fallbacks when hardware is not detected
+- Implement proper error states for hardware failures
+
+### Routing & Navigation
+- Use React Router DOM v6 patterns
+- Implement proper navigation for different model types
+- Support deep linking to specific model configurations
+- Handle browser back/forward during multi-step model setup
+
+### Styling Guidelines
+- Use Tailwind CSS utility classes
+- Leverage DaisyUI components for consistent theming
+- Implement dark/light theme support via ThemeProvider
+- Use Radix UI for complex interactive components
+- Apply Framer Motion for smooth state transitions
+
+### File Structure
+- Follow the established `app/frontend/` structure
+- Keep AI model-specific components organized by functionality
+- Use proper TypeScript imports with path mapping
+- Organize components by feature (chat, vision, deployment, etc.)

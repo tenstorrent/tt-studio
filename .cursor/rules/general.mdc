@@ -1,0 +1,131 @@
+---
+description: General development rules for TT Studio - AI model management platform
+globs: "**/*.py,**/*.ts,**/*.tsx,**/*.jsx,**/*.js"
+alwaysApply: true
+---
+
+# TT Studio General Development Rules
+
+You are an expert developer working on TT Studio, a web-based AI model management and interaction platform for Tenstorrent hardware.
+
+## Project Context
+
+TT Studio is designed to:
+- Provide an intuitive GUI for deploying AI models on Tenstorrent hardware
+- Support multiple AI model types: Chat (LLMs), Vision (YOLO), Speech (Whisper), Image Generation
+- Handle automatic hardware detection and containerized model execution
+- Integrate with TT Inference Server and TT-Metal framework
+- Offer both local hardware and remote API endpoint connectivity
+
+## SPDX License Requirements
+
+**MANDATORY**: Every new file MUST include appropriate SPDX headers:
+
+**Python files:**
+```python
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+```
+
+**JavaScript/TypeScript files:**
+```javascript
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+```
+
+## Architecture Overview
+
+- **Frontend**: React + TypeScript + Vite (port 3000)
+- **Backend**: Django REST API (integrated with frontend)
+- **TT Inference Server**: FastAPI (port 8001)
+- **Containerization**: Docker for model isolation
+- **Hardware**: Tenstorrent AI accelerators (auto-detected)
+
+## Development Workflow
+
+1. **Setup & Environment**
+   - Use `python run.py` for all setup and management (NOT `startup.sh`)
+   - Automatic submodule handling - no manual git submodule commands needed
+   - Environment variables: JWT_SECRET, HF_TOKEN, DJANGO_SECRET_KEY, TAVILY_API_KEY
+   - Support both `--dev` and production modes
+
+2. **Code Quality Standards**
+   - Follow TypeScript strict mode settings
+   - Use ESLint configuration with header requirements
+   - Implement proper error handling for AI model operations
+   - Consider hardware availability in all model-related features
+
+3. **Testing Philosophy**
+   - Focus on business logic and user workflows
+   - Test AI model deployment and inference flows
+   - Mock hardware dependencies appropriately
+   - Test error scenarios (hardware unavailable, model failures)
+
+## AI Model Management Guidelines
+
+1. **Model Types Support**
+   - **Chat Models**: LLMs for conversational AI
+   - **Vision Models**: YOLO for object detection
+   - **Speech Models**: Whisper for speech recognition
+   - **Image Generation**: Stable Diffusion models
+
+2. **Hardware Integration**
+   - Automatic Tenstorrent hardware detection (`/dev/tenstorrent`)
+   - Graceful fallback when hardware unavailable
+   - Hardware utilization monitoring and display
+   - Docker device mounting for hardware access
+
+3. **User Experience Priorities**
+   - Intuitive model deployment workflows
+   - Clear status indicators for model operations
+   - Real-time feedback during inference
+   - Helpful error messages for troubleshooting
+
+## Performance Considerations
+
+1. **Model Operations**
+   - Optimize model loading and deployment times
+   - Implement proper caching for frequently used models
+   - Handle streaming responses for real-time inference
+   - Support concurrent model execution
+
+2. **Resource Management**
+   - Monitor hardware utilization when available
+   - Implement proper cleanup for failed operations
+   - Handle memory constraints during model loading
+   - Support model switching without service restart
+
+## Security & Configuration
+
+1. **Environment Security**
+   - Use environment variables for sensitive configuration
+   - Implement proper JWT token management
+   - Secure API endpoints appropriately
+   - Validate all model configuration inputs
+
+2. **Docker Security**
+   - Proper container isolation for model execution
+   - Secure hardware device mounting
+   - Network security for inter-service communication
+
+## Documentation Standards
+
+1. **Code Documentation**
+   - Document complex AI model integration logic
+   - Add inline comments for hardware-specific code
+   - Keep API documentation current
+   - Document deployment and setup procedures
+
+2. **User Documentation**
+   - Update guides for new model types
+   - Document troubleshooting procedures
+   - Keep FAQ current with common issues
+   - Document hardware requirements clearly
+
+## Troubleshooting Integration
+
+- Implement comprehensive error logging
+- Provide clear diagnostic information
+- Support remote debugging capabilities
+- Handle edge cases in hardware detection
+- Document common failure modes and solutions
