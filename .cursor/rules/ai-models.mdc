@@ -1,0 +1,130 @@
+---
+description: AI model integration and deployment rules for TT Studio
+globs: "**/*model*/**/*.py,**/*inference*/**/*.py,**/*chat*/**/*.tsx,**/*vision*/**/*.tsx"
+alwaysApply: false
+---
+
+# AI Model Integration Rules
+
+Rules for implementing AI model functionality in TT Studio.
+
+## Supported Model Types
+
+1. **Chat Models (LLMs)**
+   - Conversational AI interfaces
+   - Streaming response support
+   - Context management and history
+   - Real-time inference display
+
+2. **Vision Models (YOLO)**
+   - Object detection and recognition
+   - Image upload and processing
+   - Real-time inference results
+   - Bounding box visualization
+
+3. **Speech Models (Whisper)**
+   - Speech-to-text conversion
+   - Audio file upload support
+   - Real-time audio processing
+   - Multiple language support
+
+4. **Image Generation (Stable Diffusion)**
+   - Text-to-image generation
+   - Parameter customization (steps, guidance, etc.)
+   - Progress tracking for generation
+   - Result gallery and management
+
+5. **Document Processing & RAG**
+   - PDF, DOCX, and HTML document processing
+   - Vector embeddings with sentence-transformers
+   - ChromaDB for similarity search and retrieval
+   - LangChain for document processing pipelines
+   - Context-aware question answering over documents
+
+## Model Deployment Guidelines
+
+### Frontend Implementation
+- Provide clear model selection interfaces
+- Implement proper loading states during model deployment
+- Show deployment progress and status
+- Handle deployment failures gracefully
+- Support model switching without page reload
+
+### Backend Implementation
+- Integrate with TT Inference Server for model execution
+- Handle Hugging Face model downloads (requires HF_TOKEN)
+- Use LangChain for document processing and RAG pipelines
+- Implement ChromaDB for vector storage and similarity search
+- Process documents with pypdf, python-docx, beautifulsoup4
+- Generate embeddings with sentence-transformers
+- Use Docker SDK for containerized model execution
+- Implement proper error handling for model load failures
+- Support containerized model execution
+- Monitor model resource usage with psutil
+
+### Hardware Optimization
+- Leverage Tenstorrent hardware when available
+- Provide performance metrics and utilization data
+- Implement hardware-specific optimizations
+- Support graceful fallback to CPU execution
+
+## User Interface Patterns
+
+### Model Configuration
+- Use React Hook Form + Zod for model parameter validation
+- Provide preset configurations for common use cases
+- Implement parameter tooltips and help text
+- Support configuration save/load functionality
+
+### Inference Interfaces
+- **Chat Interface**: Message bubbles, typing indicators, conversation history
+- **Vision Interface**: Image upload, drag-and-drop, result overlays
+- **Speech Interface**: Audio recording, file upload, transcription display
+- **Image Generation**: Parameter controls, generation queue, result grid
+- **Document RAG**: File upload, processing status, Q&A interface, source citations
+
+### Real-time Features
+- Implement WebSocket connections for streaming responses
+- Show progress indicators for long-running operations
+- Provide cancellation options for inference requests
+- Handle connection interruptions gracefully
+
+## Error Handling Patterns
+
+### Model Loading Errors
+- Network connectivity issues
+- Insufficient hardware resources
+- Missing model dependencies
+- Authentication failures (HF_TOKEN)
+
+### Inference Errors
+- Hardware failures during execution
+- Model timeout errors
+- Invalid input formats
+- Resource exhaustion
+
+### User Feedback
+- Clear error messages with suggested actions
+- Hardware status indicators
+- Model availability notifications
+- Performance warnings
+
+## Performance Guidelines
+
+### Frontend Performance
+- Virtualize large result lists (React Window)
+- Implement image lazy loading
+- Use proper memoization for heavy components
+- Optimize re-renders during streaming
+
+### Backend Performance
+- Implement model caching strategies
+- Use async patterns for I/O operations
+- Handle concurrent inference requests
+- Monitor and log performance metrics
+
+### Model Optimization
+- Implement model quantization when possible
+- Use appropriate batch sizes for inference
+- Cache frequently used model outputs
+- Implement proper resource cleanup
