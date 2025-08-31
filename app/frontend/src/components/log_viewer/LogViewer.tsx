@@ -111,11 +111,11 @@ export default function LogsViewer() {
               onClick={() => toggleDir(currentPath)}
             >
               <ChevronRight
-                className={`h-4 w-4 mr-2 transition-transform duration-200 flex-shrink-0 ${
+                className={`h-4 w-4 mr-2 transition-transform duration-200 shrink-0 ${
                   isExpanded ? "rotate-90" : ""
                 }`}
               />
-              <Folder className="h-4 w-4 mr-2 flex-shrink-0 text-yellow-500" />
+              <Folder className="h-4 w-4 mr-2 shrink-0 text-yellow-500" />
               <span className="text-sm font-medium truncate">{node.name}</span>
             </Button>
             {isExpanded && node.children && (
@@ -134,9 +134,9 @@ export default function LogsViewer() {
             className="w-full justify-start px-2 py-1.5 h-auto mb-1 hover:bg-accent hover:text-accent-foreground group rounded-md transition-colors duration-200"
             onClick={() => openLogInNewTab(currentPath.slice(1))}
           >
-            <File className="h-4 w-4 mr-2 flex-shrink-0 text-blue-500" />
-            <div className="text-sm truncate text-left flex-grow">{formatFileName(node.name)}</div>
-            <ExternalLink className="h-4 w-4 ml-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+            <File className="h-4 w-4 mr-2 shrink-0 text-blue-500" />
+            <div className="text-sm truncate text-left grow">{formatFileName(node.name)}</div>
+            <ExternalLink className="h-4 w-4 ml-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
           </Button>
         );
       }
@@ -163,7 +163,7 @@ export default function LogsViewer() {
             </Button>
           </div>
         </div>
-        <CardContent className="flex-grow overflow-hidden">
+        <CardContent className="grow overflow-hidden">
           <ScrollArea className="h-[calc(100vh-150px)] w-full">
             <div className="p-4">
               {loading ? (

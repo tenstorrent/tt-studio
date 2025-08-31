@@ -196,7 +196,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
   return (
     <div
-      className={`flex flex-col w-full flex-grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} relative`}
+      className={`flex flex-col w-full grow ${isMobileView ? "pt-4" : "pt-4 pb-2"} relative`}
     >
       {chatHistory.length === 0 && !isStreaming ? (
         <ChatExamples
@@ -205,7 +205,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
           isMobileView={isMobileView}
         />
       ) : (
-        <div className="relative flex flex-col flex-grow">
+        <div className="relative flex flex-col grow">
           {/* INNER CONTAINER - ADJUSTED PADDING WITH WIDER WIDTH */}
           <div
             className={`p-2 sm:p-3 border border-gray-700 rounded-lg ${isMobileView ? "mx-0 border-x-0 rounded-none" : "mx-0"} ${getContainerWidth()}`}

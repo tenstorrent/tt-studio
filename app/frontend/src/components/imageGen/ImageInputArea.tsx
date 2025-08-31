@@ -50,7 +50,7 @@ export default function ImageInputArea({
   };
 
   return (
-    <div className="flex-shrink-0 w-full">
+    <div className="shrink-0 w-full">
       <div
         className={`relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl overflow-hidden transition-all duration-300 ${
           isFocused
