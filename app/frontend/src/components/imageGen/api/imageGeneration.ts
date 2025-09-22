@@ -13,6 +13,13 @@ export const dummyImageGeneration = async (prompt: string): Promise<string> => {
 interface ImageGenerationOptions {
   useLocalModel?: boolean;
   localModelUrl?: string;
+  useJsonEndpoint?: boolean;
+  jsonEndpointUrl?: string;
+  negativePrompt?: string;
+  seed?: number;
+  numberOfInferenceSteps?: number;
+  guidanceScale?: number;
+  authToken?: string;
 }
 /*
  TODO:
@@ -26,7 +33,16 @@ export const generateImage = async (
   modelID: string,
   options: ImageGenerationOptions = {}
 ): Promise<string> => {
-  const { useLocalModel = true, localModelUrl = "/models-api/image-generation/" } = options;
+  const {
+    useLocalModel = true,
+    localModelUrl = "/models-api/image-generation/",
+    useJsonEndpoint = true,
+  } = options;
+
+  // Check if we should use the new JSON endpoint override
+  if (useJsonEndpoint) {
+    return generateImageJson(prompt, options);
+  }
 
   // Check if we should use cloud endpoints
   const useCloud = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
@@ -34,7 +50,11 @@ export const generateImage = async (
   if (useLocalModel) {
     // If using cloud endpoints, use the cloud URL
     if (useCloud) {
-      return generateImageLocal(prompt, "null", "/models-api/image-generation-cloud/");
+      return generateImageLocal(
+        prompt,
+        "null",
+        "/models-api/image-generation-cloud/"
+      );
     }
     return generateImageLocal(prompt, modelID, localModelUrl);
   } else {
@@ -55,22 +75,25 @@ const generateImageStabilityAI = async (prompt: string): Promise<string> => {
   }
 
   try {
-    const response = await fetch(`${apiHost}/v1/generation/${engineId}/text-to-image`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        text_prompts: [{ text: prompt }],
-        cfg_scale: 7,
-        height: 1024,
-        width: 1024,
-        samples: 1,
-        steps: 30,
-      }),
-    });
+    const response = await fetch(
+      `${apiHost}/v1/generation/${engineId}/text-to-image`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          text_prompts: [{ text: prompt }],
+          cfg_scale: 7,
+          height: 1024,
+          width: 1024,
+          samples: 1,
+          steps: 30,
+        }),
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`Stability AI API error: ${response.statusText}`);
@@ -87,6 +110,79 @@ const generateImageStabilityAI = async (prompt: string): Promise<string> => {
   } catch (error) {
     console.error("Error generating image with Stability AI:", error);
     throw new Error("Failed to generate image with Stability AI");
+  }
+};
+
+const generateImageJson = async (
+  prompt: string,
+  options: ImageGenerationOptions
+): Promise<string> => {
+  const {
+    jsonEndpointUrl = "/image-generation-direct",
+    negativePrompt = "low quality, blurry",
+    seed = 42,
+    numberOfInferenceSteps = 25,
+    guidanceScale = 8.0,
+    authToken = "your-secret-key",
+  } = options;
+
+  try {
+    const response = await axios.post(
+      jsonEndpointUrl,
+      {
+        prompt,
+        negative_prompt: negativePrompt,
+        seed,
+        number_of_inference_steps: numberOfInferenceSteps,
+        guidance_scale: guidanceScale,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        responseType: "json",
+      }
+    );
+
+    if (response.status < 200 || response.status > 299) {
+      throw new Error(`JSON endpoint API error: ${response.statusText}`);
+    }
+
+    // Handle the response format from the model server
+    const data = response.data;
+
+    // Check if the response has the images array format
+    if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+      const imageData = data.images[0];
+      // The server returns base64 data without the data URL prefix
+      return `data:image/jpeg;base64,${imageData}`;
+    }
+
+    // Fallback: If the response contains a single base64 image
+    if (data.image && typeof data.image === "string") {
+      return data.image.startsWith("data:")
+        ? data.image
+        : `data:image/png;base64,${data.image}`;
+    }
+
+    // If the response contains an image URL
+    if (data.url) {
+      return data.url;
+    }
+
+    // Handle base64 response in root of object (common format)
+    if (typeof data === "string" && data.length > 100) {
+      // Assume it's base64 data if it's a long string
+      return data.startsWith("data:") ? data : `data:image/png;base64,${data}`;
+    }
+
+    // If the response format is different, log it for debugging
+    console.log("Unexpected response format:", data);
+    throw new Error("No image data found in response");
+  } catch (error) {
+    console.error("Error generating image with JSON endpoint:", error);
+    throw new Error("Failed to generate image with JSON endpoint");
   }
 };
 

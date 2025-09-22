@@ -6,7 +6,6 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { ClientRequest, IncomingMessage, ServerResponse } from "http";
 
-
 const VITE_BACKEND_URL = "http://tt-studio-backend-api:8000";
 // define mapping of backend apis proxy strings -> routes
 const VITE_BACKEND_PROXY_MAPPING: { [key: string]: string } = {
@@ -29,12 +28,19 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
       timeout: 0,
       // debug logging
       configure: (proxy: HttpProxy.Server) => {
-        proxy.on("error", (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
-          console.log("proxy error", err);
-        });
+        proxy.on(
+          "error",
+          (err: Error, _req: IncomingMessage, _res: ServerResponse) => {
+            console.log("proxy error", err);
+          }
+        );
         proxy.on(
           "proxyReq",
-          (proxyReq: ClientRequest, req: IncomingMessage, _res: ServerResponse) => {
+          (
+            proxyReq: ClientRequest,
+            req: IncomingMessage,
+            _res: ServerResponse
+          ) => {
             console.log("Sending Request to the Target:", req.method, req.url);
 
             // Ensure proper headers for SSE requests
@@ -46,20 +52,34 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
         );
         proxy.on(
           "proxyRes",
-          (proxyRes: IncomingMessage, req: IncomingMessage, res: ServerResponse) => {
-            console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
+          (
+            proxyRes: IncomingMessage,
+            req: IncomingMessage,
+            res: ServerResponse
+          ) => {
+            console.log(
+              "Received Response from the Target:",
+              proxyRes.statusCode,
+              req.url
+            );
 
             // Handle SSE responses properly
-            if (proxyRes.headers["content-type"]?.includes("text/event-stream")) {
+            if (
+              proxyRes.headers["content-type"]?.includes("text/event-stream")
+            ) {
               res.setHeader("Cache-Control", "no-cache");
               res.setHeader("Connection", "keep-alive");
               res.setHeader("Access-Control-Allow-Origin", "*");
-              res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
+              res.setHeader(
+                "Access-Control-Allow-Headers",
+                "Content-Type, Accept"
+              );
             }
           }
         );
       },
-      rewrite: (path: string) => path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
+      rewrite: (path: string) =>
+        path.replace(new RegExp(`^/${proxyPath}`), `/${actualPath}`),
     },
   ])
 );
@@ -77,9 +97,40 @@ proxyConfig["/reset-board"] = {
       console.log("Sending Request to the Target:", req.method, req.url);
     });
     proxy.on("proxyRes", (proxyRes, req) => {
-      console.log("Received Response from the Target:", proxyRes.statusCode, req.url);
+      console.log(
+        "Received Response from the Target:",
+        proxyRes.statusCode,
+        req.url
+      );
     });
   },
+};
+
+// Add proxy configuration for image generation through backend API
+proxyConfig["/image-generation-direct"] = {
+  target: VITE_BACKEND_URL,
+  changeOrigin: true,
+  secure: true,
+  configure: (proxy) => {
+    proxy.on("error", (err) => {
+      console.log("image generation proxy error", err);
+    });
+    proxy.on("proxyReq", (proxyReq, req) => {
+      console.log("Sending Image Generation Request:", req.method, req.url);
+    });
+    proxy.on("proxyRes", (proxyRes, req) => {
+      console.log(
+        "Received Image Generation Response:",
+        proxyRes.statusCode,
+        req.url
+      );
+    });
+  },
+  rewrite: (path: string) =>
+    path.replace(
+      /^\/image-generation-direct/,
+      "/models/image-generation-json/"
+    ),
 };
 
 // https://vitejs.dev/config/

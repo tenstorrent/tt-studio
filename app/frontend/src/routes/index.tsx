@@ -12,7 +12,10 @@ const AppRouter = () => {
   const routes = getRoutes();
 
   // Log environment variables for debugging
-  console.log("isDeployedEnabled", import.meta.env.VITE_ENABLE_DEPLOYED === "true");
+  console.log(
+    "isDeployedEnabled",
+    import.meta.env.VITE_ENABLE_DEPLOYED === "true"
+  );
 
   return (
     <RefreshProvider>
@@ -25,7 +28,13 @@ const AppRouter = () => {
                 <Route
                   key={route.path}
                   path={route.path}
-                  element={<MainLayout>{route.element}</MainLayout>}
+                  element={
+                    route.skipMainLayout ? (
+                      route.element
+                    ) : (
+                      <MainLayout>{route.element}</MainLayout>
+                    )
+                  }
                 />
               ))}
           </Routes>

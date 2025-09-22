@@ -463,6 +463,71 @@ class SpeechRecognitionInferenceCloudView(APIView):
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
+class ImageGenerationInferenceJsonView(APIView):
+    def post(self, request, *args, **kwargs):
+        """JSON-compatible image generation inference view for direct model server communication"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} received request data: {data}")
+        
+        # Get required parameters
+        prompt = data.get("prompt")
+        if not prompt:
+            logger.error("No prompt provided in request")
+            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get optional parameters with defaults
+        negative_prompt = data.get("negative_prompt", "low quality, blurry")
+        seed = data.get("seed", 42)
+        number_of_inference_steps = data.get("number_of_inference_steps", 25)
+        guidance_scale = data.get("guidance_scale", 8.0)
+        
+        # TEMPORARY HARDCODE: Direct connection to image generation container
+        # TODO: Remove this hardcode and restore deployed model lookup once model is deployed
+        # Access via gateway IP since containers are on different networks (backend on tt_studio_network, image gen on bridge)
+        internal_url = "http://172.18.0.1:7000/image/generations"
+        
+        logger.info(f"Making request to: {internal_url}")
+        
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer your-secret-key",
+            }
+            request_data = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "seed": seed,
+                "number_of_inference_steps": number_of_inference_steps,
+                "guidance_scale": float(guidance_scale),  # Ensure it's a float like in curl
+            }
+            
+            logger.info(f"Making request to: {internal_url}")
+            logger.info(f"Headers: {headers}")
+            logger.info(f"Request data: {request_data}")
+            inference_data = requests.post(internal_url, headers=headers, json=request_data, timeout=120)
+            inference_data.raise_for_status()
+            
+            # Return the JSON response from the model server
+            response_data = inference_data.json()
+            logger.info(f"Model server response: {response_data}")
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"HTTP error from model server: {http_err}")
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
+            elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response({"error": "Model server unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            else:
+                return Response({"error": f"Model server error: {http_err}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except requests.exceptions.RequestException as req_err:
+            logger.error(f"Request error: {req_err}")
+            return Response({"error": "Failed to connect to model server"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ImageGenerationInferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
         """special image generation inference view that performs special file handling"""

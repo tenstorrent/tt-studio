@@ -57,6 +57,7 @@ export interface RouteConfig {
   path: string;
   element: React.ReactNode;
   condition?: boolean;
+  skipMainLayout?: boolean; // Optional flag to skip MainLayout wrapper
 }
 
 // Function to generate routes based on environment variables
@@ -106,6 +107,7 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/image-generation",
       element: <ImageGenPage />,
       condition: true,
+      skipMainLayout: true, // Skip MainLayout to remove navbar
     },
     {
       path: "/speech-to-text",
