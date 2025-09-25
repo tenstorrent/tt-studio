@@ -22,6 +22,7 @@ import type {
   FileData,
 } from "./types";
 import { runInference } from "./runInference";
+import { runInferenceFalcon } from "./runInferenceFalcon";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
@@ -80,6 +81,10 @@ export default function ChatComponent() {
   const [isAgentSelected, setIsAgentSelected] = usePersistentState<boolean>(
     "isAgentSelected",
     false
+  );
+  const [selectedModel, setSelectedModel] = usePersistentState<string>(
+    "selectedInferenceModel",
+    "default"
   );
   const [screenSize, setScreenSize] = useState({
     isMobileView: false,
@@ -625,14 +630,20 @@ export default function ChatComponent() {
       console.log("=== CHAT COMPONENT DEBUG ===");
       console.log("isAgentSelected before runInference:", isAgentSelected);
       console.log("typeof isAgentSelected:", typeof isAgentSelected);
+      console.log("selectedModel:", selectedModel);
       console.log("=============================");
 
       try {
-        await runInference(
-          inferenceRequest,
-          ragDatasource,
-          updatedMessages,
-          (newHistory) => {
+        // Choose inference function based on selected model
+        if (selectedModel === "falcon") {
+          console.log("Using Falcon3-7B-Instruct model for inference");
+          // Use Falcon inference with proper chat history management
+          const currentThread = getCurrentThread();
+
+          // Create a wrapper that updates the current thread's messages
+          const updateCurrentThreadMessages = (
+            updateFn: React.SetStateAction<ChatMessage[]>
+          ) => {
             setChatThreads((prevThreads) => {
               if (!Array.isArray(prevThreads)) return [defaultThread];
 
@@ -640,37 +651,78 @@ export default function ChatComponent() {
               if (!currentThreadFromState) return prevThreads;
 
               const currentMessages = currentThreadFromState.messages || [];
-              const processedHistory =
-                typeof newHistory === "function"
-                  ? newHistory(currentMessages)
-                  : newHistory;
+              const newMessages =
+                typeof updateFn === "function"
+                  ? updateFn(currentMessages)
+                  : updateFn;
 
-              // Safety check for processedHistory
-              if (!Array.isArray(processedHistory)) return prevThreads;
+              const updatedThreads = [...prevThreads];
+              updatedThreads[currentThreadIndex] = {
+                ...currentThreadFromState,
+                messages: newMessages,
+              };
 
-              const lastMessage = processedHistory[processedHistory.length - 1];
-              const finalMessages =
-                lastMessage &&
-                lastMessage.sender === "assistant" &&
-                !lastMessage.id
-                  ? [
-                      ...processedHistory.slice(0, -1),
-                      { ...lastMessage, id: uuidv4() },
-                    ]
-                  : processedHistory;
-
-              return prevThreads.map((thread, idx) =>
-                idx === currentThreadIndex
-                  ? { ...thread, messages: finalMessages }
-                  : thread
-              );
+              return updatedThreads;
             });
-          },
-          setIsStreaming,
-          isAgentSelected,
-          currentThreadIndex,
-          controller
-        );
+          };
+
+          await runInferenceFalcon(
+            inferenceRequest,
+            ragDatasource,
+            currentThread.messages,
+            updateCurrentThreadMessages,
+            setIsStreaming,
+            isAgentSelected,
+            currentThreadIndex,
+            controller
+          );
+        } else {
+          console.log("Using default cloud model for inference");
+          await runInference(
+            inferenceRequest,
+            ragDatasource,
+            updatedMessages,
+            (newHistory) => {
+              setChatThreads((prevThreads) => {
+                if (!Array.isArray(prevThreads)) return [defaultThread];
+
+                const currentThreadFromState = prevThreads[currentThreadIndex];
+                if (!currentThreadFromState) return prevThreads;
+
+                const currentMessages = currentThreadFromState.messages || [];
+                const processedHistory =
+                  typeof newHistory === "function"
+                    ? newHistory(currentMessages)
+                    : newHistory;
+
+                // Safety check for processedHistory
+                if (!Array.isArray(processedHistory)) return prevThreads;
+
+                const lastMessage =
+                  processedHistory[processedHistory.length - 1];
+                const finalMessages =
+                  lastMessage &&
+                  lastMessage.sender === "assistant" &&
+                  !lastMessage.id
+                    ? [
+                        ...processedHistory.slice(0, -1),
+                        { ...lastMessage, id: uuidv4() },
+                      ]
+                    : processedHistory;
+
+                return prevThreads.map((thread, idx) =>
+                  idx === currentThreadIndex
+                    ? { ...thread, messages: finalMessages }
+                    : thread
+                );
+              });
+            },
+            setIsStreaming,
+            isAgentSelected,
+            currentThreadIndex,
+            controller
+          );
+        }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
           console.log("Request was aborted");
@@ -746,11 +798,13 @@ export default function ChatComponent() {
         files: userMessage.files,
       };
 
-      await runInference(
-        inferenceRequest,
-        messageRagDatasource,
-        currentThread.messages,
-        (newHistory) => {
+      // Choose inference function based on selected model
+      if (selectedModel === "falcon") {
+        console.log("Using Falcon3-7B-Instruct model for re-rendering");
+        // Create a wrapper that updates the current thread's messages for re-render
+        const updateCurrentThreadMessagesForRerender = (
+          updateFn: React.SetStateAction<ChatMessage[]>
+        ) => {
           setChatThreads((prevThreads) => {
             if (!Array.isArray(prevThreads)) return [defaultThread];
 
@@ -761,51 +815,97 @@ export default function ChatComponent() {
             )
               return prevThreads;
 
-            let currentHistory;
-            if (Array.isArray(newHistory)) {
-              currentHistory = newHistory;
-            } else if (typeof newHistory === "function") {
-              const result = newHistory(currentThreadFromState.messages);
-              currentHistory = Array.isArray(result)
-                ? result
-                : currentThreadFromState.messages;
-            } else {
-              currentHistory = currentThreadFromState.messages;
-            }
+            const currentMessages = currentThreadFromState.messages;
+            const newMessages =
+              typeof updateFn === "function"
+                ? updateFn(currentMessages)
+                : updateFn;
 
-            if (!Array.isArray(currentHistory) || currentHistory.length === 0) {
-              return prevThreads;
-            }
+            const updatedThreads = [...prevThreads];
+            updatedThreads[currentThreadIndex] = {
+              ...currentThreadFromState,
+              messages: newMessages,
+            };
 
-            const updatedMessages = currentThreadFromState.messages.map(
-              (msg) => {
-                if (msg.id === messageId) {
-                  const updatedMessage =
-                    currentHistory[currentHistory.length - 1];
-                  if (!updatedMessage) return msg;
-
-                  return {
-                    ...msg,
-                    text: updatedMessage.text || msg.text,
-                    inferenceStats:
-                      updatedMessage.inferenceStats as InferenceStats,
-                  };
-                }
-                return msg;
-              }
-            );
-
-            return prevThreads.map((thread, idx) =>
-              idx === currentThreadIndex
-                ? { ...thread, messages: updatedMessages }
-                : thread
-            );
+            return updatedThreads;
           });
-        },
-        setIsStreaming,
-        isAgentSelected,
-        currentThreadIndex
-      );
+        };
+
+        await runInferenceFalcon(
+          inferenceRequest,
+          messageRagDatasource,
+          currentThread.messages,
+          updateCurrentThreadMessagesForRerender,
+          setIsStreaming,
+          isAgentSelected,
+          currentThreadIndex
+        );
+      } else {
+        console.log("Using default cloud model for re-rendering");
+        await runInference(
+          inferenceRequest,
+          messageRagDatasource,
+          currentThread.messages,
+          (newHistory) => {
+            setChatThreads((prevThreads) => {
+              if (!Array.isArray(prevThreads)) return [defaultThread];
+
+              const currentThreadFromState = prevThreads[currentThreadIndex];
+              if (
+                !currentThreadFromState ||
+                !Array.isArray(currentThreadFromState.messages)
+              )
+                return prevThreads;
+
+              let currentHistory;
+              if (Array.isArray(newHistory)) {
+                currentHistory = newHistory;
+              } else if (typeof newHistory === "function") {
+                const result = newHistory(currentThreadFromState.messages);
+                currentHistory = Array.isArray(result)
+                  ? result
+                  : currentThreadFromState.messages;
+              } else {
+                currentHistory = currentThreadFromState.messages;
+              }
+
+              if (
+                !Array.isArray(currentHistory) ||
+                currentHistory.length === 0
+              ) {
+                return prevThreads;
+              }
+
+              const updatedMessages = currentThreadFromState.messages.map(
+                (msg) => {
+                  if (msg.id === messageId) {
+                    const updatedMessage =
+                      currentHistory[currentHistory.length - 1];
+                    if (!updatedMessage) return msg;
+
+                    return {
+                      ...msg,
+                      text: updatedMessage.text || msg.text,
+                      inferenceStats:
+                        updatedMessage.inferenceStats as InferenceStats,
+                    };
+                  }
+                  return msg;
+                }
+              );
+
+              return prevThreads.map((thread, idx) =>
+                idx === currentThreadIndex
+                  ? { ...thread, messages: updatedMessages }
+                  : thread
+              );
+            });
+          },
+          setIsStreaming,
+          isAgentSelected,
+          currentThreadIndex
+        );
+      }
 
       setReRenderingMessageId(null);
     },
@@ -1218,6 +1318,8 @@ export default function ChatComponent() {
               // setIsRagExplicitlyDeselected={setIsRagExplicitlyDeselected}
               isSettingsOpen={isSettingsOpen}
               setIsSettingsOpen={setIsSettingsOpen}
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
             />
           </div>
           <div

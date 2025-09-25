@@ -49,6 +49,7 @@ import {
   // Settings as SettingsIcon,
   Sliders,
   Bot,
+  Cpu,
 } from "lucide-react";
 // import { Skeleton } from "../ui/skeleton";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
@@ -72,6 +73,8 @@ interface HeaderProps {
   onOpenSettings?: () => void;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
+  selectedModel?: string;
+  setSelectedModel?: (model: string) => void;
 }
 interface RagDataSource {
   id: string;
@@ -240,6 +243,30 @@ const ForwardedAISelect = React.forwardRef<
 
 ForwardedAISelect.displayName = "ForwardedAISelect";
 
+const ForwardedModelSelect = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof Select>
+>((props, ref) => (
+  <Select {...props}>
+    <SelectTrigger
+      ref={ref}
+      className="w-full md:w-[200px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm flex items-center gap-2"
+    >
+      <Cpu className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+      <SelectValue placeholder="Select Model">
+        {props.value
+          ? props.value === "falcon"
+            ? "Falcon3-7B-Instruct"
+            : "Default Chat"
+          : null}
+      </SelectValue>
+    </SelectTrigger>
+    {props.children}
+  </Select>
+));
+
+ForwardedModelSelect.displayName = "ForwardedModelSelect";
+
 export default function Header({
   modelName,
   modelsDeployed,
@@ -257,6 +284,8 @@ export default function Header({
   // onOpenSettings,
   isSettingsOpen,
   setIsSettingsOpen,
+  selectedModel,
+  setSelectedModel,
 }: HeaderProps) {
   // Log ragDataSources to console to inspect its structure
   // console.log("RAG Data Sources:", ragDataSources);
@@ -264,6 +293,13 @@ export default function Header({
   const [selectedAIAgent, setSelectedAIAgent] = usePersistentState<
     string | null
   >("selectedAIAgent", null);
+  // Use selectedModel from props if provided, otherwise use local state
+  const [localSelectedModel, setLocalSelectedModel] =
+    usePersistentState<string>("selectedInferenceModel", "default");
+  const currentSelectedModel =
+    selectedModel !== undefined ? selectedModel : localSelectedModel;
+  const currentSetSelectedModel =
+    setSelectedModel !== undefined ? setSelectedModel : setLocalSelectedModel;
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   // const navigate = useNavigate();
   const { logoUrl } = useLogo();
@@ -607,6 +643,40 @@ export default function Header({
 
             <div>
               <span className="text-white text-xs font-medium block mb-1">
+                Model Selection
+              </span>
+              <ForwardedModelSelect
+                value={currentSelectedModel}
+                onValueChange={currentSetSelectedModel}
+              >
+                <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
+                  <SelectItem
+                    value="default"
+                    className="text-white hover:bg-[#7C68FA]/20 text-xs"
+                  >
+                    Develop cutting-edge applications like using RAG
+                    (Retrieval-Augmented Generation), AI agents, and generative
+                    AI workflows.
+                    <div className="flex items-center gap-2">
+                      <Cpu className="h-4 w-4" />
+                      <span>Default Chat</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem
+                    value="falcon"
+                    className="text-white hover:bg-[#7C68FA]/20 text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Cpu className="h-4 w-4 text-[#7C68FA]" />
+                      <span>Falcon3-7B-Instruct</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </ForwardedModelSelect>
+            </div>
+
+            <div>
+              <span className="text-white text-xs font-medium block mb-1">
                 RAG Context
               </span>
               <ForwardedSelect
@@ -751,6 +821,46 @@ export default function Header({
       {/* Desktop control elements */}
       <div className="hidden md:flex items-center space-x-4">
         <div className="flex items-center space-x-4">
+          {/* Model Selector */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ForwardedModelSelect
+                  value={currentSelectedModel}
+                  onValueChange={currentSetSelectedModel}
+                >
+                  <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
+                    <SelectItem
+                      value="default"
+                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-4 w-4" />
+                        <span>Default Chat</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem
+                      value="falcon"
+                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-4 w-4 text-[#7C68FA]" />
+                        <span>Falcon3-7B-Instruct</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </ForwardedModelSelect>
+              </TooltipTrigger>
+              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
+                <p>
+                  {currentSelectedModel === "falcon"
+                    ? "Using Falcon3-7B-Instruct model"
+                    : "Using default cloud model"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
           {/* RAG Selector */}
           <TooltipProvider>
             <Tooltip>
