@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
+services:
+  tt_studio_backend:
+    environment:
+      - CHROMA_EMBED_DISABLED=1
+      - TRANSFORMERS_OFFLINE=1
+      - HF_HUB_OFFLINE=1
+
+

@@ -3,7 +3,8 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 from threading import Lock
-from typing import Optional
+from typing import Optional, List
+import os
 
 from chromadb import HttpClient, Settings, ClientAPI
 from chromadb.utils import embedding_functions
@@ -29,11 +30,27 @@ def get_embedding_function(model_name: str):
         with _lock:  # Ensure that only one thread can initialize the model
             # Double-check pattern to avoid race condition
             if model_name not in _instances:
-                _instances[model_name] = (
-                    embedding_functions.SentenceTransformerEmbeddingFunction(
-                        model_name=model_name
+                # Allow disabling embeddings entirely (offline or not needed)
+                disable = str(os.getenv("CHROMA_EMBED_DISABLED", "")).strip().lower() in ("1", "true", "yes", "y")
+                if disable:
+                    logger.warning(
+                        "CHROMA_EMBED_DISABLED=1 detected; using dummy embedding (zeros) instead of SentenceTransformer."
                     )
-                )
+
+                    class DummyEmbedding:
+                        def __init__(self, dimension: int = 384):
+                            self.dimension = dimension
+
+                        def __call__(self, texts: List[str]):
+                            return [[0.0] * self.dimension for _ in texts]
+
+                    _instances[model_name] = DummyEmbedding()
+                else:
+                    _instances[model_name] = (
+                        embedding_functions.SentenceTransformerEmbeddingFunction(
+                            model_name=model_name
+                        )
+                    )
 
     return _instances[model_name]
 

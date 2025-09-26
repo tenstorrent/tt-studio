@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+services:
+  tt_studio_backend:
+    devices:
+      - /dev/tenstorrent:/dev/tenstorrent

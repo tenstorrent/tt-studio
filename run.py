@@ -1057,30 +1057,39 @@ def setup_fastapi_environment():
             print(f"{C_RED}⛔ Error: Virtual environment pip not found at {venv_pip}{C_RESET}")
             return False
         
+        # Optionally skip pip network operations when offline
+        skip_pip = str(os.getenv("TT_STUDIO_SKIP_PIP", "")).strip().lower() in ["1", "true", "yes", "y"]
+        
         # Upgrade pip first
-        print(f"📦 Upgrading pip in virtual environment...")
-        try:
-            run_command([venv_pip, "install", "--upgrade", "pip"], check=True)
-            print(f"✅ Pip upgraded successfully")
-        except (subprocess.CalledProcessError, SystemExit) as e:
-            print(f"{C_YELLOW}⚠️  Warning: Failed to upgrade pip: {e}{C_RESET}")
-            print(f"   Continuing with installation...")
+        if skip_pip:
+            print(f"{C_YELLOW}⚠️  TT_STUDIO_SKIP_PIP is set: skipping pip upgrade{C_RESET}")
+        else:
+            print(f"📦 Upgrading pip in virtual environment...")
+            try:
+                run_command([venv_pip, "install", "--upgrade", "pip"], check=True)
+                print(f"✅ Pip upgraded successfully")
+            except (subprocess.CalledProcessError, SystemExit) as e:
+                print(f"{C_YELLOW}⚠️  Warning: Failed to upgrade pip: {e}{C_RESET}")
+                print(f"   Continuing with installation...")
         
         # Install requirements (like startup.sh)
-        print(f"📦 Installing Python requirements from requirements-api.txt...")
-        try:
-            run_command([venv_pip, "install", "-r", "requirements-api.txt"], check=True)
-            print(f"✅ Requirements installed successfully")
-        except (subprocess.CalledProcessError, SystemExit) as e:
-            print(f"{C_RED}⛔ Error: Failed to install requirements: {e}{C_RESET}")
-            print(f"📜 Contents of requirements-api.txt:")
+        if skip_pip:
+            print(f"{C_YELLOW}⚠️  TT_STUDIO_SKIP_PIP is set: skipping requirements installation from requirements-api.txt{C_RESET}")
+        else:
+            print(f"📦 Installing Python requirements from requirements-api.txt...")
             try:
-                with open("requirements-api.txt", "r") as f:
-                    for line_num, line in enumerate(f, 1):
-                        print(f"   {line_num}: {line.rstrip()}")
-            except Exception as read_e:
-                print(f"   Could not read requirements file: {read_e}")
-            return False
+                run_command([venv_pip, "install", "-r", "requirements-api.txt"], check=True)
+                print(f"✅ Requirements installed successfully")
+            except (subprocess.CalledProcessError, SystemExit) as e:
+                print(f"{C_RED}⛔ Error: Failed to install requirements: {e}{C_RESET}")
+                print(f"📜 Contents of requirements-api.txt:")
+                try:
+                    with open("requirements-api.txt", "r") as f:
+                        for line_num, line in enumerate(f, 1):
+                            print(f"   {line_num}: {line.rstrip()}")
+                except Exception as read_e:
+                    print(f"   Could not read requirements file: {read_e}")
+                return False
         
         # Verify uvicorn was installed
         venv_uvicorn = ".venv/bin/uvicorn"
@@ -1379,7 +1388,7 @@ def ensure_frontend_dependencies():
                 return True # It's not a failure, just a choice.
             
             print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
-            run_command(["npm", "install"], check=True, cwd=frontend_dir)
+            run_command(["npm", "install", "--offline"], check=True, cwd=frontend_dir)
             print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
 
         else: # No local npm found
@@ -1392,11 +1401,12 @@ def ensure_frontend_dependencies():
             print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
             # This command runs `npm install` inside a container and mounts the result back to the host.
             docker_cmd = [
-                "docker", "run", "--rm",
+                "docker", "run", "--network none",
+                #"docker", "run", "--rm", "--network none",
                 "-v", f"{frontend_dir}:/app",
                 "-w", "/app",
                 "node:22-alpine3.20",
-                "npm", "install"
+                "npm", "install", "--offline"
             ]
             run_command(docker_cmd, check=True)
             print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
