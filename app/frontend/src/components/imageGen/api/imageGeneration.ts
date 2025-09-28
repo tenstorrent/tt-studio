@@ -35,7 +35,7 @@ export const generateImage = async (
 ): Promise<string> => {
   const {
     useLocalModel = true,
-    localModelUrl = "/models-api/image-generation/",
+    localModelUrl = "/models-api/image/generations",
     useJsonEndpoint = true,
   } = options;
 
@@ -118,7 +118,7 @@ const generateImageJson = async (
   options: ImageGenerationOptions
 ): Promise<string> => {
   const {
-    jsonEndpointUrl = "/image-generation-direct",
+    jsonEndpointUrl = "/image/generations",
     negativePrompt = "low quality, blurry",
     seed = 42,
     numberOfInferenceSteps = 25,
