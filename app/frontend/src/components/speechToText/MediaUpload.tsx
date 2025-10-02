@@ -44,6 +44,7 @@ interface FileState {
   progress: number;
   state: ProcessingState;
   error?: string;
+  progressMessage?: string;
 }
 
 export function MediaUpload({ onAudioReady, className, disabled = false }: MediaUploadProps) {
@@ -119,18 +120,31 @@ export function MediaUpload({ onAudioReady, className, disabled = false }: Media
       file,
       progress: 0,
       state: 'processing',
+      progressMessage: 'Starting audio extraction...',
     });
 
     try {
-      console.log('Processing video file with OfflineAudioContext:', file.name);
+      console.log('Processing video file with enhanced processing pipeline:', file.name);
       
-      // Extract audio from video file using enhanced OfflineAudioContext method
-      const audioBlob = await extractAudioFromVideo(file);
+      // Progress callback to update UI
+      const onProgress = (message: string) => {
+        setFileState((prev: any) => ({
+          ...prev,
+          progressMessage: message,
+          progress: message.includes('%') ? 
+            parseInt(message.match(/(\d+)%/)?.[1] || '50') : 
+            prev.progress
+        }));
+      };
+      
+      // Extract audio from video file using enhanced processing pipeline
+      const audioBlob = await extractAudioFromVideo(file, 16000, onProgress);
       
       setFileState((prev: any) => ({
         ...prev,
         progress: 100,
         state: 'success',
+        progressMessage: 'Audio extraction completed!',
       }));
 
       // Set preview audio
@@ -140,17 +154,24 @@ export function MediaUpload({ onAudioReady, className, disabled = false }: Media
         audioRef: null,
       });
 
-      console.log('Audio extraction completed successfully with OfflineAudioContext');
+      console.log('Audio extraction completed successfully');
       console.log(`Extracted audio: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
 
     } catch (error) {
       console.error('Error processing video file:', error);
-      setFileState((prev: any) => ({
-        ...prev,
-        progress: 0,
-        state: 'error',
-        error: error instanceof Error ? error.message : 'Failed to extract audio from video',
-      }));
+        // Provide helpful error message with FFmpeg suggestion
+        let errorMessage = error instanceof Error ? error.message : 'Failed to extract audio from video';
+        
+        if (errorMessage.includes('format') || errorMessage.includes('codec') || errorMessage.includes('supported')) {
+          errorMessage += '\n\nFor better format support, install FFmpeg.wasm: npm install @ffmpeg/ffmpeg @ffmpeg/core';
+        }
+        
+        setFileState((prev: any) => ({
+          ...prev,
+          progress: 0,
+          state: 'error',
+          error: errorMessage,
+        }));
     }
   };
 
@@ -280,16 +301,25 @@ export function MediaUpload({ onAudioReady, className, disabled = false }: Media
                   </p>
                   <div className="max-w-xs mx-auto bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div 
-                      className="bg-TT-purple h-2 rounded-full transition-all duration-300 animate-pulse"
-                      style={{ width: '75%' }}
+                      className="bg-TT-purple h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: fileState.progress > 0 ? `${fileState.progress}%` : '25%',
+                        animation: fileState.progress > 0 ? 'none' : 'pulse 2s infinite'
+                      }}
                     ></div>
                   </div>
                   <p className="text-xs text-gray-600 dark:text-gray-400">
-                    Advanced codec detection and audio processing...
+                    {fileState.progressMessage || 'Advanced codec detection and audio processing...'}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-500">
-                    This may take a moment for complex video files
-                  </p>
+                  {fileState.progressMessage?.includes('FFmpeg') ? (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                      Using advanced FFmpeg processing for better compatibility
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
+                      Trying multiple extraction methods for best results
+                    </p>
+                  )}
                 </div>
               </>
             ) : fileState.state === 'success' ? (
@@ -350,9 +380,19 @@ export function MediaUpload({ onAudioReady, className, disabled = false }: Media
               <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
                 <div className="flex items-start">
                   <AlertCircle className="h-4 w-4 text-red-500 mr-2 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-red-700 dark:text-red-300">
-                    {fileState.error}
-                  </p>
+                  <div className="text-sm text-red-700 dark:text-red-300">
+                    {fileState.error?.split('\n').map((line, index) => (
+                      <div key={index} className={index > 0 ? 'mt-2' : ''}>
+                        {line.startsWith('For better format support') ? (
+                          <div className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-2 rounded border border-blue-200 dark:border-blue-800">
+                            💡 <strong>Tip:</strong> {line}
+                          </div>
+                        ) : (
+                          <span>{line}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

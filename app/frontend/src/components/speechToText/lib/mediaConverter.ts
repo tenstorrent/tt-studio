@@ -1,6 +1,9 @@
 /**
  * Enhanced video-to-audio conversion using OfflineAudioContext for better performance
+ * With FFmpeg.wasm fallback for problematic video files
  */
+
+import { extractAudioWithFFmpeg, isFFmpegAvailable } from './ffmpegProcessor';
 
 /**
  * Extract audio from video file and convert to WAV using OfflineAudioContext
@@ -9,6 +12,7 @@
 export async function extractAudioFromVideo(
   videoFile: Blob,
   targetSampleRate = 16_000, // 16kHz for Whisper
+  onProgress?: (progress: string) => void
 ): Promise<Blob> {
   try {
     // Step 1: Try to load video and get duration info
@@ -16,21 +20,36 @@ export async function extractAudioFromVideo(
     let useEstimatedDuration = false;
     
     try {
+      onProgress?.('Loading video metadata...');
       videoInfo = await getVideoInfo(videoFile);
       console.log('Video metadata loaded successfully, using actual duration:', videoInfo.duration);
     } catch (metadataError) {
       console.warn('Metadata loading failed, trying fallback approach:', metadataError);
       
-      // Fallback: Try alternative processing without metadata
+      // Fallback 1: Try alternative processing without metadata
       try {
+        onProgress?.('Trying alternative audio extraction method...');
         return await extractAudioWithoutMetadata(videoFile, targetSampleRate);
       } catch (fallbackError) {
         console.warn('Fallback processing also failed:', fallbackError);
         
-        // Last resort: use estimated duration
+        // Fallback 2: Try FFmpeg.wasm if available
+        if (isFFmpegAvailable()) {
+          try {
+            console.log('Attempting FFmpeg.wasm processing...');
+            onProgress?.('Using advanced FFmpeg processing...');
+            return await extractAudioWithFFmpeg(videoFile, onProgress);
+          } catch (ffmpegError) {
+            console.warn('FFmpeg processing also failed:', ffmpegError);
+            // Continue to last resort method below
+          }
+        }
+        
+        // Last resort: use estimated duration with browser processing
         const estimatedDuration = Math.min(Math.max(videoFile.size / (1024 * 1024) * 2, 10), 300);
         videoInfo = { duration: estimatedDuration };
         useEstimatedDuration = true;
+        onProgress?.('Attempting final processing method...');
         console.log('Using estimated duration as last resort:', estimatedDuration);
       }
     }
