@@ -52,21 +52,25 @@ async function loadFFmpeg(onProgress?: (progress: string) => void): Promise<FFmp
     
     // Check if FFmpeg is already available globally
     if (!window.FFmpeg) {
-      // Dynamically import FFmpeg.wasm (only works when packages are installed)
-      const ffmpegModule = await import('@ffmpeg/ffmpeg').catch(() => {
-        throw new Error('FFmpeg.wasm not installed. Run: npm install @ffmpeg/ffmpeg @ffmpeg/core');
-      });
-      const coreModule = await import('@ffmpeg/core').catch(() => {
-        throw new Error('FFmpeg core not installed. Run: npm install @ffmpeg/ffmpeg @ffmpeg/core');
-      });
-      
-      // Set up FFmpeg with core path
-      window.FFmpeg = {
-        createFFmpeg: (config) => (ffmpegModule as any).createFFmpeg({
-          ...config,
-          corePath: (coreModule as any).default || '/node_modules/@ffmpeg/core/dist/ffmpeg-core.js'
-        })
-      };
+      try {
+        // Use string-based imports to bypass Vite's static analysis
+        const ffmpegModuleName = '@ffmpeg/ffmpeg';
+        const coreModuleName = '@ffmpeg/core';
+        
+        // Dynamically import FFmpeg.wasm (only works when packages are installed)
+        const ffmpegModule = await import(/* @vite-ignore */ ffmpegModuleName);
+        const coreModule = await import(/* @vite-ignore */ coreModuleName);
+        
+        // Set up FFmpeg with core path
+        window.FFmpeg = {
+          createFFmpeg: (config) => (ffmpegModule as any).createFFmpeg({
+            ...config,
+            corePath: (coreModule as any).default || '/node_modules/@ffmpeg/core/dist/ffmpeg-core.js'
+          })
+        };
+      } catch (importError) {
+        throw new Error('FFmpeg.wasm packages not installed. Run: npm install @ffmpeg/ffmpeg @ffmpeg/core');
+      }
     }
 
     onProgress?.('Initializing FFmpeg...');
