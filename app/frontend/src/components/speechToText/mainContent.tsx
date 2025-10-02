@@ -9,10 +9,12 @@ import {
   Clock,
   Pencil as Edit,
   Play,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
 import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
+import { MediaUpload } from "@/src/components/speechToText/MediaUpload";
 import { cn } from "../../lib/utils";
 import {
   Tooltip,
@@ -28,6 +30,11 @@ interface Transcription {
   text: string;
   date: Date;
   audioBlob?: Blob;
+  metadata?: {
+    source?: 'microphone' | 'file';
+    filename?: string;
+    title?: string;
+  };
 }
 
 interface Conversation {
@@ -68,6 +75,7 @@ export function MainContent({
   const [hasRecordedBefore, setHasRecordedBefore] = useState(false);
   const [forceShowTranscription, setForceShowTranscription] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [inputMethod, setInputMethod] = useState<'microphone' | 'upload'>('microphone');
   const { theme } = useTheme();
 
   const contentContainerRef = useRef<HTMLDivElement>(null);
@@ -117,13 +125,44 @@ export function MainContent({
     setHasRecordedBefore(true);
 
     // Process the audio with the API
-    await processAudioWithAPI(recordedBlob);
+    await processAudioWithAPI(recordedBlob, { source: 'microphone' });
 
     // Set a flag to force showing the transcription view after processing
     setForceShowTranscription(true);
   };
 
-  const processAudioWithAPI = async (audioBlob: Blob) => {
+  // Handle media upload (file only)
+  const handleMediaUpload = async (
+    audioBlob: Blob, 
+    metadata: {
+      source: 'file';
+      filename: string;
+      title: string;
+    }
+  ) => {
+    console.log(
+      "Video file upload completed:",
+      metadata.filename,
+      "blob type:",
+      audioBlob.type,
+      "size:",
+      audioBlob.size,
+    );
+    
+    setAudioBlob(audioBlob);
+    setHasRecordedBefore(true);
+
+    // Process the audio with the API
+    await processAudioWithAPI(audioBlob, metadata);
+
+    // Set a flag to force showing the transcription view after processing
+    setForceShowTranscription(true);
+  };
+
+  const processAudioWithAPI = async (
+    audioBlob: Blob, 
+    metadata?: { source?: 'microphone' | 'file'; filename?: string; title?: string }
+  ) => {
     setIsProcessing(true);
 
     try {
@@ -134,6 +173,18 @@ export function MainContent({
 
       // Create the new transcription and add it to the conversation
       const transcriptionText = data.text;
+      
+      // Create transcription with metadata
+      const transcriptionId = Date.now().toString();
+      const newTranscription = {
+        id: transcriptionId,
+        text: transcriptionText,
+        date: new Date(),
+        audioBlob,
+        metadata: metadata || { source: 'microphone' as const },
+      };
+
+      // Add to conversation using the existing interface
       onNewTranscription(transcriptionText, audioBlob);
 
       // Set flag that we just sent a recording
@@ -383,15 +434,52 @@ export function MainContent({
                       : "bg-white/80 border-TT-purple-shade/30",
                   )}
                 >
-                  <h2 className="text-lg sm:text-xl font-semibold mb-4 sm:mb-6 text-TT-purple">
-                    {isProcessing ? "Processing..." : ""}
-                  </h2>
+                  <div className="flex items-center justify-between mb-4 sm:mb-6">
+                    <h2 className="text-lg sm:text-xl font-semibold text-TT-purple">
+                      {isProcessing ? "Processing..." : "Speech Recognition"}
+                    </h2>
+                    
+                    {/* Input method selector */}
+                    <div className="flex bg-gray-100 dark:bg-[#1A1A1A] rounded-lg p-1">
+                      <button
+                        onClick={() => setInputMethod('microphone')}
+                        className={cn(
+                          "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+                          inputMethod === 'microphone'
+                            ? "bg-white dark:bg-TT-purple/20 text-TT-purple shadow-sm"
+                            : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                        )}
+                      >
+                        <Mic className="h-4 w-4 mr-1.5 inline-block" />
+                        Microphone
+                      </button>
+                      <button
+                        onClick={() => setInputMethod('upload')}
+                        className={cn(
+                          "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+                          inputMethod === 'upload'
+                            ? "bg-white dark:bg-TT-purple/20 text-TT-purple shadow-sm"
+                            : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                        )}
+                      >
+                        <Upload className="h-4 w-4 mr-1.5 inline-block" />
+                        Upload
+                      </button>
+                    </div>
+                  </div>
 
                   <div className="mb-4">
-                    <AudioRecorderWithVisualizer
-                      className="mb-4"
-                      onRecordingComplete={handleRecordingComplete}
-                    />
+                    {inputMethod === 'microphone' ? (
+                      <AudioRecorderWithVisualizer
+                        className="mb-4"
+                        onRecordingComplete={handleRecordingComplete}
+                      />
+                    ) : (
+                      <MediaUpload
+                        onAudioReady={handleMediaUpload}
+                        disabled={isProcessing}
+                      />
+                    )}
                   </div>
 
                   {isProcessing && (
@@ -406,7 +494,9 @@ export function MainContent({
                       <div className="flex items-center">
                         <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 animate-spin text-TT-purple" />
                         <p className="text-sm sm:text-base font-medium text-TT-purple">
-                          Sending to API and processing your audio...
+                          {inputMethod === 'microphone' 
+                            ? 'Sending to API and processing your recording...'
+                            : 'Processing uploaded video file and transcribing...'}
                         </p>
                       </div>
                     </div>
