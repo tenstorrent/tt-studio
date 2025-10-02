@@ -285,7 +285,10 @@ export function MediaUpload({ onAudioReady, className, disabled = false }: Media
                     ></div>
                   </div>
                   <p className="text-xs text-gray-600 dark:text-gray-400">
-                    Using OfflineAudioContext for fast processing...
+                    Advanced codec detection and audio processing...
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-500">
+                    This may take a moment for complex video files
                   </p>
                 </div>
               </>
@@ -316,7 +319,7 @@ export function MediaUpload({ onAudioReady, className, disabled = false }: Media
                   Supports MP4, WebM, OGG and other video formats
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
-                  Maximum file size: 100MB
+                  Maximum file size: 100MB • Recommended: MP4 with H.264 encoding
                 </p>
               </>
             )}
