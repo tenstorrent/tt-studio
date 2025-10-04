@@ -7,7 +7,7 @@ import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
 import { useLogo } from "../../utils/logo";
 import { fetchModels } from "../../api/modelsDeployedApis";
-import { useQuery } from "react-query";
+import { useQuery } from "@tanstack/react-query";
 import { fetchCollections } from "@/src/components/rag";
 import Header from "./Header";
 import ChatHistory from "./ChatHistory";
@@ -46,7 +46,8 @@ export default function ChatComponent() {
   // TODO: RAG explicit deselection feature is incomplete - setter is commented out in Header.tsx
   // const [isRagExplicitlyDeselected, setIsRagExplicitlyDeselected] =
   //   useState(false);
-  const { data: ragDataSources } = useQuery("collectionsList", {
+  const { data: ragDataSources } = useQuery<RagDataSource[]>({
+    queryKey: ["collectionsList"],
     queryFn: fetchCollections,
     initialData: [],
   });
@@ -62,7 +63,7 @@ export default function ChatComponent() {
   // Updated structure to include titles directly in the threads
   const [chatThreads, setChatThreads] = usePersistentState<ChatThread[]>(
     "chat_threads",
-    [defaultThread],
+    [defaultThread]
   );
 
   const [currentThreadIndex, setCurrentThreadIndex] =
@@ -76,7 +77,10 @@ export default function ChatComponent() {
   >(null);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
-  const [isAgentSelected, setIsAgentSelected] = useState<boolean>(false);
+  const [isAgentSelected, setIsAgentSelected] = usePersistentState<boolean>(
+    "isAgentSelected",
+    false
+  );
   const [screenSize, setScreenSize] = useState({
     isMobileView: false,
     isLargeScreen: false,
@@ -107,7 +111,6 @@ export default function ChatComponent() {
 
   // Add the missing state variables
   const [userScrolled, setUserScrolled] = useState(false);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   // Add inference controller state
   const [inferenceController, setInferenceController] = useState<{
@@ -130,7 +133,7 @@ export default function ChatComponent() {
   useEffect(() => {
     if (!Array.isArray(chatThreads) || chatThreads.length === 0) {
       console.warn(
-        "ChatThreads is not an array or is empty, resetting to default",
+        "ChatThreads is not an array or is empty, resetting to default"
       );
       setChatThreads([defaultThread]);
       setCurrentThreadIndex(0);
@@ -375,7 +378,6 @@ export default function ChatComponent() {
       // Show scroll button when scrolled up significantly
       const isScrolledUp = distanceFromBottom > 100;
       setIsScrolledUp(isScrolledUp);
-      setShowScrollToBottom(isScrolledUp);
 
       // Track if user has scrolled away from bottom - INCREASED SENSITIVITY
       // Even tiny scroll (10px) will stop auto-scroll
@@ -387,8 +389,8 @@ export default function ChatComponent() {
       }
     };
 
-    // Initial scroll to bottom when changing threads
-    const scrollToBottom = () => {
+    // Scroll to bottom helper function for internal use
+    const scrollToBottomInternal = () => {
       if (container) {
         container.scrollTop = container.scrollHeight;
         setIsScrolledUp(false);
@@ -399,27 +401,12 @@ export default function ChatComponent() {
     const observer = new MutationObserver(() => {
       if (!container) return;
 
-      const { scrollHeight } = container;
-
-      // Don't auto-scroll if user has scrolled up, unless we're streaming
-      if (!userScrolled || isStreaming) {
-        // Get previous scroll position
-        const previousScrollPosition = lastScrollPositionRef.current;
-        const previousScrollHeight = container.scrollHeight;
-
-        // Preserve relative scroll position during streaming if user has scrolled
-        if (isStreaming && userScrolled) {
-          // Calculate how much content has been added
-          const heightDifference = scrollHeight - previousScrollHeight;
-          if (heightDifference > 0) {
-            // Keep same relative position
-            container.scrollTop = previousScrollPosition + heightDifference;
-          }
-        } else if (!userScrolled) {
-          // Not streaming or user hasn't scrolled - scroll to bottom
-          scrollToBottom();
-        }
+      // Only auto-scroll if user is at the bottom AND content is streaming
+      if (!userScrolled && isStreaming) {
+        // User is at bottom and new content is being streamed - auto-scroll
+        scrollToBottomInternal();
       }
+      // Otherwise, don't auto-scroll - let user control when to scroll
     });
 
     // Add event listener and start observing
@@ -430,8 +417,7 @@ export default function ChatComponent() {
       characterData: true,
     });
 
-    // Initial scroll to bottom
-    scrollToBottom();
+    // Don't auto-scroll initially - let user control scrolling
 
     // Cleanup
     return () => {
@@ -443,15 +429,7 @@ export default function ChatComponent() {
   // Reset user scroll when changing threads
   useEffect(() => {
     setUserScrolled(false);
-    setShowScrollToBottom(false);
-
-    // Wait a tick for the DOM to update
-    setTimeout(() => {
-      if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop =
-          chatContainerRef.current.scrollHeight;
-      }
-    }, 0);
+    // Don't auto-scroll when changing threads - let user control scrolling
   }, [currentThreadIndex]);
 
   // Safe getter for current thread
@@ -524,7 +502,7 @@ export default function ChatComponent() {
                 uploadDate: new Date().toISOString(),
               },
             };
-          }),
+          })
         );
 
         // Update files with processed metadata
@@ -560,7 +538,7 @@ export default function ChatComponent() {
         updatedMessages = (threadToUse.messages || []).map((msg) =>
           msg.id === continuationMessageId
             ? { ...msg, text: msg.text + " [Continuing...] " }
-            : msg,
+            : msg
         );
       } else {
         // Store ragDatasource in the user message
@@ -591,7 +569,7 @@ export default function ChatComponent() {
                     title: userMessage.text.substring(0, 30),
                     messages: updatedMessages,
                   }
-                : thread,
+                : thread
             );
           });
         }
@@ -605,7 +583,7 @@ export default function ChatComponent() {
           return prevThreads.map((thread, idx) =>
             idx === currentThreadIndex
               ? { ...thread, messages: updatedMessages }
-              : thread,
+              : thread
           );
         });
       }
@@ -644,6 +622,11 @@ export default function ChatComponent() {
         setIsHistoryPanelOpen(false);
       }
 
+      console.log("=== CHAT COMPONENT DEBUG ===");
+      console.log("isAgentSelected before runInference:", isAgentSelected);
+      console.log("typeof isAgentSelected:", typeof isAgentSelected);
+      console.log("=============================");
+
       try {
         await runInference(
           inferenceRequest,
@@ -679,14 +662,14 @@ export default function ChatComponent() {
               return prevThreads.map((thread, idx) =>
                 idx === currentThreadIndex
                   ? { ...thread, messages: finalMessages }
-                  : thread,
+                  : thread
               );
             });
           },
           setIsStreaming,
           isAgentSelected,
           currentThreadIndex,
-          controller,
+          controller
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -715,7 +698,7 @@ export default function ChatComponent() {
       defaultThread,
       setCurrentThreadIndex,
       modelSettings,
-    ],
+    ]
   );
 
   const handleStopInference = useCallback(() => {
@@ -733,7 +716,7 @@ export default function ChatComponent() {
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
       const messageToReRender = currentThread.messages.find(
-        (msg) => msg.id === messageId,
+        (msg) => msg.id === messageId
       );
       if (
         !messageToReRender ||
@@ -746,7 +729,7 @@ export default function ChatComponent() {
         (msg) =>
           msg.sender === "user" &&
           currentThread.messages.indexOf(msg) <
-            currentThread.messages.indexOf(messageToReRender),
+            currentThread.messages.indexOf(messageToReRender)
       );
       if (!userMessage) return;
 
@@ -809,19 +792,19 @@ export default function ChatComponent() {
                   };
                 }
                 return msg;
-              },
+              }
             );
 
             return prevThreads.map((thread, idx) =>
               idx === currentThreadIndex
                 ? { ...thread, messages: updatedMessages }
-                : thread,
+                : thread
             );
           });
         },
         setIsStreaming,
         isAgentSelected,
-        currentThreadIndex,
+        currentThreadIndex
       );
 
       setReRenderingMessageId(null);
@@ -834,7 +817,7 @@ export default function ChatComponent() {
       setChatThreads,
       isAgentSelected,
       defaultThread,
-    ],
+    ]
   );
 
   const handleContinue = useCallback(
@@ -843,14 +826,14 @@ export default function ChatComponent() {
       if (!currentThread || !Array.isArray(currentThread.messages)) return;
 
       const messageToContinue = currentThread.messages.find(
-        (msg) => msg.id === messageId,
+        (msg) => msg.id === messageId
       );
       if (!messageToContinue || messageToContinue.sender !== "assistant")
         return;
 
       setTextInput(`Continue from: "${messageToContinue.text}"`);
     },
-    [getCurrentThread],
+    [getCurrentThread]
   );
 
   const handleSelectConversation = useCallback(
@@ -879,7 +862,7 @@ export default function ChatComponent() {
       screenSize.isMobileView,
       setChatThreads,
       defaultThread,
-    ],
+    ]
   );
 
   // Create a new conversation with a unique ID
@@ -981,18 +964,17 @@ export default function ChatComponent() {
     );
   }
 
-  // Scroll to bottom function
+  // Scroll to bottom function - only triggered by user action
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop =
         chatContainerRef.current.scrollHeight;
-      setUserScrolled(false);
-      setShowScrollToBottom(false);
+      setUserScrolled(false); // Reset scroll state when user manually scrolls to bottom
     }
   };
 
   return (
-    <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6">
+    <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6 pb-20">
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative font-normal">
         {/* Improved mobile handle with translucent styling */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (
@@ -1171,7 +1153,7 @@ export default function ChatComponent() {
                     }
 
                     const newThreads = prevThreads.filter(
-                      (thread) => thread.id !== id,
+                      (thread) => thread.id !== id
                     );
 
                     if (newThreads.length === 0) {
@@ -1193,9 +1175,7 @@ export default function ChatComponent() {
                     if (!Array.isArray(prevThreads)) return [defaultThread];
 
                     return prevThreads.map((thread) =>
-                      thread.id === id
-                        ? { ...thread, title: newTitle }
-                        : thread,
+                      thread.id === id ? { ...thread, title: newTitle } : thread
                     );
                   });
                 }}
@@ -1275,7 +1255,7 @@ export default function ChatComponent() {
                   exit={{ opacity: 0, y: 20 }}
                   transition={{ duration: 0.2 }}
                   onClick={scrollToBottom}
-                  className="fixed bottom-24 right-4 sm:right-8 md:right-12 z-50 p-2 rounded-full bg-gray-800 text-white shadow-lg hover:bg-gray-700 transition-colors"
+                  className="fixed bottom-40 right-4 sm:right-8 md:right-12 z-50 p-2 rounded-full bg-gray-800 text-white shadow-lg hover:bg-gray-700 transition-colors"
                   style={{
                     boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
                   }}
@@ -1296,36 +1276,12 @@ export default function ChatComponent() {
                 </motion.button>
               )}
             </AnimatePresence>
-
-            {/* Scroll to bottom button - WHITE CIRCLE WITH BLACK ARROW FOR DARK MODE */}
-            {showScrollToBottom && (
-              <button
-                onClick={scrollToBottom}
-                className="fixed bottom-28 right-4 z-10 p-2 bg-primary text-white dark:bg-white dark:text-black rounded-full shadow-lg flex items-center justify-center transition-all hover:bg-primary/90 dark:hover:bg-gray-100 animate-fade-in"
-                aria-label="Scroll to bottom"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M12 19V5" />
-                  <path d="m5 12 7 7 7-7" />
-                </svg>
-              </button>
-            )}
           </div>
           <div
             className={`${
               screenSize.isMobileView
                 ? "fixed bottom-0 left-0 right-0 bg-background border-t border-gray-200 dark:border-gray-800 shadow-lg px-2 pb-safe"
-                : ""
+                : "relative"
             }`}
             style={{
               paddingBottom: screenSize.isMobileView

@@ -4,11 +4,13 @@
 
 services:
   tt_studio_backend:
-    container_name: tt_studio_backend_api
-    # hostnames must not contain underscores
+    #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
     image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
-    build: ./backend
+    build: 
+      context: ./backend
+      args:
+        - VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
     #* DEV: Uncomment devices to use Tenstorrent hardware
     # devices:
     #* mounts all tenstorrent devices to backend container
@@ -45,6 +47,8 @@ services:
       - CLOUD_STABLE_DIFFUSION_AUTH_TOKEN
       - CLOUD_SPEECH_RECOGNITION_URL
       - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
+      - TEAM_ID
+      - TOKEN_ID
       - GITHUB_USERNAME
       - GITHUB_PAT
       - VITE_ENABLE_DEPLOYED
@@ -63,31 +67,22 @@ services:
       timeout: 120s
       interval: 10s
       retries: 5
+      start_period: 60s
 
   tt_studio_frontend:
-    container_name: tt_studio_frontend
     hostname: tt-studio-frontend
-    image: ghcr.io/tenstorrent/tt-studio/frontend:v0.1.0
-    build: ./frontend
+    # Container name and image are defined in mode-specific override files
+    # Build configuration is defined in mode-specific override files
     depends_on:
       tt_studio_backend:
         condition: service_healthy
     networks:
       - tt_studio_network
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_ENABLE_DEPLOYED
-      - VITE_APP_TITLE
-      - VITE_ENABLE_RAG_ADMIN
-      - VITE_TEST_AUDIO_URL
-      - VITE_TEST_AUDIO_AUTH
-    command: bash -c "npm i && npm run dev"
+    # Ports and healthcheck are defined in mode-specific override files
 
   tt_studio_agent:
-    container_name: tt_studio_agent
     hostname: tt-studio-agent
-    image: ghcr.io/tenstorrent/tt-studio/agent:v0.0.0
+    # Container name and image are defined in mode-specific override files
     build: ./agent
     depends_on:
       tt_studio_backend:
@@ -104,6 +99,10 @@ services:
       - USE_CLOUD_LLM=true
       - LLM_CONTAINER_NAME
       - BACKEND_API_HOSTNAME
+      - AGENT_LLM_POLLING_TIMEOUT
+      - AGENT_LLM_POLLING_MAX_ATTEMPTS
+      - AGENT_LLM_POLLING_CIRCUIT_BREAKER_THRESHOLD
+      # - E2B_API_KEY
     stdin_open: true
     tty: true
     healthcheck:
@@ -111,6 +110,7 @@ services:
       timeout: 60s
       interval: 10s
       retries: 3
+      start_period: 30s
 
   tt_studio_chroma:
     image: chromadb/chroma:0.5.3

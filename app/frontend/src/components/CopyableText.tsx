@@ -29,21 +29,21 @@ const CopyableText = ({
 
   return (
     <TooltipProvider>
-      <div className="relative group">
+      <div className="relative group pr-6 inline-block align-middle">
         <span className="text-gray-700 dark:text-gray-300">{text}</span>
         <Tooltip>
           <TooltipTrigger asChild>
             {isInsideButton ? (
               <div
                 onClick={handleCopy}
-                className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ml-2 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer"
+                className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer"
               >
                 <ClipboardCopy className="h-4 w-4" />
               </div>
             ) : (
               <button
                 onClick={handleCopy}
-                className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ml-2 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
               >
                 <ClipboardCopy className="h-4 w-4" />
               </button>

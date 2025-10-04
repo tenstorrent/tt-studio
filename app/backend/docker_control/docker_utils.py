@@ -19,7 +19,7 @@ from shared_config.model_type_config import ModelTypes
 from board_control.services import SystemResourceService
 
 
-CONFIG_PATH = "/root/.config/tenstorrent/reset_config.json"
+CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 client = docker.from_env()
@@ -83,6 +83,9 @@ def run_container(impl, weights_id):
 
                 # Update deploy cache on success
                 update_deploy_cache()
+                
+                # Notify agent about new container deployment
+                notify_agent_of_new_container(api_result["container_name"])
 
                 return {
                     "status": "success",
@@ -133,6 +136,10 @@ def run_container(impl, weights_id):
             verify_container(impl, run_kwargs, container)
             # on changes to containers, update deploy cache
             update_deploy_cache()
+            
+            # Notify agent about new container deployment
+            notify_agent_of_new_container(container.name)
+            
             return {
                 "status": "success",
                 "container_id": container.id,
@@ -305,7 +312,7 @@ def update_deploy_cache():
 
     # Get current running container IDs
     current_container_ids = set(data.keys())
-    logger.info(f"!!! current_container_ids:= {current_container_ids}")
+    # logger.info(f"!!! current_container_ids:= {current_container_ids}")  # Temporarily hidden
 
     # Remove containers from cache that are no longer running
     containers_to_remove = cached_container_ids - current_container_ids
@@ -314,10 +321,10 @@ def update_deploy_cache():
         cache.delete(container_id)
 
     # Add/update current running containers in cache
-    logger.info(f"!!! data.items():= {data.items()}")
+    # logger.info(f"!!! data.items():= {data.items()}")  # Temporarily hidden
     for con_id, con in data.items():
         con_model_id = con['env_vars'].get("MODEL_ID")
-        logger.info(f"!!! con_model_id:= {con_model_id}")
+        # logger.info(f"!!! con_model_id:= {con_model_id}")  # Temporarily hidden
         model_impl = model_implmentations.get(con_model_id)
         if not model_impl:
             # find first impl that uses that container name
@@ -333,10 +340,10 @@ def update_deploy_cache():
                     for k, v in model_implmentations.items()
                     if v.image_version == con["image_name"]
                 ]
-            logger.info(f"Container image name: {con['name']}")
-            logger.info("Available model implementations:")
-            for k, v in model_implmentations.items():
-                logger.info(f"Model ID: {k}, Image Version: {v.model_name}")
+            # logger.info(f"Container image name: {con['name']}")  # Temporarily hidden
+            # logger.info("Available model implementations:")  # Temporarily hidden
+            # for k, v in model_implmentations.items():  # Temporarily hidden
+            #     logger.info(f"Model ID: {k}, Image Version: {v.model_name}")  # Temporarily hidden
             assert (
                 len(model_impl) == 1
             ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
@@ -344,7 +351,7 @@ def update_deploy_cache():
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl
-        logger.info(f"con['networks']={con["networks"]}")
+        # logger.info(f"con['networks']={con["networks"]}")  # Temporarily hidden
         # handle containers not running within the tt-studio network
         if backend_config.docker_bridge_network_name in con["networks"].keys():
             hostname = con["networks"][backend_config.docker_bridge_network_name][
@@ -380,12 +387,12 @@ def get_model_weights_path(weights_dir_path, weights_id):
 
 def perform_reset():
     try:
-        logger.info("Running initial tt-smi command to check device detection.")
+        logger.info("Running initial tt-smi -s command to check device detection.")
 
         # Initial check to see if Tenstorrent devices are detected
         def check_device_detection():
             process = subprocess.Popen(
-                ["tt-smi"],
+                ["tt-smi", "-s"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,  # Prevents interactive command-line interface
@@ -407,7 +414,7 @@ def perform_reset():
             if return_code != 0:
                 return {
                     "status": "error",
-                    "message": f"tt-smi command failed with return code {return_code}. Please check if tt-smi is properly installed.",
+                    "message": f"tt-smi -s command failed with return code {return_code}. Please check if tt-smi is properly installed.",
                     "output": "".join(output),
                     "http_status": 500,  # Internal Server Error
                 }
@@ -461,54 +468,47 @@ def perform_reset():
         reset_success = False
         cumulative_output = []
 
-        # Step 1: Try software resets first
+        # Try tt-smi reset with retries
         while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
             reset_attempts += 1
-            logger.info(f"Software reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
-            cumulative_output.append(f"Attempting software reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
+            logger.info(f"Reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
+            cumulative_output.append(f"Attempting reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
 
+            # Ensure the config directory exists
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            
             # Check if the reset config JSON already exists
-            if not os.path.exists(CONFIG_PATH):
-                generate_result = stream_command_output(["tt-smi", "--generate_reset_json"])
+            if not CONFIG_PATH.exists():
+                generate_result = stream_command_output(["tt-smi", "--generate_reset_json", str(CONFIG_PATH)])
                 if generate_result.get("status") == "error":
                     cumulative_output.append(f"Error generating reset config: {generate_result.get('message')}\n")
                     cumulative_output.append(generate_result.get('output', '') + "\n")
                 else:
                     cumulative_output.append("Generated reset configuration successfully.\n")
 
-            # Perform software reset
-            soft_reset_result = stream_command_output(["tt-smi", "--softreset"])
-            cumulative_output.append(soft_reset_result.get('output', '') + "\n")
+            # Perform reset using the generated JSON config
+            reset_result = stream_command_output(["tt-smi", "-r", str(CONFIG_PATH)])
+            cumulative_output.append(reset_result.get('output', '') + "\n")
 
-            if soft_reset_result.get("status") == "success":
-                logger.info(f"Software reset attempt {reset_attempts} succeeded")
+            if reset_result.get("status") == "success":
+                logger.info(f"Reset attempt {reset_attempts} succeeded")
                 reset_success = True
                 break
 
-            logger.warning(f"Software reset attempt {reset_attempts} failed")
+            logger.warning(f"Reset attempt {reset_attempts} failed")
             # Small delay between attempts
             time.sleep(2)
 
-        # If software resets didn't work, try tt-smi reset
+        # If all reset attempts failed
         if not reset_success:
-            logger.warning(f"All {MAX_RESET_ATTEMPTS} software reset attempts failed. Trying tt-smi reset...")
-            cumulative_output.append(f"Software reset attempts exhausted. Trying tt-smi reset...\n")
-
-            # Step 2: Run the tt-smi reset using the generated JSON
-            reset_result = stream_command_output(["tt-smi", "-r", CONFIG_PATH])
-            cumulative_output.append(reset_result.get('output', '') + "\n")
-
-            if reset_result.get("status") == "error":
-                all_output = "".join(cumulative_output)
-                logger.error("tt-smi reset also failed")
-                return {
-                    "status": "error",
-                    "message": f"All reset attempts failed. Last error: {reset_result.get('message')}",
-                    "output": all_output,
-                    "http_status": 500
-                }
-            else:
-                reset_success = True
+            all_output = "".join(cumulative_output)
+            logger.error(f"All {MAX_RESET_ATTEMPTS} reset attempts failed")
+            return {
+                "status": "error", 
+                "message": f"All {MAX_RESET_ATTEMPTS} reset attempts failed using tt-smi --reset command.",
+                "output": all_output,
+                "http_status": 500
+            }
 
         all_output = "".join(cumulative_output)
         if reset_success:
@@ -639,3 +639,20 @@ def detect_board_type():
     except Exception as e:
         logger.error(f"Error detecting board type: {str(e)}")
         return "unknown"
+
+
+def notify_agent_of_new_container(container_name):
+    """Notify the agent about a new container deployment"""
+    try:
+        import requests
+        agent_url = "http://tt_studio_agent:8080/refresh"
+        response = requests.post(agent_url, timeout=10)
+        
+        if response.status_code == 200:
+            logger.info(f"Successfully notified agent about new container: {container_name}")
+        else:
+            logger.warning(f"Failed to notify agent (status {response.status_code}): {response.text}")
+            
+    except Exception as e:
+        logger.warning(f"Failed to notify agent about new container {container_name}: {e}")
+        # Don't fail the deployment if agent notification fails

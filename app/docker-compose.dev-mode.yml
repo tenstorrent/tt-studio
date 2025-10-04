@@ -5,6 +5,8 @@
 # Development mode overrides
 services:
   tt_studio_backend:
+    container_name: tt_studio_backend_api_dev
+    image: ghcr.io/tenstorrent/tt-studio/backend-dev:v0.0.0
     volumes:
       # Mount the local api directory for live code changes
       - ./backend:/backend
@@ -13,6 +15,37 @@ services:
       - DEBUG=True
 
   tt_studio_frontend:
+    container_name: tt_studio_frontend_dev
+    image: ghcr.io/tenstorrent/tt-studio/frontend-dev:v1.1.0
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+      # No build args needed for dev mode since we use runtime env vars
+
+    # Override ports for Vite dev server
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+    # Runtime environment variables for dev mode
+    environment:
+      - VITE_ENABLE_DEPLOYED
+      - VITE_APP_TITLE
+      - VITE_ENABLE_RAG_ADMIN
+
+    # Mount source code for hot reload
     volumes:
-      #! for development mount api changes
-      - ./frontend:/frontend
+      - ./frontend:/app
+      - /app/node_modules
+
+    # Override healthcheck for dev server port
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
+
+  tt_studio_agent:
+    container_name: tt_studio_agent_dev
+    image: ghcr.io/tenstorrent/tt-studio/agent-dev:v0.0.0
+    environment:
+      - HF_MODEL_PATH=meta-llama/Llama-3.1-8B-Instruct
+
+  tt_studio_chroma:
+    container_name: tt_studio_chroma_dev

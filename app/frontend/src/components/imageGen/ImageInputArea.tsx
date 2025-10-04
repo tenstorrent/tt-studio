@@ -66,7 +66,7 @@ export default function ImageInputArea({
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           placeholder="Describe the image you want to generate..."
-          className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base overflow-y-auto"
+          className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base overflow-y-auto text-gray-900 dark:text-white font-medium"
           disabled={isGenerating}
           style={{
             minHeight: "24px",
@@ -78,7 +78,7 @@ export default function ImageInputArea({
             <Button
               type="button"
               variant="ghost"
-              className="text-gray-600 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
+              className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
             >
               <Paperclip className="h-5 w-5" />
             </Button>
@@ -86,7 +86,11 @@ export default function ImageInputArea({
           <Button
             onClick={() => handleGenerate(textInput)}
             disabled={isGenerating || !textInput.trim()}
-            className="bg-[#7C68FA] hover:bg-[#7C68FA]/80 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-300"
+            className={`${
+              isGenerating || !textInput.trim()
+                ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
+                : "bg-[#7C68FA] hover:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-semibold cursor-pointer"
+            } px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-300`}
           >
             {isGenerating ? "Generating..." : "Generate"}
             {isGenerating ? (

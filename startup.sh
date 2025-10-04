@@ -41,6 +41,28 @@ C_TT_PURPLE='\033[38;5;99m' # Corresponds to #7C68FA
 # Define setup script path
 SETUP_SCRIPT="./setup.sh"
 
+# Initialize flags with default values
+NO_BROWSER=false
+WAIT_FOR_SERVICES=false
+
+
+# Parse command line arguments
+for arg in "$@"; do
+    case $arg in
+        --no-browser)
+            NO_BROWSER=true
+            shift
+            ;;
+        --wait-for-services)
+            WAIT_FOR_SERVICES=true
+            shift
+            ;;
+        *)
+            # Pass through other arguments to existing logic
+            ;;
+    esac
+done
+
 # Step 0: detect OS
 OS_NAME="$(uname)"
 
@@ -99,7 +121,9 @@ usage() {
     echo -e "${C_CYAN}  --help      ${C_RESET}${C_WHITE}❓  Show this help message and exit.${C_RESET}"
     # echo -e "${C_CYAN}  --setup     ${C_RESET}${C_WHITE}🔧  Run the setup script with sudo and all steps before executing main steps.${C_RESET}"
     echo -e "${C_CYAN}  --cleanup   ${C_RESET}${C_WHITE}🧹  Stop and remove Docker services.${C_RESET}"
-    echo -e "${C_CYAN}  --dev       ${C_RESET}${C_WHITE}💻  Run in development mode with live code reloading.${C_RESET}\n"
+    echo -e "${C_CYAN}  --dev       ${C_RESET}${C_WHITE}💻  Run in development mode with live code reloading.${C_RESET}"
+    echo -e "${C_CYAN}  --no-browser ${C_RESET}${C_WHITE}🚫  Skip automatic browser opening.${C_RESET}"
+    echo -e "${C_CYAN}  --wait-for-services ${C_RESET}${C_WHITE}⏳  Wait for all services to be healthy before completing.${C_RESET}\n"
     echo -e "${C_BOLD}${C_ORANGE}Examples:${C_RESET}"
     #! TODO add back in support once setup scripts are merged in
     # echo -e "  ./startup.sh --setup             # Run setup steps as sudo, then main steps" phase this out for now .
@@ -533,6 +557,52 @@ done
 # Return to original directory
 cd "$TT_STUDIO_ROOT"
 
+# Wait for services if requested
+if [[ "$WAIT_FOR_SERVICES" = true ]]; then
+    echo -e "${C_BLUE}⏳ Waiting for all services to become healthy...${C_RESET}"
+    
+    # Function to wait for a service health check
+    wait_for_service_health() {
+        local service_name="$1"
+        local health_url="$2"
+        local timeout=${3:-300}
+        local interval=${4:-5}
+        
+        echo "⏳ Waiting for $service_name to become healthy at $health_url..."
+        local start_time=$(date +%s)
+        
+        while true; do
+            local current_time=$(date +%s)
+            local elapsed=$((current_time - start_time))
+            
+            if [ $elapsed -ge $timeout ]; then
+                echo "⚠️  $service_name did not become healthy within $timeout seconds"
+                return 1
+            fi
+            
+            if curl -f "$health_url" >/dev/null 2>&1; then
+                echo "✅ $service_name is healthy!"
+                return 0
+            fi
+            
+            echo "⏳ $service_name not ready yet... (${elapsed}s/${timeout}s)"
+            sleep $interval
+        done
+    }
+    
+    # Check each service
+    wait_for_service_health "ChromaDB" "http://localhost:8111/api/v1/heartbeat"
+    wait_for_service_health "Backend API" "http://localhost:8000/up/"
+    wait_for_service_health "Frontend" "http://localhost:3000/"
+    
+    # Check FastAPI if it should be running
+    if [[ -f "${TT_STUDIO_ROOT}/fastapi.pid" ]] && [[ -n "$(cat "${TT_STUDIO_ROOT}/fastapi.pid" 2>/dev/null)" ]]; then
+        wait_for_service_health "FastAPI Server" "http://localhost:8001/"
+    fi
+    
+    echo -e "${C_GREEN}✅ All services are healthy and ready!${C_RESET}"
+fi
+
 # Final summary display
 echo
 echo -e "${C_GREEN}✔ Setup Complete!${C_RESET}"
@@ -574,12 +644,17 @@ echo -e "${C_WHITE}${C_BOLD}└────────────────�
 echo
 
 # Try to open the browser automatically
-if [[ "$OS_NAME" == "Darwin" ]]; then
-    open "http://localhost:3000" 2>/dev/null || echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
-elif command -v xdg-open &> /dev/null; then
-    xdg-open "http://localhost:3000" 2>/dev/null || echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+# Open browser automatically unless --no-browser flag is set
+if [[ "$NO_BROWSER" != true ]]; then
+    if [[ "$OS_NAME" == "Darwin" ]]; then
+        open "http://localhost:3000" 2>/dev/null || echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+    elif command -v xdg-open &> /dev/null; then
+        xdg-open "http://localhost:3000" 2>/dev/null || echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+    else
+        echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+    fi
 else
-    echo -e "${C_YELLOW}⚠️  Please open http://localhost:3000 in your browser manually${C_RESET}"
+    echo -e "${C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: ${C_CYAN}http://localhost:3000${C_RESET}"
 fi
 
 # If in dev mode, show logs

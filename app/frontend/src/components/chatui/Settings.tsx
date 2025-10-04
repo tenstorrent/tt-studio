@@ -63,7 +63,7 @@ const validateParam = (key: string, value: number): number => {
     const defaultValue = DEFAULT_VALUES[key as keyof typeof DEFAULT_VALUES];
     const numericDefault = typeof defaultValue === "number" ? defaultValue : 1;
     console.warn(
-      `Invalid ${key} value: ${value}. Using default: ${numericDefault}`,
+      `Invalid ${key} value: ${value}. Using default: ${numericDefault}`
     );
     return numericDefault;
   }
@@ -315,9 +315,9 @@ export default function Settings({
             />
 
             <ToggleSetting
-              label="Toggleable Inline Stats"
-              description="Enable inline speed insights that can be toggled per message"
-              tooltip="When enabled, shows a toggle button next to each message to display inference statistics inline"
+              label="Inline Stats"
+              description="Always show inference statistics inline for all messages"
+              tooltip="When enabled, displays inference statistics inline next to each assistant message"
               icon={<BarChart2 className="h-4 w-4" />}
               checked={
                 settings.toggleableInlineStats ??
