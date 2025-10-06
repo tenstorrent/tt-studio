@@ -119,18 +119,25 @@ jobs:
       - name: Show files with missing licenses
         if: env.FILES_WITH_ISSUES != ''
         run: |
-          echo "❌ Found files missing SPDX license headers:"
-          echo ""
-          echo "$FILES_WITH_ISSUES" | while read -r file; do
-            echo "  📄 $file"
-          done
-          echo ""
-          echo "📝 To fix these files, add SPDX headers like:"
-          echo "   # SPDX-License-Identifier: Apache-2.0"
-          echo "   # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+          echo "=================================================="
+          echo "🚨 SPDX LICENSE HEADERS MISSING"
+          echo "=================================================="
           echo ""
           file_count=$(echo "$FILES_WITH_ISSUES" | wc -l)
-          echo "Total files needing headers: $file_count"
+          echo "📊 Total files needing headers: $file_count"
+          echo ""
+          echo "📝 Files to fix:"
+          echo "$FILES_WITH_ISSUES" | sed 's|^\./|   |'
+          echo ""
+          echo "=================================================="
+          echo "✅ HOW TO FIX:"
+          echo "=================================================="
+          echo "Add these 2 lines to the top of each file:"
+          echo ""
+          echo "# SPDX-License-Identifier: Apache-2.0"
+          echo "# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+          echo ""
+          echo "=================================================="
 
       - name: Upload license check results
         if: always()
