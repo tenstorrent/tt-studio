@@ -161,6 +161,7 @@ jobs:
               
               // Set job as failed
               core.setFailed(`Found ${fileCount} files with missing SPDX license headers`);
+            }
 
       - name: Upload license check results
         if: always()
