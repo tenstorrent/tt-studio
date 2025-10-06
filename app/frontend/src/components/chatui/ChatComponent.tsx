@@ -953,7 +953,7 @@ export default function ChatComponent() {
     return (
       <div className="flex flex-col h-screen w-full p-4 space-y-4">
         <Skeleton className="h-16 w-full rounded-lg" /> {/* Header */}
-        <div className="flex-grow space-y-4 overflow-hidden">
+        <div className="grow space-y-4 overflow-hidden">
           <Skeleton className="h-24 w-3/4 rounded-lg" /> {/* Message */}
           <Skeleton className="h-24 w-3/4 ml-auto rounded-lg" />{" "}
           {/* Response */}
@@ -1125,7 +1125,7 @@ export default function ChatComponent() {
         ${
           screenSize.isMobileView
             ? "fixed top-0 left-0 w-[90%] max-w-sm z-50 shadow-xl rounded-r-lg"
-            : "relative flex-shrink-0"
+            : "relative shrink-0"
         }`}
             >
               <HistoryPanel
@@ -1194,7 +1194,7 @@ export default function ChatComponent() {
         </AnimatePresence>
 
         <div
-          className={`flex flex-col flex-grow min-w-0 ${
+          className={`flex flex-col grow min-w-0 ${
             screenSize.isMobileView ? "h-[100dvh] fixed inset-0" : "p-2 sm:p-4"
           } ${getContentMaxWidth()} overflow-hidden`}
         >
@@ -1222,7 +1222,7 @@ export default function ChatComponent() {
           </div>
           <div
             ref={chatContainerRef}
-            className={`flex-grow overflow-y-auto relative ${
+            className={`grow overflow-y-auto relative ${
               screenSize.isMobileView
                 ? "px-1 pb-[140px] pt-2"
                 : "px-1 sm:px-2 md:px-4"

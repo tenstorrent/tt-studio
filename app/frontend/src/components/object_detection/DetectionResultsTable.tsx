@@ -34,14 +34,14 @@ export const DetectionResultsTable: React.FC<DetectionResultsTableProps> = ({
   return (
     <div className="h-full flex flex-col p-4">
       {scaledDetections.length > 0 && (
-        <div className="flex-grow overflow-hidden flex flex-col bg-background rounded-lg border shadow-sm">
+        <div className="grow overflow-hidden flex flex-col bg-background rounded-lg border shadow-sm">
           <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
             <div className="flex items-center gap-2">
               <Activity size={16} className="text-muted-foreground" />
               <span className="text-sm font-semibold">Detection Results</span>
             </div>
           </div>
-          <div className="overflow-y-auto flex-grow">
+          <div className="overflow-y-auto grow">
             <Table className="w-full">
               <TableHeader className="bg-muted/30 sticky top-0 z-10">
                 <TableRow className="hover:bg-transparent">

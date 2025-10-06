@@ -407,7 +407,7 @@ export function MainContent({
                         <div className="flex items-center gap-2 px-2 mb-3 sm:mb-4">
                           <div
                             className={cn(
-                              "h-px flex-grow",
+                              "h-px grow",
                               theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
                             )}
                           ></div>
@@ -424,7 +424,7 @@ export function MainContent({
                           </div>
                           <div
                             className={cn(
-                              "h-px flex-grow",
+                              "h-px grow",
                               theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
                             )}
                           ></div>
