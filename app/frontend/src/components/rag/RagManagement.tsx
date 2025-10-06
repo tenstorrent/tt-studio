@@ -741,9 +741,9 @@ export default function RagManagement() {
             >
               <div className="flex items-center gap-2">
                 {isInternalKnowledgeCollection(item) ? (
-                  <Database className="w-4 h-4 flex-shrink-0 text-blue-500" />
+                  <Database className="w-4 h-4 shrink-0 text-blue-500" />
                 ) : (
-                  <User className="w-4 h-4 flex-shrink-0" />
+                  <User className="w-4 h-4 shrink-0" />
                 )}
                 <span className="truncate font-medium">{item.name}</span>
                 {isInternalKnowledgeCollection(item) && (
@@ -756,7 +756,7 @@ export default function RagManagement() {
               <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 dark:text-gray-400 sm:hidden">
                 {item.documents && item.documents.length > 0 ? (
                   <>
-                    <FileType className="w-3 h-3 flex-shrink-0 text-blue-500" />
+                    <FileType className="w-3 h-3 shrink-0 text-blue-500" />
                     <span className="truncate">
                       {item.documents.length} file
                       {item.documents.length > 1 ? "s" : ""}
@@ -765,7 +765,7 @@ export default function RagManagement() {
                   </>
                 ) : (
                   <>
-                    <FileType className="w-3 h-3 flex-shrink-0 text-gray-400 opacity-50" />
+                    <FileType className="w-3 h-3 shrink-0 text-gray-400 opacity-50" />
                     <span className="truncate italic">No files</span>
                   </>
                 )}
@@ -779,7 +779,7 @@ export default function RagManagement() {
             >
               {item.documents && item.documents.length > 0 ? (
                 <div className="flex items-center gap-2">
-                  <FileType color="blue" className="w-4 h-4 flex-shrink-0" />
+                  <FileType color="blue" className="w-4 h-4 shrink-0" />
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">
                       {item.documents.length} file
@@ -800,7 +800,7 @@ export default function RagManagement() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <FileType color="gray" className="w-4 h-4 flex-shrink-0 opacity-50" />
+                  <FileType color="gray" className="w-4 h-4 shrink-0 opacity-50" />
                   <span className="text-gray-500 italic">No files</span>
                 </div>
               )}
@@ -845,7 +845,7 @@ export default function RagManagement() {
                         className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-md transition-all duration-200 ease-in-out hover:bg-gray-100 dark:hover:bg-gray-700 hover:shadow-sm hover:scale-[1.01]"
                       >
                         <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <FileType className="w-4 h-4 flex-shrink-0 text-blue-500" />
+                          <FileType className="w-4 h-4 shrink-0 text-blue-500" />
                           <div className="flex flex-col min-w-0 flex-1">
                             <span className="text-sm font-medium truncate">{doc.filename}</span>
                             <div className="text-xs text-gray-500 flex gap-2">
@@ -857,7 +857,7 @@ export default function RagManagement() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex-shrink-0">
+                        <div className="shrink-0">
                           <CopyableText text={doc.filename} />
                         </div>
                       </div>
