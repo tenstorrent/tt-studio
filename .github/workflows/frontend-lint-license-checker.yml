@@ -8,6 +8,7 @@ on:
     branches:
       - "main"
       - "staging"
+      - "dev"
     types:
       - opened
       - reopened
@@ -28,29 +29,29 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18' 
-          cache: 'npm'  
-          cache-dependency-path: 'app/frontend/package-lock.json'
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: "app/frontend/package-lock.json"
 
       - name: Install dependencies
-        working-directory: app/frontend  
-        run: npm ci  
+        working-directory: app/frontend
+        run: npm ci
 
       # Single ESLint execution with comprehensive output capture
       - name: Run ESLint and Process Results
-        working-directory: app/frontend  
+        working-directory: app/frontend
         id: eslint_check
         run: |
           set +e
-          
+
           # Run ESLint once and capture output
           echo "Running ESLint..."
           output=$(npm run lint --silent 2>&1)
           exit_code=$?
-          
+
           echo "ESLint completed with exit code: $exit_code"
           echo "$output"
-          
+
           # Clean ANSI escape codes
           clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
           echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV

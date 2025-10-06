@@ -7,6 +7,7 @@ on:
     branches:
       - "main"
       - "staging"
+      - "dev"
     types:
       - opened
       - reopened
@@ -23,7 +24,7 @@ jobs:
         with:
           cache: "pip"
           python-version: "3.10"
-          
+
       - name: Cache dependencies
         uses: actions/cache@v4
         with:
@@ -31,12 +32,12 @@ jobs:
           key: ${{ runner.os }}-pip-spdx-${{ hashFiles('**/requirements*.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-spdx-
-            
+
       - name: Install copyright check tool
         run: |
           pip install --upgrade pip
           pip install git+https://github.com/espressif/check-copyright.git@master
-          
+
       - name: Check SPDX licenses
         id: check_spdx_licenses
         run: |
@@ -44,22 +45,22 @@ jobs:
           # Run the copyright check without config file - uses defaults
           python -m check_copyright --verbose --dry-run . > check_output.txt 2>&1
           exit_code=$?
-          
+
           # Clean ANSI escape codes and save to environment
           clean_output=$(cat check_output.txt | sed 's/\x1b\[[0-9;]*m//g')
           echo "EXIT_CODE=$exit_code" >> $GITHUB_ENV
-          
+
           # Save clean output to file for processing
           echo "$clean_output" > clean_output.txt
           echo "License check completed with exit code: $exit_code"
-          
+
       - name: Extract files with missing licenses
         id: extract_files
         run: |
           python3 << 'EOF'
           import re
           import os
-          
+
           # Read the clean output
           try:
               with open('clean_output.txt', 'r') as f:
@@ -67,26 +68,26 @@ jobs:
           except FileNotFoundError:
               print("No output file found")
               exit(0)
-          
+
           # Extract files that failed copyright check
           files_with_issues = []
-          
+
           # Look for patterns indicating missing license headers
           patterns = [
               r'Files which failed the copyright check:(.*?)(?=Additional information|$)',
               r'Some files are without a copyright note and a license header needs to be added:(.*?)(?=Additional information|$)'
           ]
-          
+
           for pattern in patterns:
               matches = re.findall(pattern, content, re.DOTALL)
               for match in matches:
                   # Extract file paths starting with './'
                   file_paths = re.findall(r'^\s*(\./[^\s]+)', match, re.MULTILINE)
                   files_with_issues.extend(file_paths)
-          
+
           # Remove duplicates and sort
           unique_files = sorted(list(set(files_with_issues)))
-          
+
           # Write to environment variable
           if unique_files:
               with open(os.environ['GITHUB_ENV'], 'a') as f:
@@ -101,7 +102,7 @@ jobs:
               with open(os.environ['GITHUB_ENV'], 'a') as f:
                   f.write("FILES_WITH_ISSUES=\n")
           EOF
-          
+
       - name: Debug extracted files
         run: |
           if [ -n "$FILES_WITH_ISSUES" ]; then
@@ -111,7 +112,7 @@ jobs:
           else
             echo "No files with missing licenses found"
           fi
-          
+
       - name: Comment on PR with missing licenses
         if: env.FILES_WITH_ISSUES != ''
         uses: actions/github-script@v7
@@ -119,12 +120,12 @@ jobs:
           script: |
             const filesWithIssues = process.env.FILES_WITH_ISSUES;
             const issueNumber = context.issue.number || context.payload.pull_request?.number;
-            
+
             if (!issueNumber) {
               console.log("No issue or PR number found, skipping comment");
               return;
             }
-            
+
             if (filesWithIssues && filesWithIssues.trim()) {
               const fileList = filesWithIssues.trim().split('\n');
               const fileCount = fileList.length;
@@ -160,7 +161,7 @@ jobs:
               
               // Set job as failed
               core.setFailed(`Found ${fileCount} files with missing SPDX license headers`);
-            
+
       - name: Upload license check results
         if: always()
         uses: actions/upload-artifact@v4
@@ -170,7 +171,7 @@ jobs:
             check_output.txt
             clean_output.txt
           retention-days: 7
-          
+
       - name: Final status
         run: |
           if [ -n "$FILES_WITH_ISSUES" ]; then
