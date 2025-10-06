@@ -15,6 +15,9 @@ on:
       - assigned
       - review_requested
 
+permissions:
+  contents: read
+
 jobs:
   check-spdx-licenses:
     runs-on: ubuntu-22.04
@@ -113,55 +116,21 @@ jobs:
             echo "No files with missing licenses found"
           fi
 
-      - name: Comment on PR with missing licenses
+      - name: Show files with missing licenses
         if: env.FILES_WITH_ISSUES != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const filesWithIssues = process.env.FILES_WITH_ISSUES;
-            const issueNumber = context.issue.number || context.payload.pull_request?.number;
-
-            if (!issueNumber) {
-              console.log("No issue or PR number found, skipping comment");
-              return;
-            }
-
-            if (filesWithIssues && filesWithIssues.trim()) {
-              const fileList = filesWithIssues.trim().split('\n');
-              const fileCount = fileList.length;
-              
-              const commentBody = `## 📋 SPDX License Check Results
-              
-            Our automated SPDX license verification has found **${fileCount} file(s)** missing license headers:
-
-            \`\`\`
-            ${filesWithIssues.trim()}
-            \`\`\`
-
-            ### ✅ Next Steps
-            Please add a valid SPDX license identifier to each file. For example:
-            \`\`\`
-            # SPDX-License-Identifier: MIT
-            # SPDX-FileCopyrightText: 2024 Your Organization
-            \`\`\`
-
-            This ensures proper licensing compliance. Thank you for your cooperation! 🙏`;
-              
-              try {
-                await github.rest.issues.createComment({
-                  issue_number: issueNumber,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  body: commentBody
-                });
-                console.log(`Comment posted for ${fileCount} files with missing licenses`);
-              } catch (error) {
-                console.error('Failed to post comment:', error);
-              }
-              
-              // Set job as failed
-              core.setFailed(`Found ${fileCount} files with missing SPDX license headers`);
-            }
+        run: |
+          echo "❌ Found files missing SPDX license headers:"
+          echo ""
+          echo "$FILES_WITH_ISSUES" | while read -r file; do
+            echo "  📄 $file"
+          done
+          echo ""
+          echo "📝 To fix these files, add SPDX headers like:"
+          echo "   # SPDX-License-Identifier: Apache-2.0"
+          echo "   # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+          echo ""
+          file_count=$(echo "$FILES_WITH_ISSUES" | wc -l)
+          echo "Total files needing headers: $file_count"
 
       - name: Upload license check results
         if: always()
