@@ -42,8 +42,8 @@ jobs:
         id: check_spdx_licenses
         run: |
           set +e
-          # Run the copyright check without config file - uses defaults
-          python -m check_copyright --verbose --dry-run . > check_output.txt 2>&1
+          # Run the copyright check with the correct config file path
+          python -m check_copyright --config dev-tools/check_copyright_config.yaml --verbose --dry-run . > check_output.txt 2>&1
           exit_code=$?
 
           # Clean ANSI escape codes and save to environment
