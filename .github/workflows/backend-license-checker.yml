@@ -16,86 +16,168 @@ on:
 
 jobs:
   check-spdx-licenses:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5.0.0
         with:
           cache: "pip"
-          python-version: "3.8"
+          python-version: "3.10"
+          
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-spdx-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-spdx-
+            
       - name: Install copyright check tool
-        run: pip install git+https://github.com/espressif/check-copyright.git@master
+        run: |
+          pip install --upgrade pip
+          pip install git+https://github.com/espressif/check-copyright.git@master
+          
       - name: Check SPDX licenses
         id: check_spdx_licenses
         run: |
           set +e
-          output=$(python -m check_copyright --verbose --dry-run --config ./check_copyright_config.yaml . 2>&1)
+          # Run the copyright check without config file - uses defaults
+          python -m check_copyright --verbose --dry-run . > check_output.txt 2>&1
           exit_code=$?
-          clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
-          echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
-          echo "$clean_output" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          
+          # Clean ANSI escape codes and save to environment
+          clean_output=$(cat check_output.txt | sed 's/\x1b\[[0-9;]*m//g')
           echo "EXIT_CODE=$exit_code" >> $GITHUB_ENV
-          exit 0
-      - name: Debug Extracted Files
-        run: |
-          echo "Extracted Files:"
-          echo "$CLEAN_OUTPUT"
-      - name: Extract Files
+          
+          # Save clean output to file for processing
+          echo "$clean_output" > clean_output.txt
+          echo "License check completed with exit code: $exit_code"
+          
+      - name: Extract files with missing licenses
         id: extract_files
         run: |
-            set +e
-            files=$(echo "$CLEAN_OUTPUT" | awk '
-              /Files which failed the copyright check:/, /Additional information about this hook and copyright headers may be found here:/ {
-                if ($0 !~ /Files which failed the copyright check:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
-              }
-              /Some files are without a copyright note and a license header needs to be added:/, /Additional information about this hook and copyright headers may be found here:/ {
-                if ($0 !~ /Some files are without a copyright note and a license header needs to be added:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
-              }' | sed 's/^ *//' | sed '/^$/d' | grep '^.')
-            echo "FILES<<EOF" >> $GITHUB_ENV
-            echo "$files" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-            echo "Extracted Files: $files"
-            exit 0
-      - name: Debug Extracted Files   
+          python3 << 'EOF'
+          import re
+          import os
+          
+          # Read the clean output
+          try:
+              with open('clean_output.txt', 'r') as f:
+                  content = f.read()
+          except FileNotFoundError:
+              print("No output file found")
+              exit(0)
+          
+          # Extract files that failed copyright check
+          files_with_issues = []
+          
+          # Look for patterns indicating missing license headers
+          patterns = [
+              r'Files which failed the copyright check:(.*?)(?=Additional information|$)',
+              r'Some files are without a copyright note and a license header needs to be added:(.*?)(?=Additional information|$)'
+          ]
+          
+          for pattern in patterns:
+              matches = re.findall(pattern, content, re.DOTALL)
+              for match in matches:
+                  # Extract file paths starting with './'
+                  file_paths = re.findall(r'^\s*(\./[^\s]+)', match, re.MULTILINE)
+                  files_with_issues.extend(file_paths)
+          
+          # Remove duplicates and sort
+          unique_files = sorted(list(set(files_with_issues)))
+          
+          # Write to environment variable
+          if unique_files:
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write("FILES_WITH_ISSUES<<EOF\n")
+                  f.write('\n'.join(unique_files) + '\n')
+                  f.write("EOF\n")
+              print(f"Found {len(unique_files)} files with missing licenses:")
+              for file in unique_files:
+                  print(f"  {file}")
+          else:
+              print("No files with missing licenses found")
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write("FILES_WITH_ISSUES=\n")
+          EOF
+          
+      - name: Debug extracted files
         run: |
-          echo "Extracted Files:"
-          echo "$FILES"
-
-      # Extract and clean file paths
-      - name: Extract File Paths
-        if: env.FILES != ''
-        run: |
-            # Extract lines starting with './' but ignore any paths following "Modified files:" until a stop marker
-            files_clean=$(echo "$FILES" | awk '/^Modified files:/ {ignore = 1} /^Above is a list of files/ {ignore = 0} !ignore && /^\.\// {print}' | sort | uniq)
-            # Save the cleaned files into a new environment variable 'FILES_CLEAN'
-            echo "FILES_CLEAN<<EOF" >> $GITHUB_ENV
-            echo "$files_clean" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-            echo "Extracted Paths: $files_clean"       
-      - name: Debug Extracted Paths
-        run: |
-            echo "Extracted Paths:"
-            echo "$FILES_CLEAN"
-            echo "---------------------------------"
-      - name: Comment on PR or Issue
-        if: env.FILES_CLEAN != ''
+          if [ -n "$FILES_WITH_ISSUES" ]; then
+            echo "Files with missing licenses:"
+            echo "$FILES_WITH_ISSUES"
+            echo "Total files: $(echo "$FILES_WITH_ISSUES" | wc -l)"
+          else
+            echo "No files with missing licenses found"
+          fi
+          
+      - name: Comment on PR with missing licenses
+        if: env.FILES_WITH_ISSUES != ''
         uses: actions/github-script@v7
         with:
-              script: |
-                const formattedOutput = process.env.FILES_CLEAN;
-                const issueNumber = context.issue.number || context.payload.pull_request.number;
-                const owner = context.repo.owner;
-                const repo = context.repo.repo;
-                if (formattedOutput) {
-                  const commentBody = `Our automated SPDX license verification process has discovered that the following files are missing a license header:\n\`\`\`\n${formattedOutput}\n\`\`\`\nPlease ensure each indicated file includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Your attention and cooperation in updating these files are greatly appreciated. Thank you.`;
-                  await github.rest.issues.createComment({
-                    issue_number: issueNumber,
-                    owner: owner,
-                    repo: repo,
-                    body: commentBody
-                  });
-                  core.setFailed("SPDX license issues found.");
-                } else {
-                  console.log("No SPDX license issues found.");
-                }
+          script: |
+            const filesWithIssues = process.env.FILES_WITH_ISSUES;
+            const issueNumber = context.issue.number || context.payload.pull_request?.number;
+            
+            if (!issueNumber) {
+              console.log("No issue or PR number found, skipping comment");
+              return;
+            }
+            
+            if (filesWithIssues && filesWithIssues.trim()) {
+              const fileList = filesWithIssues.trim().split('\n');
+              const fileCount = fileList.length;
+              
+              const commentBody = `## 📋 SPDX License Check Results
+              
+            Our automated SPDX license verification has found **${fileCount} file(s)** missing license headers:
+
+            \`\`\`
+            ${filesWithIssues.trim()}
+            \`\`\`
+
+            ### ✅ Next Steps
+            Please add a valid SPDX license identifier to each file. For example:
+            \`\`\`
+            # SPDX-License-Identifier: MIT
+            # SPDX-FileCopyrightText: 2024 Your Organization
+            \`\`\`
+
+            This ensures proper licensing compliance. Thank you for your cooperation! 🙏`;
+              
+              try {
+                await github.rest.issues.createComment({
+                  issue_number: issueNumber,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: commentBody
+                });
+                console.log(`Comment posted for ${fileCount} files with missing licenses`);
+              } catch (error) {
+                console.error('Failed to post comment:', error);
+              }
+              
+              // Set job as failed
+              core.setFailed(`Found ${fileCount} files with missing SPDX license headers`);
+            
+      - name: Upload license check results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spdx-license-check-results
+          path: |
+            check_output.txt
+            clean_output.txt
+          retention-days: 7
+          
+      - name: Final status
+        run: |
+          if [ -n "$FILES_WITH_ISSUES" ]; then
+            file_count=$(echo "$FILES_WITH_ISSUES" | wc -l)
+            echo "❌ License check failed: $file_count files missing SPDX license headers"
+            exit 1
+          else
+            echo "✅ License check passed: All files have proper SPDX license headers"
+            exit 0
+          fi
