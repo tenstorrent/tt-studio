@@ -121,53 +121,49 @@ jobs:
           # Always exit 0 here to allow the workflow to continue to the comment step
           exit 0
 
-      # Comment on PR with comprehensive feedback
-      - name: Comment on PR with ESLint Results
-        if: github.event_name == 'pull_request' && (env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true')
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const lintErrors = process.env.GROUPED_ERRORS;
-            const issueNumber = context.payload.pull_request.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+      # Show results in logs instead of commenting on PR
+      - name: Show ESLint Results
+        if: env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true'
+        run: |
+          echo "=================================================="
+          echo "🚨 FRONTEND LINTING ISSUES FOUND"
+          echo "=================================================="
+          echo ""
 
-            let commentBody = "";
+          if [ "$MISSING_LC_HEADERS" = "true" ]; then
+            echo "📋 SPDX License Header Issues:"
+            echo ""
+            echo "$LC_FLAGGED_FILES" | while read -r file; do
+              echo "  📄 $file"
+            done
+            echo ""
+            echo "✅ Add these lines to the top of each file:"
+            echo "// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+            echo "// SPDX-License-Identifier: Apache-2.0"
+            echo ""
+            echo "=================================================="
+          fi
 
-            // Add license header issues if present
-            if (process.env.MISSING_LC_HEADERS === 'true') {
-              const flaggedFiles = process.env.LC_FLAGGED_FILES.trim();
-              commentBody += `## 🚨 SPDX-License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\n\nPlease ensure each of these files includes a valid SPDX license identifier to maintain licensing compliance.\n`;
-            }
-
-            // Add ESLint errors if present
-            if (lintErrors && process.env.HAS_ERRORS === 'true') {
-              commentBody += `${commentBody ? '\n' : ''}## 📋 Frontend ESLint Issues\n\nThe following ESLint issues were found:\n\n\`\`\`\n${lintErrors}\n\`\`\`\n\nPlease review and resolve these issues to maintain code quality standards.\n`;
-            }
-
-            // Post comment if there are issues to report
-            if (commentBody.trim() && issueNumber) {
-              try {
-                await github.rest.issues.createComment({
-                  issue_number: issueNumber,
-                  owner: owner,
-                  repo: repo,
-                  body: commentBody
-                });
-                console.log("Comment posted successfully.");
-              } catch (error) {
-                console.error("Failed to post comment:", error);
-              }
-            } else {
-              console.log("No issues to report in comment.");
-            }
+          if [ "$HAS_ERRORS" = "true" ]; then
+            echo "🔧 ESLint Issues:"
+            echo ""
+            echo "$GROUPED_ERRORS"
+            echo ""
+            echo "=================================================="
+          fi
 
       # Fail workflow if critical issues are found
       - name: Fail Workflow for Critical Issues
-        if: env.MISSING_LC_HEADERS == 'true'
+        if: env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true'
         run: |
-          echo "❌ Workflow failed due to missing SPDX license headers."
-          echo "Please add proper license headers to all flagged files before merging."
+          if [ "$MISSING_LC_HEADERS" = "true" ]; then
+            echo "❌ Workflow failed due to missing SPDX license headers."
+            echo "Please add proper license headers to all flagged files before merging."
+          fi
+          if [ "$HAS_ERRORS" = "true" ]; then
+            echo "❌ Workflow failed due to ESLint errors."
+            echo "Please fix all ESLint issues before merging."
+          fi
           exit 1
 
       # Summary step for successful runs
