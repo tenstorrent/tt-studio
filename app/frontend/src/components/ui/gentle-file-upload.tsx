@@ -69,7 +69,7 @@ export const GentleFileUpload = ({
           multiple
           accept=".pdf,.txt,.docx,.doc,.md,.html,.py,.js,.ts,.tsx,.jsx,.json,.xml,.yaml,.yml,.csv,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/markdown,text/html,application/json,text/xml,text/csv"
         />
-        <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,white,transparent)]">
+        <div className="absolute inset-0 mask-[radial-gradient(ellipse_at_center,white,transparent)]">
           <GridPattern />
         </div>
         <div className="flex flex-col items-center justify-center">

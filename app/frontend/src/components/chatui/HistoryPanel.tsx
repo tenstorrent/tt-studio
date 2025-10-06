@@ -96,7 +96,7 @@ export function HistoryPanel({
           <Skeleton className="h-9 w-full" /> {/* Search bar */}
           <Skeleton className="h-10 w-full" /> {/* New chat button */}
         </div>
-        <div className="flex-grow space-y-3">
+        <div className="grow space-y-3">
           {[...Array(6)].map((_, i) => (
             <Skeleton key={i} className="h-14 w-full" /> /* Chat items */
           ))}
