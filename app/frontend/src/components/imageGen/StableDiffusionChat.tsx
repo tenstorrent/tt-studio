@@ -47,7 +47,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
         setIsHistoryPanelOpen={setIsHistoryPanelOpen}
       />
 
-      <ScrollArea.Root className="flex-grow overflow-hidden">
+      <ScrollArea.Root className="grow overflow-hidden">
         <ScrollArea.Viewport
           ref={viewportRef}
           className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
@@ -65,7 +65,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                     message.sender === "user" ? "flex-row-reverse" : "flex-row"
                   }`}
                 >
-                  <div className="flex-shrink-0">
+                  <div className="shrink-0">
                     {message.sender === "user" ? (
                       <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center text-white">
                         <User className="h-5 w-5" />

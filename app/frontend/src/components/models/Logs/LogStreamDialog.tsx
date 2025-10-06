@@ -266,7 +266,7 @@ export default function LogStreamDialog({
               }}
             >
               <div className="flex items-start gap-2">
-                <span className="text-gray-500 text-xs mr-1 select-none flex-shrink-0">
+                <span className="text-gray-500 text-xs mr-1 select-none shrink-0">
                   {String(index + 1).padStart(3, "0")}
                 </span>
                 <div className="flex-1">
@@ -362,7 +362,7 @@ export default function LogStreamDialog({
         className="max-w-6xl max-h-[95vh] min-w-[600px] min-h-[400px] resize flex flex-col"
         style={{ resize: "both" }}
       >
-        <DialogHeader className="flex-shrink-0 pb-4 border-b border-gray-200 dark:border-gray-700">
+        <DialogHeader className="shrink-0 pb-4 border-b border-gray-200 dark:border-gray-700">
           <DialogTitle className="flex items-center gap-2">
             <span className="flex items-center gap-2">
               {isHFModel && <HuggingFaceBadge />}
@@ -377,7 +377,7 @@ export default function LogStreamDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-shrink-0 mb-4 p-4 bg-gradient-to-r from-stone-50 to-stone-100 dark:from-stone-900 dark:to-stone-800 rounded-lg border border-stone-200 dark:border-stone-700 shadow-sm">
+        <div className="shrink-0 mb-4 p-4 bg-gradient-to-r from-stone-50 to-stone-100 dark:from-stone-900 dark:to-stone-800 rounded-lg border border-stone-200 dark:border-stone-700 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="p-2 rounded-md bg-stone-900/10 dark:bg-stone-100/10">
@@ -447,7 +447,7 @@ export default function LogStreamDialog({
           onValueChange={setActiveTab}
           className="flex-1 min-h-0 flex flex-col"
         >
-          <TabsList className="grid w-full grid-cols-3 flex-shrink-0 mb-4">
+          <TabsList className="grid w-full grid-cols-3 shrink-0 mb-4">
             <TabsTrigger value="logs">Logs</TabsTrigger>
             <TabsTrigger value="events">Events</TabsTrigger>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>

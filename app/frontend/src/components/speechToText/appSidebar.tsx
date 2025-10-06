@@ -179,7 +179,7 @@ export function AppSidebar({
             onClick={onNewConversation}
             variant="default"
             size="icon"
-            className="h-9 w-9 flex-shrink-0"
+            className="h-9 w-9 shrink-0"
           >
             <Plus className="h-4 w-4" />
             <span className="sr-only">New Conversation</span>
@@ -209,7 +209,7 @@ export function AppSidebar({
                     >
                       <button onClick={() => onSelectConversation(conversation.id)}>
                         <div className="flex items-start w-full">
-                          <MessageSquare className="h-4 w-4 mr-2 flex-shrink-0 mt-0.5" />
+                          <MessageSquare className="h-4 w-4 mr-2 shrink-0 mt-0.5" />
                           <div className="flex-1 overflow-hidden">
                             <div className="font-medium text-sm sm:text-base">
                               {highlightMatch(conversation.title, searchQuery)}
