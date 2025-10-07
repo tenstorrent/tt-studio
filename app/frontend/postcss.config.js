@@ -2,6 +2,6 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 export default {
   plugins: {
-    '@tailwindcss/postcss': {},
+    "@tailwindcss/postcss": {},
   },
 };

@@ -52,14 +52,15 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
   modelID,
   setExternalControls,
 }) => {
-  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } = useWebcam(
-    setDetections,
-    setLiveMode,
-    setIsLoading,
-    setIsStreaming,
-    setIsCameraOn,
-    modelID ?? ""
-  );
+  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } =
+    useWebcam(
+      setDetections,
+      setLiveMode,
+      setIsLoading,
+      setIsStreaming,
+      setIsCameraOn,
+      modelID ?? ""
+    );
 
   // Add a state to track if the component is mounted/visible
   const [isMounted, setIsMounted] = useState(true);
@@ -93,7 +94,11 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       const controls = (
         <div className="flex justify-center">
           {isCapturing ? (
-            <Button onClick={handleStopCapture} variant="outline" className="w-full sm:w-auto">
+            <Button
+              onClick={handleStopCapture}
+              variant="outline"
+              className="w-full sm:w-auto"
+            >
               Stop Capture
             </Button>
           ) : (

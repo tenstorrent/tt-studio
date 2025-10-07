@@ -1,4 +1,4 @@
-name: Front-End Linter SPDX Licenses Checker
+name: TT-Studio Frontend Linter SPDX Licenses Checker
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
     branches:
       - "main"
       - "staging"
+      - "dev"
     types:
       - opened
       - reopened
@@ -28,29 +29,29 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18' 
-          cache: 'npm'  
-          cache-dependency-path: 'app/frontend/package-lock.json'
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: "app/frontend/package-lock.json"
 
       - name: Install dependencies
-        working-directory: app/frontend  
-        run: npm ci  
+        working-directory: app/frontend
+        run: npm ci
 
       # Single ESLint execution with comprehensive output capture
       - name: Run ESLint and Process Results
-        working-directory: app/frontend  
+        working-directory: app/frontend
         id: eslint_check
         run: |
           set +e
-          
+
           # Run ESLint once and capture output
           echo "Running ESLint..."
           output=$(npm run lint --silent 2>&1)
           exit_code=$?
-          
+
           echo "ESLint completed with exit code: $exit_code"
           echo "$output"
-          
+
           # Clean ANSI escape codes
           clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
           echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
@@ -75,8 +76,8 @@ jobs:
                 has_errors=false
               fi
               current_file=$(echo "$line" | sed 's/\n//g')
-            # Detect error lines
-            elif echo "$line" | grep -q 'error'; then
+            # Detect actual error lines (not warnings)
+            elif echo "$line" | grep -qE '^\s*[0-9]+:[0-9]+\s+error'; then
               errors_for_file+="  $line\n"
               has_errors=true
 
@@ -94,12 +95,10 @@ jobs:
             grouped_errors+="$current_file\n$errors_for_file\n"
           fi
 
-          # Set environment variables for subsequent steps
+          # Write to files immediately to avoid argument list too long errors
           if [ -n "$grouped_errors" ]; then
             echo "ESLint errors found."
-            echo "GROUPED_ERRORS<<EOF" >> $GITHUB_ENV
-            echo -e "$grouped_errors" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
+            echo -e "$grouped_errors" > /tmp/eslint_errors.txt
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
           else
             echo "No ESLint errors found."
@@ -108,10 +107,8 @@ jobs:
 
           if [ "$missing_lc_headers" = true ]; then
             echo "Missing license headers detected."
+            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" > /tmp/flagged_files.txt
             echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
-            echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
-            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
           else
             echo "All files have proper license headers."
             echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
@@ -120,53 +117,61 @@ jobs:
           # Always exit 0 here to allow the workflow to continue to the comment step
           exit 0
 
-      # Comment on PR with comprehensive feedback
-      - name: Comment on PR with ESLint Results
-        if: github.event_name == 'pull_request' && (env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true')
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const lintErrors = process.env.GROUPED_ERRORS;
-            const issueNumber = context.payload.pull_request.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+      # Show results in GitHub Actions logs
+      - name: Show ESLint Results
+        if: env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true'
+        run: |
+          echo "=================================================="
+          echo "🚨 FRONTEND LINTING ISSUES FOUND"
+          echo "=================================================="
+          echo ""
 
-            let commentBody = "";
+          if [ "$MISSING_LC_HEADERS" = "true" ]; then
+            echo "📋 SPDX License Header Issues:"
+            echo ""
+            if [ -f /tmp/flagged_files.txt ]; then
+              while IFS= read -r file; do
+                if [ -n "$file" ]; then
+                  echo "  📄 $file"
+                fi
+              done < /tmp/flagged_files.txt
+            fi
+            echo ""
+            echo "✅ To fix: Add these lines to the top of each file:"
+            echo "// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+            echo "// SPDX-License-Identifier: Apache-2.0"
+            echo ""
+            echo "=================================================="
+          fi
 
-            // Add license header issues if present
-            if (process.env.MISSING_LC_HEADERS === 'true') {
-              const flaggedFiles = process.env.LC_FLAGGED_FILES.trim();
-              commentBody += `## 🚨 SPDX-License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\n\nPlease ensure each of these files includes a valid SPDX license identifier to maintain licensing compliance.\n`;
-            }
-
-            // Add ESLint errors if present
-            if (lintErrors && process.env.HAS_ERRORS === 'true') {
-              commentBody += `${commentBody ? '\n' : ''}## 📋 Frontend ESLint Issues\n\nThe following ESLint issues were found:\n\n\`\`\`\n${lintErrors}\n\`\`\`\n\nPlease review and resolve these issues to maintain code quality standards.\n`;
-            }
-
-            // Post comment if there are issues to report
-            if (commentBody.trim() && issueNumber) {
-              try {
-                await github.rest.issues.createComment({
-                  issue_number: issueNumber,
-                  owner: owner,
-                  repo: repo,
-                  body: commentBody
-                });
-                console.log("Comment posted successfully.");
-              } catch (error) {
-                console.error("Failed to post comment:", error);
-              }
-            } else {
-              console.log("No issues to report in comment.");
-            }
+          if [ "$HAS_ERRORS" = "true" ]; then
+            echo "🔧 ESLint Issues:"
+            echo ""
+            if [ -f /tmp/eslint_errors.txt ]; then
+              head -100 /tmp/eslint_errors.txt
+              total_lines=$(wc -l < /tmp/eslint_errors.txt)
+              if [ $total_lines -gt 100 ]; then
+                echo ""
+                echo "... (showing first 100 lines of $total_lines total)"
+                echo "See 'Run ESLint and Process Results' step above for complete output"
+              fi
+            fi
+            echo ""
+            echo "=================================================="
+          fi
 
       # Fail workflow if critical issues are found
       - name: Fail Workflow for Critical Issues
-        if: env.MISSING_LC_HEADERS == 'true'
+        if: env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true'
         run: |
-          echo "❌ Workflow failed due to missing SPDX license headers."
-          echo "Please add proper license headers to all flagged files before merging."
+          if [ "$MISSING_LC_HEADERS" = "true" ]; then
+            echo "❌ Workflow failed due to missing SPDX license headers."
+            echo "Please add proper license headers to all flagged files before merging."
+          fi
+          if [ "$HAS_ERRORS" = "true" ]; then
+            echo "❌ Workflow failed due to ESLint errors."
+            echo "Please fix all ESLint issues before merging."
+          fi
           exit 1
 
       # Summary step for successful runs

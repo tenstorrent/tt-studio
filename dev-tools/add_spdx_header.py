@@ -17,12 +17,19 @@ SUPPORTED FILE TYPES:
 - HTML files (.html, .htm): <!-- comment --> style
 
 DIRECTORIES PROCESSED:
-- app/backend/
-- app/frontend/
+- app/backend/ (Django backend code)
+- app/agent/ (AI agent code)
+- dev-tools/ (Development tools)
+- models/ (Model definitions)
+- docs/ (Documentation files)
+- Root level files (run.py, startup.sh, etc.)
 
 EXCLUDED DIRECTORIES:
-- node_modules/ (external dependencies)
-- tt-inference-server/ (submodule)
+- app/frontend/ (Frontend React/TypeScript code - excluded)
+- node_modules/ (External dependencies)
+- tt-inference-server/ (Submodule - external code)
+- tt_studio_persistent_volume/ (Runtime data)
+- .git/, .venv/, __pycache__/ (System directories)
 
 HOW TO RUN:
 1. From the project root directory (tt-studio/):
@@ -142,7 +149,10 @@ def should_skip_directory(directory_path):
         'build',
         '.next',
         'coverage',
-        '.nyc_output'
+        '.nyc_output',
+        'frontend',  # Explicitly exclude frontend directory
+        'tt-inference-server',  # Exclude submodule
+        'tt_studio_persistent_volume',  # Exclude runtime data
     }
     
     return directory_name in skip_dirs
@@ -152,7 +162,13 @@ if __name__ == "__main__":
     repo_root = Path(__file__).resolve().parent.parent
     directories_to_process = [
         repo_root / "app" / "backend",
-        repo_root / "app" / "frontend",
+        repo_root / "app" / "agent", 
+        repo_root / "dev-tools",
+        repo_root / "models",
+        repo_root / "docs",
+        repo_root,  # Root level files (like run.py, startup.sh)
+        # Frontend excluded as requested
+        # repo_root / "app" / "frontend",
     ]
 
     # Walk through the directories and add the header to relevant files

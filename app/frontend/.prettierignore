@@ -1,0 +1,14 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# Generated files
+src/components/ui
+vite-env.d.ts
+
+# Package files
+package-lock.json
+third-party-licenses.txt
+

@@ -22,7 +22,10 @@ export interface DetectionMetadata {
 }
 
 export interface WebcamPickerProps {
-  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
+  setDetections: (data: {
+    boxes: Detection[];
+    metadata: DetectionMetadata;
+  }) => void;
   setLiveMode: (mode: boolean) => void;
   setIsLoading: (isLoading: boolean) => void;
   setIsStreaming: (isStreaming: boolean) => void;

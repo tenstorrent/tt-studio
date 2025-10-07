@@ -2,7 +2,13 @@
 // SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 import { Button } from "./ui/button";
 // import { Card } from "./ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "./ui/dialog";
 import FileUploader from "./FilesUploader";
 import { Link } from "lucide-react";
 

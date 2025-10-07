@@ -49,4 +49,3 @@ export default function MetricsView({ metrics, onScroll, scrollRef }: Props) {
     </div>
   );
 }
-

@@ -7,13 +7,7 @@ import { Alert, AlertDescription } from "../../ui/alert";
 import { Spinner } from "../../ui/spinner";
 import { Textarea } from "../../ui/textarea";
 import CodeBlock from "../../chatui/CodeBlock";
-import {
-  Copy,
-  Terminal,
-  Play,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
+import { Copy, Terminal, Play, CheckCircle, XCircle } from "lucide-react";
 import { APIInfo } from "../useModelAPIInfo";
 
 interface TestTabProps {
@@ -194,4 +188,4 @@ export const TestTab: React.FC<TestTabProps> = ({
       )}
     </CardContent>
   </Card>
-); 
+);

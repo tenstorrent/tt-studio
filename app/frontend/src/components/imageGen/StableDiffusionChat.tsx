@@ -85,7 +85,9 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                   >
                     <p
                       className={
-                        message.sender === "user" ? "text-white" : "text-gray-900 dark:text-white"
+                        message.sender === "user"
+                          ? "text-white"
+                          : "text-gray-900 dark:text-white"
                       }
                     >
                       {message.text}

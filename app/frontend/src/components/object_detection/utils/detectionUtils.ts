@@ -124,18 +124,24 @@ export const updateBoxPositions = (
         // Use original calculation but without mediaOffsetX for horizontal
         boxLeft = detection.xmin * naturalWidth * mediaScaleX;
         boxTop = detection.ymin * naturalHeight * mediaScaleY + mediaOffsetY;
-        boxWidth = (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
-        boxHeight = (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
+        boxWidth =
+          (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
+        boxHeight =
+          (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
       }
       // For landscape images
       else {
         // Original calculation for landscape
         boxLeft = detection.xmin * naturalWidth * mediaScaleX + mediaOffsetX;
         // Apply vertical centering adjustment for landscape
-        const imageVerticalOffset = (mediaRect.height - naturalHeight * mediaScaleY) / 2;
-        boxTop = detection.ymin * naturalHeight * mediaScaleY + imageVerticalOffset;
-        boxWidth = (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
-        boxHeight = (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
+        const imageVerticalOffset =
+          (mediaRect.height - naturalHeight * mediaScaleY) / 2;
+        boxTop =
+          detection.ymin * naturalHeight * mediaScaleY + imageVerticalOffset;
+        boxWidth =
+          (detection.xmax - detection.xmin) * naturalWidth * mediaScaleX;
+        boxHeight =
+          (detection.ymax - detection.ymin) * naturalHeight * mediaScaleY;
       }
 
       return {

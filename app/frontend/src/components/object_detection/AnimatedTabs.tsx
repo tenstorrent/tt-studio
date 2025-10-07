@@ -40,9 +40,12 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
 
   const navRect = navRef.current?.getBoundingClientRect();
   const selectedTabIndex = tabs.findIndex((tab) => tab.value === selectedTab);
-  const selectedRect = buttonRefs.current[selectedTabIndex]?.getBoundingClientRect();
+  const selectedRect =
+    buttonRefs.current[selectedTabIndex]?.getBoundingClientRect();
   const hoveredRect =
-    hoveredTabIndex !== null && hoveredTabIndex >= 0 && hoveredTabIndex < buttonRefs.current.length
+    hoveredTabIndex !== null &&
+    hoveredTabIndex >= 0 &&
+    hoveredTabIndex < buttonRefs.current.length
       ? buttonRefs.current[hoveredTabIndex]?.getBoundingClientRect()
       : undefined;
 
