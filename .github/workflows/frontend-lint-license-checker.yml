@@ -76,8 +76,8 @@ jobs:
                 has_errors=false
               fi
               current_file=$(echo "$line" | sed 's/\n//g')
-            # Detect error lines
-            elif echo "$line" | grep -q 'error'; then
+            # Detect actual error lines (not warnings)
+            elif echo "$line" | grep -qE '^\s*[0-9]+:[0-9]+\s+error'; then
               errors_for_file+="  $line\n"
               has_errors=true
 
