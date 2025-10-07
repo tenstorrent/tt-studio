@@ -4,7 +4,6 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
-import prettierPlugin from "eslint-plugin-prettier";
 import prettierConfig from "eslint-config-prettier";
 
 // const currentYear = new Date().getFullYear();
@@ -34,13 +33,11 @@ export default [
       "@typescript-eslint": tseslint,
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
-      prettier: prettierPlugin,
     },
     rules: {
       ...js.configs.recommended.rules,
       ...tseslint.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
-      ...prettierConfig.rules,
 
       // React Refresh
       "react-refresh/only-export-components": [
@@ -63,9 +60,8 @@ export default [
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "prefer-const": "warn",
       "no-unused-expressions": "warn",
-
-      // Prettier integration
-      "prettier/prettier": "error",
     },
   },
+  // Prettier config must be last to override other configs
+  prettierConfig,
 ];
