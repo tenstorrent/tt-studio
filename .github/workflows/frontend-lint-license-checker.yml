@@ -133,9 +133,13 @@ jobs:
           if [ "$MISSING_LC_HEADERS" = "true" ]; then
             echo "📋 SPDX License Header Issues:"
             echo ""
-            echo "$LC_FLAGGED_FILES" | while read -r file; do
-              echo "  📄 $file"
-            done
+            # Write to temp file to avoid argument list too long
+            echo "$LC_FLAGGED_FILES" > /tmp/flagged_files.txt
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                echo "  📄 $file"
+              fi
+            done < /tmp/flagged_files.txt
             echo ""
             echo "✅ Add these lines to the top of each file:"
             echo "// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
@@ -147,7 +151,14 @@ jobs:
           if [ "$HAS_ERRORS" = "true" ]; then
             echo "🔧 ESLint Issues:"
             echo ""
-            echo "$GROUPED_ERRORS"
+            # Write to temp file to avoid argument list too long
+            echo "$GROUPED_ERRORS" > /tmp/eslint_errors.txt
+            # Show first 50 lines to avoid overwhelming output
+            head -50 /tmp/eslint_errors.txt
+            if [ $(wc -l < /tmp/eslint_errors.txt) -gt 50 ]; then
+              echo ""
+              echo "... (output truncated - see full ESLint output above)"
+            fi
             echo ""
             echo "=================================================="
           fi
