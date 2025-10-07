@@ -1,4 +1,4 @@
-name: Check SPDX Licenses
+name: TT-Studio Backend SPDX License Checker
 
 on:
   workflow_dispatch:

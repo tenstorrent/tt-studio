@@ -1,4 +1,4 @@
-name: Front-End Linter SPDX Licenses Checker
+name: TT-Studio Frontend Linter SPDX Licenses Checker
 
 on:
   push:
