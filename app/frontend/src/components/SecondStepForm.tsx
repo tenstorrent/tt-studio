@@ -4,9 +4,22 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { useEffect, useState } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
+import { useEffect, useState, useCallback } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "./ui/form";
 
 import { useStepper } from "./ui/stepper";
 import { customToast } from "./CustomToaster";
@@ -26,7 +39,6 @@ export function SecondStepForm({
   setFormError,
 }: SecondStepFormProps & {
   setSelectedWeight: (weight: string) => void;
-  selectedModel: string | null;
   setFormError: (hasError: boolean) => void;
 }) {
   const { nextStep, prevStep } = useStepper();
@@ -43,7 +55,7 @@ export function SecondStepForm({
   useEffect(() => {
     removeDynamicSteps();
     form.reset({ weight: "Default Weights" });
-  }, []);
+  }, []); // Empty dependency array - only run on mount
 
   useEffect(() => {
     setFormError(!!form.formState.errors.weight);
@@ -58,23 +70,35 @@ export function SecondStepForm({
     return () => clearTimeout(timer);
   }, []);
 
-  const onSubmit = async (data: z.infer<typeof SecondFormSchema>) => {
-    setIsSubmitting(true);
-    try {
-      const selectedWeight = data.weight;
-      if (selectedWeight) {
-        setSelectedWeight(selectedWeight);
-        customToast.success("Model Weights Selected!");
-        setFormError(false);
-        nextStep();
-      } else {
-        customToast.error("Weight not found!");
-        setFormError(true);
+  const onSubmit = useCallback(
+    async (data: z.infer<typeof SecondFormSchema>) => {
+      console.log("🎯 SecondStepForm onSubmit called with data:", data);
+
+      setIsSubmitting(true);
+      try {
+        const selectedWeight = data.weight;
+        if (selectedWeight) {
+          console.log("🎯 Setting selected weight to:", selectedWeight);
+          setSelectedWeight(selectedWeight);
+          customToast.success("Model Weights Selected!");
+          setFormError(false);
+
+          // Wait a bit for state to propagate before moving to next step
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          console.log("🎯 Moving to next step (Final Step - Deploy Model)");
+          nextStep();
+        } else {
+          console.log("❌ No weight selected, showing error");
+          customToast.error("Weight not found!");
+          setFormError(true);
+        }
+      } finally {
+        setIsSubmitting(false);
       }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    },
+    [setSelectedWeight, setFormError, nextStep]
+  );
 
   const handlePrevStep = () => {
     removeDynamicSteps();
