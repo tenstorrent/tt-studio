@@ -7,4 +7,3 @@ import ModelsDeployedCard from "./models/ModelsDeployedCard";
 export default function ModelsDeployedTable() {
   return <ModelsDeployedCard />;
 }
-

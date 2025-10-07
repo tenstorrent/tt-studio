@@ -18,7 +18,9 @@ const DeployedHomePage = () => {
             className="w-full h-full transform-gpu"
             opacity={0.7}
             lightLineColor={
-              theme === "dark" ? "rgba(124, 104, 250, 0.9)" : "rgba(124, 104, 250, 0.4)"
+              theme === "dark"
+                ? "rgba(124, 104, 250, 0.9)"
+                : "rgba(124, 104, 250, 0.4)"
             }
             darkLineColor="rgba(124, 104, 250, 0.9)"
             cellSize={50}

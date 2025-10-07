@@ -64,7 +64,8 @@ export function generatePrompt(
 
   // Get the latest user question
   const latestUserQuestion =
-    chatHistory.length > 0 && chatHistory[chatHistory.length - 1].sender === "user"
+    chatHistory.length > 0 &&
+    chatHistory[chatHistory.length - 1].sender === "user"
       ? chatHistory[chatHistory.length - 1].text
       : "";
 

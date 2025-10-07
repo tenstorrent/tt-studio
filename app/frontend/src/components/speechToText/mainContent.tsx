@@ -14,7 +14,12 @@ import { Button } from "@/src/components/ui/button";
 import { Card } from "@/src/components/ui/card";
 import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
 import { cn } from "../../lib/utils";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 import { sendAudioRecording } from "./lib/apiClient";
 import { useTheme } from "../../hooks/useTheme";
 
@@ -102,7 +107,12 @@ export function MainContent({
 
   // Handle recording complete
   const handleRecordingComplete = async (recordedBlob: Blob) => {
-    console.log("Recording completed, blob type:", recordedBlob.type, "size:", recordedBlob.size);
+    console.log(
+      "Recording completed, blob type:",
+      recordedBlob.type,
+      "size:",
+      recordedBlob.size
+    );
     setAudioBlob(recordedBlob);
     setHasRecordedBefore(true);
 
@@ -142,7 +152,9 @@ export function MainContent({
       console.log("Transcription successful:", transcriptionText);
     } catch (error) {
       console.error("Error processing audio:", error);
-      alert(`Transcription Error: ${error instanceof Error ? error.message : "Unknown error"}`);
+      alert(
+        `Transcription Error: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -246,7 +258,11 @@ export function MainContent({
         scrollToBottom();
       }, 500); // Increased timeout for more reliable scrolling
     }
-  }, [justSentRecording, selectedConversationData?.transcriptions.length, autoScrollEnabled]);
+  }, [
+    justSentRecording,
+    selectedConversationData?.transcriptions.length,
+    autoScrollEnabled,
+  ]);
 
   // This effect tracks when a transcription is added and ensures the view switches
   useEffect(() => {
@@ -311,7 +327,8 @@ export function MainContent({
       if (!container) return;
 
       const isAtBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 200; // Increased threshold for better detection
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        200; // Increased threshold for better detection
 
       // Only update if there's a change to prevent unnecessary renders
       if (isAtBottom !== autoScrollEnabled) {
@@ -348,11 +365,13 @@ export function MainContent({
                   <p
                     className={cn(
                       "text-sm sm:text-base",
-                      theme === "dark" ? "text-TT-purple-tint1" : "text-TT-purple-shade"
+                      theme === "dark"
+                        ? "text-TT-purple-tint1"
+                        : "text-TT-purple-shade"
                     )}
                   >
-                    Record your voice and convert it to text instantly. Follow the steps below to
-                    get started.
+                    Record your voice and convert it to text instantly. Follow
+                    the steps below to get started.
                   </p>
                 </div>
 
@@ -401,46 +420,73 @@ export function MainContent({
               <div className="flex flex-col">
                 {/* Display transcriptions grouped by date */}
                 <div className="mb-4 sm:mb-6">
-                  {groupTranscriptionsByDate(selectedConversationData.transcriptions).map(
-                    (group) => (
-                      <div key={group.date} className="mb-6 sm:mb-8">
-                        <div className="flex items-center gap-2 px-2 mb-3 sm:mb-4">
-                          <div
+                  {groupTranscriptionsByDate(
+                    selectedConversationData.transcriptions
+                  ).map((group) => (
+                    <div key={group.date} className="mb-6 sm:mb-8">
+                      <div className="flex items-center gap-2 px-2 mb-3 sm:mb-4">
+                        <div
+                          className={cn(
+                            "h-px grow",
+                            theme === "dark"
+                              ? "bg-TT-purple-shade/40"
+                              : "bg-TT-purple-shade/20"
+                          )}
+                        ></div>
+                        <div
+                          className={cn(
+                            "text-xs font-medium px-2 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20",
+                            theme === "dark"
+                              ? "text-white bg-TT-purple-shade/60"
+                              : "text-TT-purple bg-TT-purple-shade/20"
+                          )}
+                        >
+                          <Clock className="h-3 w-3 mr-1 text-TT-purple-tint1" />
+                          {group.date}
+                        </div>
+                        <div
+                          className={cn(
+                            "h-px grow",
+                            theme === "dark"
+                              ? "bg-TT-purple-shade/40"
+                              : "bg-TT-purple-shade/20"
+                          )}
+                        ></div>
+                      </div>
+
+                      <div className="space-y-3 sm:space-y-4">
+                        {group.items.map((transcription, index) => (
+                          <Card
+                            key={transcription.id}
                             className={cn(
-                              "h-px grow",
-                              theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
-                            )}
-                          ></div>
-                          <div
-                            className={cn(
-                              "text-xs font-medium px-2 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center shadow-md shadow-TT-purple-shade/20",
+                              "p-3 sm:p-5 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
                               theme === "dark"
-                                ? "text-white bg-TT-purple-shade/60"
-                                : "text-TT-purple bg-TT-purple-shade/20"
+                                ? "bg-[#222222]/80 border-y border-r border-TT-purple-shade/30"
+                                : "bg-white/80 border-y border-r border-TT-purple-shade/20",
+                              index % 2 === 0
+                                ? "border-l-TT-purple-accent"
+                                : "border-l-TT-blue",
+                              justSentRecording &&
+                                index === group.items.length - 1 &&
+                                group ===
+                                  groupTranscriptionsByDate(
+                                    selectedConversationData.transcriptions
+                                  )[
+                                    groupTranscriptionsByDate(
+                                      selectedConversationData.transcriptions
+                                    ).length - 1
+                                  ]
+                                ? "ring-2 ring-TT-purple/30 bg-TT-purple-shade/10 animate-pulse"
+                                : ""
                             )}
                           >
-                            <Clock className="h-3 w-3 mr-1 text-TT-purple-tint1" />
-                            {group.date}
-                          </div>
-                          <div
-                            className={cn(
-                              "h-px grow",
-                              theme === "dark" ? "bg-TT-purple-shade/40" : "bg-TT-purple-shade/20"
-                            )}
-                          ></div>
-                        </div>
-
-                        <div className="space-y-3 sm:space-y-4">
-                          {group.items.map((transcription, index) => (
-                            <Card
-                              key={transcription.id}
-                              className={cn(
-                                "p-3 sm:p-5 backdrop-blur-sm border-l-4 shadow-lg shadow-TT-purple/5 transition-all duration-200 hover:shadow-TT-purple/10",
-                                theme === "dark"
-                                  ? "bg-[#222222]/80 border-y border-r border-TT-purple-shade/30"
-                                  : "bg-white/80 border-y border-r border-TT-purple-shade/20",
-                                index % 2 === 0 ? "border-l-TT-purple-accent" : "border-l-TT-blue",
-                                justSentRecording &&
+                            <div className="flex justify-between items-center mb-2 sm:mb-3">
+                              <div className="flex items-center gap-1 sm:gap-2">
+                                <MessageSquare className="h-3 w-3 sm:h-4 sm:w-4 text-TT-purple" />
+                                <p className="text-xs sm:text-sm font-medium text-TT-purple-tint1">
+                                  {formatTime(transcription.date)}
+                                </p>
+                                {justSentRecording &&
                                   index === group.items.length - 1 &&
                                   group ===
                                     groupTranscriptionsByDate(
@@ -449,218 +495,222 @@ export function MainContent({
                                       groupTranscriptionsByDate(
                                         selectedConversationData.transcriptions
                                       ).length - 1
-                                    ]
-                                  ? "ring-2 ring-TT-purple/30 bg-TT-purple-shade/10 animate-pulse"
-                                  : ""
-                              )}
-                            >
-                              <div className="flex justify-between items-center mb-2 sm:mb-3">
-                                <div className="flex items-center gap-1 sm:gap-2">
-                                  <MessageSquare className="h-3 w-3 sm:h-4 sm:w-4 text-TT-purple" />
-                                  <p className="text-xs sm:text-sm font-medium text-TT-purple-tint1">
-                                    {formatTime(transcription.date)}
-                                  </p>
-                                  {justSentRecording &&
-                                    index === group.items.length - 1 &&
-                                    group ===
-                                      groupTranscriptionsByDate(
-                                        selectedConversationData.transcriptions
-                                      )[
-                                        groupTranscriptionsByDate(
-                                          selectedConversationData.transcriptions
-                                        ).length - 1
-                                      ] && (
-                                      <span className="text-xs bg-TT-purple-accent/20 text-TT-purple-accent px-1.5 sm:px-2 py-0.5 rounded-full">
-                                        New
-                                      </span>
-                                    )}
-                                </div>
-                                <div className="flex space-x-1 sm:space-x-2">
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() => copyToClipboard(transcription.text)}
-                                          className="h-8 w-8 hover:bg-TT-blue-shade/20 text-TT-blue"
-                                        >
-                                          <Copy className="h-3 w-3 sm:h-4 sm:w-4" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Copy to clipboard</TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-
-                                  {isEditing === transcription.id ? (
-                                    <TooltipProvider>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={saveTranscription}
-                                            className="h-8 w-8 hover:bg-TT-green-shade/20 text-TT-green"
-                                          >
-                                            <Save className="h-3 w-3 sm:h-4 sm:w-4" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Save changes</TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
-                                  ) : (
-                                    <TooltipProvider>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => setIsEditing(transcription.id)}
-                                            className="h-8 w-8 hover:bg-TT-yellow-shade/20 text-TT-yellow"
-                                          >
-                                            <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Edit transcription</TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
+                                    ] && (
+                                    <span className="text-xs bg-TT-purple-accent/20 text-TT-purple-accent px-1.5 sm:px-2 py-0.5 rounded-full">
+                                      New
+                                    </span>
                                   )}
+                              </div>
+                              <div className="flex space-x-1 sm:space-x-2">
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          copyToClipboard(transcription.text)
+                                        }
+                                        className="h-8 w-8 hover:bg-TT-blue-shade/20 text-TT-blue"
+                                      >
+                                        <Copy className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Copy to clipboard
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
 
+                                {isEditing === transcription.id ? (
                                   <TooltipProvider>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         <Button
                                           variant="ghost"
                                           size="icon"
-                                          className="h-8 w-8 hover:bg-TT-red-shade/20 text-TT-red"
+                                          onClick={saveTranscription}
+                                          className="h-8 w-8 hover:bg-TT-green-shade/20 text-TT-green"
                                         >
-                                          <Trash className="h-3 w-3 sm:h-4 sm:w-4" />
+                                          <Save className="h-3 w-3 sm:h-4 sm:w-4" />
                                         </Button>
                                       </TooltipTrigger>
-                                      <TooltipContent>Delete transcription</TooltipContent>
+                                      <TooltipContent>
+                                        Save changes
+                                      </TooltipContent>
                                     </Tooltip>
                                   </TooltipProvider>
+                                ) : (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() =>
+                                            setIsEditing(transcription.id)
+                                          }
+                                          className="h-8 w-8 hover:bg-TT-yellow-shade/20 text-TT-yellow"
+                                        >
+                                          <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        Edit transcription
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
+
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 hover:bg-TT-red-shade/20 text-TT-red"
+                                      >
+                                        <Trash className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Delete transcription
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                            </div>
+
+                            {/* Audio preview */}
+                            {transcription.audioBlob && (
+                              <div
+                                className={cn(
+                                  "mb-2 sm:mb-3 rounded-md border backdrop-blur-sm",
+                                  theme === "dark"
+                                    ? "border-TT-purple-shade/50 bg-[#1A1A1A]/90"
+                                    : "border-TT-purple-shade/20 bg-white/90"
+                                )}
+                              >
+                                <div className="flex items-center gap-1 sm:gap-2 p-2 sm:p-3">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      const audio = document.getElementById(
+                                        `audio-${transcription.id}`
+                                      ) as HTMLAudioElement;
+                                      if (audio.paused) {
+                                        audio.play();
+                                      } else {
+                                        audio.pause();
+                                      }
+                                    }}
+                                    className={cn(
+                                      "h-7 w-7 sm:h-8 sm:w-8 p-0 flex items-center justify-center",
+                                      "text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
+                                    )}
+                                  >
+                                    <Play className="h-3 w-3 sm:h-4 sm:w-4" />
+                                  </Button>
+                                  <div className="flex-1">
+                                    <audio
+                                      id={`audio-${transcription.id}`}
+                                      className={cn(
+                                        "w-full",
+                                        theme === "dark"
+                                          ? "[&::-webkit-media-controls-panel]:bg-[#1A1A1A]/90"
+                                          : "[&::-webkit-media-controls-panel]:bg-white/90",
+                                        "[&::-webkit-media-controls-play-button]:hidden",
+                                        "[&::-webkit-media-controls-current-time-display]:text-TT-purple-tint1",
+                                        "[&::-webkit-media-controls-time-remaining-display]:text-TT-purple-tint1",
+                                        "[&::-webkit-media-controls-timeline]:accent-TT-purple"
+                                      )}
+                                      src={
+                                        transcription.audioBlob
+                                          ? URL.createObjectURL(
+                                              transcription.audioBlob
+                                            )
+                                          : undefined
+                                      }
+                                      controls
+                                      ref={audioElementRef}
+                                      style={{ height: "32px" }}
+                                    />
+                                  </div>
                                 </div>
                               </div>
+                            )}
 
-                              {/* Audio preview */}
-                              {transcription.audioBlob && (
-                                <div
-                                  className={cn(
-                                    "mb-2 sm:mb-3 rounded-md border backdrop-blur-sm",
-                                    theme === "dark"
-                                      ? "border-TT-purple-shade/50 bg-[#1A1A1A]/90"
-                                      : "border-TT-purple-shade/20 bg-white/90"
-                                  )}
-                                >
-                                  <div className="flex items-center gap-1 sm:gap-2 p-2 sm:p-3">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        const audio = document.getElementById(
-                                          `audio-${transcription.id}`
-                                        ) as HTMLAudioElement;
-                                        if (audio.paused) {
-                                          audio.play();
-                                        } else {
-                                          audio.pause();
-                                        }
-                                      }}
-                                      className={cn(
-                                        "h-7 w-7 sm:h-8 sm:w-8 p-0 flex items-center justify-center",
-                                        "text-TT-purple hover:text-TT-purple-accent hover:bg-TT-purple/10"
-                                      )}
-                                    >
-                                      <Play className="h-3 w-3 sm:h-4 sm:w-4" />
-                                    </Button>
-                                    <div className="flex-1">
-                                      <audio
-                                        id={`audio-${transcription.id}`}
-                                        className={cn(
-                                          "w-full",
-                                          theme === "dark"
-                                            ? "[&::-webkit-media-controls-panel]:bg-[#1A1A1A]/90"
-                                            : "[&::-webkit-media-controls-panel]:bg-white/90",
-                                          "[&::-webkit-media-controls-play-button]:hidden",
-                                          "[&::-webkit-media-controls-current-time-display]:text-TT-purple-tint1",
-                                          "[&::-webkit-media-controls-time-remaining-display]:text-TT-purple-tint1",
-                                          "[&::-webkit-media-controls-timeline]:accent-TT-purple"
-                                        )}
-                                        src={
-                                          transcription.audioBlob
-                                            ? URL.createObjectURL(transcription.audioBlob)
-                                            : undefined
-                                        }
-                                        controls
-                                        ref={audioElementRef}
-                                        style={{ height: "32px" }}
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
+                            {isEditing === transcription.id ? (
+                              <textarea
+                                ref={textareaRef}
+                                className={cn(
+                                  "w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 rounded-md text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-TT-purple",
+                                  theme === "dark"
+                                    ? "bg-[#1A1A1A] text-white border-TT-purple-shade/50"
+                                    : "bg-white text-gray-900 border-TT-purple-shade/20"
+                                )}
+                                defaultValue={transcription.text}
+                              ></textarea>
+                            ) : (
+                              <div
+                                className={cn(
+                                  "p-3 sm:p-4 rounded-lg min-h-[60px] relative group transition-all duration-200",
+                                  theme === "dark"
+                                    ? "bg-[#1E1E1E] text-white border-[#2A2A2A]"
+                                    : "bg-gray-50 text-gray-900 border-gray-200",
+                                  "border shadow-[inset_1px_1px_0px_rgba(0,0,0,0.1),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)]"
+                                )}
+                              >
+                                <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-TT-purple/5 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none"></div>
 
-                              {isEditing === transcription.id ? (
-                                <textarea
-                                  ref={textareaRef}
-                                  className={cn(
-                                    "w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 rounded-md text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-TT-purple",
-                                    theme === "dark"
-                                      ? "bg-[#1A1A1A] text-white border-TT-purple-shade/50"
-                                      : "bg-white text-gray-900 border-TT-purple-shade/20"
-                                  )}
-                                  defaultValue={transcription.text}
-                                ></textarea>
-                              ) : (
-                                <div
-                                  className={cn(
-                                    "p-3 sm:p-4 rounded-lg min-h-[60px] relative group transition-all duration-200",
-                                    theme === "dark"
-                                      ? "bg-[#1E1E1E] text-white border-[#2A2A2A]"
-                                      : "bg-gray-50 text-gray-900 border-gray-200",
-                                    "border shadow-[inset_1px_1px_0px_rgba(0,0,0,0.1),_inset_-1px_-1px_0px_rgba(255,255,255,0.05)]"
-                                  )}
-                                >
-                                  <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-TT-purple/5 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none"></div>
-
-                                  <div className="flex items-center gap-2 mb-1.5 sm:mb-2.5">
-                                    <div className="h-1.5 w-1.5 rounded-full bg-TT-purple-accent opacity-80"></div>
-                                    <div
-                                      className={cn(
-                                        "text-xs opacity-80 font-medium tracking-wide",
-                                        theme === "dark" ? "text-TT-purple-tint1" : "text-TT-purple"
-                                      )}
-                                    >
-                                      Transcription
-                                    </div>
-                                  </div>
-
+                                <div className="flex items-center gap-2 mb-1.5 sm:mb-2.5">
+                                  <div className="h-1.5 w-1.5 rounded-full bg-TT-purple-accent opacity-80"></div>
                                   <div
                                     className={cn(
-                                      "text-sm sm:text-base leading-relaxed",
-                                      theme === "dark" ? "text-TT-purple-tint2" : "text-gray-700"
+                                      "text-xs opacity-80 font-medium tracking-wide",
+                                      theme === "dark"
+                                        ? "text-TT-purple-tint1"
+                                        : "text-TT-purple"
                                     )}
                                   >
-                                    {transcription.text}
-                                  </div>
-
-                                  <div
-                                    className={cn(
-                                      "text-right text-xs mt-2 sm:mt-3 opacity-60 font-mono",
-                                      theme === "dark" ? "text-TT-purple-shade" : "text-gray-500"
-                                    )}
-                                  >
-                                    {transcription.text.split(/\s+/).filter(Boolean).length} words
+                                    Transcription
                                   </div>
                                 </div>
-                              )}
-                            </Card>
-                          ))}
-                        </div>
+
+                                <div
+                                  className={cn(
+                                    "text-sm sm:text-base leading-relaxed",
+                                    theme === "dark"
+                                      ? "text-TT-purple-tint2"
+                                      : "text-gray-700"
+                                  )}
+                                >
+                                  {transcription.text}
+                                </div>
+
+                                <div
+                                  className={cn(
+                                    "text-right text-xs mt-2 sm:mt-3 opacity-60 font-mono",
+                                    theme === "dark"
+                                      ? "text-TT-purple-shade"
+                                      : "text-gray-500"
+                                  )}
+                                >
+                                  {
+                                    transcription.text
+                                      .split(/\s+/)
+                                      .filter(Boolean).length
+                                  }{" "}
+                                  words
+                                </div>
+                              </div>
+                            )}
+                          </Card>
+                        ))}
                       </div>
-                    )
-                  )}
+                    </div>
+                  ))}
                 </div>
 
                 {/* Add new recording button at bottom of conversation with improved styling */}
@@ -681,7 +731,9 @@ export function MainContent({
                   >
                     <Mic className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                     <span className="text-sm sm:text-base text-white">
-                      {hasRecordedBefore ? "Record Another Message" : "Record New Message"}
+                      {hasRecordedBefore
+                        ? "Record Another Message"
+                        : "Record New Message"}
                     </span>
                   </Button>
 
@@ -719,7 +771,9 @@ export function MainContent({
                                     : "border border-white"
                                 )}
                               >
-                                <span className="text-xs text-white font-bold">+</span>
+                                <span className="text-xs text-white font-bold">
+                                  +
+                                </span>
                               </span>
                             )}
                           </Button>

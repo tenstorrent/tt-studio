@@ -20,4 +20,6 @@ export interface ModelsContextType {
   hasDeployedModels: boolean;
 }
 
-export const ModelsContext = createContext<ModelsContextType | undefined>(undefined);
+export const ModelsContext = createContext<ModelsContextType | undefined>(
+  undefined
+);

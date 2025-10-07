@@ -110,4 +110,3 @@ export default function EventsView({ events, onScroll, scrollRef }: Props) {
     </div>
   );
 }
-

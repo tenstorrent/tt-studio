@@ -35,10 +35,14 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onToggleStats: _onToggleStats, // Marked as intentionally unused for now
   toggleableInlineStats = true,
 }) => {
-  const [completeMessage, setCompleteMessage] = useState<string>(messageContent || "");
+  const [completeMessage, setCompleteMessage] = useState<string>(
+    messageContent || ""
+  );
 
   // Add state for tracking feedback status
-  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(null);
+  const [feedback, setFeedback] = useState<"thumbsUp" | "thumbsDown" | null>(
+    null
+  );
 
   // Update the complete message when streaming finishes
   useEffect(() => {
@@ -143,7 +147,11 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
           {/* Always show inline stats when toggleableInlineStats is enabled */}
           {inferenceStats && toggleableInlineStats && (
-            <InferenceStats stats={inferenceStats} modelName={modelName} inline={true} />
+            <InferenceStats
+              stats={inferenceStats}
+              modelName={modelName}
+              inline={true}
+            />
           )}
 
           {/* Show original stats component when feature is disabled */}
