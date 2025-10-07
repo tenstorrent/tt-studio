@@ -439,10 +439,11 @@ def configure_environment_sequentially(dev_mode=False, no_user_input=False):
         current_sudo_pass = get_env_var("SUDO_PASSWORD")
         if should_configure_var("SUDO_PASSWORD", current_sudo_pass):
             if no_user_input:
-                # Don't configure sudo password automatically for security
-                print(f"{C_YELLOW}⚠️  SUDO_PASSWORD not configured. Sudo operations may prompt for password.{C_RESET}")
-                print(f"   To avoid prompts, manually set SUDO_PASSWORD in your .env file.")
+                # When no user input is allowed, just warn and leave empty
+                print(f"{C_YELLOW}⚠️  USE_SUDO=true but SUDO_PASSWORD not configured.{C_RESET}")
+                print(f"   With --no-user-input flag, sudo operations will fail unless SUDO_PASSWORD is set.")
                 write_env_var("SUDO_PASSWORD", "")
+                print(f"✅ SUDO_PASSWORD left empty (set manually in .env file for automated sudo).")
             else:
                 print("🔒 Sudo is enabled. You can optionally store your sudo password to avoid prompts.")
                 print(f"{C_YELLOW}⚠️  WARNING: Storing passwords in plain text has security implications.{C_RESET}")
@@ -462,6 +463,9 @@ def configure_environment_sequentially(dev_mode=False, no_user_input=False):
         else:
             current_pass_status = "configured" if current_sudo_pass else "not set"
             print(f"✅ SUDO_PASSWORD already {current_pass_status}.")
+    else:
+        # If USE_SUDO is false, we don't need SUDO_PASSWORD
+        print(f"🔹 SUDO_PASSWORD not needed (USE_SUDO=false).")
 
     print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
     
@@ -1511,7 +1515,7 @@ def cleanup_fastapi_server(no_sudo=False):
     
     print(f"✅ FastAPI server cleanup completed")
 
-def request_sudo_authentication():
+def request_sudo_authentication(no_user_input=False):
     """Request sudo authentication upfront and cache it for later use."""
     # Check if sudo is available
     if not shutil.which("sudo"):
@@ -1520,32 +1524,52 @@ def request_sudo_authentication():
     
     sudo_password = get_env_var("SUDO_PASSWORD")
     
-    if sudo_password:
-        print(f"🔐 Using stored sudo password for authentication...")
-        try:
-            # Test sudo access with stored password
-            result = run_sudo_command(["-v"], check=True, capture_output=True)
-            print(f"✅ Sudo authentication successful (using stored password).")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"{C_RED}⛔ Error: Stored sudo password is incorrect or expired{C_RESET}")
-            print(f"{C_YELLOW}   Please update SUDO_PASSWORD in your .env file or remove it to be prompted.{C_RESET}")
+    if no_user_input:
+        # With --no-user-input, only use stored password, no prompts
+        if sudo_password:
+            print(f"🔐 Using stored sudo password for authentication...")
+            try:
+                # Test sudo access with stored password
+                result = run_sudo_command(["-v"], check=True, capture_output=True)
+                print(f"✅ Sudo authentication successful (using stored password).")
+                return True
+            except subprocess.CalledProcessError as e:
+                print(f"{C_RED}⛔ Error: Stored sudo password is incorrect or expired{C_RESET}")
+                print(f"{C_YELLOW}   Please update SUDO_PASSWORD in your .env file.{C_RESET}")
+                return False
+        else:
+            print(f"{C_RED}⛔ Error: --no-user-input requires SUDO_PASSWORD to be set in .env file{C_RESET}")
+            print(f"   Either set SUDO_PASSWORD in your .env file or remove --no-user-input flag.")
             return False
     else:
-        print(f"🔐 TT Inference Server setup requires sudo privileges. Please enter your password:")
-        try:
-            # Test sudo access - this will prompt for password if needed
-            result = subprocess.run(["sudo", "-v"], check=True, capture_output=True, text=True)
-            print(f"✅ Sudo authentication successful.")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"{C_RED}⛔ Error: Failed to authenticate with sudo{C_RESET}")
-            if e.returncode == 1:
-                print(f"{C_YELLOW}   This usually means the password was incorrect or sudo access was denied.{C_RESET}")
-            return False
-        except FileNotFoundError:
-            print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
-            return False
+        # Interactive mode - can use stored password or prompt
+        if sudo_password:
+            print(f"🔐 Using stored sudo password for authentication...")
+            try:
+                # Test sudo access with stored password
+                result = run_sudo_command(["-v"], check=True, capture_output=True)
+                print(f"✅ Sudo authentication successful (using stored password).")
+                return True
+            except subprocess.CalledProcessError as e:
+                print(f"{C_RED}⛔ Error: Stored sudo password is incorrect or expired{C_RESET}")
+                print(f"{C_YELLOW}   Please update SUDO_PASSWORD in your .env file or remove it to be prompted.{C_RESET}")
+                return False
+        else:
+            # No stored password - prompt for authentication
+            print(f"🔐 TT Inference Server setup requires sudo privileges. Please enter your password:")
+            try:
+                # Test sudo access - this will prompt for password if needed
+                result = subprocess.run(["sudo", "-v"], check=True, text=True)
+                print(f"✅ Sudo authentication successful.")
+                return True
+            except subprocess.CalledProcessError as e:
+                print(f"{C_RED}⛔ Error: Failed to authenticate with sudo{C_RESET}")
+                if e.returncode == 1:
+                    print(f"{C_YELLOW}   This usually means the password was incorrect or sudo access was denied.{C_RESET}")
+                return False
+            except FileNotFoundError:
+                print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
+                return False
 
 def ensure_frontend_dependencies(no_user_input=False):
     """
@@ -1795,8 +1819,16 @@ def main():
             
             # Request sudo authentication upfront (unless disabled by env var or --no-sudo flag)
             if not no_sudo_final:
-                if not request_sudo_authentication():
-                    print(f"{C_RED}⛔ Cannot proceed without sudo access. Set USE_SUDO=false in .env or use --no-sudo flag.{C_RESET}")
+                print(f"{C_CYAN}   Sudo is enabled (USE_SUDO=true). Attempting authentication...{C_RESET}")
+                if not request_sudo_authentication(no_user_input=args.no_user_input):
+                    print(f"{C_RED}⛔ Cannot proceed without sudo access.{C_RESET}")
+                    if args.no_user_input:
+                        print(f"   With --no-user-input flag, you must set SUDO_PASSWORD in your .env file.")
+                    else:
+                        print(f"   Options to fix this:")
+                        print(f"   1. Set SUDO_PASSWORD in your .env file for automated authentication")
+                        print(f"   2. Set USE_SUDO=false in .env to skip sudo usage")
+                        print(f"   3. Use --no-sudo flag to override")
                     return
             else:
                 if args.no_sudo:
