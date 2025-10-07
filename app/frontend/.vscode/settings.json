@@ -6,7 +6,7 @@
   "files.autoSave": "onFocusChange",
   "files.associations": {
     "*.js": "javascript",
-    "*.jsx": "javascriptreact", 
+    "*.jsx": "javascriptreact",
     "*.ts": "typescript",
     "*.tsx": "typescriptreact"
   },
@@ -20,13 +20,18 @@
       "end": " */",
       "use": true
     },
-    "supportAutoLanguage": ["javascript", "typescript", "javascriptreact", "typescriptreact"],
+    "supportAutoLanguage": [
+      "javascript",
+      "typescript",
+      "javascriptreact",
+      "typescriptreact"
+    ],
     "prohibitAutoAdd": ["json", "md", "txt", "yml", "yaml"],
     "folderBlacklist": ["node_modules", "dist", "build", ".next", "coverage"],
     "prohibitItemAutoAdd": [
       "*.d.ts",
       "*.config.js",
-      "*.config.ts", 
+      "*.config.ts",
       "*.test.js",
       "*.test.ts",
       "*.spec.js",
@@ -47,7 +52,7 @@
     {
       "language": "*",
       "begin": "/*",
-      "prefix": " * ", 
+      "prefix": " * ",
       "end": " */",
       "blankLinesAfter": 1
     }
