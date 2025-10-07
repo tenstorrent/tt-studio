@@ -208,11 +208,15 @@ def should_configure_var(var_name, current_value):
     # Otherwise, skip configuration (keep existing non-placeholder value)
     return False
 
-def ask_overwrite_preference(existing_vars):
+def ask_overwrite_preference(existing_vars, no_user_input=False):
     """
     Ask user if they want to overwrite existing environment variables.
     Returns True if user wants to overwrite, False otherwise.
+    If no_user_input is True, automatically return False (keep existing config).
     """
+    if no_user_input:
+        print(f"{C_GREEN}✅ Using existing configuration (--no-user-input flag used){C_RESET}")
+        return False
     # Filter out placeholder values to show only real configured values
     real_vars = {k: v for k, v in existing_vars.items() if not is_placeholder(v)}
     
@@ -318,13 +322,14 @@ def ask_overwrite_preference(existing_vars):
             print(f"{C_RED}❌ Please enter 'k' to keep existing config or 'r' to reconfigure everything.{C_RESET}")
             print()
 
-def configure_environment_sequentially(dev_mode=False):
+def configure_environment_sequentially(dev_mode=False, no_user_input=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
     
     Args:
         dev_mode (bool): If True, show dev mode banner but still prompt for all values
+        no_user_input (bool): If True, skip all user prompts and use existing config or defaults
     """
     global FORCE_OVERWRITE
     
@@ -353,7 +358,7 @@ def configure_environment_sequentially(dev_mode=False):
     
     # Only ask about overwrite preference if .env file existed before
     if env_file_exists and existing_vars:
-        FORCE_OVERWRITE = ask_overwrite_preference(existing_vars)
+        FORCE_OVERWRITE = ask_overwrite_preference(existing_vars, no_user_input=no_user_input)
     else:
         # No need to ask, we're configuring everything
         if not env_file_exists:
@@ -376,17 +381,29 @@ def configure_environment_sequentially(dev_mode=False):
         if is_placeholder(current_jwt):
             print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
         dev_default = "dev-jwt-secret-12345-not-for-production" if dev_mode else ""
-        prompt_text = f"🔐 Enter JWT_SECRET (for authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
-        while True:
-            val = getpass.getpass(prompt_text)
-            if not val and dev_mode:
+        if no_user_input:
+            # Use dev default if available, otherwise generate a secure default
+            if dev_mode and dev_default:
                 val = dev_default
-            if val and val.strip():
-                write_env_var("JWT_SECRET", val)
-                print("✅ JWT_SECRET saved.")
-                break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+            else:
+                # Generate a secure default for production
+                import secrets
+                val = secrets.token_urlsafe(32)
+            write_env_var("JWT_SECRET", val)
+            print("✅ JWT_SECRET configured automatically.")
+        else:
+            prompt_text = f"🔐 Enter JWT_SECRET (for authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+            
+            while True:
+                val = getpass.getpass(prompt_text)
+                if not val and dev_mode:
+                    val = dev_default
+                if val and val.strip():
+                    write_env_var("JWT_SECRET", val)
+                    print("✅ JWT_SECRET saved.")
+                    break
+                print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
         print(f"✅ JWT_SECRET already configured (keeping existing value).")
     
@@ -396,40 +413,63 @@ def configure_environment_sequentially(dev_mode=False):
         if is_placeholder(current_django):
             print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
         dev_default = "django-dev-secret-key-not-for-production-12345" if dev_mode else ""
-        prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
-        while True:
-            val = getpass.getpass(prompt_text)
-            if not val and dev_mode:
+        if no_user_input:
+            # Use dev default if available, otherwise generate a secure default
+            if dev_mode and dev_default:
                 val = dev_default
-            if val and val.strip():
-                write_env_var("DJANGO_SECRET_KEY", val)
-                print("✅ DJANGO_SECRET_KEY saved.")
-                break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+            else:
+                # Generate a secure default for production
+                import secrets
+                val = secrets.token_urlsafe(50)
+            write_env_var("DJANGO_SECRET_KEY", val)
+            print("✅ DJANGO_SECRET_KEY configured automatically.")
+        else:
+            prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+            
+            while True:
+                val = getpass.getpass(prompt_text)
+                if not val and dev_mode:
+                    val = dev_default
+                if val and val.strip():
+                    write_env_var("DJANGO_SECRET_KEY", val)
+                    print("✅ DJANGO_SECRET_KEY saved.")
+                    break
+                print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
         print(f"✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
             
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
     if should_configure_var("TAVILY_API_KEY", current_tavily):
-        prompt_text = "🔍 Enter TAVILY_API_KEY (for search, optional - press Enter to skip): "
-        val = getpass.getpass(prompt_text)
-        write_env_var("TAVILY_API_KEY", val or "")
-        print("✅ TAVILY_API_KEY saved.")
+        if no_user_input:
+            # Skip optional API key when no user input
+            write_env_var("TAVILY_API_KEY", "")
+            print("✅ TAVILY_API_KEY skipped (optional, --no-user-input used).")
+        else:
+            prompt_text = "🔍 Enter TAVILY_API_KEY (for search, optional - press Enter to skip): "
+            val = getpass.getpass(prompt_text)
+            write_env_var("TAVILY_API_KEY", val or "")
+            print("✅ TAVILY_API_KEY saved.")
     else:
         print(f"✅ TAVILY_API_KEY already configured (keeping existing value).")
         
     # HF_TOKEN
     current_hf = get_env_var("HF_TOKEN")
     if should_configure_var("HF_TOKEN", current_hf):
-        while True:
-            val = getpass.getpass("🤗 Enter HF_TOKEN (Hugging Face token): ")
-            if val and val.strip():
-                write_env_var("HF_TOKEN", val)
-                print("✅ HF_TOKEN saved.")
-                break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+        if no_user_input:
+            # HF_TOKEN is required - we can't proceed without it
+            print(f"{C_RED}⛔ Error: HF_TOKEN is required but --no-user-input was used and no existing value found.{C_RESET}")
+            print(f"   Please set HF_TOKEN in your .env file or run without --no-user-input flag.")
+            sys.exit(1)
+        else:
+            while True:
+                val = getpass.getpass("🤗 Enter HF_TOKEN (Hugging Face token): ")
+                if val and val.strip():
+                    write_env_var("HF_TOKEN", val)
+                    print("✅ HF_TOKEN saved.")
+                    break
+                print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
         print(f"✅ HF_TOKEN already configured (keeping existing value).")
 
@@ -439,7 +479,10 @@ def configure_environment_sequentially(dev_mode=False):
     current_title = get_env_var("VITE_APP_TITLE")
     if should_configure_var("VITE_APP_TITLE", current_title):
         dev_default = "TT Studio (Dev)" if dev_mode else "TT Studio"
-        val = input(f"📝 Enter application title (default: {dev_default}): ") or dev_default
+        if no_user_input:
+            val = dev_default
+        else:
+            val = input(f"📝 Enter application title (default: {dev_default}): ") or dev_default
         write_env_var("VITE_APP_TITLE", val)
         print("✅ VITE_APP_TITLE saved.")
     else:
@@ -453,13 +496,17 @@ def configure_environment_sequentially(dev_mode=False):
         print("Enable AI Playground Mode? (Connects to external cloud models)")
         dev_default = "false" if dev_mode else "false"
         
-        while True:
-            val = input(f"Enter 'true' or 'false' (default: {dev_default}): ").lower().strip() or dev_default
-            if val in ["true", "false"]:
-                write_env_var("VITE_ENABLE_DEPLOYED", val, quote_value=False)
-                print("✅ VITE_ENABLE_DEPLOYED saved.")
-                break
-            print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
+        if no_user_input:
+            val = dev_default
+        else:
+            while True:
+                val = input(f"Enter 'true' or 'false' (default: {dev_default}): ").lower().strip() or dev_default
+                if val in ["true", "false"]:
+                    break
+                print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
+        
+        write_env_var("VITE_ENABLE_DEPLOYED", val, quote_value=False)
+        print("✅ VITE_ENABLE_DEPLOYED saved.")
     else:
         print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
     
@@ -472,13 +519,17 @@ def configure_environment_sequentially(dev_mode=False):
         print("\nEnable RAG document management admin page?")
         dev_default = "false" if dev_mode else "false"
         
-        while True:
-            val = input(f"Enter 'true' or 'false' (default: {dev_default}): ").lower().strip() or dev_default
-            if val in ["true", "false"]:
-                write_env_var("VITE_ENABLE_RAG_ADMIN", val, quote_value=False)
-                print("✅ VITE_ENABLE_RAG_ADMIN saved.")
-                break
-            print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
+        if no_user_input:
+            val = dev_default
+        else:
+            while True:
+                val = input(f"Enter 'true' or 'false' (default: {dev_default}): ").lower().strip() or dev_default
+                if val in ["true", "false"]:
+                    break
+                print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
+        
+        write_env_var("VITE_ENABLE_RAG_ADMIN", val, quote_value=False)
+        print("✅ VITE_ENABLE_RAG_ADMIN saved.")
     else:
         print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
     
@@ -490,18 +541,29 @@ def configure_environment_sequentially(dev_mode=False):
         current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             dev_default = "dev-admin-123" if dev_mode else ""
-            prompt_text = f"Enter RAG_ADMIN_PASSWORD{' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
             
             print("🔒 RAG admin is enabled. You must set a password.")
-            while True:
-                val = getpass.getpass(prompt_text)
-                if not val and dev_mode:
+            if no_user_input:
+                if dev_mode and dev_default:
                     val = dev_default
-                if val and val.strip():
-                    write_env_var("RAG_ADMIN_PASSWORD", val)
-                    print("✅ RAG_ADMIN_PASSWORD saved.")
-                    break
-                print(f"{C_RED}⛔ Password cannot be empty.{C_RESET}")
+                else:
+                    # Generate a secure default for production
+                    import secrets
+                    val = secrets.token_urlsafe(16)
+                write_env_var("RAG_ADMIN_PASSWORD", val)
+                print("✅ RAG_ADMIN_PASSWORD configured automatically.")
+            else:
+                prompt_text = f"Enter RAG_ADMIN_PASSWORD{' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+                
+                while True:
+                    val = getpass.getpass(prompt_text)
+                    if not val and dev_mode:
+                        val = dev_default
+                    if val and val.strip():
+                        write_env_var("RAG_ADMIN_PASSWORD", val)
+                        print("✅ RAG_ADMIN_PASSWORD saved.")
+                        break
+                    print(f"{C_RED}⛔ Password cannot be empty.{C_RESET}")
         else:
             print(f"✅ RAG_ADMIN_PASSWORD already configured (keeping existing value).")
 
@@ -524,13 +586,18 @@ def configure_environment_sequentially(dev_mode=False):
         for var_name, prompt, is_secret in cloud_vars:
             current_val = get_env_var(var_name)
             if should_configure_var(var_name, current_val):
-                if is_secret:
-                    val = getpass.getpass(f"{prompt} (optional): ")
+                if no_user_input:
+                    # Skip optional cloud configurations when no user input
+                    write_env_var(var_name, "")
+                    print(f"✅ {var_name} skipped (optional, --no-user-input used).")
                 else:
-                    val = input(f"{prompt} (optional): ")
-                write_env_var(var_name, val or "")
-                status = "saved" if val else "skipped (empty)"
-                print(f"✅ {var_name} {status}.")
+                    if is_secret:
+                        val = getpass.getpass(f"{prompt} (optional): ")
+                    else:
+                        val = input(f"{prompt} (optional): ")
+                    write_env_var(var_name, val or "")
+                    status = "saved" if val else "skipped (empty)"
+                    print(f"✅ {var_name} {status}.")
             else:
                 print(f"✅ {var_name} already configured (keeping existing value).")
     else:
@@ -1357,7 +1424,7 @@ def request_sudo_authentication():
         print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
         return False
 
-def ensure_frontend_dependencies():
+def ensure_frontend_dependencies(no_user_input=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
     This is optional for running the app, as dependencies are always installed
@@ -1388,23 +1455,34 @@ def ensure_frontend_dependencies():
 
     try:
         if has_local_npm:
-            choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip()
-            if choice in ['n', 'no']:
-                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
-                return True # It's not a failure, just a choice.
-            
-            print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
-            run_command(["npm", "install"], check=True, cwd=frontend_dir)
-            print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+            if no_user_input:
+                # Auto-install with npm when no user input requested
+                print(f"\n{C_BLUE}📦 Installing dependencies locally with npm (--no-user-input used)...{C_RESET}")
+                run_command(["npm", "install"], check=True, cwd=frontend_dir)
+                print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+            else:
+                choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip()
+                if choice in ['n', 'no']:
+                    print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                    return True # It's not a failure, just a choice.
+                
+                print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
+                run_command(["npm", "install"], check=True, cwd=frontend_dir)
+                print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
 
         else: # No local npm found
             print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
-            choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip()
-            if choice in ['n', 'no']:
-                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
-                return True
-
-            print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
+            if no_user_input:
+                # Auto-install with Docker when no user input requested
+                print(f"\n{C_BLUE}📦 Installing dependencies using Docker (--no-user-input used)...{C_RESET}")
+            else:
+                choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip()
+                if choice in ['n', 'no']:
+                    print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
+                    return True
+                
+                print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
+            
             # This command runs `npm install` inside a container and mounts the result back to the host.
             docker_cmd = [
                 "docker", "run", "--rm",
@@ -1451,6 +1529,7 @@ def main():
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
   {C_CYAN}python run.py --no-browser{C_RESET}      🚫 Skip automatic browser opening
+  {C_CYAN}python run.py --no-user-input{C_RESET}   🚫 Skip all user prompts and use existing config/defaults
   {C_CYAN}python run.py --wait-for-services{C_RESET} ⏳ Wait for all services to be healthy before completing
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
@@ -1477,6 +1556,8 @@ def main():
                    help="⏳ Timeout in seconds for waiting for frontend before opening browser")
         parser.add_argument("--auto-deploy", type=str, metavar="MODEL_NAME",
                    help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
+        parser.add_argument("--no-user-input", action="store_true", 
+                           help="🚫 Skip all user prompts and use existing configuration or defaults")
         
         args = parser.parse_args()
         
@@ -1527,6 +1608,7 @@ def main():
   {C_CYAN}python run.py --cleanup-all{C_RESET}          Complete cleanup (data + config)
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
+  {C_CYAN}python run.py --no-user-input{C_RESET}        Skip all user prompts and use existing config/defaults
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1539,7 +1621,7 @@ def main():
         
         display_welcome_banner()
         check_docker_installation()
-        configure_environment_sequentially(dev_mode=args.dev)
+        configure_environment_sequentially(dev_mode=args.dev, no_user_input=args.no_user_input)
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
@@ -1557,7 +1639,7 @@ def main():
             print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies()
+        ensure_frontend_dependencies(no_user_input=args.no_user_input)
 
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
