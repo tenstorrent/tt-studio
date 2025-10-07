@@ -100,6 +100,42 @@ def run_command(command, check=False, cwd=None, capture_output=False, shell=Fals
             sys.exit(1)
         return e
 
+def run_sudo_command(command, check=False, cwd=None, capture_output=False):
+    """
+    Helper function to run a sudo command, using stored password if available.
+    """
+    sudo_password = get_env_var("SUDO_PASSWORD")
+    
+    if sudo_password:
+        # Use echo to pipe password to sudo -S (stdin)
+        if isinstance(command, list):
+            cmd_str = ' '.join(command)
+        else:
+            cmd_str = command
+        
+        # Create the full command with password piping
+        full_command = f"echo '{sudo_password}' | sudo -S {cmd_str}"
+        
+        try:
+            return subprocess.run(full_command, shell=True, check=check, cwd=cwd, 
+                                text=True, capture_output=capture_output)
+        except subprocess.CalledProcessError as e:
+            if check:
+                print(f"{C_RED}⛔ Error executing sudo command: {cmd_str}{C_RESET}")
+                if capture_output:
+                    print(f"{C_RED}Stderr: {e.stderr}{C_RESET}")
+                raise
+            return e
+    else:
+        # No password stored, run regular sudo (will prompt)
+        if isinstance(command, list):
+            sudo_command = ["sudo"] + command
+        else:
+            sudo_command = f"sudo {command}"
+        
+        return run_command(sudo_command, check=check, cwd=cwd, 
+                         capture_output=capture_output, shell=isinstance(command, str))
+
 
 def check_docker_installation():
     """Function to check Docker installation."""
@@ -123,7 +159,7 @@ def is_placeholder(value):
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
         '<PATH_TO_ROOT_OF_REPO>', 'true or flase to enable deployed mode',
-        'true or false to enable RAG admin'
+        'true or false to enable RAG admin', 'true or false to enable sudo'
     ]
     
     value_str = str(value).strip().strip('"\'')
@@ -372,6 +408,60 @@ def configure_environment_sequentially(dev_mode=False, no_user_input=False):
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
+
+    # USE_SUDO
+    current_use_sudo = get_env_var("USE_SUDO")
+    if should_configure_var("USE_SUDO", current_use_sudo) or current_use_sudo not in ["true", "false"]:
+        print("\n🔐 Configure sudo usage for FastAPI server setup?")
+        dev_default = "false" if dev_mode else "true"
+        
+        if no_user_input:
+            val = dev_default
+        else:
+            print(f"   • 'true': Use sudo for FastAPI setup (may prompt for password)")
+            print(f"   • 'false': Skip sudo usage (may limit functionality)")
+            while True:
+                val = input(f"Enter 'true' or 'false' (default: {dev_default}): ").lower().strip() or dev_default
+                if val in ["true", "false"]:
+                    break
+                print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
+        
+        write_env_var("USE_SUDO", val, quote_value=False)
+        print("✅ USE_SUDO saved.")
+    else:
+        print(f"✅ USE_SUDO already configured: {current_use_sudo}")
+    
+    use_sudo_from_env = parse_boolean_env(get_env_var("USE_SUDO"))
+    print(f"🔹 Sudo usage is {'ENABLED' if use_sudo_from_env else 'DISABLED'}")
+
+    # SUDO_PASSWORD (only if USE_SUDO is enabled)
+    if use_sudo_from_env:
+        current_sudo_pass = get_env_var("SUDO_PASSWORD")
+        if should_configure_var("SUDO_PASSWORD", current_sudo_pass):
+            if no_user_input:
+                # Don't configure sudo password automatically for security
+                print(f"{C_YELLOW}⚠️  SUDO_PASSWORD not configured. Sudo operations may prompt for password.{C_RESET}")
+                print(f"   To avoid prompts, manually set SUDO_PASSWORD in your .env file.")
+                write_env_var("SUDO_PASSWORD", "")
+            else:
+                print("🔒 Sudo is enabled. You can optionally store your sudo password to avoid prompts.")
+                print(f"{C_YELLOW}⚠️  WARNING: Storing passwords in plain text has security implications.{C_RESET}")
+                choice = input("Do you want to store your sudo password in .env? (y/N): ").lower().strip()
+                
+                if choice in ['y', 'yes']:
+                    while True:
+                        val = getpass.getpass("🔐 Enter your sudo password (will be stored in .env): ")
+                        if val and val.strip():
+                            write_env_var("SUDO_PASSWORD", val)
+                            print("✅ SUDO_PASSWORD saved.")
+                            break
+                        print(f"{C_RED}⛔ Password cannot be empty.{C_RESET}")
+                else:
+                    write_env_var("SUDO_PASSWORD", "")
+                    print("✅ SUDO_PASSWORD skipped (will prompt when needed).")
+        else:
+            current_pass_status = "configured" if current_sudo_pass else "not set"
+            print(f"✅ SUDO_PASSWORD already {current_pass_status}.")
 
     print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
     
@@ -677,7 +767,10 @@ def cleanup_resources(args):
     
     # Clean up FastAPI server
     print(f"{C_BLUE}🔧 Cleaning up FastAPI server...{C_RESET}")
-    cleanup_fastapi_server(no_sudo=args.no_sudo)
+    # Get sudo preference from environment variable, with command line override
+    use_sudo_from_env = parse_boolean_env(get_env_var("USE_SUDO"))
+    no_sudo_final = args.no_sudo or not use_sudo_from_env
+    cleanup_fastapi_server(no_sudo=no_sudo_final)
     
     if args.cleanup_all:
         print(f"\n{C_ORANGE}{C_BOLD}🗑️  Performing complete cleanup (--cleanup-all)...{C_RESET}")
@@ -929,10 +1022,10 @@ def kill_process_on_port(port, no_sudo=False):
     def find_pid_with_command(base_cmd, use_sudo):
         cmd_to_run = base_cmd.copy()
         if use_sudo:
-            cmd_to_run.insert(0, "sudo")
-        
-        # Run command but don't exit on failure
-        result = run_command(cmd_to_run, check=False, capture_output=True)
+            # Use our sudo helper function instead of direct sudo
+            result = run_sudo_command(cmd_to_run, check=False, capture_output=True)
+        else:
+            result = run_command(cmd_to_run, check=False, capture_output=True)
         
         if result.returncode == 0 and result.stdout.strip():
             if "ss" in base_cmd[0]: # ss needs parsing
@@ -966,26 +1059,32 @@ def kill_process_on_port(port, no_sudo=False):
     check_alive_cmd = ["kill", "-0", pid]
     use_sudo_for_kill = not no_sudo and os.geteuid() != 0
 
-    if use_sudo_for_kill:
-        kill_cmd_graceful.insert(0, "sudo")
-        kill_cmd_force.insert(0, "sudo")
-        check_alive_cmd.insert(0, "sudo")
-
     try:
-        run_command(kill_cmd_graceful, check=False)
+        if use_sudo_for_kill:
+            run_sudo_command(kill_cmd_graceful, check=False)
+        else:
+            run_command(kill_cmd_graceful, check=False)
         time.sleep(2)
         
-        result = run_command(check_alive_cmd, check=False, capture_output=True)
+        if use_sudo_for_kill:
+            result = run_sudo_command(check_alive_cmd, check=False, capture_output=True)
+        else:
+            result = run_command(check_alive_cmd, check=False, capture_output=True)
+            
         if result.returncode == 0:
             print(f"⚠️  Process {pid} still alive. Forcing termination...")
-            run_command(kill_cmd_force, check=True)
+            if use_sudo_for_kill:
+                run_sudo_command(kill_cmd_force, check=True)
+            else:
+                run_command(kill_cmd_force, check=True)
             print(f"{C_GREEN}✅ Process {pid} terminated by force.{C_RESET}")
         else:
             print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
 
     except Exception as e:
         print(f"{C_RED}⛔ Failed to kill process {pid}: {e}{C_RESET}")
-        print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
+        kill_cmd_str = f"sudo {' '.join(kill_cmd_force)}" if use_sudo_for_kill else ' '.join(kill_cmd_force)
+        print(f"{C_YELLOW}   You may need to stop it manually. Try: {kill_cmd_str}{C_RESET}")
         return False
         
     return True
@@ -1206,9 +1305,9 @@ def start_fastapi_server(no_sudo=False):
         try:
             # Try to create with sudo first (like startup.sh) unless no_sudo is specified
             if not no_sudo:
-                subprocess.run(["sudo", "touch", file_path], check=False)
-                subprocess.run(["sudo", "chown", f"{os.getenv('USER', 'root')}", file_path], check=False)
-                subprocess.run(["sudo", "chmod", "644", file_path], check=False)
+                run_sudo_command(["touch", file_path], check=False)
+                run_sudo_command(["chown", f"{os.getenv('USER', 'root')}", file_path], check=False)
+                run_sudo_command(["chmod", "644", file_path], check=False)
             else:
                 # Fallback to regular file creation
                 with open(file_path, 'w') as f:
@@ -1265,11 +1364,18 @@ fi
         
         # Start the server using the wrapper script with environment variables (exactly like startup.sh)
         if not no_sudo:
-            # Use sudo with environment variables exactly like startup.sh
-            # The key difference: pass environment variables as separate arguments to sudo
-            cmd = ["sudo", f"JWT_SECRET={jwt_secret}", f"HF_TOKEN={hf_token}", temp_script_path, 
-                   INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
-            process = subprocess.Popen(cmd)
+            # Use sudo with environment variables and stored password if available
+            sudo_password = get_env_var("SUDO_PASSWORD")
+            if sudo_password:
+                # Use stored password with sudo
+                env_vars = f"JWT_SECRET={jwt_secret} HF_TOKEN={hf_token}"
+                full_cmd = f"echo '{sudo_password}' | sudo -S {env_vars} {temp_script_path} {INFERENCE_SERVER_DIR} {FASTAPI_PID_FILE} .venv {FASTAPI_LOG_FILE}"
+                process = subprocess.Popen(full_cmd, shell=True)
+            else:
+                # Use regular sudo (will prompt for password)
+                cmd = ["sudo", f"JWT_SECRET={jwt_secret}", f"HF_TOKEN={hf_token}", temp_script_path, 
+                       INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+                process = subprocess.Popen(cmd)
         else:
             # Fallback to running without sudo
             env = os.environ.copy()
@@ -1380,10 +1486,13 @@ def cleanup_fastapi_server(no_sudo=False):
                         pass  # Process already terminated
                 except PermissionError:
                     if not no_sudo:
-                        # Try with sudo
-                        subprocess.run(["sudo", "kill", "-15", pid], check=False)
-                        time.sleep(2)
-                        subprocess.run(["sudo", "kill", "-9", pid], check=False)
+                        # Try with sudo using stored password if available
+                        try:
+                            run_sudo_command(["kill", "-15", pid], check=False)
+                            time.sleep(2)
+                            run_sudo_command(["kill", "-9", pid], check=False)
+                        except Exception:
+                            print(f"{C_YELLOW}Warning: Could not kill process {pid} with sudo{C_RESET}")
                     else:
                         print(f"{C_YELLOW}Warning: Could not kill process {pid} without sudo{C_RESET}")
         except Exception as e:
@@ -1409,20 +1518,34 @@ def request_sudo_authentication():
         print(f"{C_RED}⛔ Error: sudo is not available on this system.{C_RESET}")
         return False
     
-    print(f"🔐 TT Inference Server setup requires sudo privileges. Please enter your password:")
-    try:
-        # Test sudo access - this will prompt for password if needed
-        result = subprocess.run(["sudo", "-v"], check=True, capture_output=True, text=True)
-        print(f"✅ Sudo authentication successful.")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"{C_RED}⛔ Error: Failed to authenticate with sudo{C_RESET}")
-        if e.returncode == 1:
-            print(f"{C_YELLOW}   This usually means the password was incorrect or sudo access was denied.{C_RESET}")
-        return False
-    except FileNotFoundError:
-        print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
-        return False
+    sudo_password = get_env_var("SUDO_PASSWORD")
+    
+    if sudo_password:
+        print(f"🔐 Using stored sudo password for authentication...")
+        try:
+            # Test sudo access with stored password
+            result = run_sudo_command(["-v"], check=True, capture_output=True)
+            print(f"✅ Sudo authentication successful (using stored password).")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"{C_RED}⛔ Error: Stored sudo password is incorrect or expired{C_RESET}")
+            print(f"{C_YELLOW}   Please update SUDO_PASSWORD in your .env file or remove it to be prompted.{C_RESET}")
+            return False
+    else:
+        print(f"🔐 TT Inference Server setup requires sudo privileges. Please enter your password:")
+        try:
+            # Test sudo access - this will prompt for password if needed
+            result = subprocess.run(["sudo", "-v"], check=True, capture_output=True, text=True)
+            print(f"✅ Sudo authentication successful.")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"{C_RED}⛔ Error: Failed to authenticate with sudo{C_RESET}")
+            if e.returncode == 1:
+                print(f"{C_YELLOW}   This usually means the password was incorrect or sudo access was denied.{C_RESET}")
+            return False
+        except FileNotFoundError:
+            print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
+            return False
 
 def ensure_frontend_dependencies(no_user_input=False):
     """
@@ -1571,6 +1694,8 @@ def main():
   {C_YELLOW}HOST_PERSISTENT_STORAGE_VOLUME{C_RESET}      Host path for persistent storage
   {C_YELLOW}INTERNAL_PERSISTENT_STORAGE_VOLUME{C_RESET}  Container path for persistent storage
   {C_YELLOW}BACKEND_API_HOSTNAME{C_RESET}                Backend API hostname
+  {C_YELLOW}USE_SUDO{C_RESET}                            Enable/disable sudo usage for FastAPI setup (true/false)
+  {C_YELLOW}SUDO_PASSWORD{C_RESET}                       Sudo password for automatic authentication (optional)
 
 {C_RED}{C_BOLD}Security (Required):{C_RESET}
 {'=' * 80}
@@ -1664,13 +1789,20 @@ def main():
             # Store original directory to return to later
             original_dir = os.getcwd()
             
-            # Request sudo authentication upfront (unless --no-sudo is specified)
-            if not args.no_sudo:
+            # Get sudo preference from environment variable, with command line override
+            use_sudo_from_env = parse_boolean_env(get_env_var("USE_SUDO"))
+            no_sudo_final = args.no_sudo or not use_sudo_from_env
+            
+            # Request sudo authentication upfront (unless disabled by env var or --no-sudo flag)
+            if not no_sudo_final:
                 if not request_sudo_authentication():
-                    print(f"{C_RED}⛔ Cannot proceed without sudo access. Use --no-sudo to skip sudo usage.{C_RESET}")
+                    print(f"{C_RED}⛔ Cannot proceed without sudo access. Set USE_SUDO=false in .env or use --no-sudo flag.{C_RESET}")
                     return
             else:
-                print(f"{C_YELLOW}⚠️  Skipping sudo authentication (--no-sudo flag used){C_RESET}")
+                if args.no_sudo:
+                    print(f"{C_YELLOW}⚠️  Skipping sudo authentication (--no-sudo flag used){C_RESET}")
+                else:
+                    print(f"{C_YELLOW}⚠️  Skipping sudo authentication (USE_SUDO=false in .env){C_RESET}")
                 print(f"{C_YELLOW}   Note: Some operations may fail if elevated privileges are required{C_RESET}")
             
             try:
@@ -1683,7 +1815,7 @@ def main():
                         print(f"{C_RED}⛔ Failed to setup FastAPI environment. Continuing without FastAPI server.{C_RESET}")
                     else:
                         # Start FastAPI server
-                        if not start_fastapi_server(no_sudo=args.no_sudo):
+                        if not start_fastapi_server(no_sudo=no_sudo_final):
                             print(f"{C_RED}⛔ Failed to start FastAPI server. Continuing without FastAPI server.{C_RESET}")
             finally:
                 # Return to original directory
@@ -1750,6 +1882,15 @@ def main():
         print(f"  • Development Mode: {'✅ Enabled' if args.dev else '❌ Disabled'}")
         print(f"  • TT Hardware Support: {'✅ Enabled' if detect_tt_hardware() else '❌ Disabled'}")
         print(f"  • FastAPI Server: {'✅ Enabled' if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE) else '❌ Disabled'}")
+        
+        # Show sudo configuration
+        use_sudo_from_env = parse_boolean_env(get_env_var("USE_SUDO"))
+        sudo_status = "✅ Enabled" if use_sudo_from_env and not args.no_sudo else "❌ Disabled"
+        if args.no_sudo and use_sudo_from_env:
+            sudo_status += " (overridden by --no-sudo)"
+        elif not use_sudo_from_env:
+            sudo_status += " (USE_SUDO=false)"
+        print(f"  • Sudo Usage: {sudo_status}")
         
         if is_deployed_mode:
             print(f"\n{C_BLUE}🌐 Your TT Studio is running in AI Playground mode with cloud model integrations.{C_RESET}")
