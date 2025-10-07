@@ -95,12 +95,10 @@ jobs:
             grouped_errors+="$current_file\n$errors_for_file\n"
           fi
 
-          # Set environment variables for subsequent steps
+          # Write to files immediately to avoid argument list too long errors
           if [ -n "$grouped_errors" ]; then
             echo "ESLint errors found."
-            echo "GROUPED_ERRORS<<EOF" >> $GITHUB_ENV
-            echo -e "$grouped_errors" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
+            echo -e "$grouped_errors" > /tmp/eslint_errors.txt
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
           else
             echo "No ESLint errors found."
@@ -109,10 +107,8 @@ jobs:
 
           if [ "$missing_lc_headers" = true ]; then
             echo "Missing license headers detected."
+            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" > /tmp/flagged_files.txt
             echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
-            echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
-            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
           else
             echo "All files have proper license headers."
             echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
@@ -121,7 +117,7 @@ jobs:
           # Always exit 0 here to allow the workflow to continue to the comment step
           exit 0
 
-      # Show results in logs instead of commenting on PR
+      # Show results in GitHub Actions logs
       - name: Show ESLint Results
         if: env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true'
         run: |
@@ -133,15 +129,15 @@ jobs:
           if [ "$MISSING_LC_HEADERS" = "true" ]; then
             echo "📋 SPDX License Header Issues:"
             echo ""
-            # Write to temp file to avoid argument list too long
-            echo "$LC_FLAGGED_FILES" > /tmp/flagged_files.txt
-            while IFS= read -r file; do
-              if [ -n "$file" ]; then
-                echo "  📄 $file"
-              fi
-            done < /tmp/flagged_files.txt
+            if [ -f /tmp/flagged_files.txt ]; then
+              while IFS= read -r file; do
+                if [ -n "$file" ]; then
+                  echo "  📄 $file"
+                fi
+              done < /tmp/flagged_files.txt
+            fi
             echo ""
-            echo "✅ Add these lines to the top of each file:"
+            echo "✅ To fix: Add these lines to the top of each file:"
             echo "// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
             echo "// SPDX-License-Identifier: Apache-2.0"
             echo ""
@@ -151,13 +147,14 @@ jobs:
           if [ "$HAS_ERRORS" = "true" ]; then
             echo "🔧 ESLint Issues:"
             echo ""
-            # Write to temp file to avoid argument list too long
-            echo "$GROUPED_ERRORS" > /tmp/eslint_errors.txt
-            # Show first 50 lines to avoid overwhelming output
-            head -50 /tmp/eslint_errors.txt
-            if [ $(wc -l < /tmp/eslint_errors.txt) -gt 50 ]; then
-              echo ""
-              echo "... (output truncated - see full ESLint output above)"
+            if [ -f /tmp/eslint_errors.txt ]; then
+              head -100 /tmp/eslint_errors.txt
+              total_lines=$(wc -l < /tmp/eslint_errors.txt)
+              if [ $total_lines -gt 100 ]; then
+                echo ""
+                echo "... (showing first 100 lines of $total_lines total)"
+                echo "See 'Run ESLint and Process Results' step above for complete output"
+              fi
             fi
             echo ""
             echo "=================================================="
