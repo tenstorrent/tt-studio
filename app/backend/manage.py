@@ -1,6 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
-#
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+
 
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
