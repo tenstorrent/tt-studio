@@ -1,0 +1,49 @@
+DEFAULT:
+  perform_check: yes
+  allowed_licenses:
+    - Apache-2.0
+    - MIT
+    - GPL-3.0-only
+  license_for_new_files: Apache-2.0
+  copyright_holders:
+    - "Tenstorrent AI ULC"
+  new_notice_python: |
+    # SPDX-License-Identifier: {license}
+    #
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+  new_notice_dockerfile: |
+    # SPDX-License-Identifier: {license}
+    #
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+  new_notice_shell: |
+    # SPDX-License-Identifier: {license}
+    #
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
+  include:
+    - "*.py"
+    - "*.dockerfile"
+    - "*.sh"
+    - "**/Dockerfile"
+
+ignore:
+  perform_check: no
+  include:
+    - .github/*
+    - /CONTRIBUTING.md
+    - /MAINTAINERS.md
+    - node_modules/**
+    - __pycache__/**
+    - .git/**
+    - .venv/**
+    - dist/**
+    - build/**
+    - "*.log"
+    - "*.pid"
+    - tt-inference-server/**
+    - tt_studio_persistent_volume/**
+    - app/frontend/node_modules/**
+    - app/frontend/dist/**
+    - app/frontend/build/**
+    - "**/__pycache__/**"
+    - "**/*.pyc"
+    - "**/migrations/**"
