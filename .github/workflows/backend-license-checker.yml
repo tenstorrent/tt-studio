@@ -18,6 +18,10 @@ on:
 jobs:
   check-spdx-licenses:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,22 +95,14 @@ jobs:
         if: env.CHANGED_FILES != ''
         run: |
           set +e
-          files=$(echo "$CLEAN_OUTPUT" | awk '
-            /Files which failed the copyright check:/, /Additional information about this hook and copyright headers may be found here:/ {
-              if ($0 !~ /Files which failed the copyright check:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
-            }
-            /Some files are without a copyright note and a license header needs to be added:/, /Additional information about this hook and copyright headers may be found here:/ {
-              if ($0 !~ /Some files are without a copyright note and a license header needs to be added:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
-            }' | sed 's/^ *//' | sed '/^$/d' | grep -E '^[^[:space:]]')
+          # Extract only files that failed, not extra text
+          files=$(echo "$CLEAN_OUTPUT" | grep -E '^\s*\./?' | sed 's/^\s*\.\///' | sed 's/^\s*//' | grep -vE '^(Files which failed|Some files are|Additional information|$)')
 
-          # Clean up the file paths and only include files that were actually changed
+          # Filter to only include files from CHANGED_FILES
           files_clean=""
           for file in $files; do
-            # Remove leading './' if present
-            clean_file=$(echo "$file" | sed 's|^\./||')
-            # Check if this file is in our changed files list
-            if echo "$CHANGED_FILES" | grep -q "$clean_file"; then
-              files_clean="$files_clean$clean_file"$'\n'
+            if echo "$CHANGED_FILES" | grep -q "$file"; then
+              files_clean="$files_clean$file"$'\n'
             fi
           done
 
@@ -128,44 +124,15 @@ jobs:
             echo "$FILES_CLEAN"
             echo ""
             echo "✅ HOW TO FIX:"
-            echo "Add these 2 lines to the top of each file:"
+            echo "Add these 3 lines to the top of each file:"
             echo ""
             echo "# SPDX-License-Identifier: Apache-2.0"
+            echo "#"
             echo "# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
           else
             echo "✅ All changed files have proper SPDX headers"
           fi
           echo "=================================================="
-
-      - name: Comment on PR
-        if: env.FILES_CLEAN != '' && env.CHANGED_FILES != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const formattedOutput = process.env.FILES_CLEAN.trim();
-            const issueNumber = context.issue.number || context.payload.pull_request.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            if (formattedOutput) {
-              const commentBody = "## 🚨 SPDX License Headers Missing\n\n" +
-                "The following files in this PR are missing required SPDX license headers:\n\n" +
-                "```\n" + formattedOutput + "\n```\n\n" +
-                "**How to fix:** Add these lines to the top of each file:\n" +
-                "```\n# SPDX-License-Identifier: Apache-2.0\n# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC\n```\n\n" +
-                "This is required for licensing compliance. Thank you! 🙏";
-
-              await github.rest.issues.createComment({
-                issue_number: issueNumber,
-                owner: owner,
-                repo: repo,
-                body: commentBody
-              });
-              
-              core.setFailed("SPDX license headers missing in PR files.");
-            } else {
-              console.log("All files in PR have proper SPDX headers.");
-            }
 
       - name: Skip message for no changed files
         if: env.CHANGED_FILES == ''
