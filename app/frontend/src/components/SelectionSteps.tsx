@@ -3,7 +3,8 @@
 "use client";
 
 import axios from "axios";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import ElevatedCard from "./ui/elevated-card";
 import { Button } from "./ui/button";
 import { Step, Stepper } from "./ui/stepper";
@@ -48,6 +49,10 @@ export default function StepperDemo() {
   // Remove unused destructured elements from useStepper
   // const { prevStep, nextStep, resetSteps, isDisabledStep, hasCompletedAllSteps, isOptionalStep, activeStep, steps: stepperSteps } = useStepper();
 
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const autoDeployModel = searchParams.get("auto-deploy");
+
   const [steps, setSteps] = useState([
     { label: "Step 1", description: "Model Selection" },
     { label: "Docker Step", description: "Pull Docker Image" },
@@ -57,9 +62,15 @@ export default function StepperDemo() {
 
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedWeight, setSelectedWeight] = useState<string | null>(null);
+
+  // Log when selectedWeight changes
+  useEffect(() => {
+    console.log("🎯 selectedWeight changed to:", selectedWeight);
+  }, [selectedWeight]);
   const [customWeight, setCustomWeight] = useState<Weight | null>(null);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
+  const [isAutoDeploying, setIsAutoDeploying] = useState(false);
   const [imageStatus, setImageStatus] = useState<{
     exists: boolean;
     size: string;
@@ -105,14 +116,14 @@ export default function StepperDemo() {
     });
   };
 
-  const removeDynamicSteps = () => {
+  const removeDynamicSteps = useCallback(() => {
     setSteps((prevSteps) =>
       prevSteps.filter(
         (step) =>
           step.label !== "Custom Step" && step.label !== "Fine-Tune Step"
       )
     );
-  };
+  }, []);
 
   const checkImageStatus = async (modelId: string) => {
     try {
@@ -178,7 +189,81 @@ export default function StepperDemo() {
     }
   }, [selectedModel]);
 
+  // Direct auto-deploy function
+  const performAutoDeploy = async (modelName: string) => {
+    try {
+      console.log("🚀 Starting auto-deployment for model:", modelName);
+
+      // Find the model ID by name
+      const response = await axios.get("/docker-api/get_containers/");
+      const models = response.data;
+      const model = models.find(
+        (m: { id: string; name: string }) =>
+          m.name.toLowerCase().includes(modelName.toLowerCase()) ||
+          m.name === modelName
+      );
+
+      if (!model) {
+        customToast.error(`Auto-deploy model "${modelName}" not found`);
+        console.error("Model not found:", modelName);
+        return;
+      }
+
+      console.log("Found model for auto-deploy:", model);
+
+      // Deploy with default weights
+      const deployPayload = {
+        model_id: model.id,
+        weights_id: "", // Empty string for default weights
+      };
+
+      console.log("Auto-deploy payload:", deployPayload);
+
+      const deployResponse = await axios.post(
+        "/docker-api/deploy/",
+        deployPayload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      console.log("Auto-deploy response:", deployResponse);
+      customToast.success(`Model "${modelName}" deployment started!`);
+
+      // Navigate to deployed models page after short delay
+      setTimeout(() => {
+        navigate("/models-deployed");
+      }, 1500);
+    } catch (error) {
+      console.error("Auto-deployment failed:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      customToast.error(`Auto-deployment failed: ${errorMessage}`);
+    }
+  };
+
+  // Auto-deploy detection effect
+  useEffect(() => {
+    if (autoDeployModel) {
+      setIsAutoDeploying(true);
+      customToast.info(`🤖 Auto-deploying model: ${autoDeployModel}`);
+      console.log("Auto-deploy mode detected for model:", autoDeployModel);
+
+      // Perform auto-deploy directly
+      performAutoDeploy(autoDeployModel);
+    }
+  }, [autoDeployModel]);
+
   const handleDeploy = async (): Promise<boolean> => {
+    console.log("handleDeploy called with:", {
+      selectedModel,
+      selectedWeight,
+      customWeight,
+      isAutoDeploying,
+    });
+
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
@@ -195,13 +280,17 @@ export default function StepperDemo() {
       weights_id,
     });
 
+    console.log("Deployment payload:", payload);
+    console.log("Deployment URL:", deployUrl);
+
     try {
-      await axios.post(deployUrl, payload, {
+      const response = await axios.post(deployUrl, payload, {
         headers: {
           "Content-Type": "application/json",
         },
       });
 
+      console.log("Deployment response:", response);
       customToast.success("Model deployment started!");
       return true;
     } catch (error) {
@@ -237,6 +326,8 @@ export default function StepperDemo() {
                 <FirstStepForm
                   setSelectedModel={setSelectedModel}
                   setFormError={setFormError}
+                  autoDeployModel={autoDeployModel}
+                  isAutoDeploying={isAutoDeploying}
                 />
               )}
               {step.label === "Docker Step" && (
@@ -247,11 +338,11 @@ export default function StepperDemo() {
                   pullImage={pullImage}
                   removeDynamicSteps={removeDynamicSteps}
                   disableNext={!imageStatus?.exists}
+                  isAutoDeploying={isAutoDeploying}
                 />
               )}
               {step.label === "Step 2" && (
                 <SecondStepForm
-                  selectedModel={selectedModel}
                   setSelectedWeight={setSelectedWeight}
                   addCustomStep={addCustomStep}
                   addFineTuneStep={addFineTuneStep}

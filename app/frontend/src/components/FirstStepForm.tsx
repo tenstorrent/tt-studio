@@ -94,9 +94,13 @@ const FirstFormSchema = z.object({
 export function FirstStepForm({
   setSelectedModel,
   setFormError,
+  autoDeployModel,
+  isAutoDeploying,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
+  autoDeployModel?: string | null;
+  isAutoDeploying?: boolean;
 }) {
   const { nextStep } = useStepper();
   const {
@@ -190,6 +194,33 @@ export function FirstStepForm({
     }
   };
 
+  // Auto-select model when in auto-deploy mode
+  useEffect(() => {
+    if (autoDeployModel && models.length > 0 && isAutoDeploying) {
+      const targetModel = models.find(
+        (model) =>
+          model.name.toLowerCase().includes(autoDeployModel.toLowerCase()) ||
+          model.name === autoDeployModel
+      );
+
+      if (targetModel) {
+        console.log("Auto-selecting model:", targetModel.name);
+        form.setValue("model", targetModel.name);
+
+        // Auto-submit the form after a short delay
+        setTimeout(() => {
+          form.handleSubmit(onSubmit)();
+        }, 1000);
+      } else {
+        customToast.error(`Auto-deploy model "${autoDeployModel}" not found`);
+        console.error(
+          "Available models:",
+          models.map((m) => m.name)
+        );
+      }
+    }
+  }, [autoDeployModel, models, isAutoDeploying, form, onSubmit]);
+
   // Get current board info and group models by type and compatibility
   const currentBoard = models[0]?.current_board || "unknown";
 
@@ -232,6 +263,18 @@ export function FirstStepForm({
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {/* Always show deployed models warning prominently */}
         <DeployedModelsWarning className="mb-8 mt-8" />
+
+        {/* Auto-deploy indicator */}
+        {isAutoDeploying && autoDeployModel && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span className="text-blue-800 dark:text-blue-200 font-medium">
+                🤖 Auto-deploying: {autoDeployModel}
+              </span>
+            </div>
+          </div>
+        )}
 
         <FormField
           control={form.control}

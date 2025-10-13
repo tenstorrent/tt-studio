@@ -15,6 +15,12 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "./ui/tooltip";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "./ui/tooltip";
 import { Loader2, Trash2, Download, XCircle, HardDrive } from "lucide-react";
 import { FaDocker } from "react-icons/fa";
 const dockerAPIURL = "/docker-api/";
@@ -27,6 +33,7 @@ interface DockerStepFormProps {
   pullImage: (modelId: string) => void;
   removeDynamicSteps: () => void;
   disableNext: boolean;
+  isAutoDeploying?: boolean;
 }
 
 interface ModelCatalogStatus {
@@ -56,6 +63,7 @@ export function DockerStepForm({
   pullImage,
   removeDynamicSteps,
   disableNext,
+  isAutoDeploying,
 }: DockerStepFormProps) {
   const { prevStep } = useStepper();
   const [catalogStatus, setCatalogStatus] = useState<
@@ -116,6 +124,30 @@ export function DockerStepForm({
     const interval = setInterval(fetchCatalogStatus, 30000);
     return () => clearInterval(interval);
   }, [selectedModel]);
+
+  // Auto-progression when image exists and in auto-deploy mode
+  useEffect(() => {
+    console.log("DockerStepForm auto-progression check:", {
+      isAutoDeploying,
+      selectedModel,
+      catalogExists: selectedModel
+        ? catalogStatus[selectedModel]?.exists
+        : undefined,
+      disableNext,
+    });
+
+    if (
+      isAutoDeploying &&
+      selectedModel &&
+      catalogStatus[selectedModel]?.exists &&
+      !disableNext
+    ) {
+      console.log("Auto-progressing to next step (weights) - image exists");
+      setTimeout(() => {
+        nextStep();
+      }, 1500); // Short delay to show the status
+    }
+  }, [isAutoDeploying, selectedModel, catalogStatus, disableNext, nextStep]);
 
   // Helper to refresh image status for selected model
   const refreshImageStatus = async (modelId: string) => {
