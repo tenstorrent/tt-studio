@@ -95,8 +95,19 @@ jobs:
         if: env.CHANGED_FILES != ''
         run: |
           set +e
-          # Extract only files that failed, not extra text
-          files=$(echo "$CLEAN_OUTPUT" | grep -E '^\s*\./?' | sed 's/^\s*\.\///' | sed 's/^\s*//' | grep -vE '^(Files which failed|Some files are|Additional information|$)')
+          # Extract files from the "Some files are without a copyright note" section
+          files=$(echo "$CLEAN_OUTPUT" | awk '
+            /Some files are without a copyright note and a license header needs to be added:/ {
+              flag = 1
+              next
+            }
+            flag && /^$/ {
+              flag = 0
+            }
+            flag && NF > 0 && !/Some files are without/ {
+              print $0
+            }
+          ')
 
           # Filter to only include files from CHANGED_FILES
           files_clean=""
