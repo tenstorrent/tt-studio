@@ -17,8 +17,16 @@ SUPPORTED FILE TYPES:
 - HTML files (.html, .htm): <!-- comment --> style
 
 DIRECTORIES PROCESSED:
-- app/backend/
-- app/frontend/
+- app/backend/ (always processed)
+- app/agent/ (always processed)
+- app/frontend/ (optional, use --include-frontend flag)
+
+USAGE:
+1. Process only backend directories (default):
+   python dev-tools/add_spdx_header.py
+
+2. Process all directories including frontend:
+   python dev-tools/add_spdx_header.py --include-frontend
 
 EXCLUDED DIRECTORIES:
 - node_modules/ (external dependencies)
@@ -59,6 +67,7 @@ NOTES:
 
 from pathlib import Path
 from datetime import datetime
+import sys
 
 current_year = datetime.now().year
 
@@ -152,7 +161,7 @@ if __name__ == "__main__":
     repo_root = Path(__file__).resolve().parent.parent
     directories_to_process = [
         repo_root / "app" / "backend",
-        repo_root / "app" / "frontend",
+        repo_root / "app" / "agent",
     ]
 
     # Walk through the directories and add the header to relevant files

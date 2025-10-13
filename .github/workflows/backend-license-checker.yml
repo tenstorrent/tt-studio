@@ -25,11 +25,40 @@ jobs:
           python-version: "3.8"
       - name: Install copyright check tool
         run: pip install git+https://github.com/espressif/check-copyright.git@master
+      - name: Get changed files
+        id: get_changed_files
+        run: |
+          # Get files changed in this PR
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PR, get files changed compared to base branch
+            git fetch origin ${{ github.event.pull_request.base.ref }}
+            changed_files=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}...HEAD | grep -E '\.(py|sh)$|Dockerfile$' || true)
+          else
+            # For other events, get files changed in last commit
+            changed_files=$(git diff --name-only HEAD~1 HEAD | grep -E '\.(py|sh)$|Dockerfile$' || true)
+          fi
+
+          echo "Changed files to check:"
+          echo "$changed_files"
+
+          # Save changed files to environment
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          echo "$changed_files" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Check SPDX licenses
         id: check_spdx_licenses
+        if: env.CHANGED_FILES != ''
         run: |
           set +e
-          output=$(python -m check_copyright --verbose --dry-run --config ./check_copyright_config.yaml . 2>&1)
+          # Only check the changed files, not the entire repository
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "Checking SPDX licenses for changed files..."
+            output=$(echo "$CHANGED_FILES" | xargs -r python -m check_copyright --verbose --dry-run --config dev-tools/check_copyright_config.yaml 2>&1)
+          else
+            echo "No relevant files to check"
+            output=""
+          fi
           exit_code=$?
           clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
           echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
@@ -38,64 +67,73 @@ jobs:
           echo "EXIT_CODE=$exit_code" >> $GITHUB_ENV
           exit 0
       - name: Debug Extracted Files
+        if: env.CHANGED_FILES != ''
         run: |
           echo "Extracted Files:"
           echo "$CLEAN_OUTPUT"
       - name: Extract Files
         id: extract_files
+        if: env.CHANGED_FILES != ''
         run: |
-            set +e
-            files=$(echo "$CLEAN_OUTPUT" | awk '
-              /Files which failed the copyright check:/, /Additional information about this hook and copyright headers may be found here:/ {
-                if ($0 !~ /Files which failed the copyright check:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
-              }
-              /Some files are without a copyright note and a license header needs to be added:/, /Additional information about this hook and copyright headers may be found here:/ {
-                if ($0 !~ /Some files are without a copyright note and a license header needs to be added:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
-              }' | sed 's/^ *//' | sed '/^$/d' | grep '^.')
-            echo "FILES<<EOF" >> $GITHUB_ENV
-            echo "$files" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-            echo "Extracted Files: $files"
-            exit 0
-      - name: Debug Extracted Files   
+          set +e
+          files=$(echo "$CLEAN_OUTPUT" | awk '
+            /Files which failed the copyright check:/, /Additional information about this hook and copyright headers may be found here:/ {
+              if ($0 !~ /Files which failed the copyright check:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
+            }
+            /Some files are without a copyright note and a license header needs to be added:/, /Additional information about this hook and copyright headers may be found here:/ {
+              if ($0 !~ /Some files are without a copyright note and a license header needs to be added:/ && $0 !~ /Additional information about this hook and copyright headers may be found here:/) print
+            }' | sed 's/^ *//' | sed '/^$/d' | grep '^.')
+          echo "FILES<<EOF" >> $GITHUB_ENV
+          echo "$files" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "Extracted Files: $files"
+          exit 0
+      - name: Debug Extracted Files
+        if: env.CHANGED_FILES != ''
         run: |
           echo "Extracted Files:"
           echo "$FILES"
 
       # Extract and clean file paths
       - name: Extract File Paths
-        if: env.FILES != ''
+        if: env.FILES != '' && env.CHANGED_FILES != ''
         run: |
-            # Extract lines starting with './' but ignore any paths following "Modified files:" until a stop marker
-            files_clean=$(echo "$FILES" | awk '/^Modified files:/ {ignore = 1} /^Above is a list of files/ {ignore = 0} !ignore && /^\.\// {print}' | sort | uniq)
-            # Save the cleaned files into a new environment variable 'FILES_CLEAN'
-            echo "FILES_CLEAN<<EOF" >> $GITHUB_ENV
-            echo "$files_clean" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
-            echo "Extracted Paths: $files_clean"       
+          # Extract lines starting with './' but ignore any paths following "Modified files:" until a stop marker
+          files_clean=$(echo "$FILES" | awk '/^Modified files:/ {ignore = 1} /^Above is a list of files/ {ignore = 0} !ignore && /^\.\// {print}' | sort | uniq)
+          # Save the cleaned files into a new environment variable 'FILES_CLEAN'
+          echo "FILES_CLEAN<<EOF" >> $GITHUB_ENV
+          echo "$files_clean" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "Extracted Paths: $files_clean"
       - name: Debug Extracted Paths
+        if: env.CHANGED_FILES != ''
         run: |
-            echo "Extracted Paths:"
-            echo "$FILES_CLEAN"
-            echo "---------------------------------"
+          echo "Extracted Paths:"
+          echo "$FILES_CLEAN"
+          echo "---------------------------------"
       - name: Comment on PR or Issue
-        if: env.FILES_CLEAN != ''
+        if: env.FILES_CLEAN != '' && env.CHANGED_FILES != ''
         uses: actions/github-script@v7
         with:
-              script: |
-                const formattedOutput = process.env.FILES_CLEAN;
-                const issueNumber = context.issue.number || context.payload.pull_request.number;
-                const owner = context.repo.owner;
-                const repo = context.repo.repo;
-                if (formattedOutput) {
-                  const commentBody = `Our automated SPDX license verification process has discovered that the following files are missing a license header:\n\`\`\`\n${formattedOutput}\n\`\`\`\nPlease ensure each indicated file includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Your attention and cooperation in updating these files are greatly appreciated. Thank you.`;
-                  await github.rest.issues.createComment({
-                    issue_number: issueNumber,
-                    owner: owner,
-                    repo: repo,
-                    body: commentBody
-                  });
-                  core.setFailed("SPDX license issues found.");
-                } else {
-                  console.log("No SPDX license issues found.");
-                }
+          script: |
+            const formattedOutput = process.env.FILES_CLEAN;
+            const issueNumber = context.issue.number || context.payload.pull_request.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            if (formattedOutput) {
+              const commentBody = `Our automated SPDX license verification process has discovered that the following files are missing a license header:\n\`\`\`\n${formattedOutput}\n\`\`\`\nPlease ensure each indicated file includes a valid SPDX license identifier. This is essential for maintaining licensing compliance. Your attention and cooperation in updating these files are greatly appreciated. Thank you.`;
+              await github.rest.issues.createComment({
+                issue_number: issueNumber,
+                owner: owner,
+                repo: repo,
+                body: commentBody
+              });
+              core.setFailed("SPDX license issues found.");
+            } else {
+              console.log("No SPDX license issues found.");
+            }
+      - name: Success - No files to check
+        if: env.CHANGED_FILES == ''
+        run: |
+          echo "✅ No Python, Shell, or Dockerfile files were changed in this PR."
+          echo "SPDX license check skipped."

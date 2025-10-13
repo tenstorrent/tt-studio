@@ -6,23 +6,23 @@ DEFAULT:
     - GPL-3.0-only
   license_for_new_files: Apache-2.0
   new_notice_python: |
-    """
-    SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
-    
-    SPDX-License-Identifier: {license}
-    """
+    # SPDX-License-Identifier: {license}
+    #
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
   new_notice_dockerfile: |
-    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
     # SPDX-License-Identifier: {license}
+    #
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
   new_notice_shell: |
-    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
     # SPDX-License-Identifier: {license}
+    #
+    # SPDX-FileCopyrightText: © {years} Tenstorrent AI ULC
   include:
     - "*.py"
     - "*.dockerfile"
     - "*.sh"
     - "**/Dockerfile"
-    
+
 ignore:
   perform_check: no
   include:
