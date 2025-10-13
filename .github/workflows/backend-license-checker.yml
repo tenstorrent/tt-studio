@@ -145,6 +145,13 @@ jobs:
           fi
           echo "=================================================="
 
+      - name: Fail workflow if headers missing
+        if: env.FILES_CLEAN != '' && env.CHANGED_FILES != ''
+        run: |
+          echo "❌ Workflow failed due to missing SPDX license headers."
+          echo "Please add proper license headers to all flagged files before merging."
+          exit 1
+
       - name: Skip message for no changed files
         if: env.CHANGED_FILES == ''
         run: |
