@@ -15,12 +15,6 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "./ui/tooltip";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from "./ui/tooltip";
 import { Loader2, Trash2, Download, XCircle, HardDrive } from "lucide-react";
 import { FaDocker } from "react-icons/fa";
 const dockerAPIURL = "/docker-api/";
@@ -65,7 +59,7 @@ export function DockerStepForm({
   disableNext,
   isAutoDeploying,
 }: DockerStepFormProps) {
-  const { prevStep } = useStepper();
+  const { prevStep, nextStep } = useStepper();
   const [catalogStatus, setCatalogStatus] = useState<
     Record<string, ModelCatalogStatus>
   >({});
