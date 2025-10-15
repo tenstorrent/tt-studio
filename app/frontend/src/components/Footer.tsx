@@ -787,7 +787,7 @@ Add any other context about the problem here.
                     GitHub Repository
                   </div>
                   <div className="text-sm text-gray-600 dark:text-gray-300">
-                    View source code and documentation
+                    View source code and docs
                   </div>
                 </div>
                 <ExternalLink className="h-4 w-4 text-TT-purple-accent ml-auto" />
