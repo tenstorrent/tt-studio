@@ -47,13 +47,16 @@ jobs:
       - name: Get Changed Frontend Files
         id: changed_files
         run: |
-          # For pull requests, compare with the base branch
+          # For pull requests, use the proper base and head refs
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base_sha="${{ github.event.pull_request.base.sha }}"
-            head_sha="${{ github.event.pull_request.head.sha }}"
-            changed_files=$(git diff --name-only --diff-filter=AM $base_sha...$head_sha 2>/dev/null || echo "")
+            # Use the base and head refs from the PR context
+            base_ref="${{ github.event.pull_request.base.ref }}"
+            head_ref="${{ github.event.pull_request.head.ref }}"
+            echo "PR: Comparing $base_ref...$head_ref"
+            changed_files=$(git diff --name-only --diff-filter=AM origin/$base_ref...origin/$head_ref 2>/dev/null || echo "")
           else
             # For push events, compare with previous commit
+            echo "Push: Comparing with HEAD~1"
             changed_files=$(git diff --name-only --diff-filter=AM HEAD~1 2>/dev/null || echo "")
           fi
           
