@@ -47,10 +47,21 @@ jobs:
       - name: Get Changed Frontend Files
         id: changed_files
         run: |
-          # Get changed files and filter for frontend JS/TS files
-          changed_files=$(git diff --name-only --diff-filter=AM HEAD~1 2>/dev/null || git diff --name-only --diff-filter=AM origin/main...HEAD 2>/dev/null || echo "")
+          # For pull requests, compare with the base branch
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+            changed_files=$(git diff --name-only --diff-filter=AM $base_sha...$head_sha 2>/dev/null || echo "")
+          else
+            # For push events, compare with previous commit
+            changed_files=$(git diff --name-only --diff-filter=AM HEAD~1 2>/dev/null || echo "")
+          fi
+          
+          echo "All changed files: $changed_files"
+          
+          # Filter for frontend JS/TS files
           frontend_files=$(echo "$changed_files" | grep -E '^app/frontend/src/.*\.(ts|tsx|js|jsx)$' | sed 's|^app/frontend/||' || echo "")
-
+          
           if [ -n "$frontend_files" ]; then
             echo "CHANGED_FRONTEND_FILES<<EOF" >> $GITHUB_OUTPUT
             echo "$frontend_files" >> $GITHUB_OUTPUT
