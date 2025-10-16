@@ -47,24 +47,43 @@ jobs:
       - name: Get Changed Frontend Files
         id: changed_files
         run: |
-          # For pull requests, use the proper base and head refs
+          echo "Event: ${{ github.event_name }}"
+          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+          echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+
+          # For pull requests, get files changed in this PR
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Use the base and head refs from the PR context
-            base_ref="${{ github.event.pull_request.base.ref }}"
-            head_ref="${{ github.event.pull_request.head.ref }}"
-            echo "PR: Comparing $base_ref...$head_ref"
-            changed_files=$(git diff --name-only --diff-filter=AM origin/$base_ref...origin/$head_ref 2>/dev/null || echo "")
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.sha }}"
+            echo "PR: Comparing $base_sha..$head_sha"
+            
+            # Fetch the base branch to ensure we have the commits
+            git fetch origin ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }}
+            
+            # Get changed files using the most reliable method
+            changed_files=$(git diff --name-only --diff-filter=AM $base_sha..$head_sha 2>/dev/null || echo "")
+            
+            # If that fails, try alternative approaches
+            if [ -z "$changed_files" ]; then
+              echo "Trying alternative git diff approach..."
+              changed_files=$(git diff --name-only --diff-filter=AM origin/${{ github.event.pull_request.base.ref }}..HEAD 2>/dev/null || echo "")
+            fi
           else
             # For push events, compare with previous commit
             echo "Push: Comparing with HEAD~1"
             changed_files=$(git diff --name-only --diff-filter=AM HEAD~1 2>/dev/null || echo "")
           fi
-          
-          echo "All changed files: $changed_files"
-          
+
+          echo "All changed files:"
+          echo "$changed_files"
+
           # Filter for frontend JS/TS files
           frontend_files=$(echo "$changed_files" | grep -E '^app/frontend/src/.*\.(ts|tsx|js|jsx)$' | sed 's|^app/frontend/||' || echo "")
-          
+
+          echo "Frontend files:"
+          echo "$frontend_files"
+
           if [ -n "$frontend_files" ]; then
             echo "CHANGED_FRONTEND_FILES<<EOF" >> $GITHUB_OUTPUT
             echo "$frontend_files" >> $GITHUB_OUTPUT

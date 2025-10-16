@@ -15,34 +15,64 @@ const REQUIRED_HEADER_REGEX =
 function getChangedFiles() {
   try {
     // Check if we're in a GitHub Actions environment
-    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-    
+    const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
+
     let allFiles = [];
-    
+
     if (isGitHubActions) {
       // In GitHub Actions, use the same logic as the workflow
       const eventName = process.env.GITHUB_EVENT_NAME;
-      
-      if (eventName === 'pull_request') {
-        // For PRs, compare with base branch using refs
-        const baseRef = process.env.GITHUB_BASE_REF || 'main';
-        const headRef = process.env.GITHUB_HEAD_REF || 'main';
-        const changedFiles = execSync(`git diff --name-only --diff-filter=AM origin/${baseRef}...origin/${headRef}`, {
-          encoding: "utf-8",
-        });
-        allFiles = changedFiles.split('\n').filter(f => f.trim());
+
+      if (eventName === "pull_request") {
+        // For PRs, use the base and head SHAs from environment
+        const baseSha = process.env.GITHUB_BASE_SHA;
+        const headSha = process.env.GITHUB_SHA;
+
+        let changedFiles = "";
+        try {
+          // Try multiple approaches to get changed files
+          changedFiles = execSync(
+            `git diff --name-only --diff-filter=AM ${baseSha}...${headSha}`,
+            {
+              encoding: "utf-8",
+            }
+          );
+        } catch (error) {
+          try {
+            changedFiles = execSync(
+              `git diff --name-only --diff-filter=AM ${baseSha} ${headSha}`,
+              {
+                encoding: "utf-8",
+              }
+            );
+          } catch (error2) {
+            changedFiles = execSync(
+              "git diff --name-only --diff-filter=AM HEAD~1",
+              {
+                encoding: "utf-8",
+              }
+            );
+          }
+        }
+        allFiles = changedFiles.split("\n").filter((f) => f.trim());
       } else {
         // For pushes, compare with previous commit
-        const changedFiles = execSync("git diff --name-only --diff-filter=AM HEAD~1", {
-          encoding: "utf-8",
-        });
-        allFiles = changedFiles.split('\n').filter(f => f.trim());
+        const changedFiles = execSync(
+          "git diff --name-only --diff-filter=AM HEAD~1",
+          {
+            encoding: "utf-8",
+          }
+        );
+        allFiles = changedFiles.split("\n").filter((f) => f.trim());
       }
     } else {
       // Local development: get staged + unstaged + untracked changes
-      const staged = execSync("git diff --cached --name-only --diff-filter=AM", {
-        encoding: "utf-8",
-      });
+      const staged = execSync(
+        "git diff --cached --name-only --diff-filter=AM",
+        {
+          encoding: "utf-8",
+        }
+      );
       const unstaged = execSync("git diff --name-only --diff-filter=AM", {
         encoding: "utf-8",
       });
@@ -56,7 +86,7 @@ function getChangedFiles() {
           ...unstaged.split("\n"),
           ...untracked.split("\n"),
         ]),
-      ].filter(f => f.trim());
+      ].filter((f) => f.trim());
     }
 
     // Filter for JS/TS files in frontend
