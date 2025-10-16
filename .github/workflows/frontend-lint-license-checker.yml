@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # Fetch full history for proper git diff
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -37,10 +38,24 @@ jobs:
         working-directory: app/frontend
         run: npm ci
 
+      # Fetch git history for PR comparisons (must happen before header check)
+      - name: Fetch Git History for PR
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Fetching base branch: ${{ github.event.pull_request.base.ref }}"
+          git fetch origin ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }} --depth=100
+          git fetch origin ${{ github.event.pull_request.head.ref }}:refs/remotes/origin/${{ github.event.pull_request.head.ref }} --depth=100
+          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+          echo "Head SHA: ${{ github.sha }}"
+
       # Check SPDX headers on changed files (enforces current year)
       - name: Check SPDX Headers on Changed Files (Current Year)
         working-directory: app/frontend
         id: header_check
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: npm run header:check:changed
 
       # Get list of changed frontend files for targeted ESLint check
@@ -57,9 +72,6 @@ jobs:
             base_sha="${{ github.event.pull_request.base.sha }}"
             head_sha="${{ github.sha }}"
             echo "PR: Comparing $base_sha..$head_sha"
-            
-            # Fetch the base branch to ensure we have the commits
-            git fetch origin ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }}
             
             # Get changed files using the most reliable method
             changed_files=$(git diff --name-only --diff-filter=AM $base_sha..$head_sha 2>/dev/null || echo "")
