@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React from "react";
+import type { JSX } from "react";
 import {
   TableBody,
   TableCell,
@@ -66,24 +67,23 @@ export default function ModelsTable({
 
   // Listen to hover-tier events for per-row actions
   React.useEffect(() => {
-    const onRefresh = (e: any) => {
-      const id = e?.detail?.id as string | undefined;
+    const onRefresh = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const id = customEvent?.detail?.id as string | undefined;
       if (!id) return;
       if (refreshHealthById) refreshHealthById(id);
     };
-    const onLogs = (e: any) => {
-      const id = e?.detail?.id as string | undefined;
+    const onLogs = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const id = customEvent?.detail?.id as string | undefined;
       if (!id) return;
       onOpenLogs(id);
     };
-    window.addEventListener("row:refresh-health", onRefresh as EventListener);
-    window.addEventListener("row:logs", onLogs as EventListener);
+    window.addEventListener("row:refresh-health", onRefresh);
+    window.addEventListener("row:logs", onLogs);
     return () => {
-      window.removeEventListener(
-        "row:refresh-health",
-        onRefresh as EventListener
-      );
-      window.removeEventListener("row:logs", onLogs as EventListener);
+      window.removeEventListener("row:refresh-health", onRefresh);
+      window.removeEventListener("row:logs", onLogs);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

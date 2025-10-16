@@ -1,6 +1,7 @@
-import React from "react";
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
+import React from "react";
 export interface Detection {
   xmin: number;
   ymin: number;
@@ -22,7 +23,10 @@ export interface DetectionMetadata {
 }
 
 export interface WebcamPickerProps {
-  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void;
+  setDetections: (data: {
+    boxes: Detection[];
+    metadata: DetectionMetadata;
+  }) => void;
   setLiveMode: (mode: boolean) => void;
   setIsLoading: (isLoading: boolean) => void;
   setIsStreaming: (isStreaming: boolean) => void;

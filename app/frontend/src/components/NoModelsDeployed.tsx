@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,9 @@ interface NoModelsDialogProps {
   messageKey?: "reset" | "noModels";
 }
 
-export function NoModelsDialog({ messageKey = "noModels" }: NoModelsDialogProps) {
+export function NoModelsDialog({
+  messageKey = "noModels",
+}: NoModelsDialogProps) {
   const navigate = useNavigate();
 
   const messages = {

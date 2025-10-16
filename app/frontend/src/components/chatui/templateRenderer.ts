@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { processQuery } from "./textProcessing";
 
@@ -64,7 +64,8 @@ export function generatePrompt(
 
   // Get the latest user question
   const latestUserQuestion =
-    chatHistory.length > 0 && chatHistory[chatHistory.length - 1].sender === "user"
+    chatHistory.length > 0 &&
+    chatHistory[chatHistory.length - 1].sender === "user"
       ? chatHistory[chatHistory.length - 1].text
       : "";
 

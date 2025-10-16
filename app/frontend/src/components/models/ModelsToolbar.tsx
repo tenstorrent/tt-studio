@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+import type { JSX } from "react";
 import SettingsMenu from "./SettingsMenu";
 import type { ColumnVisibilityMap } from "../../types/models";
 

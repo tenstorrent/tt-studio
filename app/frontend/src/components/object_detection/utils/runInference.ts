@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import axios from "axios";
 import { Detection, DetectionMetadata } from "../types/objectDetection";
 import { InferenceRequest } from "../types/objectDetection";
@@ -7,7 +7,10 @@ import { InferenceRequest } from "../types/objectDetection";
 export const runInference = async (
   request: InferenceRequest,
   imageSourceElement: HTMLCanvasElement | HTMLImageElement,
-  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void
+  setDetections: (data: {
+    boxes: Detection[];
+    metadata: DetectionMetadata;
+  }) => void
 ) => {
   // construct FormData to send to API
   const formData = new FormData();
@@ -23,7 +26,9 @@ export const runInference = async (
     const startTime = performance.now();
     const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
     const useCloudEndpoint =
-      request.deploy_id === null || request.deploy_id === "null" || apiUrlDefined;
+      request.deploy_id === null ||
+      request.deploy_id === "null" ||
+      apiUrlDefined;
 
     const API_URL = useCloudEndpoint
       ? "/models-api/object-detection-cloud/"
@@ -46,7 +51,9 @@ export const runInference = async (
     const detectionMetadata: DetectionMetadata = {
       width: width,
       height: height,
-      inferenceTime: response.data.inference_time || (1 / (requestLatency / 1000)).toFixed(2),
+      inferenceTime:
+        response.data.inference_time ||
+        (1 / (requestLatency / 1000)).toFixed(2),
     };
     const detections: Detection[] = response.data.map(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

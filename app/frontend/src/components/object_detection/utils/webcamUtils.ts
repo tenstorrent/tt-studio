@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import React from "react";
 import { Detection, DetectionMetadata } from "../types/objectDetection";
 import { runInference } from "./runInference";
@@ -7,7 +7,10 @@ import { InferenceRequest } from "../types/objectDetection";
 
 export const startCapture = (
   videoRef: React.RefObject<HTMLVideoElement>,
-  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void,
+  setDetections: (data: {
+    boxes: Detection[];
+    metadata: DetectionMetadata;
+  }) => void,
   setIsLoading: (isLoading: boolean) => void
 ) => {
   return new Promise<void>((resolve, reject) => {
@@ -36,7 +39,10 @@ export const startCapture = (
 
 export const sendSnapshot = async (
   videoRef: React.RefObject<HTMLVideoElement>,
-  setDetections: (data: { boxes: Detection[]; metadata: DetectionMetadata }) => void,
+  setDetections: (data: {
+    boxes: Detection[];
+    metadata: DetectionMetadata;
+  }) => void,
   modelID: string
 ) => {
   if (videoRef.current) {
@@ -57,7 +63,9 @@ export const sendSnapshot = async (
   }
 };
 
-export const stopCapture = (videoRef: React.RefObject<HTMLVideoElement> | null) => {
+export const stopCapture = (
+  videoRef: React.RefObject<HTMLVideoElement> | null
+) => {
   if (videoRef && videoRef.current && videoRef.current.srcObject) {
     const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
     tracks.forEach((track) => track.stop());

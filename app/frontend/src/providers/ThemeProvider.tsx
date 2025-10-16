@@ -1,8 +1,11 @@
-/* eslint-disable */
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import { useEffect, useState } from "react";
-import { ThemeProviderContext, Theme, ThemeProviderProps } from "../contexts/ThemeContext";
+import {
+  ThemeProviderContext,
+  Theme,
+  ThemeProviderProps,
+} from "../contexts/ThemeContext";
 
 export function ThemeProvider({
   children,
@@ -11,7 +14,7 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme,
+    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
   );
 
   useEffect(() => {
@@ -45,5 +48,3 @@ export function ThemeProvider({
     </ThemeProviderContext.Provider>
   );
 }
-
-

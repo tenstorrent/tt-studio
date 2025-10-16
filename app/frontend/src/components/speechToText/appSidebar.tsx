@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import { useState } from "react";
 import { Search, Settings, Plus, MessageSquare, Moon, Sun } from "lucide-react";
 import { Button } from "../ui/button";
@@ -49,7 +52,9 @@ export function AppSidebar({
     if (!searchQuery) return true; // If no search query, show all conversations
 
     // Search in conversation title
-    const titleMatch = conversation.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const titleMatch = conversation.title
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
 
     // Search in all transcription text (safely)
     const transcriptionMatch = conversation.transcriptions.some(
@@ -143,13 +148,15 @@ export function AppSidebar({
   const getPreviewText = (conversation: Conversation) => {
     if (!conversation.transcriptions.length) return "No messages yet";
 
-    const lastTranscription = conversation.transcriptions[conversation.transcriptions.length - 1];
+    const lastTranscription =
+      conversation.transcriptions[conversation.transcriptions.length - 1];
 
     // Safely handle the text
     if (!lastTranscription.text) return "Empty message";
 
     return (
-      lastTranscription.text.substring(0, 40) + (lastTranscription.text.length > 40 ? "..." : "")
+      lastTranscription.text.substring(0, 40) +
+      (lastTranscription.text.length > 40 ? "..." : "")
     );
   };
 
@@ -207,7 +214,9 @@ export function AppSidebar({
                       isActive={selectedConversation === conversation.id}
                       className="flex flex-col items-start py-2 sm:py-3 px-3 sm:px-4 touch-manipulation"
                     >
-                      <button onClick={() => onSelectConversation(conversation.id)}>
+                      <button
+                        onClick={() => onSelectConversation(conversation.id)}
+                      >
                         <div className="flex items-start w-full">
                           <MessageSquare className="h-4 w-4 mr-2 shrink-0 mt-0.5" />
                           <div className="flex-1 overflow-hidden">
@@ -221,18 +230,27 @@ export function AppSidebar({
                                   (t) =>
                                     t.text &&
                                     typeof t.text === "string" &&
-                                    t.text.toLowerCase().includes(searchQuery.toLowerCase())
+                                    t.text
+                                      .toLowerCase()
+                                      .includes(searchQuery.toLowerCase())
                                 ) ? (
                                   <span>
                                     {getMatchingPreviewText(conversation)
                                       .split("[")
                                       .map((part, i) => {
                                         if (i === 0) return part;
-                                        const closeBracketIndex = part.indexOf("]");
-                                        if (closeBracketIndex === -1) return part;
+                                        const closeBracketIndex =
+                                          part.indexOf("]");
+                                        if (closeBracketIndex === -1)
+                                          return part;
 
-                                        const matchText = part.substring(0, closeBracketIndex);
-                                        const restText = part.substring(closeBracketIndex + 1);
+                                        const matchText = part.substring(
+                                          0,
+                                          closeBracketIndex
+                                        );
+                                        const restText = part.substring(
+                                          closeBracketIndex + 1
+                                        );
 
                                         return (
                                           <span key={i}>
@@ -268,7 +286,9 @@ export function AppSidebar({
                 ))
               ) : (
                 <div className="p-4 text-center text-muted-foreground">
-                  {searchQuery ? "No conversations match your search" : "No conversations yet"}
+                  {searchQuery
+                    ? "No conversations match your search"
+                    : "No conversations yet"}
                 </div>
               )}
             </SidebarMenu>
@@ -282,7 +302,12 @@ export function AppSidebar({
             <Settings className="h-4 w-4" />
           </Button>
           {/* Theme Toggle */}
-          <Button variant="outline" size="icon" onClick={toggleTheme} className="h-10 w-10">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleTheme}
+            className="h-10 w-10"
+          >
             <Sun className="h-4 w-4 dark:hidden" />
             <Moon className="h-4 w-4 hidden dark:block" />
           </Button>
