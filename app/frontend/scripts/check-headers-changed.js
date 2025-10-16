@@ -14,24 +14,50 @@ const REQUIRED_HEADER_REGEX =
 
 function getChangedFiles() {
   try {
-    // Get staged + unstaged changes
-    const staged = execSync("git diff --cached --name-only --diff-filter=AM", {
-      encoding: "utf-8",
-    });
-    const unstaged = execSync("git diff --name-only --diff-filter=AM", {
-      encoding: "utf-8",
-    });
-    const untracked = execSync("git ls-files --others --exclude-standard", {
-      encoding: "utf-8",
-    });
+    // Check if we're in a GitHub Actions environment
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    
+    let allFiles = [];
+    
+    if (isGitHubActions) {
+      // In GitHub Actions, use the same logic as the workflow
+      const eventName = process.env.GITHUB_EVENT_NAME;
+      
+      if (eventName === 'pull_request') {
+        // For PRs, compare with base branch using refs
+        const baseRef = process.env.GITHUB_BASE_REF || 'main';
+        const headRef = process.env.GITHUB_HEAD_REF || 'main';
+        const changedFiles = execSync(`git diff --name-only --diff-filter=AM origin/${baseRef}...origin/${headRef}`, {
+          encoding: "utf-8",
+        });
+        allFiles = changedFiles.split('\n').filter(f => f.trim());
+      } else {
+        // For pushes, compare with previous commit
+        const changedFiles = execSync("git diff --name-only --diff-filter=AM HEAD~1", {
+          encoding: "utf-8",
+        });
+        allFiles = changedFiles.split('\n').filter(f => f.trim());
+      }
+    } else {
+      // Local development: get staged + unstaged + untracked changes
+      const staged = execSync("git diff --cached --name-only --diff-filter=AM", {
+        encoding: "utf-8",
+      });
+      const unstaged = execSync("git diff --name-only --diff-filter=AM", {
+        encoding: "utf-8",
+      });
+      const untracked = execSync("git ls-files --others --exclude-standard", {
+        encoding: "utf-8",
+      });
 
-    const allFiles = [
-      ...new Set([
-        ...staged.split("\n"),
-        ...unstaged.split("\n"),
-        ...untracked.split("\n"),
-      ]),
-    ];
+      allFiles = [
+        ...new Set([
+          ...staged.split("\n"),
+          ...unstaged.split("\n"),
+          ...untracked.split("\n"),
+        ]),
+      ].filter(f => f.trim());
+    }
 
     // Filter for JS/TS files in frontend
     return allFiles

@@ -20,7 +20,8 @@
     "header:check": "eslint .",
     "header:check:changed": "node scripts/check-headers-changed.js",
     "header:fix": "node scripts/add-headers.js",
-    "header:fix:changed": "node scripts/add-headers.js --changed-only"
+    "header:fix:changed": "node scripts/add-headers.js --changed-only",
+    "header:test": "node test-header-checker.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
