@@ -37,16 +37,56 @@ jobs:
         working-directory: app/frontend
         run: npm ci
 
-      # Single ESLint execution with comprehensive output capture
-      - name: Run ESLint and Process Results
+      # Check SPDX headers on changed files (enforces current year)
+      - name: Check SPDX Headers on Changed Files (Current Year)
+        working-directory: app/frontend
+        id: header_check
+        run: npm run header:check:changed
+
+      # Get list of changed frontend files for targeted ESLint check
+      - name: Get Changed Frontend Files
+        id: changed_files
+        run: |
+          # Get changed files and filter for frontend JS/TS files
+          changed_files=$(git diff --name-only --diff-filter=AM HEAD~1 2>/dev/null || git diff --name-only --diff-filter=AM origin/main...HEAD 2>/dev/null || echo "")
+          frontend_files=$(echo "$changed_files" | grep -E '^app/frontend/src/.*\.(ts|tsx|js|jsx)$' | sed 's|^app/frontend/||' || echo "")
+
+          if [ -n "$frontend_files" ]; then
+            echo "CHANGED_FRONTEND_FILES<<EOF" >> $GITHUB_OUTPUT
+            echo "$frontend_files" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "Found changed frontend files: $frontend_files"
+          else
+            echo "No changed frontend files found"
+            echo "CHANGED_FRONTEND_FILES=" >> $GITHUB_OUTPUT
+          fi
+
+      # Skip ESLint if no frontend files changed
+      - name: Skip ESLint - No Frontend Changes
+        if: steps.changed_files.outputs.CHANGED_FRONTEND_FILES == ''
+        run: |
+          echo "✅ No frontend files changed in this PR"
+          echo "Skipping ESLint check"
+          echo "HAS_ERRORS=false" >> $GITHUB_ENV
+          echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
+
+      # Run ESLint on changed files only (or all files if no changes detected)
+      - name: Run ESLint on Changed Files
+        if: steps.changed_files.outputs.CHANGED_FRONTEND_FILES != ''
         working-directory: app/frontend
         id: eslint_check
         run: |
           set +e
 
-          # Run ESLint once and capture output
+          # Run ESLint on changed files or all files
           echo "Running ESLint..."
-          output=$(npm run lint --silent 2>&1)
+          if [ -n "${{ steps.changed_files.outputs.CHANGED_FRONTEND_FILES }}" ]; then
+            echo "Running ESLint on changed files only..."
+            output=$(npx eslint ${{ steps.changed_files.outputs.CHANGED_FRONTEND_FILES }} --silent 2>&1)
+          else
+            echo "No changed files detected, running ESLint on all files..."
+            output=$(npm run lint --silent 2>&1)
+          fi
           exit_code=$?
 
           echo "ESLint completed with exit code: $exit_code"

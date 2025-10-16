@@ -15,7 +15,12 @@
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "preview": "vite preview",
     "generate-license": "npx generate-license-file --input package.json --output ./third-party-licenses.txt --overwrite",
-    "audit": "npm audit"
+    "audit": "npm audit",
+    "header": "npm run header:check",
+    "header:check": "eslint .",
+    "header:check:changed": "node scripts/check-headers-changed.js",
+    "header:fix": "node scripts/add-headers.js",
+    "header:fix:changed": "node scripts/add-headers.js --changed-only"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
