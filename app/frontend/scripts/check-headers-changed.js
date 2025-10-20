@@ -161,12 +161,33 @@ changedFiles.forEach((file) => {
 });
 
 if (hasErrors) {
-  console.error("✗ SPDX Header Errors:\n");
-  errors.forEach((err) => console.error(`  ${err}`));
   console.error(
-    `\n✗ Changed files must have SPDX headers with current year (${CURRENT_YEAR})`
+    "╭─────────────────────────────────────────────────────────────╮"
   );
-  console.error(`\nTo fix: npm run header:fix:changed\n`);
+  console.error(
+    "│                    ✗ SPDX Header Errors                    │"
+  );
+  console.error(
+    "╰─────────────────────────────────────────────────────────────╯"
+  );
+  console.error("");
+
+  errors.forEach((err) => console.error(`  • ${err}`));
+
+  console.error("");
+  console.error(
+    "──────────────────────────────────────────────────────────────"
+  );
+  console.error(
+    `✗ Changed files must have SPDX headers with current year (${CURRENT_YEAR})`
+  );
+  console.error("");
+  console.error("💡 To fix automatically:");
+  console.error("   npm run header:fix:changed");
+  console.error(
+    "──────────────────────────────────────────────────────────────"
+  );
+  console.error("");
   process.exit(1);
 }
 
