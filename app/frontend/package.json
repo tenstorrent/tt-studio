@@ -19,8 +19,12 @@
     "header": "npm run header:check",
     "header:check": "eslint .",
     "header:check:changed": "node scripts/check-headers-changed.js",
+    "header:check:strict": "eslint . --max-warnings=0",
     "header:fix": "node scripts/add-headers.js",
+    "header:fix:all": "node scripts/add-headers.js",
     "header:fix:changed": "node scripts/add-headers.js --changed-only",
+    "header:fix:dry-run": "node scripts/add-headers.js --dry-run",
+    "header:fix:verbose": "node scripts/add-headers.js --verbose",
     "header:test": "node test-header-checker.js"
   },
   "dependencies": {

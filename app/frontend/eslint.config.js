@@ -65,9 +65,9 @@ export default [
       "prefer-const": "warn",
       "no-unused-expressions": "warn",
 
-      // SPDX License Header - Accept any year 2024+, only suggest fixes
+      // SPDX License Header - Auto-fix on save enabled
       "header/header-format": [
-        "warn", // Changed to warn so it doesn't auto-fix everything
+        "error", // Changed to error to enable auto-fix on save
         {
           source: "string",
           style: "line",

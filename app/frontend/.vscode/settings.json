@@ -1,7 +1,7 @@
 {
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit"
+    "source.fixAll.eslint": "always"
   },
   "files.autoSave": "onFocusChange",
   "files.associations": {
@@ -15,10 +15,10 @@
     "autoAddLine": 100,
     "autoAlready": true,
     "annotationStr": {
-      "head": "/*",
-      "middle": " * ",
-      "end": " */",
-      "use": true
+      "head": "//",
+      "middle": "// ",
+      "end": "//",
+      "use": false
     },
     "supportAutoLanguage": [
       "javascript",
@@ -41,29 +41,5 @@
       "License": "SPDX-License-Identifier: Apache-2.0",
       "Copyright": "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
     }
-  },
-  "psi-header.config": {
-    "forceToTop": true,
-    "blankLinesAfter": 1,
-    "license": "Custom",
-    "author": "Tenstorrent AI ULC"
-  },
-  "psi-header.lang-config": [
-    {
-      "language": "*",
-      "begin": "/*",
-      "prefix": " * ",
-      "end": " */",
-      "blankLinesAfter": 1
-    }
-  ],
-  "psi-header.templates": [
-    {
-      "language": "*",
-      "template": [
-        "SPDX-License-Identifier: Apache-2.0",
-        "SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
-      ]
-    }
-  ]
+  }
 }
