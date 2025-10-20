@@ -126,7 +126,7 @@ def is_placeholder(value):
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
-        '<PATH_TO_ROOT_OF_REPO>', 'true or flase to enable deployed mode',
+        '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
         'true or false to enable RAG admin'
     ]
     
@@ -1537,6 +1537,7 @@ def check_spdx_headers():
     directories_to_process = [
         repo_root / "app" / "backend",
         repo_root / "app" / "agent", 
+        repo_root / "app" / "frontend",
         repo_root / "dev-tools",
         repo_root / "models",
         repo_root / "docs",
