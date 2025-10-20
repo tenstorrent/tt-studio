@@ -196,6 +196,7 @@ python3 run.py --dev  # Enables hot reload for development
 - **[Troubleshooting Guide](docs/troubleshooting.md)** - Fix common setup issues
 - **[Model Interface Guide](docs/model-interface.md)** - Detailed tutorials for using AI models
 - **[Complete run.py Guide](docs/run-py-guide.md)** - Advanced usage and command-line options
+- **[Diff Functionality Overview](docs/diff-functionality-overview.md)** - How git diff operations work for license header management
 
 ### Community & Support
 

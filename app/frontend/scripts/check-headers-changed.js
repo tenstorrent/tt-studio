@@ -2,6 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+/**
+ * SPDX Header Validation Script
+ * 
+ * This script validates that all changed files have proper SPDX license headers
+ * with the current year. It uses git diff operations to identify which files
+ * have been modified and need header validation.
+ * 
+ * Key Features:
+ * - CI Integration: Designed to run in GitHub Actions workflows
+ * - Smart diff detection: Uses multiple git diff strategies for robust file detection
+ * - Environment-aware: Adapts behavior for CI vs local development environments
+ * - Strict validation: Ensures headers have correct format and current year
+ * - Helpful feedback: Provides clear error messages and fix instructions
+ * 
+ * Validation Rules:
+ * - Header must start with: // SPDX-License-Identifier: Apache-2.0
+ * - Second line must be: // SPDX-FileCopyrightText: © [CURRENT_YEAR] Tenstorrent AI ULC
+ * - Copyright year must match the current year
+ * 
+ * Git Diff Operations Used:
+ * - Pull Requests: Compares PR branch with base branch
+ * - Push Events: Compares with previous commit  
+ * - Local Dev: Includes staged, unstaged, and untracked changes
+ * 
+ * Exit Codes:
+ * - 0: All files have valid headers
+ * - 1: One or more files have invalid or missing headers
+ */
+
 import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -12,6 +41,20 @@ const MIN_YEAR = "2024"; // Project start year
 const REQUIRED_HEADER_REGEX =
   /^\/\/ SPDX-License-Identifier: Apache-2\.0\n\/\/ SPDX-FileCopyrightText: © \d{4} Tenstorrent AI ULC/;
 
+/**
+ * Detects changed files using git diff operations
+ * 
+ * This function intelligently determines which files have been modified based on the environment:
+ * - In GitHub Actions (CI): Compares branches or commits to find PR/push changes
+ * - In Local Development: Includes staged, unstaged, and untracked changes
+ * 
+ * The git diff commands used:
+ * - `git diff --name-only --diff-filter=AM` = Lists Added/Modified files only
+ * - `--diff-filter=AM` excludes deleted, renamed, or copied files
+ * - Different comparison strategies ensure compatibility across environments
+ * 
+ * @returns {string[]} Array of changed file paths relative to repository root
+ */
 function getChangedFiles() {
   try {
     // Check if we're in a GitHub Actions environment
@@ -30,7 +73,8 @@ function getChangedFiles() {
 
         let changedFiles = "";
         try {
-          // Try multiple approaches to get changed files
+          // Primary approach: Three-dot diff compares merge base with PR head
+          // This shows only changes introduced in the PR branch
           changedFiles = execSync(
             `git diff --name-only --diff-filter=AM ${baseSha}...${headSha}`,
             {
@@ -39,6 +83,8 @@ function getChangedFiles() {
           );
         } catch (error) {
           try {
+            // Fallback 1: Two-dot diff compares commits directly
+            // This may include more changes but ensures we get results
             changedFiles = execSync(
               `git diff --name-only --diff-filter=AM ${baseSha} ${headSha}`,
               {
@@ -46,6 +92,8 @@ function getChangedFiles() {
               }
             );
           } catch (error2) {
+            // Fallback 2: Compare with previous commit
+            // Last resort when SHA comparisons fail
             changedFiles = execSync(
               "git diff --name-only --diff-filter=AM HEAD~1",
               {
@@ -57,6 +105,7 @@ function getChangedFiles() {
         allFiles = changedFiles.split("\n").filter((f) => f.trim());
       } else {
         // For pushes, compare with previous commit
+        // This captures all changes in the latest commit
         const changedFiles = execSync(
           "git diff --name-only --diff-filter=AM HEAD~1",
           {
@@ -66,20 +115,28 @@ function getChangedFiles() {
         allFiles = changedFiles.split("\n").filter((f) => f.trim());
       }
     } else {
-      // Local development: get staged + unstaged + untracked changes
+      // Local development: Comprehensive change detection
+      // This captures all possible file modifications for developer workflow
+      
+      // Staged changes: Files ready to be committed (git add has been run)
       const staged = execSync(
         "git diff --cached --name-only --diff-filter=AM",
         {
           encoding: "utf-8",
         }
       );
+      
+      // Unstaged changes: Files modified but not yet staged (working directory changes)
       const unstaged = execSync("git diff --name-only --diff-filter=AM", {
         encoding: "utf-8",
       });
+      
+      // Untracked files: New files not yet added to git (respects .gitignore)
       const untracked = execSync("git ls-files --others --exclude-standard", {
         encoding: "utf-8",
       });
 
+      // Combine all types of changes, removing duplicates
       allFiles = [
         ...new Set([
           ...staged.split("\n"),
@@ -89,7 +146,11 @@ function getChangedFiles() {
       ].filter((f) => f.trim());
     }
 
-    // Filter for JS/TS files in frontend
+    // Filter for JS/TS files in frontend source directory
+    // This ensures we only process files that:
+    // 1. Are TypeScript/JavaScript files (.ts, .tsx, .js, .jsx)
+    // 2. Are in the frontend source directory (app/frontend/src/)
+    // 3. Are not in the UI component library directory (/ui/)
     return allFiles
       .filter(
         (file) =>
