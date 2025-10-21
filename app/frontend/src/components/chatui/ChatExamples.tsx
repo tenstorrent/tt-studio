@@ -3,7 +3,16 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "../ui/button";
-import { MessageCircle, Smile, CloudSun, Lightbulb, Code, Book, Globe, Rocket } from "lucide-react";
+import {
+  MessageCircle,
+  Smile,
+  CloudSun,
+  Lightbulb,
+  Code,
+  Book,
+  Globe,
+  Rocket,
+} from "lucide-react";
 
 interface ChatExamplesProps {
   logo: string;
@@ -62,17 +71,23 @@ const ChatExamples: React.FC<ChatExamplesProps> = ({
   // Show fewer examples on mobile to prevent crowding
   const exampleCount = isMobileView ? 2 : 4;
 
-  const [displayedExamples, setDisplayedExamples] = useState(allExamples.slice(0, exampleCount));
+  const [displayedExamples, setDisplayedExamples] = useState(
+    allExamples.slice(0, exampleCount)
+  );
 
   useEffect(() => {
     const interval = setInterval(
       () => {
         setDisplayedExamples((prevExamples) => {
           const nextIndex =
-            (allExamples.indexOf(prevExamples[prevExamples.length - 1]) + 1) % allExamples.length;
+            (allExamples.indexOf(prevExamples[prevExamples.length - 1]) + 1) %
+            allExamples.length;
           return [
             ...allExamples.slice(nextIndex, nextIndex + exampleCount),
-            ...allExamples.slice(0, Math.max(0, exampleCount - (allExamples.length - nextIndex))),
+            ...allExamples.slice(
+              0,
+              Math.max(0, exampleCount - (allExamples.length - nextIndex))
+            ),
           ];
         });
       },

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useMemo } from "react";
+import type { JSX } from "react";
 import type { ColumnVisibilityMap } from "../../types/models";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";

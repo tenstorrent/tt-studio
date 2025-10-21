@@ -38,7 +38,10 @@ export function usePersistentState<T>(
         }
       }
     } catch (e) {
-      console.error(`Error reading initial value from localStorage for ${key}:`, e);
+      console.error(
+        `Error reading initial value from localStorage for ${key}:`,
+        e
+      );
     }
     return initialValue;
   });
@@ -89,7 +92,10 @@ export function usePersistentState<T>(
             }
           }
         } catch (localStorageError) {
-          console.error(`Error reading from localStorage for ${key}:`, localStorageError);
+          console.error(
+            `Error reading from localStorage for ${key}:`,
+            localStorageError
+          );
         }
       } catch (error) {
         console.error(`Error loading state for ${key}:`, error);
@@ -102,7 +108,8 @@ export function usePersistentState<T>(
 
       // Check if migration has already been completed
       try {
-        const migrationCompleted = localStorage.getItem(MIGRATION_COMPLETED_KEY) === "true";
+        const migrationCompleted =
+          localStorage.getItem(MIGRATION_COMPLETED_KEY) === "true";
 
         if (!migrationCompleted) {
           // Perform migration
@@ -114,7 +121,10 @@ export function usePersistentState<T>(
               // console.log("Migration from localStorage to IndexedDB completed successfully");
             })
             .catch((err) => {
-              console.error("Error during migration from localStorage to IndexedDB:", err);
+              console.error(
+                "Error during migration from localStorage to IndexedDB:",
+                err
+              );
             });
         } else {
           // console.log("IndexedDB migration already completed, skipping");
@@ -191,7 +201,10 @@ export function usePersistentState<T>(
       // Try to save to IndexedDB
       await IndexedDB.setItem(key, stateToSave);
     } catch (error) {
-      console.warn(`Error saving to IndexedDB for ${key}, attempting to prune data:`, error);
+      console.warn(
+        `Error saving to IndexedDB for ${key}, attempting to prune data:`,
+        error
+      );
 
       try {
         // Try to prune the data and save again
@@ -200,18 +213,27 @@ export function usePersistentState<T>(
           await IndexedDB.setItem(key, prunedState);
           // console.log(`Successfully saved pruned data to IndexedDB for ${key}`);
           // Update the state to match the pruned version if needed
-          if (JSON.stringify(prunedState) !== JSON.stringify(latestStateRef.current)) {
+          if (
+            JSON.stringify(prunedState) !==
+            JSON.stringify(latestStateRef.current)
+          ) {
             setState(prunedState as T);
           }
         } catch (innerError) {
-          console.error(`Still cannot save to IndexedDB after pruning for ${key}:`, innerError);
+          console.error(
+            `Still cannot save to IndexedDB after pruning for ${key}:`,
+            innerError
+          );
 
           // As a last resort, try localStorage
           try {
             localStorage.setItem(key, JSON.stringify(prunedState));
             // console.log(`Saved ${key} to localStorage as fallback`);
           } catch (localStorageError) {
-            console.error(`Failed to save ${key} to localStorage fallback:`, localStorageError);
+            console.error(
+              `Failed to save ${key} to localStorage fallback:`,
+              localStorageError
+            );
           }
         }
       } catch (pruneError) {
@@ -229,7 +251,9 @@ export function usePersistentState<T>(
       setState((prevState) => {
         // Calculate the new state
         const nextState =
-          typeof newState === "function" ? (newState as (prevState: T) => T)(prevState) : newState;
+          typeof newState === "function"
+            ? (newState as (prevState: T) => T)(prevState)
+            : newState;
 
         // Update the latest state ref immediately
         latestStateRef.current = nextState;

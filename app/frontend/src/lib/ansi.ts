@@ -18,6 +18,7 @@ export interface ParsedLogLine {
   segments: AnsiSegment[];
 }
 
+// eslint-disable-next-line no-control-regex
 const ANSI_REGEX = /\u001b\[[0-9;]*m/g;
 const LOG_LEVEL_REGEX = /(ERROR|WARN|WARNING|INFO|DEBUG|TRACE|FATAL|CRITICAL)/i;
 
@@ -174,4 +175,3 @@ export const getLogLevelColor = (level?: string): string => {
       return "text-green-400";
   }
 };
-
