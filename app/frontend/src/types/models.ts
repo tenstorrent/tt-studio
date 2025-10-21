@@ -20,4 +20,3 @@ export interface ColumnVisibilityMap {
 }
 
 export type HealthRefsMap = Map<string, HealthBadgeRef>;
-

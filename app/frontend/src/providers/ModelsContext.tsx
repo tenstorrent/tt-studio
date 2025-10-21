@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React, { useState, useCallback } from "react";
-import { fetchModels, fetchDeployedModelsInfo } from "../api/modelsDeployedApis";
+import {
+  fetchModels,
+  fetchDeployedModelsInfo,
+} from "../api/modelsDeployedApis";
 import { ModelsContext, type Model } from "../contexts/ModelsContext";
 
-export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [models, setModels] = useState<Model[]>([]);
   const [hasDeployedModels, setHasDeployedModels] = useState<boolean>(false);
 
@@ -61,7 +66,9 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   return (
-    <ModelsContext.Provider value={{ models, setModels, refreshModels, hasDeployedModels }}>
+    <ModelsContext.Provider
+      value={{ models, setModels, refreshModels, hasDeployedModels }}
+    >
       {children}
     </ModelsContext.Provider>
   );
