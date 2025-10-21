@@ -26,4 +26,3 @@ export function useOpenLogsFromUrl(
     }
   }, [open, location.search]);
 }
-

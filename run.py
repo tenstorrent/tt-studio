@@ -20,6 +20,8 @@ Options:
     --cleanup-all      Clean up everything including persistent data
     --skip-fastapi     Skip TT Inference Server FastAPI setup
     --no-sudo          Skip sudo usage for FastAPI setup
+    --check-headers       Check for missing SPDX license headers
+    --add-headers         Add missing SPDX license headers (excludes frontend)
     --help-env         Show environment variables help
 """
 
@@ -36,6 +38,8 @@ import webbrowser
 import socket
 import tempfile
 import signal
+from pathlib import Path
+from datetime import datetime
 try:
     import requests
     HAS_REQUESTS = True
@@ -122,7 +126,7 @@ def is_placeholder(value):
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
-        '<PATH_TO_ROOT_OF_REPO>', 'true or flase to enable deployed mode',
+        '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
         'true or false to enable RAG admin'
     ]
     
@@ -1426,6 +1430,207 @@ def ensure_frontend_dependencies():
 
     return True
 
+def get_spdx_header_type(file_path):
+    """
+    Determines the appropriate SPDX header type based on file extension.
+    """
+    suffix = file_path.suffix.lower()
+    name = file_path.name
+    
+    if suffix in ('.py', '.sh') or name == 'Dockerfile':
+        return 'hash'
+    elif suffix in ('.ts', '.tsx', '.js', '.jsx'):
+        return 'double_slash'
+    elif suffix == '.css':
+        return 'css'
+    elif suffix in ('.html', '.htm'):
+        return 'html'
+    else:
+        return None
+
+def get_spdx_headers():
+    """
+    Returns SPDX header templates for different file types.
+    """
+    current_year = datetime.now().year
+    
+    return {
+        # Python, Bash, Dockerfile
+        'hash': f"""# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
+""",
+        # TypeScript, JavaScript
+        'double_slash': f"""// SPDX-License-Identifier: Apache-2.0
+//
+// SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
+""",
+        # CSS
+        'css': f"""/* SPDX-License-Identifier: Apache-2.0
+ *
+ * SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
+ */
+""",
+        # HTML
+        'html': f"""<!-- SPDX-License-Identifier: Apache-2.0
+
+SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC -->
+"""
+    }
+
+def should_skip_spdx_directory(directory_path):
+    """
+    Determines if a directory should be skipped during SPDX processing.
+    """
+    directory_name = directory_path.name
+    
+    # Skip common directories that shouldn't have SPDX headers
+    skip_dirs = {
+        'node_modules',
+        '.git',
+        '.venv',
+        '__pycache__',
+        '.pytest_cache',
+        'dist',
+        'build',
+        '.next',
+        'coverage',
+        '.nyc_output',
+        'frontend',  # Explicitly exclude frontend directory
+        'tt-inference-server',  # Exclude submodule
+        'tt_studio_persistent_volume',  # Exclude runtime data
+    }
+    
+    return directory_name in skip_dirs
+
+def add_spdx_header_to_file(file_path, headers):
+    """
+    Adds the SPDX header to the file if it doesn't already contain it.
+    """
+    header_type = get_spdx_header_type(file_path)
+    if header_type is None:
+        return False
+    
+    header = headers[header_type]
+    
+    try:
+        with open(file_path, "r+", encoding='utf-8') as file:
+            content = file.read()
+            if "SPDX-License-Identifier" not in content:
+                file.seek(0, 0)
+                file.write(header + "\n" + content)
+                print(f"{C_GREEN}✅ Added SPDX header to: {file_path}{C_RESET}")
+                return True
+            else:
+                return False
+    except Exception as e:
+        print(f"{C_RED}❌ Error processing {file_path}: {e}{C_RESET}")
+        return False
+
+def check_spdx_headers():
+    """
+    Check for missing SPDX headers in the codebase (excluding frontend).
+    """
+    print(f"{C_BLUE}{C_BOLD}🔍 Checking for missing SPDX license headers...{C_RESET}")
+    
+    repo_root = Path(TT_STUDIO_ROOT)
+    directories_to_process = [
+        repo_root / "app" / "backend",
+        repo_root / "app" / "agent", 
+        repo_root / "app" / "frontend",
+        repo_root / "dev-tools",
+        repo_root / "models",
+        repo_root / "docs",
+        repo_root,  # Root level files (like run.py, startup.sh)
+    ]
+    
+    missing_headers = []
+    total_files_checked = 0
+    
+    for directory in directories_to_process:
+        if not directory.exists():
+            print(f"{C_YELLOW}⚠️  Directory does not exist: {directory}{C_RESET}")
+            continue
+            
+        print(f"{C_CYAN}📁 Checking directory: {directory}{C_RESET}")
+        for file_path in directory.rglob("*"):
+            if file_path.is_file():
+                # Skip files in excluded directories
+                if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
+                    continue
+                    
+                # Check if the file is a supported type
+                if get_spdx_header_type(file_path) is not None:
+                    total_files_checked += 1
+                    try:
+                        with open(file_path, "r", encoding='utf-8') as file:
+                            content = file.read()
+                            if "SPDX-License-Identifier" not in content:
+                                missing_headers.append(str(file_path))
+                    except Exception as e:
+                        print(f"{C_YELLOW}⚠️  Could not read {file_path}: {e}{C_RESET}")
+    
+    print(f"\n{C_BLUE}📊 SPDX Header Check Results:{C_RESET}")
+    print(f"  Total files checked: {total_files_checked}")
+    print(f"  Files with missing headers: {len(missing_headers)}")
+    
+    if missing_headers:
+        print(f"\n{C_RED}{C_BOLD}❌ Files missing SPDX headers:{C_RESET}")
+        for file_path in missing_headers:
+            print(f"  {C_RED}• {file_path}{C_RESET}")
+        print(f"\n{C_CYAN}💡 To add missing headers, run: {C_WHITE}python run.py --add-headers{C_RESET}")
+        return False
+    else:
+        print(f"\n{C_GREEN}{C_BOLD}✅ All files have proper SPDX license headers!{C_RESET}")
+        return True
+
+def add_spdx_headers():
+    """
+    Add missing SPDX headers to all source files (excluding frontend).
+    """
+    print(f"{C_BLUE}{C_BOLD}📝 Adding missing SPDX license headers...{C_RESET}")
+    
+    repo_root = Path(TT_STUDIO_ROOT)
+    directories_to_process = [
+        repo_root / "app" / "backend",
+        repo_root / "app" / "agent", 
+        repo_root / "dev-tools",
+        repo_root / "models",
+        repo_root / "docs",
+        repo_root,  # Root level files (like run.py, startup.sh)
+    ]
+    
+    headers = get_spdx_headers()
+    files_modified = 0
+    total_files_checked = 0
+    
+    for directory in directories_to_process:
+        if not directory.exists():
+            print(f"{C_YELLOW}⚠️  Directory does not exist: {directory}{C_RESET}")
+            continue
+            
+        print(f"{C_CYAN}📁 Processing directory: {directory}{C_RESET}")
+        for file_path in directory.rglob("*"):
+            if file_path.is_file():
+                # Skip files in excluded directories
+                if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
+                    continue
+                    
+                # Check if the file is a supported type
+                if get_spdx_header_type(file_path) is not None:
+                    total_files_checked += 1
+                    if add_spdx_header_to_file(file_path, headers):
+                        files_modified += 1
+    
+    print(f"\n{C_BLUE}📊 SPDX Header Addition Results:{C_RESET}")
+    print(f"  Total files checked: {total_files_checked}")
+    print(f"  Files modified: {files_modified}")
+    
+    if files_modified > 0:
+        print(f"\n{C_GREEN}{C_BOLD}✅ Successfully added SPDX headers to {files_modified} files!{C_RESET}")
+    else:
+        print(f"\n{C_GREEN}{C_BOLD}✅ All files already have proper SPDX license headers!{C_RESET}")
+
 def main():
     """Main function to orchestrate the script."""
     try:
@@ -1452,6 +1657,8 @@ def main():
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
   {C_CYAN}python run.py --no-browser{C_RESET}      🚫 Skip automatic browser opening
   {C_CYAN}python run.py --wait-for-services{C_RESET} ⏳ Wait for all services to be healthy before completing
+  {C_CYAN}python run.py --check-headers{C_RESET} 🔍 Check for missing SPDX license headers
+  {C_CYAN}python run.py --add-headers{C_RESET} 📝 Add missing SPDX license headers (excludes frontend)
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1475,6 +1682,10 @@ def main():
                            help="⏳ Wait for all services to be healthy before completing")
         parser.add_argument("--browser-timeout", type=int, default=60,
                    help="⏳ Timeout in seconds for waiting for frontend before opening browser")
+        parser.add_argument("--add-headers", action="store_true",
+                   help="📝 Add missing SPDX license headers to all source files (excludes frontend)")
+        parser.add_argument("--check-headers", action="store_true",
+                   help="🔍 Check for missing SPDX license headers without adding them")
         parser.add_argument("--auto-deploy", type=str, metavar="MODEL_NAME",
                    help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
         
@@ -1527,6 +1738,8 @@ def main():
   {C_CYAN}python run.py --cleanup-all{C_RESET}          Complete cleanup (data + config)
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
+  {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
+  {C_CYAN}python run.py --add-headers{C_RESET}          Add missing SPDX license headers
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1535,6 +1748,14 @@ def main():
         
         if args.cleanup or args.cleanup_all:
             cleanup_resources(args)
+            return
+        
+        if args.check_headers:
+            check_spdx_headers()
+            return
+            
+        if args.add_headers:
+            add_spdx_headers()
             return
         
         display_welcome_banner()

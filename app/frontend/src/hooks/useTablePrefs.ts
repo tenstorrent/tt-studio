@@ -70,4 +70,3 @@ export function useTablePrefs(
     setHealthRefreshSec,
   } as const;
 }
-

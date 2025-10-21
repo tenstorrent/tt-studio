@@ -150,10 +150,14 @@ def should_skip_directory(directory_path):
 if __name__ == "__main__":
     # Define the repo root and directories to process
     repo_root = Path(__file__).resolve().parent.parent
-    directories_to_process = [
-        repo_root / "app" / "backend",
-        repo_root / "app" / "frontend",
-    ]
+    app_dir = repo_root / "app"
+    
+    # Process all subdirectories in app/ except frontend
+    directories_to_process = []
+    if app_dir.exists():
+        for subdir in app_dir.iterdir():
+            if subdir.is_dir() and subdir.name != "frontend":
+                directories_to_process.append(subdir)
 
     # Walk through the directories and add the header to relevant files
     for directory in directories_to_process:

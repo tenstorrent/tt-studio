@@ -12,4 +12,3 @@ export default React.memo(function PortsCell({ ports }: Props) {
   if (!ports) return <>N/A</>;
   return <CopyableText text={ports} />;
 });
-

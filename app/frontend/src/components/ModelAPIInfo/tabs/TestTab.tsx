@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
@@ -7,13 +10,7 @@ import { Alert, AlertDescription } from "../../ui/alert";
 import { Spinner } from "../../ui/spinner";
 import { Textarea } from "../../ui/textarea";
 import CodeBlock from "../../chatui/CodeBlock";
-import {
-  Copy,
-  Terminal,
-  Play,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
+import { Copy, Terminal, Play, CheckCircle, XCircle } from "lucide-react";
 import { APIInfo } from "../useModelAPIInfo";
 
 interface TestTabProps {
@@ -194,4 +191,4 @@ export const TestTab: React.FC<TestTabProps> = ({
       )}
     </CardContent>
   </Card>
-); 
+);

@@ -12,4 +12,3 @@ export default React.memo(function ImageCell({ image }: Props) {
   if (!image) return <>N/A</>;
   return <CopyableText text={image} />;
 });
-

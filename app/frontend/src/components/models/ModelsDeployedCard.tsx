@@ -1,13 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { JSX } from "react";
 import ElevatedCard from "../ui/elevated-card";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
@@ -307,7 +302,7 @@ export default function ModelsDeployedCard(): JSX.Element {
         </div>
       </CardHeader>
       <div
-        className={`${!!selectedContainerId ? "blur-sm backdrop-blur-sm" : ""} transition-all duration-200`}
+        className={`${selectedContainerId ? "blur-sm backdrop-blur-sm" : ""} transition-all duration-200`}
       >
         <CardContent className="p-0">
           <ScrollArea className="whitespace-nowrap rounded-md">
