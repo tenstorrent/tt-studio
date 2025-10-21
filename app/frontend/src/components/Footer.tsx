@@ -341,7 +341,7 @@ Add any other context about the problem here.
     };
 
     const MAX_URL_LENGTH = 7000; // conservative safety limit for GitHub new-issue URL
-    const fullUrl = buildIssueUrl(titleRaw, fullBody);
+    let fullUrl = buildIssueUrl(titleRaw, fullBody);
     if (fullUrl.length > MAX_URL_LENGTH) {
       // Build shortened body
       const truncatedFastapi = truncate(fastapiLogs, 800);
