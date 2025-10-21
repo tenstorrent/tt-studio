@@ -21,23 +21,20 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Install tt-smi conditionally for local mode only (Linux only)
+# Install tt-smi conditionally for local mode only
 RUN if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then \
-    PLATFORM=$(uname -s); \
-    if [ "$PLATFORM" = "Linux" ]; then \
-        echo "🔧 Local mode on Linux - installing Rust and TT-SMI" && \
-        # Install Rust
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-        . "$HOME/.cargo/env" && \
-        # Clone and install tt-smi
-        mkdir -p /opt/tenstorrent-tools && \
-        git clone https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
-        cd /opt/tenstorrent-tools/tt-smi && \
-        pip3 install --upgrade pip && \
-        pip3 install . || echo "⚠️  TT-SMI installation failed, continuing anyway"; \
-    else \
-        echo "🍎 Local mode on macOS - skipping TT-SMI installation (Linux only)"; \
-    fi; \
+    echo "🔧 Local mode - attempting TT-SMI installation" && \
+    # Install Rust
+    (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    . "$HOME/.cargo/env" && \
+    # Clone and install tt-smi
+    mkdir -p /opt/tenstorrent-tools && \
+    git clone https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
+    cd /opt/tenstorrent-tools/tt-smi && \
+    pip3 install --upgrade pip && \
+    pip3 install . && \
+    echo "✅ TT-SMI installation successful") || \
+    echo "⚠️  TT-SMI installation failed, continuing without it"; \
     else \
     echo "🌐 AI Playground mode - skipping TT-SMI installation"; \
     fi
