@@ -11,7 +11,11 @@ interface BoardBadgeProps {
   onClick?: () => void; // Make it clickable
 }
 
-const BoardBadge: React.FC<BoardBadgeProps> = ({ boardName, className = "", onClick }) => {
+const BoardBadge: React.FC<BoardBadgeProps> = ({
+  boardName,
+  className = "",
+  onClick,
+}) => {
   // Determine which icon to render based on board name
   const lower = boardName.toLowerCase();
   const isN300 = lower.includes("n300");
@@ -43,7 +47,9 @@ const BoardBadge: React.FC<BoardBadgeProps> = ({ boardName, className = "", onCl
       ) : (
         <Cpu className="w-4 h-4 text-TT-purple-accent" />
       )}
-      <span className="text-sm font-medium text-TT-purple-accent">{boardName} Board</span>
+      <span className="text-sm font-medium text-TT-purple-accent">
+        {boardName} Board
+      </span>
     </div>
   );
 

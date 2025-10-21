@@ -4,7 +4,9 @@
 import React, { useState } from "react";
 import { RefreshContext } from "../contexts/RefreshContext";
 
-export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const triggerRefresh = () => {
@@ -34,7 +36,9 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <RefreshContext.Provider value={{ refreshTrigger, triggerRefresh, triggerHardwareRefresh }}>
+    <RefreshContext.Provider
+      value={{ refreshTrigger, triggerRefresh, triggerHardwareRefresh }}
+    >
       {children}
     </RefreshContext.Provider>
   );

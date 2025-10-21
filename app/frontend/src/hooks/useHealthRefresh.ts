@@ -45,4 +45,3 @@ export function useHealthRefresh() {
     refsMap: refs.current,
   } as const;
 }
-

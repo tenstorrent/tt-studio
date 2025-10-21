@@ -9,7 +9,8 @@ const AudioDetectionPage = () => {
         <div
           className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
           style={{
-            maskImage: "radial-gradient(ellipse at center, transparent 45%, black 100%)",
+            maskImage:
+              "radial-gradient(ellipse at center, transparent 45%, black 100%)",
           }}
         ></div>
         <div

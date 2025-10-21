@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React from "react";
 import { cn } from "../../lib/utils";
 import { MessageSquare } from "lucide-react";

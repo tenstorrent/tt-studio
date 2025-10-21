@@ -9,4 +9,6 @@ export interface RefreshContextType {
   triggerHardwareRefresh: () => Promise<void>; // New function for hardware cache refresh
 }
 
-export const RefreshContext = createContext<RefreshContextType | undefined>(undefined);
+export const RefreshContext = createContext<RefreshContextType | undefined>(
+  undefined
+);

@@ -66,4 +66,3 @@ export function useColumnPrefs(
     totalCount,
   } as const;
 }
-
