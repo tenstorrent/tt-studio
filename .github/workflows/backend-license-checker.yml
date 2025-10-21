@@ -1,4 +1,4 @@
-name: Check SPDX Licenses
+name: TT-Studio Backend SPDX License Checker
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
     branches:
       - "main"
       - "staging"
+      - "dev"
     types:
       - opened
       - reopened
@@ -17,167 +18,144 @@ on:
 jobs:
   check-spdx-licenses:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch full history to compare with base branch
+
       - uses: actions/setup-python@v5.0.0
         with:
           cache: "pip"
-          python-version: "3.10"
-          
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-spdx-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-spdx-
-            
+          python-version: "3.8"
+
       - name: Install copyright check tool
+        run: pip install git+https://github.com/espressif/check-copyright.git@master
+
+      - name: Get changed files
+        id: changed_files
         run: |
-          pip install --upgrade pip
-          pip install git+https://github.com/espressif/check-copyright.git@master
-          
-      - name: Check SPDX licenses
+          # Get the list of changed files in this PR
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # For PR, compare with the base branch
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+            changed_files=$(git diff --name-only --diff-filter=AM $base_sha...$head_sha)
+          else
+            # For workflow_dispatch, compare with HEAD~1
+            changed_files=$(git diff --name-only --diff-filter=AM HEAD~1)
+          fi
+
+          # Filter for files that should be checked (Python, shell, Dockerfile)
+          filtered_files=""
+          for file in $changed_files; do
+            if [[ "$file" =~ \.(py|sh)$ ]] || [[ "$file" == *"Dockerfile"* ]]; then
+              if [ -f "$file" ]; then  # Only include files that still exist
+                filtered_files="$filtered_files $file"
+              fi
+            fi
+          done
+
+          echo "CHANGED_FILES<<EOF" >> $GITHUB_ENV
+          echo "$filtered_files" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          echo "Changed files to check: $filtered_files"
+
+      - name: Check SPDX licenses on changed files
         id: check_spdx_licenses
+        if: env.CHANGED_FILES != ''
         run: |
           set +e
-          # Run the copyright check without config file - uses defaults
-          python -m check_copyright --verbose --dry-run . > check_output.txt 2>&1
-          exit_code=$?
-          
-          # Clean ANSI escape codes and save to environment
-          clean_output=$(cat check_output.txt | sed 's/\x1b\[[0-9;]*m//g')
+
+          # Create temporary file list for check-copyright
+          echo "$CHANGED_FILES" | tr ' ' '\n' > /tmp/files_to_check.txt
+
+          # Run copyright check only on changed files
+          if [ -s /tmp/files_to_check.txt ]; then
+            output=$(python -m check_copyright --verbose --dry-run --config ./check_copyright_config.yaml $(cat /tmp/files_to_check.txt) 2>&1)
+            exit_code=$?
+          else
+            output="No files to check"
+            exit_code=0
+          fi
+
+          clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+          echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$clean_output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
           echo "EXIT_CODE=$exit_code" >> $GITHUB_ENV
-          
-          # Save clean output to file for processing
-          echo "$clean_output" > clean_output.txt
-          echo "License check completed with exit code: $exit_code"
-          
-      - name: Extract files with missing licenses
+          exit 0
+
+      - name: Extract failed files
         id: extract_files
+        if: env.CHANGED_FILES != ''
         run: |
-          python3 << 'EOF'
-          import re
-          import os
-          
-          # Read the clean output
-          try:
-              with open('clean_output.txt', 'r') as f:
-                  content = f.read()
-          except FileNotFoundError:
-              print("No output file found")
-              exit(0)
-          
-          # Extract files that failed copyright check
-          files_with_issues = []
-          
-          # Look for patterns indicating missing license headers
-          patterns = [
-              r'Files which failed the copyright check:(.*?)(?=Additional information|$)',
-              r'Some files are without a copyright note and a license header needs to be added:(.*?)(?=Additional information|$)'
-          ]
-          
-          for pattern in patterns:
-              matches = re.findall(pattern, content, re.DOTALL)
-              for match in matches:
-                  # Extract file paths starting with './'
-                  file_paths = re.findall(r'^\s*(\./[^\s]+)', match, re.MULTILINE)
-                  files_with_issues.extend(file_paths)
-          
-          # Remove duplicates and sort
-          unique_files = sorted(list(set(files_with_issues)))
-          
-          # Write to environment variable
-          if unique_files:
-              with open(os.environ['GITHUB_ENV'], 'a') as f:
-                  f.write("FILES_WITH_ISSUES<<EOF\n")
-                  f.write('\n'.join(unique_files) + '\n')
-                  f.write("EOF\n")
-              print(f"Found {len(unique_files)} files with missing licenses:")
-              for file in unique_files:
-                  print(f"  {file}")
-          else:
-              print("No files with missing licenses found")
-              with open(os.environ['GITHUB_ENV'], 'a') as f:
-                  f.write("FILES_WITH_ISSUES=\n")
-          EOF
-          
-      - name: Debug extracted files
-        run: |
-          if [ -n "$FILES_WITH_ISSUES" ]; then
-            echo "Files with missing licenses:"
-            echo "$FILES_WITH_ISSUES"
-            echo "Total files: $(echo "$FILES_WITH_ISSUES" | wc -l)"
-          else
-            echo "No files with missing licenses found"
-          fi
-          
-      - name: Comment on PR with missing licenses
-        if: env.FILES_WITH_ISSUES != ''
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const filesWithIssues = process.env.FILES_WITH_ISSUES;
-            const issueNumber = context.issue.number || context.payload.pull_request?.number;
-            
-            if (!issueNumber) {
-              console.log("No issue or PR number found, skipping comment");
-              return;
+          set +e
+          # Extract files from the "Some files are without a copyright note" section
+          files=$(echo "$CLEAN_OUTPUT" | awk '
+            /Some files are without a copyright note and a license header needs to be added:/ {
+              flag = 1
+              next
             }
-            
-            if (filesWithIssues && filesWithIssues.trim()) {
-              const fileList = filesWithIssues.trim().split('\n');
-              const fileCount = fileList.length;
-              
-              const commentBody = `## 📋 SPDX License Check Results
-              
-            Our automated SPDX license verification has found **${fileCount} file(s)** missing license headers:
+            flag && /^$/ {
+              flag = 0
+            }
+            flag && NF > 0 && !/Some files are without/ {
+              print $0
+            }
+          ')
 
-            \`\`\`
-            ${filesWithIssues.trim()}
-            \`\`\`
+          # Filter to only include files from CHANGED_FILES
+          files_clean=""
+          for file in $files; do
+            if echo "$CHANGED_FILES" | grep -q "$file"; then
+              files_clean="$files_clean$file"$'\n'
+            fi
+          done
 
-            ### ✅ Next Steps
-            Please add a valid SPDX license identifier to each file. For example:
-            \`\`\`
-            # SPDX-License-Identifier: MIT
-            # SPDX-FileCopyrightText: 2024 Your Organization
-            \`\`\`
+          echo "FILES_CLEAN<<EOF" >> $GITHUB_ENV
+          echo "$files_clean" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-            This ensures proper licensing compliance. Thank you for your cooperation! 🙏`;
-              
-              try {
-                await github.rest.issues.createComment({
-                  issue_number: issueNumber,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  body: commentBody
-                });
-                console.log(`Comment posted for ${fileCount} files with missing licenses`);
-              } catch (error) {
-                console.error('Failed to post comment:', error);
-              }
-              
-              // Set job as failed
-              core.setFailed(`Found ${fileCount} files with missing SPDX license headers`);
-            
-      - name: Upload license check results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: spdx-license-check-results
-          path: |
-            check_output.txt
-            clean_output.txt
-          retention-days: 7
-          
-      - name: Final status
+          echo "Files with missing headers: $files_clean"
+
+      - name: Show results
+        if: env.CHANGED_FILES != ''
         run: |
-          if [ -n "$FILES_WITH_ISSUES" ]; then
-            file_count=$(echo "$FILES_WITH_ISSUES" | wc -l)
-            echo "❌ License check failed: $file_count files missing SPDX license headers"
-            exit 1
+          echo "=================================================="
+          if [ -n "$FILES_CLEAN" ] && [ "$FILES_CLEAN" != "" ]; then
+            echo "🚨 SPDX LICENSE HEADERS MISSING"
+            echo "=================================================="
+            echo ""
+            echo "📊 Files in this PR missing headers:"
+            echo "$FILES_CLEAN"
+            echo ""
+            echo "✅ HOW TO FIX:"
+            echo "Add these 3 lines to the top of each file:"
+            echo ""
+            echo "# SPDX-License-Identifier: Apache-2.0"
+            echo "#"
+            echo "# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
           else
-            echo "✅ License check passed: All files have proper SPDX license headers"
-            exit 0
+            echo "✅ All changed files have proper SPDX headers"
           fi
+          echo "=================================================="
+
+      - name: Fail workflow if headers missing
+        if: env.FILES_CLEAN != '' && env.CHANGED_FILES != ''
+        run: |
+          echo "❌ Workflow failed due to missing SPDX license headers."
+          echo "Please add proper license headers to all flagged files before merging."
+          exit 1
+
+      - name: Skip message for no changed files
+        if: env.CHANGED_FILES == ''
+        run: |
+          echo "=================================================="
+          echo "ℹ️  No Python, shell, or Dockerfile changes detected"
+          echo "Skipping SPDX license check"
+          echo "=================================================="

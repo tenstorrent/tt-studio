@@ -12,4 +12,3 @@ export default React.memo(function StatusCell({ status }: Props) {
   if (!status) return <>N/A</>;
   return <StatusBadge status={status} />;
 });
-

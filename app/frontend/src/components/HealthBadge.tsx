@@ -1,8 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 interface HealthBadgeProps {
   deployId: string;
@@ -23,9 +34,12 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
 
     const fetchHealth = useCallback(async () => {
       try {
-        const response = await fetch(`/models-api/health/?deploy_id=${deployId}`, {
-          method: "GET",
-        });
+        const response = await fetch(
+          `/models-api/health/?deploy_id=${deployId}`,
+          {
+            method: "GET",
+          }
+        );
 
         if (response.status === 200) {
           setHealth("healthy");
@@ -86,7 +100,9 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
         `[HealthBadge ${deployId}] Interval effect running. isMonitoring: ${isMonitoring}`
       );
       if (isMonitoring) {
-        console.log(`[HealthBadge ${deployId}] Setting up health check interval`);
+        console.log(
+          `[HealthBadge ${deployId}] Setting up health check interval`
+        );
         healthRefreshInterval = setInterval(() => {
           console.log(`[HealthBadge ${deployId}] Checking health (interval)`);
           fetchHealth();
@@ -95,7 +111,9 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
 
       return () => {
         if (healthRefreshInterval) {
-          console.log(`[HealthBadge ${deployId}] Cleaning up health check interval`);
+          console.log(
+            `[HealthBadge ${deployId}] Cleaning up health check interval`
+          );
           clearInterval(healthRefreshInterval);
         }
       };

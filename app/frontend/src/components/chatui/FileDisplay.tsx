@@ -19,7 +19,12 @@ import {
   FileAudio,
   FileImage,
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 
 interface FileDisplayProps {
   files: FileData[];
@@ -28,8 +33,9 @@ interface FileDisplayProps {
   onFileClick: (fileUrl: string, fileName: string) => void;
 }
 
-const isImageFile = (file: FileData): file is FileData & { type: "image_url" } =>
-  file.type === "image_url";
+const isImageFile = (
+  file: FileData
+): file is FileData & { type: "image_url" } => file.type === "image_url";
 
 const getFileExtension = (filename: string): string => {
   const parts = filename.split(".");
@@ -46,7 +52,11 @@ const getFileTypeName = (filename: string): string => {
   if (["xls", "xlsx", "csv"].includes(extension)) return "Sheet";
 
   // Code files
-  if (["js", "jsx", "ts", "tsx", "py", "java", "cpp", "c", "h", "rs"].includes(extension))
+  if (
+    ["js", "jsx", "ts", "tsx", "py", "java", "cpp", "c", "h", "rs"].includes(
+      extension
+    )
+  )
     return "Code";
 
   // Data files
@@ -58,7 +68,8 @@ const getFileTypeName = (filename: string): string => {
   // Media
   if (["mp4", "mov", "avi"].includes(extension)) return "Video";
   if (["mp3", "wav", "ogg"].includes(extension)) return "Audio";
-  if (["jpg", "jpeg", "png", "gif", "svg", "webp"].includes(extension)) return "Image";
+  if (["jpg", "jpeg", "png", "gif", "svg", "webp"].includes(extension))
+    return "Image";
 
   // Text
   if (["txt", "md", "log"].includes(extension)) return "Text";
@@ -68,7 +79,8 @@ const getFileTypeName = (filename: string): string => {
 };
 
 const getFileIcon = (file: FileData) => {
-  if (isImageFile(file)) return <FileImage className="h-5 w-5 text-purple-400" />;
+  if (isImageFile(file))
+    return <FileImage className="h-5 w-5 text-purple-400" />;
 
   const extension = getFileExtension(file.name);
   switch (extension) {
@@ -159,7 +171,8 @@ const getFileTypeBgColor = (filename: string): string => {
   if (["xml", "yaml", "yml"].includes(extension)) return "bg-blue-400/80";
 
   // Archives
-  if (["zip", "rar", "7z", "tar", "gz"].includes(extension)) return "bg-gray-500/80";
+  if (["zip", "rar", "7z", "tar", "gz"].includes(extension))
+    return "bg-gray-500/80";
 
   // Media
   if (["mp4", "mov", "avi"].includes(extension)) return "bg-purple-500/80";
@@ -193,7 +206,9 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
             const fileId = isImageFile(file)
               ? file.image_url?.url || file.id || index.toString()
               : file.url || file.id || index.toString();
-            const isMinimized = isImageFile(file) ? minimizedFiles.has(fileId) : true; // Files always start minimized
+            const isMinimized = isImageFile(file)
+              ? minimizedFiles.has(fileId)
+              : true; // Files always start minimized
 
             if (isImageFile(file)) {
               return (
@@ -204,7 +219,9 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
                         src={file.image_url?.url || "/placeholder.svg"}
                         alt={file.name}
                         className="w-[200px] h-[200px] object-contain cursor-pointer rounded-lg"
-                        onClick={() => onFileClick(file.image_url?.url || "", file.name)}
+                        onClick={() =>
+                          onFileClick(file.image_url?.url || "", file.name)
+                        }
                       />
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -237,7 +254,10 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button className="absolute inset-0 w-full h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                <Maximize2 size={14} className="text-gray-300" />
+                                <Maximize2
+                                  size={14}
+                                  className="text-gray-300"
+                                />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent side="left">
@@ -271,7 +291,9 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
 
                         {/* Hover/tap info for mobile - positioned to avoid going off screen */}
                         <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 z-10 bg-gray-800 rounded-md p-2 shadow-lg pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-200 min-w-max">
-                          <div className="text-xs text-gray-300 whitespace-nowrap">{file.name}</div>
+                          <div className="text-xs text-gray-300 whitespace-nowrap">
+                            {file.name}
+                          </div>
                         </div>
                       </div>
                     </>
@@ -298,18 +320,24 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
                       <TooltipTrigger asChild>
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                           {file.size && (
-                            <span className="sr-only">{formatFileSize(file.size)}</span>
+                            <span className="sr-only">
+                              {formatFileSize(file.size)}
+                            </span>
                           )}
                         </div>
                       </TooltipTrigger>
                       <TooltipContent side="left">
                         {file.size && (
-                          <p className="text-xs text-gray-400">{formatFileSize(file.size)}</p>
+                          <p className="text-xs text-gray-400">
+                            {formatFileSize(file.size)}
+                          </p>
                         )}
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <span className="text-sm text-gray-300 truncate max-w-[150px]">{file.name}</span>
+                  <span className="text-sm text-gray-300 truncate max-w-[150px]">
+                    {file.name}
+                  </span>
                 </div>
 
                 {/* Mobile view for regular files */}
