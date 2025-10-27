@@ -730,6 +730,38 @@ def check_port_available(port):
         except OSError:
             return False
 
+def check_and_free_ports(ports, no_sudo=False):
+    """
+    Check if multiple ports are available and attempt to free them if not.
+    
+    Args:
+        ports: List of tuples (port_number, service_name)
+        no_sudo: Whether to skip sudo usage
+        
+    Returns:
+        tuple: (bool, list) - (True if all ports OK, list of failed ports with service names)
+    """
+    failed_ports = []
+    ports_status = []
+    
+    for port, service_name in ports:
+        if not check_port_available(port):
+            print(f"{C_YELLOW}⚠️  Port {port} in use. Freeing...{C_RESET}", end=' ')
+            if not kill_process_on_port(port, no_sudo=no_sudo):
+                print(f"{C_RED}❌ FAILED{C_RESET}")
+                failed_ports.append((port, service_name))
+                ports_status.append(f"{C_RED}{port}{C_RESET}")
+            else:
+                print(f"{C_GREEN}OK{C_RESET}")
+                ports_status.append(f"{C_GREEN}{port}{C_RESET}")
+        else:
+            ports_status.append(f"{C_GREEN}{port}{C_RESET}")
+    
+    # Show compact summary
+    print(f"{C_GREEN}Ports: {' '.join(ports_status)}{C_RESET}")
+    
+    return (len(failed_ports) == 0, failed_ports)
+
 
 def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     """
@@ -1779,6 +1811,41 @@ def main():
 
         # Ensure frontend dependencies are installed
         ensure_frontend_dependencies()
+
+        # Check if all required ports are available
+        print(f"\n{C_BOLD}{C_BLUE}🔍 Checking required ports: 3000, 8000, 8080, 8111...{C_RESET}")
+        print(f"{C_YELLOW}   (Will attempt to free if in use){C_RESET}\n")
+
+        # Define ports based on mode
+        required_ports = [
+            (3000, "Frontend"),
+            (8000, "Backend API"),
+            (8080, "Agent Service"),
+            (8111, "ChromaDB"),
+        ]
+
+        ports_ok, failed_ports = check_and_free_ports(required_ports, no_sudo=args.no_sudo)
+
+        if not ports_ok:
+            print(f"\n{C_RED}{C_BOLD}❌ ERROR: The following ports are not available:{C_RESET}")
+            print()
+            for port, service_name in failed_ports:
+                print(f"  {C_RED}• Port {port} - {service_name}{C_RESET}")
+            print()
+            print(f"{C_YELLOW}These ports are required for TT Studio to run.{C_RESET}")
+            print()
+            print(f"{C_CYAN}{C_BOLD}To resolve this issue:{C_RESET}")
+            print(f"  1. Find processes using these ports:")
+            for port, _ in failed_ports:
+                print(f"     {C_WHITE}lsof -i :{port}{C_RESET}")
+            print()
+            print(f"  2. Stop the processes manually:")
+            print(f"     {C_WHITE}kill -9 <PID>{C_RESET}")
+            print()
+            print(f"  3. Or run with sudo to automatically free ports:")
+            print(f"     {C_WHITE}python run.py{C_RESET} (without --no-sudo)")
+            print()
+            sys.exit(1)
 
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
