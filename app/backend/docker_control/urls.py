@@ -10,6 +10,7 @@ from .views import (
     ContainersView,
     StatusView,
     DeployView,
+    DeploymentProgressView,
     RedeployView,
     ResetBoardView,
     ImageStatusView,
@@ -23,6 +24,7 @@ from .views import (
 urlpatterns = [
     path("get_containers/", views.ContainersView.as_view()),
     path("deploy/", views.DeployView.as_view()),
+    path("deploy/progress/<str:job_id>/", views.DeploymentProgressView.as_view(), name="deployment-progress"),
     path("stop/", views.StopView.as_view()),
     path("status/", views.StatusView.as_view()),
     path("redeploy/", views.RedeployView.as_view()),

@@ -256,7 +256,7 @@ export default function StepperDemo() {
     }
   }, [autoDeployModel]);
 
-  const handleDeploy = async (): Promise<boolean> => {
+  const handleDeploy = async (): Promise<{ success: boolean; job_id?: string }> => {
     console.log("handleDeploy called with:", {
       selectedModel,
       selectedWeight,
@@ -292,11 +292,15 @@ export default function StepperDemo() {
 
       console.log("Deployment response:", response);
       customToast.success("Model deployment started!");
-      return true;
+      
+      return { 
+        success: true, 
+        job_id: response.data?.job_id 
+      };
     } catch (error) {
       console.error("Error during deployment:", error);
       customToast.error("Deployment failed!");
-      return false;
+      return { success: false };
     }
   };
 

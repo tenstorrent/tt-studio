@@ -90,6 +90,7 @@ def run_container(impl, weights_id):
                 return {
                     "status": "success",
                     "container_name": api_result["container_name"],
+                    "job_id": api_result.get("job_id"),  # Pass through job_id for progress tracking
                     "api_response": api_result
                 }
             else:

@@ -111,6 +111,7 @@ export function FirstStepForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWarningDismissed, setIsWarningDismissed] = useState(false);
 
   // Refresh models context when component mounts
   useEffect(() => {
@@ -262,7 +263,12 @@ export function FirstStepForm({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {/* Always show deployed models warning prominently */}
-        <DeployedModelsWarning className="mb-8 mt-8" />
+        {!isWarningDismissed && (
+          <DeployedModelsWarning 
+            className="mb-8 mt-8" 
+            onClose={() => setIsWarningDismissed(true)}
+          />
+        )}
 
         {/* Auto-deploy indicator */}
         {isAutoDeploying && autoDeployModel && (

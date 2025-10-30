@@ -24,7 +24,7 @@ export function DeployModelStep({
   selectedModel: string | null;
   selectedWeight: string | null;
   customWeight: Weight | null;
-  handleDeploy: () => Promise<boolean>;
+  handleDeploy: () => Promise<{ success: boolean; job_id?: string }>;
 }) {
   const { nextStep } = useStepper();
   const { refreshModels } = useModels();
@@ -95,10 +95,10 @@ export function DeployModelStep({
     deployedInfo.hasDeployedModels;
 
   const onDeploy = useCallback(async () => {
-    if (isDeployDisabled) return false;
+    if (isDeployDisabled) return { success: false };
 
-    const deploySuccess = await handleDeploy();
-    if (deploySuccess) {
+    const deployResult = await handleDeploy();
+    if (deployResult.success) {
       // Refresh the models context
       await refreshModels();
 
@@ -108,7 +108,7 @@ export function DeployModelStep({
       // Trigger hardware cache refresh after successful deployment
       await triggerHardwareRefresh();
     }
-    return deploySuccess;
+    return deployResult;
   }, [
     handleDeploy,
     refreshModels,
