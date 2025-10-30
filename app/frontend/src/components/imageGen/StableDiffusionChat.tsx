@@ -50,7 +50,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
       <ScrollArea.Root className="grow overflow-hidden">
         <ScrollArea.Viewport
           ref={viewportRef}
-          className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+          className="w-full h-full lg:pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
           onScroll={handleScroll}
         >
           <div className="p-6 space-y-6">
