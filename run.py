@@ -38,6 +38,7 @@ import webbrowser
 import socket
 import tempfile
 import signal
+import json
 from pathlib import Path
 from datetime import datetime
 try:
@@ -83,6 +84,7 @@ ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
 INFERENCE_SERVER_DIR = os.path.join(TT_STUDIO_ROOT, "tt-inference-server")
 FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
 FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
+PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
 
 # Global flag to determine if we should overwrite existing values
 FORCE_OVERWRITE = False
@@ -212,11 +214,84 @@ def should_configure_var(var_name, current_value):
     # Otherwise, skip configuration (keep existing non-placeholder value)
     return False
 
-def ask_overwrite_preference(existing_vars):
+def load_preferences():
+    """Load user preferences from JSON file."""
+    if os.path.exists(PREFS_FILE_PATH):
+        try:
+            with open(PREFS_FILE_PATH, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+def save_preferences(prefs):
+    """Save user preferences to JSON file."""
+    try:
+        with open(PREFS_FILE_PATH, 'w') as f:
+            json.dump(prefs, f, indent=2)
+    except IOError as e:
+        print(f"{C_YELLOW}Warning: Could not save preferences: {e}{C_RESET}")
+
+def save_preference(key, value):
+    """Save a single preference key-value pair."""
+    prefs = load_preferences()
+    prefs[key] = value
+    save_preferences(prefs)
+
+def get_preference(key, default=None):
+    """Get a preference value by key, returning default if not found."""
+    prefs = load_preferences()
+    return prefs.get(key, default)
+
+def clear_preferences():
+    """Clear all user preferences by deleting the preferences file."""
+    if os.path.exists(PREFS_FILE_PATH):
+        try:
+            os.remove(PREFS_FILE_PATH)
+            return True
+        except IOError:
+            return False
+    return True
+
+def is_first_time_setup():
+    """Check if this is the first time setup by checking if preferences exist."""
+    return not os.path.exists(PREFS_FILE_PATH)
+
+def display_first_time_welcome():
+    """Display welcome message for first-time setup."""
+    print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}           📝 First-Time Setup{C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+    print()
+    print(f"{C_CYAN}Welcome to TT Studio! We'll guide you through the initial setup.{C_RESET}")
+    print()
+    print(f"{C_GREEN}ℹ️  What to expect:{C_RESET}")
+    print(f"  • Your responses will be saved for future runs")
+    print(f"  • Subsequent runs will be much faster and non-interactive")
+    print(f"  • You can reset your preferences anytime with {C_WHITE}--reconfigure{C_RESET}")
+    print()
+    print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset.{C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+    print()
+
+def ask_overwrite_preference(existing_vars, force_prompt=False):
     """
     Ask user if they want to overwrite existing environment variables.
     Returns True if user wants to overwrite, False otherwise.
+    
+    Args:
+        existing_vars: Dictionary of existing environment variables
+        force_prompt: If True, always prompt user even if preference exists
     """
+    # Check for saved preference (unless forcing prompt)
+    if not force_prompt:
+        config_mode = get_preference("configuration_mode")
+        if config_mode:
+            if config_mode == "keep_existing":
+                return False
+            elif config_mode == "reconfigure_everything":
+                return True
+    
     # Filter out placeholder values to show only real configured values
     real_vars = {k: v for k, v in existing_vars.items() if not is_placeholder(v)}
     
@@ -266,12 +341,12 @@ def ask_overwrite_preference(existing_vars):
     
     print(f"{C_YELLOW}{C_BOLD}What would you like to do?{C_RESET}")
     print()
-    print(f"  {C_GREEN}{C_BOLD}Option 1 - Keep Existing Configuration{C_RESET}")
+    print(f"  {C_GREEN}{C_BOLD}1 - Keep Existing Configuration (Recommended){C_RESET}")
     print(f"    • Keep all current values as they are")
     print(f"    • Only configure any missing or placeholder values")
     print(f"    • Recommended for normal startup")
     print()
-    print(f"  {C_ORANGE}{C_BOLD}Option 2 - Reconfigure Everything{C_RESET}")
+    print(f"  {C_ORANGE}{C_BOLD}2 - Reconfigure Everything{C_RESET}")
     print(f"    • Go through setup prompts for ALL variables")
     print(f"    • Replace existing values with new ones")
     print(f"    • Use this if you want to change your configuration")
@@ -282,11 +357,11 @@ def ask_overwrite_preference(existing_vars):
     
     while True:
         print(f"{C_WHITE}{C_BOLD}Choose an option:{C_RESET}")
-        print(f"  {C_GREEN}k{C_RESET} - Keep existing configuration (recommended)")
-        print(f"  {C_ORANGE}r{C_RESET} - Reconfigure everything")
+        print(f"  {C_GREEN}1{C_RESET} - Keep existing configuration (recommended)")
+        print(f"  {C_ORANGE}2{C_RESET} - Reconfigure everything")
         print()
         try:
-            choice = input(f"Enter your choice (k/r): ").lower().strip()
+            choice = input(f"Enter your choice (1/2): ").strip()
         except KeyboardInterrupt:
             print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
             
@@ -305,7 +380,7 @@ def ask_overwrite_preference(existing_vars):
             print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
             sys.exit(0)
         
-        if choice in ['k', 'keep']:
+        if choice == "1":
             print(f"\n{C_GREEN}✅ Keeping existing configuration. Only missing values will be configured.{C_RESET}")
             # Show which placeholder values will still need to be configured
             placeholder_vars = {k: v for k, v in existing_vars.items() if is_placeholder(v)}
@@ -314,23 +389,34 @@ def ask_overwrite_preference(existing_vars):
                 for var_name in placeholder_vars.keys():
                     print(f"    • {var_name}")
                 print()
+            save_preference("configuration_mode", "keep_existing")
             return False
-        elif choice in ['r', 'reconfigure', 'reconfig']:
+        elif choice == "2":
             print(f"\n{C_ORANGE}🔄 Will reconfigure all environment variables.{C_RESET}")
+            save_preference("configuration_mode", "reconfigure_everything")
             return True
         else:
-            print(f"{C_RED}❌ Please enter 'k' to keep existing config or 'r' to reconfigure everything.{C_RESET}")
+            print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
             print()
 
-def configure_environment_sequentially(dev_mode=False):
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
     
     Args:
         dev_mode (bool): If True, show dev mode banner but still prompt for all values
+        force_reconfigure (bool): If True, force reconfiguration and clear preferences
     """
     global FORCE_OVERWRITE
+    
+    # Show first-time welcome if this is the first time
+    if is_first_time_setup():
+        display_first_time_welcome()
+    
+    # Clear preferences if reconfiguring
+    if force_reconfigure:
+        clear_preferences()
     
     env_file_exists = os.path.exists(ENV_FILE_PATH)
     
@@ -357,7 +443,7 @@ def configure_environment_sequentially(dev_mode=False):
     
     # Only ask about overwrite preference if .env file existed before
     if env_file_exists and existing_vars:
-        FORCE_OVERWRITE = ask_overwrite_preference(existing_vars)
+        FORCE_OVERWRITE = ask_overwrite_preference(existing_vars, force_prompt=force_reconfigure)
     else:
         # No need to ask, we're configuring everything
         if not env_file_exists:
@@ -742,23 +828,18 @@ def check_and_free_ports(ports, no_sudo=False):
         tuple: (bool, list) - (True if all ports OK, list of failed ports with service names)
     """
     failed_ports = []
-    ports_status = []
     
     for port, service_name in ports:
+        print(f"{C_BLUE}🔍 Checking if port {port} is available for {service_name}...{C_RESET}")
         if not check_port_available(port):
-            print(f"{C_YELLOW}⚠️  Port {port} in use. Freeing...{C_RESET}", end=' ')
+            print(f"{C_YELLOW}⚠️  Port {port} is already in use. Attempting to free the port...{C_RESET}")
             if not kill_process_on_port(port, no_sudo=no_sudo):
-                print(f"{C_RED}❌ FAILED{C_RESET}")
+                print(f"{C_RED}❌ Failed to free port {port} for {service_name}{C_RESET}")
                 failed_ports.append((port, service_name))
-                ports_status.append(f"{C_RED}{port}{C_RESET}")
             else:
-                print(f"{C_GREEN}OK{C_RESET}")
-                ports_status.append(f"{C_GREEN}{port}{C_RESET}")
+                print(f"{C_GREEN}✅ Port {port} is now available{C_RESET}")
         else:
-            ports_status.append(f"{C_GREEN}{port}{C_RESET}")
-    
-    # Show compact summary
-    print(f"{C_GREEN}Ports: {' '.join(ports_status)}{C_RESET}")
+            print(f"{C_GREEN}✅ Port {port} is available{C_RESET}")
     
     return (len(failed_ports) == 0, failed_ports)
 
@@ -1371,12 +1452,27 @@ def cleanup_fastapi_server(no_sudo=False):
     
     print(f"✅ FastAPI server cleanup completed")
 
-def request_sudo_authentication():
-    """Request sudo authentication upfront and cache it for later use."""
+def request_sudo_authentication(force_prompt=False):
+    """
+    Request sudo authentication upfront and cache it for later use.
+    
+    Args:
+        force_prompt (bool): If True, always prompt even if sudo is already authenticated
+    
+    Returns:
+        bool: True if authenticated, False otherwise
+    """
     # Check if sudo is available
     if not shutil.which("sudo"):
         print(f"{C_RED}⛔ Error: sudo is not available on this system.{C_RESET}")
         return False
+    
+    # First, check if sudo is already authenticated (non-interactive mode)
+    if not force_prompt:
+        check_result = subprocess.run(["sudo", "-n", "-v"], capture_output=True, text=True)
+        if check_result.returncode == 0:
+            print(f"{C_GREEN}✅ Sudo is already authenticated (using cached credentials).{C_RESET}")
+            return True
     
     print(f"🔐 TT Inference Server setup requires sudo privileges. Please enter your password:")
     try:
@@ -1393,12 +1489,15 @@ def request_sudo_authentication():
         print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
         return False
 
-def ensure_frontend_dependencies():
+def ensure_frontend_dependencies(force_prompt=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
     This is optional for running the app, as dependencies are always installed
     inside the Docker container, but it greatly improves the development experience
     (e.g., for TypeScript autocompletion).
+    
+    Args:
+        force_prompt (bool): If True, always prompt user even if preference exists
     """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
@@ -1424,33 +1523,59 @@ def ensure_frontend_dependencies():
 
     try:
         if has_local_npm:
-            choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip()
-            if choice in ['n', 'no']:
-                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
-                return True # It's not a failure, just a choice.
+            # Check for saved preference
+            npm_pref = get_preference("npm_install_locally")
+            choice = None
             
-            print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
-            run_command(["npm", "install"], check=True, cwd=frontend_dir)
-            print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+            if not force_prompt and npm_pref:
+                if npm_pref in ['n', 'no', 'false']:
+                    print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
+                    return True
+                # else preference is to install
+                choice = npm_pref
+            else:
+                choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip() or 'y'
+                save_preference("npm_install_locally", choice)
+            
+            # Check the actual choice (either from preference or from user input)
+            if choice not in ['n', 'no', 'false']:
+                print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
+                run_command(["npm", "install"], check=True, cwd=frontend_dir)
+                print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+            else:
+                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
 
         else: # No local npm found
             print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
-            choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip()
-            if choice in ['n', 'no']:
+            
+            # Check for saved preference
+            docker_pref = get_preference("npm_install_via_docker")
+            choice = None
+            
+            if not force_prompt and docker_pref:
+                if docker_pref in ['n', 'no', 'false']:
+                    print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
+                    return True
+                choice = docker_pref
+            else:
+                choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip() or 'y'
+                save_preference("npm_install_via_docker", choice)
+            
+            # Check the actual choice (either from preference or from user input)
+            if choice not in ['n', 'no', 'false']:
+                print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
+                # This command runs `npm install` inside a container and mounts the result back to the host.
+                docker_cmd = [
+                    "docker", "run", "--rm",
+                    "-v", f"{frontend_dir}:/app",
+                    "-w", "/app",
+                    "node:22-alpine3.20",
+                    "npm", "install"
+                ]
+                run_command(docker_cmd, check=True)
+                print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
+            else:
                 print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
-                return True
-
-            print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
-            # This command runs `npm install` inside a container and mounts the result back to the host.
-            docker_cmd = [
-                "docker", "run", "--rm",
-                "-v", f"{frontend_dir}:/app",
-                "-w", "/app",
-                "node:22-alpine3.20",
-                "npm", "install"
-            ]
-            run_command(docker_cmd, check=True)
-            print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
 
     except (subprocess.CalledProcessError, SystemExit) as e:
         print(f"{C_RED}⛔ Error installing frontend dependencies: {e}{C_RESET}")
@@ -1684,6 +1809,7 @@ def main():
 {C_GREEN}{C_BOLD}Examples:{C_RESET}
   {C_CYAN}python run.py{C_RESET}                   🚀 Normal interactive setup
   {C_CYAN}python run.py --dev{C_RESET}             🛠️  Development mode with suggested defaults
+  {C_CYAN}python run.py --reconfigure{C_RESET}      🔄 Reset preferences and reconfigure all options
   {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
@@ -1704,6 +1830,8 @@ def main():
                            help="🗑️  Clean up everything including persistent data and .env file")
         parser.add_argument("--help-env", action="store_true", 
                            help="📚 Show detailed help for environment variables")
+        parser.add_argument("--reconfigure", action="store_true",
+                           help="🔄 Reset preferences and reconfigure all options")
         parser.add_argument("--skip-fastapi", action="store_true", 
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--no-sudo", action="store_true", 
@@ -1766,6 +1894,7 @@ def main():
 {'=' * 80}
   {C_CYAN}python run.py{C_RESET}                        Normal setup with prompts
   {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
+  {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --cleanup{C_RESET}              Clean up containers only
   {C_CYAN}python run.py --cleanup-all{C_RESET}          Complete cleanup (data + config)
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
@@ -1792,7 +1921,7 @@ def main():
         
         display_welcome_banner()
         check_docker_installation()
-        configure_environment_sequentially(dev_mode=args.dev)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure)
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
@@ -1810,11 +1939,16 @@ def main():
             print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies()
+        ensure_frontend_dependencies(force_prompt=args.reconfigure)
 
         # Check if all required ports are available
-        print(f"\n{C_BOLD}{C_BLUE}🔍 Checking required ports: 3000, 8000, 8080, 8111...{C_RESET}")
-        print(f"{C_YELLOW}   (Will attempt to free if in use){C_RESET}\n")
+        print(f"\n{C_BOLD}{C_BLUE}🔍 Checking port availability for all services...{C_RESET}")
+        print(f"{C_CYAN}The following ports will be checked and freed if needed:{C_RESET}")
+        print(f"  • Port 3000 - Frontend (Vite dev server)")
+        print(f"  • Port 8000 - Backend API (Django/Gunicorn)")
+        print(f"  • Port 8080 - Agent Service")
+        print(f"  • Port 8111 - ChromaDB (Vector Database)")
+        print(f"{C_YELLOW}⚠️  If any of these ports are in use, we will attempt to free them.{C_RESET}\n")
 
         # Define ports based on mode
         required_ports = [
@@ -1847,6 +1981,8 @@ def main():
             print()
             sys.exit(1)
 
+        print(f"{C_GREEN}✅ All required ports are available{C_RESET}\n")
+
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
         
@@ -1872,7 +2008,7 @@ def main():
             
             # Request sudo authentication upfront (unless --no-sudo is specified)
             if not args.no_sudo:
-                if not request_sudo_authentication():
+                if not request_sudo_authentication(force_prompt=args.reconfigure):
                     print(f"{C_RED}⛔ Cannot proceed without sudo access. Use --no-sudo to skip sudo usage.{C_RESET}")
                     return
             else:
