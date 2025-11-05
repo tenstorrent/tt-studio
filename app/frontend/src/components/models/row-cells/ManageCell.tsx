@@ -33,7 +33,7 @@ export default React.memo(function ManageCell({
   id,
   name,
   image: _image,
-  health: _health,
+  health,
   onDelete,
   onRedeploy: _onRedeploy,
   onNavigateToModel,
@@ -67,7 +67,7 @@ export default React.memo(function ManageCell({
           : MessageSquareText;
 
   return (
-    <div className="relative flex items-center justify-center gap-2">
+    <div className="relative flex items-center justify-center gap-2 flex-wrap">
       <Button
         variant="outline"
         size="sm"
@@ -75,6 +75,7 @@ export default React.memo(function ManageCell({
         icon={FileCode2}
         iconPlacement="right"
         onClick={() => onOpenApi(id)}
+        disabled={health !== "healthy"}
         className={`${baseBtn} ${blueBtn}`}
       >
         API
@@ -86,6 +87,7 @@ export default React.memo(function ManageCell({
         icon={OpenIcon}
         iconPlacement="left"
         onClick={() => onNavigateToModel(id, name ?? id)}
+        disabled={health !== "healthy"}
         className={`${baseBtn} ${amberBtn}`}
       >
         {openLabel}

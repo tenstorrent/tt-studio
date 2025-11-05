@@ -242,34 +242,34 @@ export default function ModelsTable({
               {isExpanded && (
                 <TableRow className="bg-stone-50/60 dark:bg-stone-900/30">
                   <TableCell colSpan={colCount}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-2 text-sm">
-                      <div>
-                        <div className="text-xs text-stone-500">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 text-sm">
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">
                           Container ID
                         </div>
                         <CopyableText text={row.id} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">Model Name</div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">Model Name</div>
                         <CopyableText text={row.name ?? ""} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">
                           Docker Image
                         </div>
                         <CopyableText text={row.image ?? ""} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">Ports</div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">Ports</div>
                         <CopyableText text={row.ports ?? ""} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">Status</div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">Status</div>
                         <CopyableText text={row.status ?? ""} />
                       </div>
                       <div className="flex items-end">
                         <button
-                          className="ml-auto rounded-md border border-TT-purple-accent/30 px-3 py-1 text-xs hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20"
+                          className="ml-auto rounded-md border border-TT-purple-accent/30 px-3 py-1.5 text-xs hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20 transition-colors"
                           onClick={() => {
                             const all = `id: ${row.id}\nname: ${row.name ?? ""}\nimage: ${row.image ?? ""}\nports: ${row.ports ?? ""}\nstatus: ${row.status ?? ""}`;
                             navigator.clipboard.writeText(all);

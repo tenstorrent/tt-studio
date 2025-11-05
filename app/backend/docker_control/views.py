@@ -20,6 +20,7 @@ import docker
 import re
 import os 
 import concurrent.futures
+import requests
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
@@ -197,6 +198,43 @@ class DeployView(APIView):
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DeploymentProgressView(APIView):
+    def get(self, request, job_id, *args, **kwargs):
+        """Proxy progress requests to TT Inference Server"""
+        try:
+            logger.info(f"Fetching deployment progress for job_id: {job_id}")
+            
+            # Forward the progress request to TT Inference Server
+            tt_inference_url = f"http://172.18.0.1:8001/run/progress/{job_id}"
+            
+            response = requests.get(tt_inference_url, timeout=10)
+            
+            if response.status_code == 200:
+                progress_data = response.json()
+                logger.info(f"Progress data received: {progress_data}")
+                return Response(progress_data, status=status.HTTP_200_OK)
+            else:
+                error_msg = f"TT Inference Server returned status {response.status_code}: {response.text}"
+                logger.error(error_msg)
+                return Response(
+                    {"status": "error", "message": "Failed to get progress"}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching progress from TT Inference Server: {str(e)}")
+            return Response(
+                {"status": "error", "message": "Progress service unavailable"}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in DeploymentProgressView: {str(e)}")
+            return Response(
+                {"status": "error", "message": "Internal server error"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class RedeployView(APIView):
