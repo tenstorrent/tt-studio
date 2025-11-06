@@ -108,15 +108,57 @@ def run_command(command, check=False, cwd=None, capture_output=False, shell=Fals
 
 
 def check_docker_installation():
-    """Function to check Docker installation."""
+    """Function to check Docker installation and daemon connectivity."""
     if not shutil.which("docker"):
         print(f"{C_RED}⛔ Error: Docker is not installed.{C_RESET}")
+        print(f"{C_YELLOW}Please install Docker from: https://docs.docker.com/get-docker/{C_RESET}")
         sys.exit(1)
+    
+    # Test Docker daemon connectivity
+    try:
+        result = subprocess.run(["docker", "info"], check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        error_output = e.stderr.lower()
+        print(f"{C_RED}⛔ Error: Cannot connect to Docker daemon.{C_RESET}")
+        
+        if "permission denied" in error_output:
+            print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+            print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+            print()
+            print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
+            print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+            print()
+            print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
+            print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+        elif "cannot connect" in error_output or "connection refused" in error_output:
+            print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+            print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+            print()
+            print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
+            print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+            print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+        else:
+            print(f"{C_YELLOW}Docker daemon error: {e.stderr}{C_RESET}")
+            print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
+        
+        sys.exit(1)
+    except FileNotFoundError:
+        print(f"{C_RED}⛔ Error: Docker command not found.{C_RESET}")
+        print(f"{C_YELLOW}Please install Docker from: https://docs.docker.com/get-docker/{C_RESET}")
+        sys.exit(1)
+    
     try:
         # Check if docker compose is available and working
         subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         print(f"{C_RED}⛔ Error: Docker Compose is not installed or not working correctly.{C_RESET}")
+        print(f"{C_YELLOW}Please install Docker Compose from: https://docs.docker.com/compose/install/{C_RESET}")
         sys.exit(1)
 
 def is_placeholder(value):
@@ -1788,6 +1830,63 @@ def add_spdx_headers():
     else:
         print(f"\n{C_GREEN}{C_BOLD}✅ All files already have proper SPDX license headers!{C_RESET}")
 
+def fix_docker_issues():
+    """Automatically fix common Docker service and permission issues."""
+    print(f"\n{C_TT_PURPLE}{C_BOLD}🔧 TT Studio Docker Fix Utility{C_RESET}")
+    print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
+    
+    try:
+        # Step 1: Start Docker service
+        print(f"\n{C_BLUE}🚀 Starting Docker service...{C_RESET}")
+        result = subprocess.run(["sudo", "service", "docker", "start"], 
+                              capture_output=True, text=True, check=False)
+        
+        if result.returncode == 0:
+            print(f"{C_GREEN}✅ Docker service started successfully{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Docker service start returned code {result.returncode}{C_RESET}")
+            if result.stderr:
+                print(f"{C_YELLOW}   {result.stderr.strip()}{C_RESET}")
+        
+        # Step 2: Fix socket permissions
+        print(f"\n{C_BLUE}🔒 Fixing Docker socket permissions...{C_RESET}")
+        socket_result = subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"], 
+                                     capture_output=True, text=True, check=False)
+        
+        if socket_result.returncode == 0:
+            print(f"{C_GREEN}✅ Docker socket permissions fixed{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Socket permission fix returned code {socket_result.returncode}{C_RESET}")
+            if socket_result.stderr:
+                print(f"{C_YELLOW}   {socket_result.stderr.strip()}{C_RESET}")
+        
+        # Step 3: Test Docker connectivity
+        print(f"\n{C_BLUE}🔍 Testing Docker connectivity...{C_RESET}")
+        test_result = subprocess.run(["docker", "info"], 
+                                   capture_output=True, text=True, check=False)
+        
+        if test_result.returncode == 0:
+            print(f"{C_GREEN}✅ Docker is working correctly!{C_RESET}")
+            print(f"\n{C_GREEN}{C_BOLD}🎉 Docker fix completed successfully!{C_RESET}")
+            print(f"{C_CYAN}You can now run: {C_WHITE}python run.py{C_RESET}")
+        else:
+            print(f"{C_RED}❌ Docker connectivity test failed{C_RESET}")
+            if test_result.stderr:
+                print(f"{C_YELLOW}Error: {test_result.stderr.strip()}{C_RESET}")
+            print(f"\n{C_YELLOW}You may need to manually troubleshoot Docker installation.{C_RESET}")
+            return False
+            
+    except FileNotFoundError:
+        print(f"{C_RED}❌ Error: 'sudo' or 'docker' command not found{C_RESET}")
+        print(f"{C_YELLOW}Please ensure Docker is installed and sudo is available.{C_RESET}")
+        return False
+    except Exception as e:
+        print(f"{C_RED}❌ Unexpected error during Docker fix: {e}{C_RESET}")
+        return False
+    
+    print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
+    return True
+
 def main():
     """Main function to orchestrate the script."""
     try:
@@ -1817,6 +1916,7 @@ def main():
   {C_CYAN}python run.py --wait-for-services{C_RESET} ⏳ Wait for all services to be healthy before completing
   {C_CYAN}python run.py --check-headers{C_RESET} 🔍 Check for missing SPDX license headers
   {C_CYAN}python run.py --add-headers{C_RESET} 📝 Add missing SPDX license headers (excludes frontend)
+  {C_CYAN}python run.py --fix-docker{C_RESET}   🔧 Automatically fix Docker service and permission issues
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1848,6 +1948,8 @@ def main():
                    help="🔍 Check for missing SPDX license headers without adding them")
         parser.add_argument("--auto-deploy", type=str, metavar="MODEL_NAME",
                    help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
+        parser.add_argument("--fix-docker", action="store_true",
+                   help="🔧 Automatically fix Docker service and permission issues")
         
         args = parser.parse_args()
         
@@ -1914,7 +2016,11 @@ def main():
         if args.check_headers:
             check_spdx_headers()
             return
-            
+        
+        if args.fix_docker:
+            success = fix_docker_issues()
+            sys.exit(0 if success else 1)
+        
         if args.add_headers:
             add_spdx_headers()
             return
@@ -1931,12 +2037,76 @@ def main():
 
         # Create Docker network
         print(f"\n{C_BLUE}Checking for Docker network 'tt_studio_network'...{C_RESET}")
-        result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True)
-        if "tt_studio_network" not in result.stdout:
-            run_command(["docker", "network", "create", "tt_studio_network"])
-            print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
-        else:
-            print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
+        try:
+            result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True, check=True)
+            if "tt_studio_network" not in result.stdout:
+                try:
+                    run_command(["docker", "network", "create", "tt_studio_network"])
+                    print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
+                except subprocess.CalledProcessError as e:
+                    error_output = e.stderr.lower() if e.stderr else ""
+                    print(f"{C_RED}⛔ Error: Failed to create Docker network.{C_RESET}")
+                    
+                    if "permission denied" in error_output:
+                        print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                        print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                        print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                        print()
+                        print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
+                        print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                        print()
+                        print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
+                        print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                    elif "cannot connect" in error_output or "connection refused" in error_output:
+                        print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                        print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                        print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                        print()
+                        print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
+                        print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                        print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                    else:
+                        print(f"{C_YELLOW}Docker network creation failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
+                        print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
+                    
+                    sys.exit(1)
+            else:
+                print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
+        except subprocess.CalledProcessError as e:
+            error_output = e.stderr.lower() if e.stderr else ""
+            print(f"{C_RED}⛔ Error: Failed to list Docker networks.{C_RESET}")
+            
+            if "permission denied" in error_output:
+                print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                print()
+                print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
+                print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                print()
+                print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
+                print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            elif "cannot connect" in error_output or "connection refused" in error_output:
+                print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                print()
+                print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
+                print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            else:
+                print(f"{C_YELLOW}Docker network listing failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
+                print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
+            
+            sys.exit(1)
 
         # Ensure frontend dependencies are installed
         ensure_frontend_dependencies(force_prompt=args.reconfigure)
