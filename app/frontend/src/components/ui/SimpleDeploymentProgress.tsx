@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from 'react';
+import { Progress } from './progress';
 
 interface SimpleDeploymentProgressProps {
   isDeploying: boolean;
@@ -77,27 +78,24 @@ export const SimpleDeploymentProgress: React.FC<SimpleDeploymentProgressProps> =
   if (!isDeploying && progress === 0) return null;
 
   return (
-    <div className={`mt-3 p-4 border rounded-lg bg-white shadow-sm ${className}`}>
+    <div className={`mt-3 p-4 border rounded-lg bg-card shadow-sm ${className}`}>
       <div className="flex justify-between items-center mb-2">
         <div className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-          <span className="text-sm font-medium text-gray-700">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
+          <span className="text-sm font-medium text-foreground">
             {currentStage}
           </span>
         </div>
-        <span className="text-sm text-gray-500 font-mono tabular-nums">
+        <span className="text-sm text-muted-foreground font-mono tabular-nums">
           {Math.round(progress)}%
         </span>
       </div>
       
-      <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-        <div 
-          className="h-2 rounded-full transition-all duration-300 ease-out bg-blue-600"
-          style={{ width: `${progress}%` }}
-        />
+      <div className="mb-2">
+        <Progress value={progress} className="h-2" />
       </div>
       
-      <p className="text-xs text-gray-500 tabular-nums">
+      <p className="text-xs text-muted-foreground tabular-nums">
         Elapsed: {Math.round(elapsedTime)}s
       </p>
     </div>

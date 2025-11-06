@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React from 'react';
+import { Progress } from './progress';
 
 interface DeploymentProgressProps {
   progress: {
@@ -35,51 +36,50 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const isComplete = status === 'completed';
 
   return (
-    <div className={`mt-4 p-4 border rounded-lg bg-white shadow-sm ${className}`}>
+    <div className={`mt-4 p-4 border rounded-lg bg-card shadow-sm ${className}`}>
       <div className="flex justify-between items-center mb-2">
         <div className="flex items-center">
           {(status === 'running' || status === 'starting') && (
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent mr-2"></div>
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent mr-2"></div>
           )}
-          <span className="text-sm font-medium text-gray-700">
+          <span className="text-sm font-medium text-foreground">
             {stageDisplayNames[stage] || stage}
           </span>
         </div>
-        <span className="text-sm text-gray-500 font-mono">
+        <span className="text-sm text-muted-foreground font-mono">
           {isError ? 'Failed' : isComplete ? '100%' : `${progressPercent}%`}
         </span>
       </div>
       
-      <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
-        <div 
-          className={`h-2 rounded-full transition-all duration-500 ease-out ${
+      <div className="mb-3">
+        <Progress 
+          value={isError ? 100 : isComplete ? 100 : progressPercent} 
+          className="h-2"
+          indicatorClassName={
             isError 
-              ? 'bg-red-500' 
+              ? 'bg-destructive' 
               : isComplete 
-                ? 'bg-green-500' 
-                : 'bg-blue-600'
-          }`}
-          style={{ 
-            width: `${isError ? 100 : isComplete ? 100 : progressPercent}%` 
-          }}
+                ? 'bg-green-500 dark:bg-green-600' 
+                : undefined
+          }
         />
       </div>
       
-      <p className={`text-xs leading-relaxed ${isError ? 'text-red-600' : 'text-gray-600'}`}>
+      <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
         {message}
       </p>
       
       {isError && (
         <div className="flex items-center mt-2">
-          <div className="w-3 h-3 bg-red-500 rounded-full mr-2"></div>
-          <span className="text-xs text-red-600 font-medium">Deployment failed</span>
+          <div className="w-3 h-3 bg-destructive rounded-full mr-2"></div>
+          <span className="text-xs text-destructive font-medium">Deployment failed</span>
         </div>
       )}
       
       {isComplete && (
         <div className="flex items-center mt-2">
-          <div className="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
-          <span className="text-xs text-green-600 font-medium">Deployment successful</span>
+          <div className="w-3 h-3 bg-green-500 dark:bg-green-600 rounded-full mr-2"></div>
+          <span className="text-xs text-green-600 dark:text-green-400 font-medium">Deployment successful</span>
         </div>
       )}
     </div>
