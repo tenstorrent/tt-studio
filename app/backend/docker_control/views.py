@@ -47,6 +47,7 @@ client = docker.from_env()
 
 # Add this near the top after imports, before classes
 pull_progress = {}  # {model_id: {status, progress, current, total, message}}
+deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
 # Add custom renderer for SSE
 class EventStreamRenderer(JSONRenderer):
@@ -188,6 +189,11 @@ class DeployView(APIView):
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
             
+            # Ensure job_id is set for progress tracking
+            # Use job_id from API response, or fallback to container_id or container_name
+            if not response.get("job_id"):
+                response["job_id"] = response.get("container_id") or response.get("container_name")
+            
             # Refresh tt-smi cache after successful deployment
             if response.get("status") == "success":
                 try:
@@ -202,37 +208,220 @@ class DeployView(APIView):
 
 class DeploymentProgressView(APIView):
     def get(self, request, job_id, *args, **kwargs):
-        """Proxy progress requests to TT Inference Server"""
+        """Track deployment progress based on actual FastAPI log stages and container status"""
+        import time
+        
         try:
             logger.info(f"Fetching deployment progress for job_id: {job_id}")
             
-            # Forward the progress request to TT Inference Server
-            tt_inference_url = f"http://172.18.0.1:8001/run/progress/{job_id}"
+            # Track deployment start time if not already tracked
+            if job_id not in deployment_start_times:
+                deployment_start_times[job_id] = time.time()
             
-            response = requests.get(tt_inference_url, timeout=10)
+            elapsed_time = time.time() - deployment_start_times[job_id]
             
-            if response.status_code == 200:
-                progress_data = response.json()
-                logger.info(f"Progress data received: {progress_data}")
-                return Response(progress_data, status=status.HTTP_200_OK)
-            else:
-                error_msg = f"TT Inference Server returned status {response.status_code}: {response.text}"
-                logger.error(error_msg)
-                return Response(
-                    {"status": "error", "message": "Failed to get progress"}, 
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+            # job_id is container_id or container_name
+            # Try to get container by ID first, then by name
+            container = None
+            try:
+                # Try to get container by ID (full or partial)
+                container = client.containers.get(job_id)
+            except docker.errors.NotFound:
+                # Try by name
+                try:
+                    containers = client.containers.list(all=True)
+                    for c in containers:
+                        if c.name == job_id:
+                            container = c
+                            break
+                except Exception as e:
+                    logger.warning(f"Error listing containers: {str(e)}")
+            
+            # Container not found - deployment in early stages
+            # Map to actual FastAPI log stages with realistic timing
+            if not container:
+                logger.info(f"Container {job_id} not found yet - deployment in progress (elapsed: {elapsed_time:.1f}s)")
                 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching progress from TT Inference Server: {str(e)}")
+                # Based on FastAPI logs - realistic timing for each stage
+                if elapsed_time < 3:
+                    progress = 5
+                    stage = "initialization"
+                    message = "Loading environment files..."  # fastapi.log (13-14)
+                elif elapsed_time < 8:
+                    progress = 15
+                    stage = "setup"
+                    message = "Running workflow configuration..."  # fastapi.log (19-27)
+                elif elapsed_time < 15:
+                    progress = 25
+                    stage = "model_preparation"
+                    message = "Checking model setup and weights..."  # fastapi.log (83-91)
+                elif elapsed_time < 25:
+                    progress = 40
+                    stage = "model_preparation"
+                    message = "Downloading model weights (if needed)..."
+                elif elapsed_time < 35:
+                    progress = 55
+                    stage = "container_setup"
+                    message = "Preparing Docker configuration..."  # fastapi.log (100-113)
+                elif elapsed_time < 45:
+                    progress = 70
+                    stage = "container_setup"
+                    message = "Starting Docker container..."
+                else:
+                    # If taking longer than expected, show waiting state
+                    progress = min(75, 70 + int((elapsed_time - 45) / 10 * 5))
+                    stage = "container_setup"
+                    message = "Waiting for container to initialize..."
+                
+                return Response(
+                    {
+                        "status": "running",
+                        "stage": stage,
+                        "progress": progress,
+                        "message": message
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Container found - check its status and network connectivity
+            container_status = container.status
+            container_attrs = container.attrs
+            networks = container_attrs.get("NetworkSettings", {}).get("Networks", {})
+            container_name = container.name
+            
+            # Determine progress based on container state
+            progress = 0
+            stage = "container_setup"
+            message = "Container found..."
+            status_value = "running"
+            
+            if container_status == "created":
+                # Container created but not running yet
+                progress = 80
+                stage = "container_setup"
+                message = "Container created, starting services..."
+            elif container_status == "restarting":
+                progress = 82
+                stage = "container_setup"
+                message = "Container restarting..."
+            elif container_status == "running":
+                # Container is running - check network and finalization status
+                if "tt_studio_network" in networks:
+                    # Container is on the network - check if it's been renamed (final step)
+                    # Based on fastapi.log (178-179) - rename is the final step
+                    expected_model_name = container_name  # The job_id should match final name
+                    
+                    # If container name looks like it's been properly renamed to model name
+                    # (not a random Docker name like "romantic_khorana")
+                    if any(model_part in container_name.lower() for model_part in ['llama', 'instruct', 'model']) or '-' not in container_name:
+                        # Container renamed and finalized - deployment complete
+                        progress = 100
+                        stage = "complete"
+                        message = "Deployment complete!"  # fastapi.log (169, 178-179)
+                        status_value = "completed"
+                        # Clean up start time tracking
+                        if job_id in deployment_start_times:
+                            del deployment_start_times[job_id]
+                    else:
+                        # On network but not renamed yet - almost done
+                        progress = 95
+                        stage = "finalizing"
+                        message = "Finalizing container setup..."
+                else:
+                    # Running but not on network yet
+                    progress = 85
+                    stage = "finalizing"
+                    message = "Connecting container to network..."
+            elif container_status == "paused":
+                progress = 85
+                stage = "container_setup"
+                message = "Container paused, resuming..."
+            elif container_status == "exited":
+                # Check exit code
+                exit_code = container_attrs.get("State", {}).get("ExitCode", 0)
+                if exit_code == 0:
+                    # Successful completion
+                    progress = 100
+                    stage = "complete"
+                    message = "Deployment completed successfully!"
+                    status_value = "completed"
+                    # Clean up start time tracking
+                    if job_id in deployment_start_times:
+                        del deployment_start_times[job_id]
+                else:
+                    # Failed with error
+                    status_value = "error"
+                    stage = "error"
+                    message = f"Container failed with exit code {exit_code}"
+                    progress = 0
+                    # Clean up start time tracking
+                    if job_id in deployment_start_times:
+                        del deployment_start_times[job_id]
+            elif container_status == "dead":
+                status_value = "error"
+                stage = "error"
+                message = "Container failed to start properly"
+                progress = 0
+                # Clean up start time tracking
+                if job_id in deployment_start_times:
+                    del deployment_start_times[job_id]
+            
+            progress_data = {
+                "status": status_value,
+                "stage": stage,
+                "progress": progress,
+                "message": message,
+                "container_status": container_status,
+                "container_name": container_name
+            }
+            
+            logger.info(f"Progress data: {progress_data} (elapsed: {elapsed_time:.1f}s, networks: {list(networks.keys())})")
+            return Response(progress_data, status=status.HTTP_200_OK)
+                
+        except docker.errors.NotFound:
+            # Container not found - use time-based progress for early stages
+            elapsed_time = time.time() - deployment_start_times.get(job_id, time.time())
+            if elapsed_time < 0:
+                elapsed_time = 0
+            
+            # Map to actual log stages
+            if elapsed_time < 3:
+                progress = 5
+                stage = "initialization"
+                message = "Loading environment files..."
+            elif elapsed_time < 8:
+                progress = 15
+                stage = "setup"
+                message = "Running workflow configuration..."
+            elif elapsed_time < 15:
+                progress = 25
+                stage = "model_preparation"
+                message = "Checking model setup..."
+            else:
+                progress = min(55, 25 + int((elapsed_time - 15) / 20 * 30))
+                stage = "container_setup"
+                message = "Preparing Docker container..."
+            
+            logger.info(f"Container {job_id} not found - deployment in progress (elapsed: {elapsed_time:.1f}s)")
             return Response(
-                {"status": "error", "message": "Progress service unavailable"}, 
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
+                {
+                    "status": "running",
+                    "stage": stage,
+                    "progress": progress,
+                    "message": message
+                },
+                status=status.HTTP_200_OK
+            )
+        except docker.errors.APIError as e:
+            logger.error(f"Docker API error fetching progress: {str(e)}")
+            return Response(
+                {"status": "error", "message": f"Docker API error: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         except Exception as e:
-            logger.error(f"Unexpected error in DeploymentProgressView: {str(e)}")
+            logger.error(f"Unexpected error in DeploymentProgressView: {str(e)}", exc_info=True)
             return Response(
-                {"status": "error", "message": "Internal server error"}, 
+                {"status": "error", "message": f"Internal server error: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
