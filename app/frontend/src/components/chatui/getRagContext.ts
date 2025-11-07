@@ -71,7 +71,26 @@ export const getRagContext = async (
         console.log("Single collection response:", response);
 
         if (response?.data) {
-          ragContext.documents = response.data.documents[0] || [];
+          // response.data.documents may be an array of strings or objects.
+          // Normalize it into an array of strings so ragContext.documents
+          // always has the expected type (string[]).
+          const docs = response.data.documents;
+          if (Array.isArray(docs)) {
+            // The chroma query endpoint returns documents as a nested list:
+            //   documents: [ [doc1, doc2, ...] ] (outer array per query)
+            // If that's the case, use the first inner array. Otherwise handle
+            // a plain array of strings/objects.
+            const items = Array.isArray(docs[0]) ? docs[0] : docs;
+            ragContext.documents = items.map((d: any) =>
+              typeof d === "string"
+                ? d
+                : d?.document ?? d?.text ?? JSON.stringify(d)
+            );
+          } else {
+            // If it's not an array, fall back to empty array for safety.
+            ragContext.documents = [];
+          }
+
           console.log("Processed documents:", ragContext.documents.length);
         } else {
           console.warn(
