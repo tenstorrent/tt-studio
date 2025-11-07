@@ -71,7 +71,18 @@ export const getRagContext = async (
         console.log("Single collection response:", response);
 
         if (response?.data) {
-          ragContext.documents = response.data.documents[0] || [];
+           const docs = response.data.documents;
+          if (Array.isArray(docs)) {
+            const items = Array.isArray(docs[0]) ? docs[0] : docs;
+            ragContext.documents = items.map((d: any) =>
+              typeof d === "string"
+                ? d
+                : d?.document ?? d?.text ?? JSON.stringify(d)
+            );
+          } else {
+            // If it's not an array, fall back to empty array for safety.
+            ragContext.documents = [];
+          }
           console.log("Processed documents:", ragContext.documents.length);
         } else {
           console.warn(
