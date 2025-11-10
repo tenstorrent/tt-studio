@@ -63,7 +63,7 @@ C_TT_PURPLE = '\033[38;5;99m'
 
 # --- Global Paths and Constants ---
 TT_STUDIO_ROOT = os.getcwd()
-INFERENCE_SERVER_BRANCH = "anirud/fast-api-container-fetching-fixes"
+INFERENCE_SERVER_BRANCH = "anirudh/inference-server-progress-bar"
 OS_NAME = platform.system()
 
 # --- ASCII Art Constants ---
