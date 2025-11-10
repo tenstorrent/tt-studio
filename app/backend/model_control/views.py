@@ -619,7 +619,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
 
 class ContainerLogsView(View):
     # Define event detection configuration before the get method
-    EVENT_KEYWORDS = [
+    SIMPLE_EVENT_KEYWORDS = [
         '[ERROR]', '[FATAL]', '[CRITICAL]', 
         '[WARN]', '[WARNING]',
         'RESPONSE_Q OUT OF SYNC',
@@ -677,7 +677,7 @@ class ContainerLogsView(View):
         line_upper = line.upper()
         
         # Check simple keyword patterns
-        if any(keyword in line_upper for keyword in cls.EVENT_KEYWORDS):
+        if any(keyword in line_upper for keyword in cls.SIMPLE_EVENT_KEYWORDS):
             return "event"
         
         # Check complex multi-keyword patterns
