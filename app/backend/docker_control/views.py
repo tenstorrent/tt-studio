@@ -21,6 +21,7 @@ import re
 import os 
 import concurrent.futures
 import requests
+import json
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
@@ -208,12 +209,31 @@ class DeployView(APIView):
 
 class DeploymentProgressView(APIView):
     def get(self, request, job_id, *args, **kwargs):
-        """Track deployment progress based on actual FastAPI log stages and container status"""
+        """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
         import time
         
         try:
             logger.info(f"Fetching deployment progress for job_id: {job_id}")
             
+            # First, try to get progress from FastAPI inference server
+            try:
+                fastapi_url = "http://172.18.0.1:8001/run/progress/" + job_id
+                response = requests.get(fastapi_url, timeout=5)
+                
+                if response.status_code == 200:
+                    progress_data = response.json()
+                    logger.info(f"Got progress from FastAPI: {progress_data}")
+                    
+                    # Add support for new status types
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "stalled", "cancelled"]:
+                        return Response(progress_data, status=status.HTTP_200_OK)
+                    
+                logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
+                
+            except requests.exceptions.RequestException as e:
+                logger.info(f"FastAPI not available ({str(e)}), falling back to container-based progress")
+            
+            # Fallback: existing container-based progress tracking
             # Track deployment start time if not already tracked
             if job_id not in deployment_start_times:
                 deployment_start_times[job_id] = time.time()
