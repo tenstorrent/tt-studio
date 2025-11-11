@@ -189,7 +189,59 @@ layer(base);
   }
 
  :root {
-  /* Existing UI tokens (shadcn or project defaults) */
+  /* ============================================================================
+     CENTRALIZED COLOR SYSTEM
+     ============================================================================
+     
+     This project uses a centralized color system with CSS variables for
+     consistent theming across light and dark modes.
+     
+     USAGE GUIDELINES:
+     
+     1. CSS Variables (Direct Usage in CSS):
+        Use var() to reference colors in CSS files:
+        
+        ```css
+        .my-element {
+          background: var(--color-surface-light);
+          color: var(--color-black);
+        }
+        ```
+     
+     2. Tailwind Classes (Recommended for Components):
+        Use Tailwind's color classes in JSX/TSX:
+        
+        ```tsx
+        <div className="bg-surface-light dark:bg-surface-dark">
+          Content
+        </div>
+        ```
+     
+     3. Theme Utility Functions (Best Practice):
+        Import from lib/theme-classes.ts for automatic theme handling:
+        
+        ```tsx
+        import { bgSurface, textPrimary } from "@/lib/theme-classes";
+        
+        <div className={bgSurface("p-4")}>
+          <h1 className={textPrimary()}>Title</h1>
+        </div>
+        ```
+     
+     COLOR CATEGORIES:
+     
+     - Semantic UI Colors: For shadcn components (background, foreground, etc.)
+     - Centralized Colors: Standardized blacks, whites, grays, surfaces
+     - TT Brand Colors: Tenstorrent brand palette (purple, blue, red, etc.)
+     
+     See tailwind.config.js for the full TT brand color palette.
+     See lib/theme-classes.ts for utility functions.
+     ============================================================================ */
+  
+  /* ──────────────────────────────────────────────────────────────────────────
+     SEMANTIC UI TOKENS (shadcn and project defaults)
+     Used by shadcn/ui components and general UI elements
+     ────────────────────────────────────────────────────────────────────────── */
   --background: 220 20% 96%; /* Light grey background */
     --foreground: 220 15% 20%; /* For text and icons */
     --neu-shadow: 220 25% 90%; /* Light shadow for neumorphism */
@@ -223,16 +275,30 @@ layer(base);
   --grid-color: rgba(0, 0, 0, 0.05);
   --grid-size: 40px;
 
-  /* centralized color system */
-  --color-black: #000;
-  --color-white: #fff;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-surface-light: #ffffff;
-  --color-surface-dark: #f3f4f6;
+  /* ──────────────────────────────────────────────────────────────────────────
+     CENTRALIZED COLOR SYSTEM (Light Mode)
+     
+     These are the standardized colors used throughout the application.
+     They provide consistent neutrals and surface colors.
+     
+     USAGE EXAMPLES:
+     - CSS: background: var(--color-surface-light);
+     - Tailwind: className="bg-surface-light"
+     - Utility: className={bgSurface()}
+     ────────────────────────────────────────────────────────────────────────── */
+  --color-black: #000;              /* Pure black - use sparingly */
+  --color-white: #fff;              /* Pure white - use sparingly */
+  --color-gray-100: #f3f4f6;        /* Light gray for subtle backgrounds */
+  --color-gray-200: #e5e7eb;        /* Medium light gray for borders */
+  --color-surface-light: #ffffff;   /* Primary surface color (light mode) */
+  --color-surface-dark: #f3f4f6;    /* Secondary surface color (light mode) */
 }
 
 .dark {
+  /* ──────────────────────────────────────────────────────────────────────────
+     SEMANTIC UI TOKENS (Dark Mode)
+     Automatically applied when dark mode is enabled
+     ────────────────────────────────────────────────────────────────────────── */
   --background: 20 14.3% 4.1%;
   --foreground: 60 9.1% 97.8%; /* Light text and icons for visibility */
   --neu-shadow: 220 25% 10%; /* Darker shadow for neumorphism */
@@ -264,13 +330,22 @@ layer(base);
   --sidebar-ring: 217.2 91.2% 59.8%;
   --grid-color: rgba(255, 255, 255, 0.05);
 
-  /* Dark theme centralized color system */
-  --color-black: #000;
-  --color-white: #fff;
-  --color-gray-100: #1f2937;
-  --color-gray-200: #111827;
-  --color-surface-light: #111;
-  --color-surface-dark: #000;
+  /* ──────────────────────────────────────────────────────────────────────────
+     CENTRALIZED COLOR SYSTEM (Dark Mode)
+     
+     Dark mode variants of the centralized colors.
+     These are automatically applied when .dark class is present.
+     
+     USAGE: Same as light mode - the theme utility functions handle this
+     automatically. You don't need to manually add dark: prefixes when
+     using the utility functions.
+     ────────────────────────────────────────────────────────────────────────── */
+  --color-black: #000;              /* Pure black */
+  --color-white: #fff;              /* Pure white */
+  --color-gray-100: #1f2937;        /* Dark gray for subtle backgrounds */
+  --color-gray-200: #111827;        /* Darker gray for borders */
+  --color-surface-light: #111;      /* Primary surface color (dark mode) */
+  --color-surface-dark: #000;       /* Secondary surface color (dark mode) */
 }
 
 
