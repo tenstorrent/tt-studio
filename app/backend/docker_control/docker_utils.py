@@ -17,6 +17,7 @@ from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
 from board_control.services import SystemResourceService
+from docker_control.models import ModelDeployment
 
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
@@ -77,15 +78,55 @@ def run_container(impl, weights_id):
                 timeout=300  # 5 minute timeout for container startup
             )
 
-            if response.status_code == 200:
+            if response.status_code in [200, 202]:
                 api_result = response.json()
-                logger.info(f"API call successful: {api_result}")
+                logger.info(f"API call successful (status {response.status_code}): {api_result}")
 
                 # Update deploy cache on success
                 update_deploy_cache()
                 
                 # Notify agent about new container deployment
                 notify_agent_of_new_container(api_result["container_name"])
+                
+                # Save deployment record to database
+                container_id = None
+                container_name = "unknown"
+                try:
+                    container_id = api_result.get("container_id")
+                    container_name = api_result.get("container_name", "unknown")
+                    
+                    # If container_id is not in response, try to get it from Docker by name
+                    if not container_id and container_name:
+                        try:
+                            docker_client = docker.from_env()
+                            container = docker_client.containers.get(container_name)
+                            container_id = container.id
+                            logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
+                        except Exception as docker_error:
+                            logger.warning(f"Could not get container_id from Docker: {docker_error}")
+                            # Use container_name as fallback ID if we can't get the actual ID
+                            container_id = container_name
+                    
+                    if container_id:
+                        ModelDeployment.objects.create(
+                            container_id=container_id,
+                            container_name=container_name,
+                            model_name=impl.model_name,
+                            device=device,
+                            status="running",
+                            stopped_by_user=False,
+                            port=None  # Port info not readily available from API response
+                        )
+                        logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                    else:
+                        logger.warning(f"Could not save deployment record: no container_id or container_name")
+                except Exception as e:
+                    import traceback
+                    logger.error(
+                        f"Failed to save deployment record for {container_name} (ID: {container_id}): {type(e).__name__}: {e}\n"
+                        f"Traceback: {traceback.format_exc()}"
+                    )
+                    # Don't fail the deployment if we can't save the record
 
                 return {
                     "status": "success",
@@ -141,6 +182,30 @@ def run_container(impl, weights_id):
             
             # Notify agent about new container deployment
             notify_agent_of_new_container(container.name)
+            
+            # Save deployment record to database
+            try:
+                # Get device from impl configuration
+                device_config = impl.device_configurations[0] if impl.device_configurations else None
+                device_name = device_config.name if device_config else "unknown"
+                
+                ModelDeployment.objects.create(
+                    container_id=container.id,
+                    container_name=container.name,
+                    model_name=impl.model_name,
+                    device=device_name,
+                    status="running",
+                    stopped_by_user=False,
+                    port=host_port
+                )
+                logger.info(f"Saved deployment record for {container.name} (ID: {container.id})")
+            except Exception as e:
+                import traceback
+                logger.error(
+                    f"Failed to save deployment record for {container.name} (ID: {container.id}): {type(e).__name__}: {e}\n"
+                    f"Traceback: {traceback.format_exc()}"
+                )
+                # Don't fail the deployment if we can't save the record
             
             return {
                 "status": "success",

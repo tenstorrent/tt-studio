@@ -68,6 +68,22 @@ class StopView(APIView):
             container_id = request.data.get("container_id")
             logger.info(f"Received request to stop container with ID: {container_id}")
 
+            # Mark deployment as stopped by user in database
+            try:
+                from docker_control.models import ModelDeployment
+                from django.utils import timezone
+                
+                deployment = ModelDeployment.objects.filter(container_id=container_id).first()
+                if deployment:
+                    deployment.stopped_by_user = True
+                    deployment.status = "stopped"
+                    deployment.stopped_at = timezone.now()
+                    deployment.save()
+                    logger.info(f"Marked deployment {container_id} as stopped by user")
+            except Exception as e:
+                logger.error(f"Failed to update deployment record: {e}")
+                # Continue with stop even if database update fails
+
             # Stop the main container
             stop_response = stop_container(container_id)
             logger.info(f"Stop response: {stop_response}")
@@ -1227,5 +1243,105 @@ class DockerServiceLogsView(APIView):
             logger.error(f"Error fetching Docker service logs: {str(e)}")
             return Response(
                 {"error": "Failed to fetch Docker service logs", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ContainerEventsView(APIView):
+    """Server-Sent Events stream for container death notifications"""
+    
+    def get(self, request):
+        """Stream container death events to frontend"""
+        import time
+        from docker_control.models import ModelDeployment
+        
+        def event_stream():
+            """Generator that yields SSE-formatted events"""
+            # Keep track of last check time
+            last_check = {}
+            
+            # Send initial connection message
+            yield f"data: {json.dumps({'event': 'connected', 'message': 'Container events stream connected'})}\n\n"
+            
+            while True:
+                try:
+                    # Check for containers that died since last check
+                    recent_deaths = ModelDeployment.objects.filter(
+                        status__in=['exited', 'dead'],
+                        stopped_by_user=False
+                    ).order_by('-stopped_at')[:10]  # Get last 10 unexpected deaths
+                    
+                    for deployment in recent_deaths:
+                        # Only send if we haven't sent this one before
+                        if deployment.container_id not in last_check or last_check[deployment.container_id] != deployment.stopped_at:
+                            event_data = {
+                                'event': 'container_died',
+                                'container_id': deployment.container_id,
+                                'container_name': deployment.container_name,
+                                'model_name': deployment.model_name,
+                                'device': deployment.device,
+                                'status': deployment.status,
+                                'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None
+                            }
+                            yield f"data: {json.dumps(event_data)}\n\n"
+                            last_check[deployment.container_id] = deployment.stopped_at
+                    
+                    # Send heartbeat every 30 seconds
+                    yield f"data: {json.dumps({'event': 'heartbeat', 'timestamp': time.time()})}\n\n"
+                    
+                    # Wait before next check
+                    time.sleep(30)
+                    
+                except Exception as e:
+                    logger.error(f"Error in SSE stream: {e}")
+                    yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+                    break
+        
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
+
+class DeploymentHistoryView(APIView):
+    """Get deployment history from database"""
+    
+    def get(self, request):
+        """Return all deployments ordered by most recent first"""
+        try:
+            from docker_control.models import ModelDeployment
+            
+            # Get all deployments, ordered by most recent first
+            deployments = ModelDeployment.objects.all().order_by('-deployed_at')
+            
+            # Serialize the data
+            deployment_data = []
+            for deployment in deployments:
+                deployment_data.append({
+                    'id': deployment.id,
+                    'container_id': deployment.container_id,
+                    'container_name': deployment.container_name,
+                    'model_name': deployment.model_name,
+                    'device': deployment.device,
+                    'deployed_at': deployment.deployed_at.isoformat() if deployment.deployed_at else None,
+                    'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None,
+                    'status': deployment.status,
+                    'stopped_by_user': deployment.stopped_by_user,
+                    'port': deployment.port,
+                })
+            
+            return Response({
+                'status': 'success',
+                'deployments': deployment_data,
+                'count': len(deployment_data)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching deployment history: {e}")
+            return Response(
+                {'status': 'error', 'message': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

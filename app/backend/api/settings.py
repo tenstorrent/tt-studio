@@ -112,6 +112,14 @@ SESSIONS_ENGINE = "django.contrib.sessions.backends.cache"
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+# SQLite database for deployment history and other persistent data
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": backend_config.backend_cache_root / "db.sqlite3",
+    }
+}
+
 # local memory thread-safe default
 # the LOCATION for locmem.LocMemCache cache backend is just a name for tracking
 CACHES = {
