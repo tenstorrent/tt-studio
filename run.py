@@ -1457,42 +1457,119 @@ def cleanup_fastapi_server(no_sudo=False):
     """Clean up FastAPI server processes and files."""
     print(f"🧹 Cleaning up FastAPI server...")
     
+    # Track what was cleaned
+    pid_file_existed = False
+    process_killed = False
+    port_freed = False
+    files_removed = []
+    
+    # Helper function to check if process is still alive
+    def is_process_alive(pid):
+        """Check if a process with given PID is still running."""
+        try:
+            # Signal 0 doesn't kill, just checks if process exists
+            os.kill(int(pid), 0)
+            return True
+        except ProcessLookupError:
+            return False  # Process doesn't exist
+        except PermissionError:
+            # If we can't check, try with sudo
+            if not no_sudo:
+                result = subprocess.run(["sudo", "kill", "-0", str(pid)], 
+                                      capture_output=True, check=False)
+                return result.returncode == 0
+            return True  # Assume alive if we can't check
+    
     # Kill process if PID file exists
     if os.path.exists(FASTAPI_PID_FILE):
+        pid_file_existed = True
         try:
             with open(FASTAPI_PID_FILE, 'r') as f:
                 pid = f.read().strip()
             if pid and pid.isdigit():
-                try:
-                    os.kill(int(pid), signal.SIGTERM)
-                    time.sleep(2)
+                pid_int = int(pid)
+                # Check if process is actually running
+                if is_process_alive(pid_int):
+                    print(f"🛑 Found FastAPI process with PID {pid}. Stopping it...")
                     try:
-                        os.kill(int(pid), signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass  # Process already terminated
-                except PermissionError:
-                    if not no_sudo:
-                        # Try with sudo
-                        subprocess.run(["sudo", "kill", "-15", pid], check=False)
+                        # Try graceful termination first
+                        os.kill(pid_int, signal.SIGTERM)
                         time.sleep(2)
-                        subprocess.run(["sudo", "kill", "-9", pid], check=False)
-                    else:
-                        print(f"{C_YELLOW}Warning: Could not kill process {pid} without sudo{C_RESET}")
+                        
+                        # Check if still alive and force kill if needed
+                        if is_process_alive(pid_int):
+                            print(f"⚠️  Process {pid} still running. Forcing termination...")
+                            os.kill(pid_int, signal.SIGKILL)
+                            time.sleep(1)
+                        
+                        # Verify termination
+                        if not is_process_alive(pid_int):
+                            process_killed = True
+                            print(f"✅ FastAPI process {pid} terminated successfully")
+                        else:
+                            print(f"{C_YELLOW}⚠️  Warning: Could not verify termination of process {pid}{C_RESET}")
+                    except PermissionError:
+                        if not no_sudo:
+                            # Try with sudo
+                            print(f"🔐 Using sudo to terminate process {pid}...")
+                            subprocess.run(["sudo", "kill", "-15", pid], check=False)
+                            time.sleep(2)
+                            if is_process_alive(pid_int):
+                                subprocess.run(["sudo", "kill", "-9", pid], check=False)
+                                time.sleep(1)
+                            
+                            # Verify termination
+                            if not is_process_alive(pid_int):
+                                process_killed = True
+                                print(f"✅ FastAPI process {pid} terminated successfully")
+                            else:
+                                print(f"{C_YELLOW}⚠️  Warning: Could not verify termination of process {pid}{C_RESET}")
+                        else:
+                            print(f"{C_YELLOW}⚠️  Warning: Could not kill process {pid} without sudo{C_RESET}")
+                    except ProcessLookupError:
+                        # Process already terminated
+                        process_killed = True
+                        print(f"ℹ️  Process {pid} was already terminated")
+                    except Exception as e:
+                        print(f"{C_YELLOW}⚠️  Warning: Could not kill FastAPI process {pid}: {e}{C_RESET}")
+                else:
+                    print(f"ℹ️  PID file exists but process {pid} is not running")
         except Exception as e:
-            print(f"{C_YELLOW}Warning: Could not kill FastAPI process: {e}{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Warning: Could not read PID file: {e}{C_RESET}")
     
-    # Kill any process on port 8001
-    kill_process_on_port(8001, no_sudo=no_sudo)
+    # Kill any process on port 8001 (this handles cases where PID file is missing but port is in use)
+    port_was_in_use = not check_port_available(8001)
+    port_result = kill_process_on_port(8001, no_sudo=no_sudo)
+    if port_result and port_was_in_use:
+        # kill_process_on_port returned True and port was in use, so we freed it
+        # Verify port is now available
+        if check_port_available(8001):
+            port_freed = True
     
     # Remove PID and log files
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
+                files_removed.append(file_path)
         except Exception as e:
-            print(f"{C_YELLOW}Warning: Could not remove {file_path}: {e}{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Warning: Could not remove {file_path}: {e}{C_RESET}")
     
-    print(f"✅ FastAPI server cleanup completed")
+    # Report cleanup status
+    if process_killed or port_freed or files_removed:
+        print(f"✅ FastAPI server cleanup completed")
+        if process_killed:
+            print(f"   • Process terminated")
+        if port_freed:
+            print(f"   • Port 8001 freed")
+        if files_removed:
+            print(f"   • Removed {len(files_removed)} file(s)")
+    elif pid_file_existed:
+        # PID file existed but process was already dead
+        print(f"✅ FastAPI server cleanup completed (process was already stopped)")
+    else:
+        # Nothing to clean
+        print(f"✅ FastAPI server cleanup completed (no running process found)")
 
 def request_sudo_authentication(force_prompt=False):
     """
