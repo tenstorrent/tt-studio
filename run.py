@@ -1547,6 +1547,8 @@ def cleanup_fastapi_server(no_sudo=False):
             port_freed = True
     
     # Remove PID and log files
+    # Note: We only clean up the root fastapi.log, not the persistent volume logs
+    # The persistent volume logs (main-fastapi_*.log) are kept for historical reference
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
         try:
             if os.path.exists(file_path):

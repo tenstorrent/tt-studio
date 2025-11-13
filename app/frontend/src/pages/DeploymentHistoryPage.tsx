@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import {
@@ -15,8 +16,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
 import { Button } from "../components/ui/button";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw, FileText } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
+import WorkflowLogDialog from "../components/deployment/WorkflowLogDialog";
 
 interface Deployment {
   id: number;
@@ -29,6 +31,7 @@ interface Deployment {
   status: string;
   stopped_by_user: boolean;
   port: number | null;
+  workflow_log_path: string | null;
 }
 
 interface DeploymentHistoryResponse {
@@ -82,6 +85,9 @@ const formatDuration = (deployedAt: string, stoppedAt: string | null) => {
 };
 
 export default function DeploymentHistoryPage() {
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<number | null>(null);
+  const [selectedModelName, setSelectedModelName] = useState<string | undefined>(undefined);
+  
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["deploymentHistory"],
     queryFn: fetchDeploymentHistory,
@@ -89,6 +95,13 @@ export default function DeploymentHistoryPage() {
     refetchOnMount: "always", // Always refetch when component mounts
     refetchOnWindowFocus: true, // Refetch when window regains focus
   });
+
+  const handleOpenLogs = (deployment: Deployment) => {
+    if (deployment.workflow_log_path) {
+      setSelectedDeploymentId(deployment.id);
+      setSelectedModelName(deployment.model_name);
+    }
+  };
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -155,6 +168,7 @@ export default function DeploymentHistoryPage() {
                     <TableHead>Stopped At</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Port</TableHead>
+                    <TableHead>Logs</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -194,6 +208,21 @@ export default function DeploymentHistoryPage() {
                           "N/A"
                         )}
                       </TableCell>
+                      <TableCell>
+                        {deployment.workflow_log_path ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenLogs(deployment)}
+                            className="gap-2"
+                          >
+                            <FileText className="h-4 w-4" />
+                            See Logs
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -208,6 +237,16 @@ export default function DeploymentHistoryPage() {
           )}
         </CardContent>
       </Card>
+
+      <WorkflowLogDialog
+        open={selectedDeploymentId !== null}
+        deploymentId={selectedDeploymentId}
+        modelName={selectedModelName}
+        onClose={() => {
+          setSelectedDeploymentId(null);
+          setSelectedModelName(undefined);
+        }}
+      />
     </div>
   );
 }

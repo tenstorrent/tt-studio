@@ -27,6 +27,7 @@ class ModelDeployment(models.Model):
     
     # Container details
     port = models.IntegerField(null=True, blank=True)
+    workflow_log_path = models.CharField(max_length=512, null=True, blank=True, help_text="Path to workflow log file from tt-inference-server")
     
     class Meta:
         ordering = ['-deployed_at']

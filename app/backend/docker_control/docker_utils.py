@@ -81,6 +81,11 @@ def run_container(impl, weights_id):
             if response.status_code in [200, 202]:
                 api_result = response.json()
                 logger.info(f"API call successful (status {response.status_code}): {api_result}")
+                logger.info(f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}")
+                if 'docker_log_file_path' in api_result:
+                    logger.info(f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}")
+                else:
+                    logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
 
                 # Update deploy cache on success
                 update_deploy_cache()
@@ -108,6 +113,11 @@ def run_container(impl, weights_id):
                             container_id = container_name
                     
                     if container_id:
+                        # Extract workflow log path from API response
+                        workflow_log_path = api_result.get("docker_log_file_path")
+                        logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
+                        logger.info(f"workflow_log_path type: {type(workflow_log_path)}, is None: {workflow_log_path is None}")
+                        
                         ModelDeployment.objects.create(
                             container_id=container_id,
                             container_name=container_name,
@@ -115,9 +125,14 @@ def run_container(impl, weights_id):
                             device=device,
                             status="running",
                             stopped_by_user=False,
-                            port=None  # Port info not readily available from API response
+                            port=None,  # Port info not readily available from API response
+                            workflow_log_path=workflow_log_path
                         )
                         logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                        if workflow_log_path:
+                            logger.info(f"Workflow log path saved: {workflow_log_path}")
+                        else:
+                            logger.warning(f"Workflow log path is None/empty for {container_name}")
                     else:
                         logger.warning(f"Could not save deployment record: no container_id or container_name")
                 except Exception as e:

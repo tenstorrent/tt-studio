@@ -21,6 +21,7 @@ from .views import (
     DockerServiceLogsView,
     ContainerEventsView,
     DeploymentHistoryView,
+    WorkflowLogStreamView,
 )
 
 urlpatterns = [
@@ -39,4 +40,5 @@ urlpatterns = [
     path("service-logs/", views.DockerServiceLogsView.as_view(), name="docker-service-logs"),
     path("container-events/", views.ContainerEventsView.as_view(), name="container-events"),
     path("deployment-history/", views.DeploymentHistoryView.as_view(), name="deployment-history"),
+    path("workflow-logs/<int:deployment_id>/", views.WorkflowLogStreamView.as_view(), name="workflow-logs"),
 ]

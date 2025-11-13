@@ -4,6 +4,7 @@
 
 from django.shortcuts import render
 from django.http import StreamingHttpResponse
+from django.views import View
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -1331,6 +1332,7 @@ class DeploymentHistoryView(APIView):
                     'status': deployment.status,
                     'stopped_by_user': deployment.stopped_by_user,
                     'port': deployment.port,
+                    'workflow_log_path': deployment.workflow_log_path,
                 })
             
             return Response({
@@ -1344,4 +1346,85 @@ class DeploymentHistoryView(APIView):
             return Response(
                 {'status': 'error', 'message': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class WorkflowLogStreamView(View):
+    """Stream workflow logs from file using Server-Sent Events"""
+    
+    def get(self, request, deployment_id, *args, **kwargs):
+        """Stream workflow log file for a specific deployment"""
+        try:
+            from docker_control.models import ModelDeployment
+            from django.http import HttpResponse
+            
+            # Get deployment record
+            logger.info(f"Fetching workflow logs for deployment_id: {deployment_id}")
+            deployment = ModelDeployment.objects.get(id=deployment_id)
+            logger.info(f"Found deployment: {deployment.model_name}, workflow_log_path: {deployment.workflow_log_path}")
+            
+            if not deployment.workflow_log_path:
+                logger.warning(f"No workflow log path for deployment {deployment_id}")
+                return HttpResponse(
+                    status=404,
+                    content="No workflow log file available for this deployment"
+                )
+            
+            log_file_path = deployment.workflow_log_path
+            
+            # Check if file exists
+            if not os.path.exists(log_file_path):
+                logger.error(f"Log file not found at path: {log_file_path}")
+                return HttpResponse(
+                    status=404,
+                    content=f"Log file not found: {log_file_path}"
+                )
+            
+            def generate_log_data():
+                try:
+                    yield "retry: 1000\n\n"
+                    
+                    with open(log_file_path, 'r') as f:
+                        for line in f:
+                            line = line.rstrip('\n\r')
+                            if line:
+                                event_data = {
+                                    "type": "log",
+                                    "message": line
+                                }
+                                yield f"data: {json.dumps(event_data)}\n\n"
+                    
+                    # Send completion event
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'End of log file'})}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"Error streaming log file: {str(e)}")
+                    error_data = {
+                        "type": "error",
+                        "message": f"Error reading log file: {str(e)}"
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+            
+            response = StreamingHttpResponse(
+                generate_log_data(),
+                content_type='text/event-stream'
+            )
+            response['Cache-Control'] = 'no-cache, no-transform'
+            response['X-Accel-Buffering'] = 'no'
+            
+            return response
+            
+        except ModelDeployment.DoesNotExist:
+            logger.warning(f"Deployment {deployment_id} not found in database")
+            return HttpResponse(
+                status=404,
+                content=f"Deployment {deployment_id} not found"
+            )
+        except Exception as e:
+            import traceback
+            logger.error(f"Error in WorkflowLogStreamView: {str(e)}\n{traceback.format_exc()}")
+            return HttpResponse(
+                status=500,
+                content=str(e)
             )
