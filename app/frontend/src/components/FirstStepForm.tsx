@@ -182,10 +182,17 @@ export function FirstStepForm({
           );
         }
 
+        console.log("📝 FirstStepForm: Setting selectedModel to:", selectedModel.id);
         setSelectedModel(selectedModel.id);
+        console.log("📝 FirstStepForm: selectedModel set, waiting for status check...");
         customToast.success("Model Selected!: " + selectedModel.name);
         setFormError(false);
-        nextStep();
+        
+        // Give a small delay to allow status check to start before navigating
+        // The StepAdjuster will handle navigation if Docker step is removed
+        setTimeout(() => {
+          nextStep();
+        }, 100);
       } else {
         customToast.error("Model not found!");
         setFormError(true);
