@@ -618,6 +618,74 @@ class SpeechRecognitionInferenceCloudView(APIView):
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 class ContainerLogsView(View):
+    # Define event detection configuration before the get method
+    SIMPLE_EVENT_KEYWORDS = [
+        '[ERROR]', '[FATAL]', '[CRITICAL]', 
+        '[WARN]', '[WARNING]',
+        'RESPONSE_Q OUT OF SYNC',
+        'ABORTED', 'CORE DUMPED',
+        'TERMINATED', 'EXCEPTION',
+        'DESTINATION UNREACHABLE',
+        'CLUSTER GENERATION FAILED',
+        'APPLICATION STARTUP COMPLETE',
+        'UVICORN RUNNING ON',
+        'STARTED SERVER PROCESS',
+        'WAITING FOR APPLICATION STARTUP',
+        'WH_ARCH_YAML:',
+        'PLATFORM LINUX',
+        'PYTEST-',
+        'ROOTDIR:',
+        'PLUGINS:'
+    ]
+    
+    @staticmethod
+    def _is_complex_event(line_upper):
+        """
+        Check for event patterns that require multiple keyword combinations.
+        
+        Args:
+            line_upper: Uppercase version of the log line
+            
+        Returns:
+            bool: True if line matches a complex event pattern
+        """
+        if 'DEVICE |' in line_upper and 'OPENING USER MODE DEVICE DRIVER' in line_upper:
+            return True
+
+        if 'SILICONDRIVER' in line_upper and ('OPENED PCI DEVICE' in line_upper or 'DETECTED PCI' in line_upper):
+            return True
+        
+        if 'SOFTWARE VERSION' in line_upper and 'ETHERNET FW VERSION' in line_upper:
+            return True
+        
+        if 'COLLECTED' in line_upper and 'ITEM' in line_upper:
+            return True
+        
+        return False
+    
+    @classmethod
+    def _determine_message_type(cls, line):
+        """
+        Determine if a log line should be classified as an event or regular log.
+        
+        Args:
+            line: The log line to classify
+            
+        Returns:
+            str: Either "event" or "log"
+        """
+        line_upper = line.upper()
+        
+        # Check simple keyword patterns
+        if any(keyword in line_upper for keyword in cls.SIMPLE_EVENT_KEYWORDS):
+            return "event"
+        
+        # Check complex multi-keyword patterns
+        if cls._is_complex_event(line_upper):
+            return "event"
+        
+        return "log"
+    
     def get(self, request, container_id, *args, **kwargs):
         """Stream logs, events, and metrics from a Docker container using Server-Sent Events"""
         logger.info(f"ContainerLogsView received request for container_id: {container_id}")
@@ -649,48 +717,8 @@ class ContainerLogsView(View):
                                     import datetime
                                     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                     
-                                    # Determine if this should be an event or a log
-                                    line_upper = line.upper()
-                                    message_type = "log"  # Default to log
-                                    
-                                    # Check for event-worthy log levels
-                                    if any(level in line_upper for level in ['[ERROR]', '[FATAL]', '[CRITICAL]']):
-                                        message_type = "event"
-                                    elif any(level in line_upper for level in ['[WARN]', '[WARNING]']):
-                                        message_type = "event"  
-                                    elif 'RESPONSE_Q OUT OF SYNC' in line_upper:
-                                        message_type = "event"
-                                    elif 'ABORTED' in line_upper or 'CORE DUMPED' in line_upper:
-                                        message_type = "event"
-                                    elif 'TERMINATED' in line_upper or 'EXCEPTION' in line_upper:
-                                        message_type = "event"
-                                    elif 'DESTINATION UNREACHABLE' in line_upper:
-                                        message_type = "event"
-                                    elif 'CLUSTER GENERATION FAILED' in line_upper:
-                                        message_type = "event"
-                                    # Application startup and ready state events
-                                    elif 'APPLICATION STARTUP COMPLETE' in line_upper:
-                                        message_type = "event"
-                                    elif 'UVICORN RUNNING ON' in line_upper:
-                                        message_type = "event"
-                                    elif 'STARTED SERVER PROCESS' in line_upper:
-                                        message_type = "event"
-                                    elif 'WAITING FOR APPLICATION STARTUP' in line_upper:
-                                        message_type = "event"
-                                    elif 'WH_ARCH_YAML:' in line_upper:
-                                        message_type = "event"
-                                    elif 'DEVICE |' in line_upper and 'OPENING USER MODE DEVICE DRIVER' in line_upper:
-                                        message_type = "event"
-                                    elif 'SILICONDRIVER' in line_upper and ('OPENED PCI DEVICE' in line_upper or 'DETECTED PCI' in line_upper):
-                                        message_type = "event"
-                                    elif 'SOFTWARE VERSION' in line_upper and 'ETHERNET FW VERSION' in line_upper:
-                                        message_type = "event"
-                                    elif 'PLATFORM LINUX' in line_upper or 'PYTEST-' in line_upper:
-                                        message_type = "event"
-                                    elif 'ROOTDIR:' in line_upper or 'PLUGINS:' in line_upper:
-                                        message_type = "event"
-                                    elif 'COLLECTED' in line_upper and 'ITEM' in line_upper:
-                                        message_type = "event"
+                                    # Determine message type using refactored logic
+                                    message_type = ContainerLogsView._determine_message_type(line)
                                     
                                     # Format the message
                                     log_data = {
