@@ -77,7 +77,6 @@ export const AudioRecorderWithVisualizer = ({
   const animationRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  const sampleRate = 16_000; // 16kHz sample rate
 
   function cleanupAllResources() {
     // Stop recording if in progress
@@ -150,7 +149,7 @@ export const AudioRecorderWithVisualizer = ({
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       navigator.mediaDevices
         .getUserMedia({
-          audio: { sampleRate },
+          audio: true,
         })
         .then((stream) => {
           setIsRecording(true);
@@ -161,7 +160,7 @@ export const AudioRecorderWithVisualizer = ({
           // ============ Analyzing ============
           const AudioContext =
             window.AudioContext || (window as any).webkitAudioContext;
-          const audioCtx = new AudioContext({ sampleRate });
+          const audioCtx = new AudioContext();
           const analyser = audioCtx.createAnalyser();
           analyser.fftSize = 256;
           const source = audioCtx.createMediaStreamSource(stream);
