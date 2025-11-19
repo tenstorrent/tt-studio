@@ -48,6 +48,8 @@ interface PullProgress {
   current: number;
   total: number;
   message?: string;
+  active_layers?: number;
+  total_layers?: number;
 }
 
 export function DockerStepForm({
@@ -216,7 +218,7 @@ export function DockerStepForm({
         } else if (response.status === 500) {
           throw new Error(
             errorMessage ||
-              "Server error while pulling model. Please try again."
+            "Server error while pulling model. Please try again."
           );
         }
         throw new Error(errorMessage);
@@ -269,6 +271,19 @@ export function DockerStepForm({
 
                 // Call the parent's pullImage function to update global state
                 pullImage(selectedModel);
+              } else if (data.status === "cancelled") {
+                console.log("Pull cancelled by user");
+                
+                // Reset pull progress after a short delay to show cancellation
+                setTimeout(() => {
+                  setPullProgress(null);
+                }, 2000);
+                
+                // Refresh image status to show current state
+                await refreshImageStatus(selectedModel);
+                
+                // Break out of the loop since pull is cancelled
+                break;
               } else if (data.status === "error") {
                 console.error("Pull failed:", data.message);
                 throw new Error(data.message || "Failed to pull image");
@@ -500,6 +515,11 @@ export function DockerStepForm({
                   <Loader2 className="w-4 h-4 animate-spin text-TT-purple" />
                   <span className="text-xs text-gray-500 flex-1 truncate">
                     {pullProgress.message}
+                    {pullProgress.active_layers && pullProgress.total_layers && (
+                      <span className="ml-2 text-gray-400">
+                        ({pullProgress.active_layers}/{pullProgress.total_layers} layers)
+                      </span>
+                    )}
                   </span>
                   <span className="text-xs text-gray-500">
                     {pullProgress.current > 0 && pullProgress.total > 0
@@ -535,24 +555,24 @@ export function DockerStepForm({
                   </TooltipProvider>
                   {(pullProgress.status === "pulling" ||
                     pullProgress.status === "starting") && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            onClick={handleReconnectToSSE}
-                            variant="outline"
-                            size="icon"
-                            className="w-8 h-8 p-0"
-                          >
-                            <Loader2 className="w-4 h-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Reconnect to Live Updates
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              onClick={handleReconnectToSSE}
+                              variant="outline"
+                              size="icon"
+                              className="w-8 h-8 p-0"
+                            >
+                              <Loader2 className="w-4 h-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Reconnect to Live Updates
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                 </div>
               </div>
             )}

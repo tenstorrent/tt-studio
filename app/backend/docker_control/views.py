@@ -46,6 +46,7 @@ client = docker.from_env()
 
 # Add this near the top after imports, before classes
 pull_progress = {}  # {model_id: {status, progress, current, total, message}}
+pull_cancellation = {}  # {model_id: bool} - tracks if pull should be cancelled
 
 # Add custom renderer for SSE
 class EventStreamRenderer(JSONRenderer):
@@ -333,11 +334,30 @@ class PullImageView(APIView):
                 logger.info("Client requested SSE updates for pull progress")
                 
                 def event_stream():
-                    # Check if pull already in progress
-                    if model_id in pull_progress:
-                        logger.info(f"Pull already in progress for {model_id}, streaming current progress")
+                    # Check if pull already in progress - if so, send current state but don't return yet
+                    # The pull loop will continue updating pull_progress and we'll stream those updates
+                    already_in_progress = model_id in pull_progress
+                    if already_in_progress:
+                        logger.info(f"Pull already in progress for {model_id}, streaming current progress and continuing...")
                         yield f"data: {json.dumps(pull_progress[model_id])}\n\n"
+                        # Don't return here - let it continue to monitor for updates
+                        # The pull is happening in another request's event_stream, so we'll just
+                        # monitor pull_progress for changes
+                        import time
+                        last_progress = pull_progress.get(model_id, {})
+                        while model_id in pull_progress:
+                            time.sleep(0.5)  # Check every 500ms
+                            current_progress = pull_progress.get(model_id)
+                            if current_progress and current_progress != last_progress:
+                                yield f"data: {json.dumps(current_progress)}\n\n"
+                                last_progress = current_progress
+                                # Check if pull is done
+                                if current_progress.get('status') in ['success', 'error', 'cancelled']:
+                                    break
                         return
+                    
+                    # Reset cancellation flag
+                    pull_cancellation[model_id] = False
                     
                     # Simple test first
                     initial_progress = {'status': 'starting', 'progress': 0, 'current': 0, 'total': 0, 'message': 'Starting pull...'}
@@ -345,65 +365,72 @@ class PullImageView(APIView):
                     yield f"data: {json.dumps(initial_progress)}\n\n"
                     
                     # Now do the actual pull with progress
-                    progress_data = {
-                        "current_layer": 0,
-                        "total_layers": 0,
-                        "overall_progress": 0,
-                        "current_bytes": 0,
-                        "total_bytes": 0
-                    }
+                    # Track progress per layer to properly aggregate
+                    layer_progress = {}  # {layer_id: {current: bytes, total: bytes}}
+                    layer_status = {}    # {layer_id: status_string}
                     
                     def progress_callback(progress):
-                        # Process Docker API progress and convert to numeric values
-                        nonlocal progress_data
+                        # Process Docker API progress and aggregate across all layers
+                        nonlocal layer_progress, layer_status
                         
-                        # Extract numeric progress if available
-                        numeric_progress = 0
+                        layer_id = progress.get('id', '')
+                        status_msg = progress.get('status', '')
+                        
+                        # Update layer status
+                        if layer_id:
+                            layer_status[layer_id] = status_msg
+                        
+                        # Extract and track progress for each layer
                         if 'progressDetail' in progress and progress['progressDetail']:
                             detail = progress['progressDetail']
-                            if 'current' in detail and 'total' in detail:
+                            if 'current' in detail and 'total' in detail and layer_id:
                                 current = detail['current']
                                 total = detail['total']
-                                if total > 0:
-                                    numeric_progress = int((current / total) * 100)
-                                    progress_data["current_layer"] = current
-                                    progress_data["total_layers"] = total
-                                    progress_data["current_bytes"] = current
-                                    progress_data["total_bytes"] = total
+                                
+                                # Update this layer's progress
+                                layer_progress[layer_id] = {
+                                    'current': current,
+                                    'total': total
+                                }
                         
-                        # Parse progress string (e.g., "50%" -> 50)
-                        elif 'progress' in progress and progress['progress']:
-                            try:
-                                progress_str = progress['progress'].strip()
-                                if progress_str.endswith('%'):
-                                    numeric_progress = int(float(progress_str[:-1]))
-                            except (ValueError, AttributeError):
-                                numeric_progress = 0
+                        # Calculate overall progress by summing all layers
+                        total_bytes_overall = 0
+                        current_bytes_overall = 0
                         
-                        # Update overall progress
-                        if numeric_progress > progress_data["overall_progress"]:
-                            progress_data["overall_progress"] = numeric_progress
+                        for layer_id, layer_data in layer_progress.items():
+                            total_bytes_overall += layer_data.get('total', 0)
+                            current_bytes_overall += layer_data.get('current', 0)
                         
-                        # Calculate progress percentage based on bytes if available
+                        # Calculate progress percentage
                         progress_percentage = 0
-                        if progress_data["total_bytes"] > 0:
-                            progress_percentage = int((progress_data["current_bytes"] / progress_data["total_bytes"]) * 100)
+                        if total_bytes_overall > 0:
+                            progress_percentage = min(99, int((current_bytes_overall / total_bytes_overall) * 100))
+                        
+                        # Generate a meaningful status message
+                        active_layers = [lid for lid, status in layer_status.items() if status in ['Downloading', 'Extracting']]
+                        if active_layers:
+                            primary_status = layer_status.get(active_layers[0], status_msg)
+                            if len(active_layers) > 1:
+                                message = f"{primary_status} ({len(active_layers)} layers)"
+                            else:
+                                message = f"{primary_status} layer {active_layers[0][:12]}"
                         else:
-                            progress_percentage = progress_data["overall_progress"]
+                            message = status_msg or 'Pulling image...'
                         
                         formatted_progress = {
-                            "status": progress.get('status', 'pulling'),
+                            "status": "pulling",
                             "progress": progress_percentage,
-                            "current": progress_data["current_bytes"],
-                            "total": progress_data["total_bytes"],
-                            "message": progress.get('status', 'Pulling image...'),
-                            "layer_id": progress.get('id', '')
+                            "current": current_bytes_overall,
+                            "total": total_bytes_overall,
+                            "message": message,
+                            "active_layers": len(active_layers),
+                            "total_layers": len(layer_progress)
                         }
                         
                         # Update global progress tracking
                         pull_progress[model_id] = formatted_progress
                         
-                        logger.info(f"Sending progress update: {formatted_progress}")
+                        logger.debug(f"Layer {layer_id[:12] if layer_id else 'N/A'}: {status_msg} | Overall: {progress_percentage}% ({current_bytes_overall}/{total_bytes_overall} bytes)")
                         return f"data: {json.dumps(formatted_progress)}\n\n"
                     
                     # Do the actual pull with progress streaming
@@ -432,6 +459,21 @@ class PullImageView(APIView):
                         
                         # Pull the image with real-time progress streaming
                         for line in client.api.pull(image, stream=True, decode=True):
+                            # Check if pull has been cancelled
+                            if pull_cancellation.get(model_id, False):
+                                logger.info(f"Pull cancelled for {model_id}")
+                                cancelled_result = {
+                                    "status": "cancelled",
+                                    "progress": 0,
+                                    "current": 0,
+                                    "total": 0,
+                                    "message": "Pull cancelled by user"
+                                }
+                                pull_progress.pop(model_id, None)
+                                pull_cancellation.pop(model_id, None)
+                                yield f"data: {json.dumps(cancelled_result)}\n\n"
+                                return
+                            
                             if isinstance(line, dict) and 'status' in line:
                                 progress_update = progress_callback(line)
                                 yield progress_update
@@ -439,12 +481,15 @@ class PullImageView(APIView):
                         # Verify the image was pulled successfully and send final status
                         try:
                             client.images.get(image)
+                            # Calculate final total bytes from all layers
+                            total_bytes_final = sum(layer_data.get('total', 0) for layer_data in layer_progress.values())
                             final_result = {
                                 "status": "success",
                                 "progress": 100,
-                                "current": progress_data["total_layers"],
-                                "total": progress_data["total_layers"],
-                                "message": f"Successfully pulled {image}"
+                                "current": total_bytes_final,
+                                "total": total_bytes_final,
+                                "message": f"Successfully pulled {image}",
+                                "total_layers": len(layer_progress)
                             }
                         except Exception as verify_error:
                             final_result = {
@@ -457,8 +502,9 @@ class PullImageView(APIView):
                         
                         yield f"data: {json.dumps(final_result)}\n\n"
                         
-                        # Clear progress when done
+                        # Clear progress and cancellation flag when done
                         pull_progress.pop(model_id, None)
+                        pull_cancellation.pop(model_id, None)
                         
                     except Exception as e:
                         logger.error(f"Error during streaming pull: {str(e)}")
@@ -471,8 +517,9 @@ class PullImageView(APIView):
                         }
                         yield f"data: {json.dumps(error_result)}\n\n"
                         
-                        # Clear progress on error
+                        # Clear progress and cancellation flag on error
                         pull_progress.pop(model_id, None)
+                        pull_cancellation.pop(model_id, None)
                 
                 response = StreamingHttpResponse(
                     event_stream(),
@@ -737,42 +784,22 @@ class CancelPullView(APIView):
                     {"status": "error", "message": f"Invalid model_id: {model_id}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-
-            impl = model_implmentations[model_id]
-            image_name, image_tag = impl.image_version.split(':')
-            logger.info(f"Looking for containers pulling image: {image_name}:{image_tag}")
             
-            # Find and stop any ongoing pulls for this image
-            containers_stopped = 0
-            for container in client.containers.list():
-                if container.image.tags and f"{image_name}:{image_tag}" in container.image.tags:
-                    logger.info(f"Found container {container.id} pulling the image, stopping it")
-                    try:
-                        container.stop()
-                        container.remove()
-                        containers_stopped += 1
-                    except Exception as e:
-                        logger.error(f"Error stopping container {container.id}: {str(e)}")
+            # Check if there's an active pull for this model
+            if model_id not in pull_progress:
+                logger.warning(f"No active pull found for model: {model_id}")
+                return Response(
+                    {"status": "error", "message": f"No active pull for model: {model_id}"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
             
-            # Also try to remove the image if it exists
-            try:
-                image = client.images.get(f"{image_name}:{image_tag}")
-                client.images.remove(image.id, force=True)
-                logger.info(f"Removed partial image: {image_name}:{image_tag}")
-            except docker.errors.ImageNotFound:
-                pass  # Image doesn't exist, which is fine
-            except Exception as e:
-                logger.error(f"Error removing image: {str(e)}")
-            
-            logger.info(f"Successfully cancelled pull for model {model_id}, stopped {containers_stopped} containers")
-            
-            # Clear pull progress
-            pull_progress.pop(model_id, None)
+            # Set the cancellation flag - the pull loop will check this and stop
+            pull_cancellation[model_id] = True
+            logger.info(f"Cancellation flag set for model {model_id}")
             
             return Response({
                 "status": "success",
-                "message": f"Successfully cancelled pull for model {model_id}",
-                "containers_stopped": containers_stopped
+                "message": f"Cancel request sent for model {model_id}"
             }, status=status.HTTP_200_OK)
                 
         except Exception as e:
