@@ -11,6 +11,14 @@ import Header from "./Header";
 import ImageInputArea from "./ImageInputArea";
 import type { StableDiffusionChatProps } from "./types/chat";
 import { useChat } from "./hooks/useChat";
+import { cn } from "../../lib/utils";
+import {
+  bgSurface,
+  bgSecondary,
+  textPrimary,
+  themeClass,
+} from "../../lib/theme-classes";
+
 
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   onBack,
@@ -40,7 +48,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   }, [initialPrompt, setTextInput]);
 
   return (
-    <div className="flex flex-col w-full h-full bg-white dark:bg-[#0a0b0f]">
+    <div className={bgSurface("flex flex-col w-full h-full")}>
       <Header
         onBack={onBack}
         isHistoryPanelOpen={isHistoryPanelOpen}
@@ -66,12 +74,13 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                   }`}
                 >
                   <div className="shrink-0">
+                    {/* Avatar icons using TT Purple accent color */}
                     {message.sender === "user" ? (
-                      <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center text-white">
+                      <div className="h-8 w-8 bg-TT-purple-accent rounded-full flex items-center justify-center text-white">
                         <User className="h-5 w-5" />
                       </div>
                     ) : (
-                      <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center">
+                      <div className="h-8 w-8 bg-TT-purple-accent rounded-full flex items-center justify-center">
                         <Camera className="h-5 w-5 text-white" />
                       </div>
                     )}
@@ -80,16 +89,10 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                     className={`chat-bubble relative ${
                       message.sender === "user"
                         ? "bg-TT-green-accent text-white text-left"
-                        : "bg-gray-100 dark:bg-TT-slate text-gray-900 dark:text-white text-left"
+                        : themeClass("bg-gray-100", "bg-TT-slate", "text-left") + " " + textPrimary()
                     } p-3 rounded-lg mb-1`}
                   >
-                    <p
-                      className={
-                        message.sender === "user"
-                          ? "text-white"
-                          : "text-gray-900 dark:text-white"
-                      }
-                    >
+                    <p className={message.sender === "user" ? "text-white" : textPrimary()}>
                       {message.text}
                     </p>
                     {message.image && (
@@ -112,11 +115,12 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                       </div>
                     )}
                     <div
-                      className={`absolute w-2 h-2 ${
+                      className={cn(
+                        "absolute w-2 h-2 rotate-45 top-3",
                         message.sender === "user"
                           ? "bg-TT-green-accent right-0 -translate-x-1/2"
-                          : "bg-TT-slate dark:bg-TT-slate bg-gray-100 left-0 translate-x-1/2"
-                      } rotate-45 top-3`}
+                          : themeClass("bg-gray-100", "bg-TT-slate", "left-0 translate-x-1/2")
+                      )}
                     ></div>
                   </div>
                 </div>
@@ -125,10 +129,12 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
             {isGenerating && (
               <div className="flex justify-start">
                 <div className="flex items-start gap-3">
-                  <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center">
+                  {/* Loading avatar with TT Purple accent */}
+                  <div className="h-8 w-8 bg-TT-purple-accent rounded-full flex items-center justify-center">
                     <Camera className="h-5 w-5 text-white" />
                   </div>
-                  <Skeleton className="h-32 w-32 rounded-lg bg-gray-200 dark:bg-[#1a1c2a]" />
+                  {/* Skeleton using theme-aware background */}
+                  <Skeleton className={bgSecondary("h-32 w-32 rounded-lg")} />
                 </div>
               </div>
             )}
@@ -142,9 +148,10 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
         </ScrollArea.Scrollbar>
       </ScrollArea.Root>
 
+      {/* Scroll to bottom button using TT Purple accent */}
       {isScrollButtonVisible && (
         <Button
-          className="absolute bottom-20 right-4 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300"
+          className="absolute bottom-20 right-4 rounded-full shadow-lg bg-TT-purple-accent text-white hover:bg-TT-purple-accent/80 transition-all duration-300"
           onClick={() => {
             scrollToBottom();
             setIsScrollButtonVisible(false);

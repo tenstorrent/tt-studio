@@ -188,76 +188,166 @@ layer(base);
     font-weight: 500;
   }
 
-  :root {
-    --background: 220 20% 96%; /* Light grey background */
+ :root {
+  /* ============================================================================
+     CENTRALIZED COLOR SYSTEM
+     ============================================================================
+     
+     This project uses a centralized color system with CSS variables for
+     consistent theming across light and dark modes.
+     
+     USAGE GUIDELINES:
+     
+     1. CSS Variables (Direct Usage in CSS):
+        Use var() to reference colors in CSS files:
+        
+        ```css
+        .my-element {
+          background: var(--color-surface-light);
+          color: var(--color-black);
+        }
+        ```
+     
+     2. Tailwind Classes (Recommended for Components):
+        Use Tailwind's color classes in JSX/TSX:
+        
+        ```tsx
+        <div className="bg-surface-light dark:bg-surface-dark">
+          Content
+        </div>
+        ```
+     
+     3. Theme Utility Functions (Best Practice):
+        Import from lib/theme-classes.ts for automatic theme handling:
+        
+        ```tsx
+        import { bgSurface, textPrimary } from "@/lib/theme-classes";
+        
+        <div className={bgSurface("p-4")}>
+          <h1 className={textPrimary()}>Title</h1>
+        </div>
+        ```
+     
+     COLOR CATEGORIES:
+     
+     - Semantic UI Colors: For shadcn components (background, foreground, etc.)
+     - Centralized Colors: Standardized blacks, whites, grays, surfaces
+     - TT Brand Colors: Tenstorrent brand palette (purple, blue, red, etc.)
+     
+     See tailwind.config.js for the full TT brand color palette.
+     See lib/theme-classes.ts for utility functions.
+     ============================================================================ */
+  
+  /* ──────────────────────────────────────────────────────────────────────────
+     SEMANTIC UI TOKENS (shadcn and project defaults)
+     Used by shadcn/ui components and general UI elements
+     ────────────────────────────────────────────────────────────────────────── */
+  --background: 220 20% 96%; /* Light grey background */
     --foreground: 220 15% 20%; /* For text and icons */
     --neu-shadow: 220 25% 90%; /* Light shadow for neumorphism */
     --neu-shadow-dark: 220 25% 75%; /* Dark shadow for neumorphism */
-    --radius: 0.75rem;
-    --foreground: 20 14.3% 4.1%;
-    --card: 0 0% 100%;
-    --card-foreground: 20 14.3% 4.1%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 20 14.3% 4.1%;
-    --primary: 24 9.8% 10%;
-    --primary-foreground: 60 9.1% 97.8%;
-    --secondary: 60 4.8% 95.9%;
-    --secondary-foreground: 24 9.8% 10%;
-    --muted: 60 4.8% 95.9%;
-    --muted-foreground: 25 5.3% 44.7%;
-    --accent: 60 4.8% 95.9%;
-    --accent-foreground: 24 9.8% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 60 9.1% 97.8%;
-    --border: 20 5.9% 90%;
-    --input: 20 5.9% 90%;
-    --ring: 20 14.3% 4.1%;
-    --radius: 0.75rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-    --grid-color: rgba(0, 0, 0, 0.05);
-    --grid-size: 40px;
-  }
-  .dark {
-    --background: 20 14.3% 4.1%;
-    /* --background: 220 20% 15%; Dark background */
-    --foreground: 220 15% 95%; /* Light text and icons for visibility */
-    --neu-shadow: 220 25% 10%; /* Darker shadow for neumorphism */
-    --neu-shadow-dark: 220 25% 30%;
-    --foreground: 60 9.1% 97.8%;
-    --card: 20 14.3% 4.1%;
-    --card-foreground: 60 9.1% 97.8%;
-    --popover: 20 14.3% 4.1%;
-    --popover-foreground: 60 9.1% 97.8%;
-    --primary: 60 9.1% 97.8%;
-    --primary-foreground: 24 9.8% 10%;
-    --secondary: 12 6.5% 15.1%;
-    --secondary-foreground: 60 9.1% 97.8%;
-    --muted: 12 6.5% 15.1%;
-    --muted-foreground: 24 5.4% 63.9%;
-    --accent: 12 6.5% 15.1%;
-    --accent-foreground: 60 9.1% 97.8%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 60 9.1% 97.8%;
-    --border: 12 6.5% 15.1%;
-    --input: 12 6.5% 15.1%;
-    --ring: 24 5.7% 82.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-    --grid-color: rgba(255, 255, 255, 0.05);
-  }
+  --card: 0 0% 100%;
+  --card-foreground: 20 14.3% 4.1%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 20 14.3% 4.1%;
+  --primary: 24 9.8% 10%;
+  --primary-foreground: 60 9.1% 97.8%;
+  --secondary: 60 4.8% 95.9%;
+  --secondary-foreground: 24 9.8% 10%;
+  --muted: 60 4.8% 95.9%;
+  --muted-foreground: 25 5.3% 44.7%;
+  --accent: 60 4.8% 95.9%;
+  --accent-foreground: 24 9.8% 10%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 60 9.1% 97.8%;
+  --border: 20 5.9% 90%;
+  --input: 20 5.9% 90%;
+  --ring: 20 14.3% 4.1%;
+  --radius: 0.75rem;
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 95.9%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+  --grid-color: rgba(0, 0, 0, 0.05);
+  --grid-size: 40px;
+
+  /* ──────────────────────────────────────────────────────────────────────────
+     CENTRALIZED COLOR SYSTEM (Light Mode)
+     
+     These are the standardized colors used throughout the application.
+     They provide consistent neutrals and surface colors.
+     
+     USAGE EXAMPLES:
+     - CSS: background: var(--color-surface-light);
+     - Tailwind: className="bg-surface-light"
+     - Utility: className={bgSurface()}
+     ────────────────────────────────────────────────────────────────────────── */
+  --color-black: #000;              /* Pure black - use sparingly */
+  --color-white: #fff;              /* Pure white - use sparingly */
+  --color-gray-100: #f3f4f6;        /* Light gray for subtle backgrounds */
+  --color-gray-200: #e5e7eb;        /* Medium light gray for borders */
+  --color-surface-light: #ffffff;   /* Primary surface color (light mode) */
+  --color-surface-dark: #f3f4f6;    /* Secondary surface color (light mode) */
+}
+
+.dark {
+  /* ──────────────────────────────────────────────────────────────────────────
+     SEMANTIC UI TOKENS (Dark Mode)
+     Automatically applied when dark mode is enabled
+     ────────────────────────────────────────────────────────────────────────── */
+  --background: 20 14.3% 4.1%;
+  --foreground: 60 9.1% 97.8%; /* Light text and icons for visibility */
+  --neu-shadow: 220 25% 10%; /* Darker shadow for neumorphism */
+  --neu-shadow-dark: 220 25% 30%;
+  --card: 20 14.3% 4.1%;
+  --card-foreground: 60 9.1% 97.8%;
+  --popover: 20 14.3% 4.1%;
+  --popover-foreground: 60 9.1% 97.8%;
+  --primary: 60 9.1% 97.8%;
+  --primary-foreground: 24 9.8% 10%;
+  --secondary: 12 6.5% 15.1%;
+  --secondary-foreground: 60 9.1% 97.8%;
+  --muted: 12 6.5% 15.1%;
+  --muted-foreground: 24 5.4% 63.9%;
+  --accent: 12 6.5% 15.1%;
+  --accent-foreground: 60 9.1% 97.8%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 60 9.1% 97.8%;
+  --border: 12 6.5% 15.1%;
+  --input: 12 6.5% 15.1%;
+  --ring: 24 5.7% 82.9%;
+  --sidebar-background: 240 5.9% 10%;
+  --sidebar-foreground: 240 4.8% 95.9%;
+  --sidebar-primary: 224.3 76.3% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 3.7% 15.9%;
+  --sidebar-accent-foreground: 240 4.8% 95.9%;
+  --sidebar-border: 240 3.7% 15.9%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
+  --grid-color: rgba(255, 255, 255, 0.05);
+
+  /* ──────────────────────────────────────────────────────────────────────────
+     CENTRALIZED COLOR SYSTEM (Dark Mode)
+     
+     Dark mode variants of the centralized colors.
+     These are automatically applied when .dark class is present.
+     
+     USAGE: Same as light mode - the theme utility functions handle this
+     automatically. You don't need to manually add dark: prefixes when
+     using the utility functions.
+     ────────────────────────────────────────────────────────────────────────── */
+  --color-black: #000;              /* Pure black */
+  --color-white: #fff;              /* Pure white */
+  --color-gray-100: #1f2937;        /* Dark gray for subtle backgrounds */
+  --color-gray-200: #111827;        /* Darker gray for borders */
+  --color-surface-light: #111;      /* Primary surface color (dark mode) */
+  --color-surface-dark: #000;       /* Secondary surface color (dark mode) */
+}
+
 
   /* Neumorphism effect for all buttons and similar components */
   .neu {
