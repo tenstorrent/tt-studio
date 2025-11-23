@@ -174,6 +174,11 @@ Want to contribute or customize TT-Studio?
 python3 run.py --dev  # Enables hot reload for development
 ```
 
+### Required VS Code Extensions
+- koroFileHeader - Auto SPDX headers
+- ESLint - Linting and auto-fix
+- Prettier - Code formatting
+
 **Development Features:**
 
 - **Hot Reload**: Code changes automatically trigger rebuilds
