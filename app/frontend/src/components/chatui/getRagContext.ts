@@ -74,11 +74,18 @@ export const getRagContext = async (
            const docs = response.data.documents;
           if (Array.isArray(docs)) {
             const items = Array.isArray(docs[0]) ? docs[0] : docs;
-            ragContext.documents = items.map((d: any) =>
-              typeof d === "string"
-                ? d
-                : d?.document ?? d?.text ?? JSON.stringify(d)
-            );
+            ragContext.documents = items.map((d: any) => {
+	              if (typeof d === "string") {
+	                return d;
+	              } else if (d?.document) {
+	                return d.document;
+	              } else if (d?.text) {
+	                return d.text;
+	              } else {
+	                console.warn("Unrecognized document format in RAG response:", d);
+	                return "[Unrecognized document format]";
+	              }
+	            });
           } else {
             // If it's not an array, fall back to empty array for safety.
             ragContext.documents = [];
