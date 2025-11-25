@@ -144,7 +144,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
 
       {isScrollButtonVisible && (
         <Button
-          className="absolute bottom-20 right-4 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300"
+          className="absolute bottom-44  xl:bottom-20 right-4 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300"
           onClick={() => {
             scrollToBottom();
             setIsScrollButtonVisible(false);
