@@ -50,7 +50,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
       <ScrollArea.Root className="grow overflow-hidden">
         <ScrollArea.Viewport
           ref={viewportRef}
-          className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+          className="w-full h-full lg:pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
           onScroll={handleScroll}
         >
           <div className="p-6 space-y-6">
@@ -144,7 +144,7 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
 
       {isScrollButtonVisible && (
         <Button
-          className="absolute bottom-20 right-4 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300"
+          className="absolute bottom-44  xl:bottom-20 right-4 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300"
           onClick={() => {
             scrollToBottom();
             setIsScrollButtonVisible(false);
