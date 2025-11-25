@@ -73,7 +73,7 @@ export const getRagContext = async (
         if (response?.data) {
            const docs = response.data.documents;
           if (Array.isArray(docs)) {
-            const items = Array.isArray(docs[0]) ? docs[0] : docs;
+            const items = docs.flat();
             ragContext.documents = items.map((d: any) => {
 	              if (typeof d === "string") {
 	                return d;
