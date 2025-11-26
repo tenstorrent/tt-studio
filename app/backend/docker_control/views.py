@@ -212,6 +212,14 @@ class DeployView(APIView):
             if not response.get("job_id"):
                 response["job_id"] = response.get("container_id") or response.get("container_name")
             
+            # Check if deployment failed
+            if response.get("status") == "error":
+                logger.error(f"Deployment failed: {response.get('message', 'Unknown error')}")
+                return Response(
+                    response,
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
             # Refresh tt-smi cache after successful deployment
             if response.get("status") == "success":
                 try:
@@ -459,6 +467,43 @@ class DeploymentProgressView(APIView):
             logger.error(f"Unexpected error in DeploymentProgressView: {str(e)}", exc_info=True)
             return Response(
                 {"status": "error", "message": f"Internal server error: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeploymentLogsView(APIView):
+    def get(self, request, job_id, *args, **kwargs):
+        """Get deployment logs from FastAPI inference server"""
+        try:
+            logger.info(f"Fetching deployment logs for job_id: {job_id}")
+            
+            # Try to get logs from FastAPI inference server
+            try:
+                fastapi_url = f"http://172.18.0.1:8001/run/logs/{job_id}"
+                response = requests.get(fastapi_url, timeout=5)
+                
+                if response.status_code == 200:
+                    logs_data = response.json()
+                    logger.info(f"Got logs from FastAPI: {logs_data.get('total_messages', 0)} messages")
+                    return Response(logs_data, status=status.HTTP_200_OK)
+                
+                logger.warning(f"FastAPI logs not available (status: {response.status_code})")
+                return Response(
+                    {"job_id": job_id, "logs": [], "total_messages": 0, "error": "Logs not available"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error fetching logs from FastAPI: {str(e)}")
+                return Response(
+                    {"job_id": job_id, "logs": [], "total_messages": 0, "error": f"Failed to fetch logs: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
+        except Exception as e:
+            logger.error(f"Unexpected error in DeploymentLogsView: {str(e)}", exc_info=True)
+            return Response(
+                {"job_id": job_id, "logs": [], "total_messages": 0, "error": f"Internal server error: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

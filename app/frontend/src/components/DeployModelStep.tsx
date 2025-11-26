@@ -53,6 +53,39 @@ export function DeployModelStep({
   // Track the current job_id to monitor progress
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
 
+  // Add state for logs
+  const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  // Add function to fetch logs
+  const fetchDeploymentLogs = useCallback(async (jobId: string) => {
+    // Toggle logs if already shown
+    if (showLogs) {
+      setShowLogs(false);
+      return;
+    }
+    
+    setLoadingLogs(true);
+    try {
+      const response = await fetch(`/docker-api/deploy/logs/${jobId}/`);
+      if (response.ok) {
+        const data = await response.json();
+        // Format logs for display
+        const formattedLogs = data.logs?.map((log: any) => {
+          const timestamp = log.timestamp ? new Date(log.timestamp * 1000).toLocaleString() : '';
+          return `[${timestamp}] [${log.level}] ${log.message}`;
+        }) || [];
+        setDeploymentLogs(formattedLogs);
+        setShowLogs(true);
+      }
+    } catch (error) {
+      console.error("Error fetching deployment logs:", error);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, [showLogs]);
+
   // Poll for deployment progress to detect errors
   useEffect(() => {
     if (!currentJobId) return;
@@ -289,6 +322,32 @@ export function DeployModelStep({
                   {deploymentError.message}
                 </p>
               </div>
+              
+              {/* Add View Logs button */}
+              {currentJobId && (
+                <div className="mb-4">
+                  <Button
+                    onClick={() => fetchDeploymentLogs(currentJobId)}
+                    disabled={loadingLogs}
+                    variant="outline"
+                    className="border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/30"
+                  >
+                    {loadingLogs ? "Loading..." : showLogs ? "Hide API Logs" : "View API Logs"}
+                  </Button>
+                </div>
+              )}
+              
+              {/* Display logs if available */}
+              {showLogs && deploymentLogs.length > 0 && (
+                <div className="bg-gray-950 text-green-400 p-4 rounded-lg font-mono text-xs max-h-64 overflow-y-auto text-left mb-4">
+                  {deploymentLogs.map((log, index) => (
+                    <div key={index} className="whitespace-pre-wrap break-words">
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               <div className="flex justify-center gap-2">
                 <Button
                   onClick={handleRetryDeploy}

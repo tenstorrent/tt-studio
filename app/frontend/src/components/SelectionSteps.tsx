@@ -499,6 +499,15 @@ export default function StepperDemo() {
       });
 
       console.log("Deployment response:", response);
+      
+      // Check if the response indicates an error
+      if (response.data?.status === "error") {
+        const errorMessage = response.data?.message || "Deployment failed";
+        console.error("Deployment error:", errorMessage);
+        customToast.error(`Deployment failed: ${errorMessage}`);
+        return { success: false };
+      }
+      
       customToast.success("Model deployment started!");
       
       return { 
@@ -507,7 +516,11 @@ export default function StepperDemo() {
       };
     } catch (error) {
       console.error("Error during deployment:", error);
-      customToast.error("Deployment failed!");
+      // Extract error message from response if available
+      const errorMessage = axios.isAxiosError(error) && error.response?.data?.message 
+        ? error.response.data.message 
+        : "Deployment failed!";
+      customToast.error(`Deployment failed: ${errorMessage}`);
       return { success: false };
     }
   };
