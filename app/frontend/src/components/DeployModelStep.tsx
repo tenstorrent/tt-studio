@@ -41,6 +41,61 @@ export function DeployModelStep({
     modelNames: [],
   });
 
+  // Track deployment error state that persists even after deployment stops
+  const [deploymentError, setDeploymentError] = useState<{
+    hasError: boolean;
+    message: string;
+  }>({
+    hasError: false,
+    message: "",
+  });
+
+  // Track the current job_id to monitor progress
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+
+  // Poll for deployment progress to detect errors
+  useEffect(() => {
+    if (!currentJobId) return;
+
+    const pollProgress = async () => {
+      try {
+        const response = await fetch(`/docker-api/deploy/progress/${currentJobId}/`);
+        if (response.ok) {
+          const progressData = await response.json();
+          
+          if (progressData.status === 'error' || progressData.status === 'failed') {
+            // Clean the error message (remove "exception:" prefix if present)
+            let errorMessage = progressData.message || "Deployment failed";
+            if (errorMessage.startsWith("exception: ")) {
+              errorMessage = errorMessage.substring("exception: ".length);
+            }
+            
+            setDeploymentError({
+              hasError: true,
+              message: errorMessage,
+            });
+            
+            // Stop polling
+            setCurrentJobId(null);
+          } else if (progressData.status === 'completed') {
+            // Stop polling on completion
+            setCurrentJobId(null);
+          }
+        }
+      } catch (error) {
+        console.error("Error polling deployment progress:", error);
+      }
+    };
+
+    // Poll immediately
+    pollProgress();
+    
+    // Then poll every second
+    const interval = setInterval(pollProgress, 1000);
+
+    return () => clearInterval(interval);
+  }, [currentJobId]);
+
   useEffect(() => {
     const fetchModelName = async () => {
       if (selectedModel) {
@@ -97,7 +152,19 @@ export function DeployModelStep({
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
 
+    // Reset error state when starting a new deployment
+    setDeploymentError({
+      hasError: false,
+      message: "",
+    });
+
     const deployResult = await handleDeploy();
+    
+    // Store job_id for progress tracking
+    if (deployResult.job_id) {
+      setCurrentJobId(deployResult.job_id);
+    }
+    
     if (deployResult.success) {
       // Refresh the models context
       await refreshModels();
@@ -125,6 +192,15 @@ export function DeployModelStep({
 
   const handleGoToDeployedModels = () => {
     navigate("/models-deployed");
+  };
+
+  const handleRetryDeploy = () => {
+    // Reset error state to allow retry
+    setDeploymentError({
+      hasError: false,
+      message: "",
+    });
+    // Note: The AnimatedDeployButton will reset its state when onDeploy is called again
   };
 
   // Show blocking message when models are deployed
@@ -200,6 +276,31 @@ export function DeployModelStep({
         className="flex flex-col items-center justify-center p-6 overflow-hidden"
         style={{ minHeight: "200px" }}
       >
+        {/* Show prominent error alert when deployment fails */}
+        {deploymentError.hasError && (
+          <div className="w-full max-w-2xl mb-6">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 text-center">
+              <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
+                Deployment Failed
+              </h3>
+              <div className="bg-white dark:bg-gray-800 border border-red-200 dark:border-red-700 rounded p-4 mb-4 max-h-48 overflow-y-auto">
+                <p className="text-sm text-red-700 dark:text-red-300 text-left whitespace-pre-wrap break-words">
+                  {deploymentError.message}
+                </p>
+              </div>
+              <div className="flex justify-center gap-2">
+                <Button
+                  onClick={handleRetryDeploy}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Try Again
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <AnimatedDeployButton
           initialText={<span>{deployButtonText}</span>}
           changeText={<span>Deploying Model...</span>}

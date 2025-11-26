@@ -21,7 +21,7 @@ interface UseDeploymentProgressReturn {
 }
 
 export const useDeploymentProgress = (
-  pollingInterval: number = 2000
+  pollingInterval: number = 1000
 ): UseDeploymentProgressReturn => {
   const [progress, setProgress] = useState<DeploymentProgress | null>(null);
   const [isPolling, setIsPolling] = useState(false);

@@ -463,6 +463,80 @@ class DeploymentProgressView(APIView):
             )
 
 
+class DeploymentProgressStreamView(APIView):
+    """Stream deployment progress updates from FastAPI inference server via SSE"""
+    
+    def get(self, request, job_id, *args, **kwargs):
+        """Proxy SSE stream from FastAPI inference server"""
+        
+        def event_stream():
+            """Generator that forwards SSE events from FastAPI to frontend"""
+            try:
+                # Connect to FastAPI inference server SSE endpoint
+                fastapi_url = f"http://172.18.0.1:8001/run/stream/{job_id}"
+                logger.info(f"Connecting to FastAPI SSE endpoint: {fastapi_url}")
+                
+                # Stream the response
+                response = requests.get(fastapi_url, stream=True, timeout=300)
+                
+                if response.status_code != 200:
+                    logger.error(f"FastAPI SSE endpoint returned status {response.status_code}")
+                    error_data = {
+                        "status": "error",
+                        "message": f"SSE endpoint not available (status: {response.status_code})"
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+                    return
+                
+                logger.info(f"Successfully connected to FastAPI SSE for job {job_id}")
+                
+                # Forward all SSE events from FastAPI to frontend
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8')
+                        # Forward the line as-is
+                        yield f"{line_str}\n"
+                        
+                        # Check if this is the end of the stream
+                        if line_str.startswith('data: '):
+                            try:
+                                data = json.loads(line_str[6:])  # Remove 'data: ' prefix
+                                if data.get('status') in ['completed', 'error', 'failed', 'cancelled']:
+                                    logger.info(f"Stream ended for job {job_id} with status {data.get('status')}")
+                                    break
+                            except json.JSONDecodeError:
+                                pass
+                    else:
+                        # Empty line - part of SSE format
+                        yield "\n"
+                        
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error connecting to FastAPI SSE endpoint: {str(e)}")
+                error_data = {
+                    "status": "error",
+                    "message": f"Connection error: {str(e)}"
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+            except Exception as e:
+                logger.error(f"Unexpected error in SSE stream: {str(e)}", exc_info=True)
+                error_data = {
+                    "status": "error",
+                    "message": f"Stream error: {str(e)}"
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+        
+        # Return streaming response with proper SSE headers
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['Connection'] = 'keep-alive'
+        response['X-Accel-Buffering'] = 'no'
+        
+        return response
+
+
 class RedeployView(APIView):
     def post(self, request, *args, **kwargs):
         # TODO: stop existing container by container_id, get model_id
