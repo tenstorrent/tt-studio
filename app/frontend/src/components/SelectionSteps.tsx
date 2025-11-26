@@ -503,9 +503,11 @@ export default function StepperDemo() {
       // Check if the response indicates an error
       if (response.data?.status === "error") {
         const errorMessage = response.data?.message || "Deployment failed";
+        const jobId = response.data?.job_id || null;
         console.error("Deployment error:", errorMessage);
+        console.log("Error job_id:", jobId);
         customToast.error(`Deployment failed: ${errorMessage}`);
-        return { success: false };
+        return { success: false, job_id: jobId };
       }
       
       customToast.success("Model deployment started!");
@@ -516,12 +518,16 @@ export default function StepperDemo() {
       };
     } catch (error) {
       console.error("Error during deployment:", error);
-      // Extract error message from response if available
+      // Extract error message and job_id from response if available
       const errorMessage = axios.isAxiosError(error) && error.response?.data?.message 
         ? error.response.data.message 
         : "Deployment failed!";
+      const jobId = axios.isAxiosError(error) && error.response?.data?.job_id
+        ? error.response.data.job_id
+        : null;
+      console.log("Error job_id from catch:", jobId);
       customToast.error(`Deployment failed: ${errorMessage}`);
-      return { success: false };
+      return { success: false, job_id: jobId };
     }
   };
 

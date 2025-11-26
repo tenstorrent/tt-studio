@@ -153,7 +153,26 @@ def run_container(impl, weights_id):
             else:
                 error_msg = f"API call failed with status {response.status_code}: {response.text}"
                 logger.error(error_msg)
-                return {"status": "error", "message": error_msg}
+                
+                # Try to extract job_id and error details from response
+                job_id = None
+                error_detail = error_msg
+                try:
+                    error_data = response.json()
+                    if isinstance(error_data, dict):
+                        # Extract job_id if present
+                        job_id = error_data.get('job_id')
+                        # Extract error message if present
+                        error_detail = error_data.get('message', error_msg)
+                        logger.info(f"Extracted job_id from error response: {job_id}")
+                except Exception as parse_error:
+                    logger.warning(f"Could not parse error response: {parse_error}")
+                
+                return {
+                    "status": "error",
+                    "message": error_detail,
+                    "job_id": job_id
+                }
 
         except requests.exceptions.RequestException as e:
             error_msg = f"Network error calling TT Inference Server API: {str(e)}"
