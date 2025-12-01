@@ -78,6 +78,21 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   // Check if we should hide the footer
   const shouldHideFooter = location.pathname === "/chat";
 
+  // Determine footer positioning classes based on page and screen size
+  const getFooterLeftClass = () => {
+    const hasLeftPanel = ["/image-generation", "/chat"].includes(
+      location.pathname
+    );
+
+    if (!hasLeftPanel) return "left-0";
+
+    if (location.pathname === "/chat") {
+      return "left-0 md:left-16";
+    }
+
+    return "left-16";
+  };
+
   // Fetch system status from API
   const fetchSystemStatus = async () => {
     try {
@@ -529,7 +544,7 @@ Add any other context about the problem here.
   if (loading) {
     return shouldHideFooter ? null : (
       <motion.footer
-        className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+        className={`fixed bottom-0 ${getFooterLeftClass()} right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
@@ -556,7 +571,7 @@ Add any other context about the problem here.
   return shouldHideFooter ? null : (
     <>
       <motion.footer
-        className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+        className={`fixed bottom-0 ${getFooterLeftClass()} right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
@@ -703,7 +718,7 @@ Add any other context about the problem here.
           </div>
 
           {/* Right Section - System Resources & Controls */}
-          <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-2">
             <span className={`text-sm ${mutedTextColor}`}>
               SYSTEM RESOURCES USAGE:
             </span>
