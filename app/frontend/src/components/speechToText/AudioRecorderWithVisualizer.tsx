@@ -149,7 +149,7 @@ export const AudioRecorderWithVisualizer = ({
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       navigator.mediaDevices
         .getUserMedia({
-          audio: true,
+          audio: true, // default to audio only
         })
         .then((stream) => {
           setIsRecording(true);
