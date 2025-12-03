@@ -52,6 +52,7 @@ export function DeployModelStep({
 
   // Track the current job_id to monitor progress
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [shouldPoll, setShouldPoll] = useState(true);
 
   // Add state for logs
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
@@ -88,7 +89,7 @@ export function DeployModelStep({
 
   // Poll for deployment progress to detect errors
   useEffect(() => {
-    if (!currentJobId) return;
+    if (!currentJobId || !shouldPoll) return;
 
     const pollProgress = async () => {
       try {
@@ -108,10 +109,11 @@ export function DeployModelStep({
               message: errorMessage,
             });
             
-            // Stop polling
-            setCurrentJobId(null);
+            // Stop polling but keep currentJobId so user can view logs
+            setShouldPoll(false);
           } else if (progressData.status === 'completed') {
             // Stop polling on completion
+            setShouldPoll(false);
             setCurrentJobId(null);
           }
         }
@@ -127,7 +129,7 @@ export function DeployModelStep({
     const interval = setInterval(pollProgress, 1000);
 
     return () => clearInterval(interval);
-  }, [currentJobId]);
+  }, [currentJobId, shouldPoll]);
 
   useEffect(() => {
     const fetchModelName = async () => {
@@ -185,11 +187,12 @@ export function DeployModelStep({
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
 
-    // Reset error state when starting a new deployment
+    // Reset error state and polling flag when starting a new deployment
     setDeploymentError({
       hasError: false,
       message: "",
     });
+    setShouldPoll(true);
 
     const deployResult = await handleDeploy();
     

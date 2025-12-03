@@ -250,7 +250,7 @@ class DeploymentProgressView(APIView):
                     logger.info(f"Got progress from FastAPI: {progress_data}")
                     
                     # Add support for new status types
-                    if progress_data.get("status") in ["starting", "running", "completed", "error", "stalled", "cancelled"]:
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "stalled", "cancelled"]:
                         return Response(progress_data, status=status.HTTP_200_OK)
                     
                 logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")

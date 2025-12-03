@@ -125,7 +125,7 @@ def run_container(impl, weights_id):
                             device=device,
                             status="running",
                             stopped_by_user=False,
-                            port=None,  # Port info not readily available from API response
+                            port=7000,  # TT Inference Server default port
                             workflow_log_path=workflow_log_path
                         )
                         logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
@@ -337,8 +337,15 @@ def get_managed_containers():
     managed_images = set([impl.image_version for impl in model_implmentations.values()])
     managed_containers = []
     for container in running_containers:
+        # Method 1: Check if container uses a managed image (legacy models)
         if managed_images.intersection(set(container.image.tags)):
             managed_containers.append(container)
+        else:
+            # Method 2: Check for TT Inference Server containers by environment variables
+            # TT Inference Server containers have specific env vars like CACHE_ROOT, TT_CACHE_PATH
+            env_vars = parse_env_var_str(container.attrs.get("Config", {}).get("Env", []))
+            if "CACHE_ROOT" in env_vars or "TT_CACHE_PATH" in env_vars:
+                managed_containers.append(container)
     return managed_containers
 
 
@@ -428,27 +435,62 @@ def update_deploy_cache():
         # logger.info(f"!!! con_model_id:= {con_model_id}")  # Temporarily hidden
         model_impl = model_implmentations.get(con_model_id)
         if not model_impl:
-            # find first impl that uses that container name
-            model_impl = [
-                v
-                for k, v in model_implmentations.items()
-                if v.model_name == con["name"]
-            ]
-            if len(model_impl) == 0:
-                # fallback to finding first impl that uses that container image
+            # Check if this is a TT Inference Server container by checking for specific env vars
+            is_tt_inference_container = (
+                "CACHE_ROOT" in con['env_vars'] or 
+                "TT_CACHE_PATH" in con['env_vars']
+            )
+            
+            if is_tt_inference_container:
+                logger.info(f"Detected TT Inference Server container: {con['name']} (ID: {con_id})")
+                
+                # Try to find the model implementation from the database
+                try:
+                    from docker_control.models import ModelDeployment
+                    deployment = ModelDeployment.objects.filter(container_id=con_id).first()
+                    
+                    if deployment:
+                        # Find the model implementation by model name
+                        model_impl = None
+                        for k, v in model_implmentations.items():
+                            if v.model_name == deployment.model_name:
+                                model_impl = v
+                                logger.info(f"Matched TT Inference Server container to model_impl: {model_impl.model_name}")
+                                break
+                        
+                        if not model_impl:
+                            logger.warning(f"Could not find model_impl for {deployment.model_name} in container {con['name']}")
+                            continue
+                    else:
+                        logger.warning(f"No deployment record found for TT Inference Server container {con_id}")
+                        continue
+                except Exception as e:
+                    logger.error(f"Error looking up deployment record for container {con_id}: {e}")
+                    continue
+            else:
+                # Original fallback logic for legacy containers
+                # find first impl that uses that container name
                 model_impl = [
                     v
                     for k, v in model_implmentations.items()
-                    if v.image_version == con["image_name"]
+                    if v.model_name == con["name"]
                 ]
-            # logger.info(f"Container image name: {con['name']}")  # Temporarily hidden
-            # logger.info("Available model implementations:")  # Temporarily hidden
-            # for k, v in model_implmentations.items():  # Temporarily hidden
-            #     logger.info(f"Model ID: {k}, Image Version: {v.model_name}")  # Temporarily hidden
-            assert (
-                len(model_impl) == 1
-            ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
-            model_impl = model_impl[0]
+                if len(model_impl) == 0:
+                    # fallback to finding first impl that uses that container image
+                    model_impl = [
+                        v
+                        for k, v in model_implmentations.items()
+                        if v.image_version == con["image_name"]
+                    ]
+                # logger.info(f"Container image name: {con['name']}")  # Temporarily hidden
+                # logger.info("Available model implementations:")  # Temporarily hidden
+                # for k, v in model_implmentations.items():  # Temporarily hidden
+                #     logger.info(f"Model ID: {k}, Image Version: {v.model_name}")  # Temporarily hidden
+                if len(model_impl) == 0:
+                    logger.warning(f"Cannot find model_impl for container {con['name']} with image {con['image_name']}")
+                    continue
+                
+                model_impl = model_impl[0]
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl
@@ -465,6 +507,7 @@ def update_deploy_cache():
                 f"{hostname}:{model_impl.service_port}{model_impl.health_route}"
             )
             cache.set(con_id, con, timeout=None)
+            logger.info(f"Added container {con['name']} (ID: {con_id[:12]}) to deploy cache")
             # TODO: validation
 
 
