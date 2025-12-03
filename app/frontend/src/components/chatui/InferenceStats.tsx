@@ -160,11 +160,15 @@ export default function Component({
 
   // Function to get the display model name
   const getDisplayModelName = () => {
+    // Always use modelName if provided, regardless of mode
+    if (modelName) {
+      return modelName;
+    }
+    
+    // Only use mode-specific fallbacks when modelName is not available
     if (apiUrlDefined) {
-      // In deployed mode, use the actual model name or fallback
-      return modelName || "Unknown Model";
+      return "Unknown Model";
     } else {
-      // In AI playground mode, always show the 3.3 model
       return "Tenstorrent/Meta-Llama 3.3 70B";
     }
   };
