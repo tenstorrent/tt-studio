@@ -11,6 +11,7 @@ import Header from "./Header";
 import ImageInputArea from "./ImageInputArea";
 import type { StableDiffusionChatProps } from "./types/chat";
 import { useChat } from "./hooks/useChat";
+import { cn } from "../../lib/utils";
 
 const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
   onBack,
@@ -112,11 +113,12 @@ const StableDiffusionChat: React.FC<StableDiffusionChatProps> = ({
                       </div>
                     )}
                     <div
-                      className={`absolute w-2 h-2 ${
+                      className={cn(
+                        "absolute w-2 h-2 rotate-45 top-3",
                         message.sender === "user"
                           ? "bg-TT-green-accent right-0 -translate-x-1/2"
-                          : "bg-TT-slate dark:bg-TT-slate bg-gray-100 left-0 translate-x-1/2"
-                      } rotate-45 top-3`}
+                          : "dark:bg-TT-slate bg-gray-100 left-0 translate-x-1/2"
+                      )}
                     ></div>
                   </div>
                 </div>
