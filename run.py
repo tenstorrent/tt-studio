@@ -1377,10 +1377,20 @@ def start_fastapi_server(no_sudo=False):
     # Ensure the fastapi_logs directory exists
     persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME")
     if persistent_volume:
+        # First ensure backend_volume directory has proper permissions
+        backend_volume_dir = os.path.join(persistent_volume, "backend_volume")
+        if os.path.exists(backend_volume_dir):
+            try:
+                os.chmod(backend_volume_dir, 0o777)
+            except Exception as e:
+                print(f"{C_YELLOW}Warning: Could not fix backend_volume permissions: {e}{C_RESET}")
+        
         fastapi_logs_dir = os.path.join(persistent_volume, "backend_volume", "fastapi_logs")
         try:
             # Create directory if it doesn't exist
             os.makedirs(fastapi_logs_dir, exist_ok=True)
+            # Fix permissions whether directory is new or existing
+            os.chmod(fastapi_logs_dir, 0o777)
         except Exception as e:
             print(f"{C_YELLOW}Warning: Could not setup fastapi_logs directory: {e}{C_RESET}")
     
@@ -2183,9 +2193,12 @@ def main():
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
-        if host_persistent_volume and not os.path.isdir(host_persistent_volume):
-            print(f"\n{C_BLUE}📁 Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
-            os.makedirs(host_persistent_volume, exist_ok=True)
+        if host_persistent_volume:
+            if not os.path.isdir(host_persistent_volume):
+                print(f"\n{C_BLUE}📁 Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
+                os.makedirs(host_persistent_volume, exist_ok=True)
+            # Fix permissions whether directory is new or existing
+            os.chmod(host_persistent_volume, 0o777)
 
         # Create Docker network
         print(f"\n{C_BLUE}Checking for Docker network 'tt_studio_network'...{C_RESET}")
