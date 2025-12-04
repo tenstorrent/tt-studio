@@ -2305,6 +2305,33 @@ def main():
 
         print(f"{C_GREEN}✅ All required ports are available{C_RESET}\n")
 
+        # Ensure workflow_logs directory exists with correct permissions before Docker mounts it
+        # This prevents Docker from creating it as root (which causes permission issues)
+        workflow_logs_dir = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "workflow_logs")
+        if not os.path.exists(workflow_logs_dir):
+            print(f"{C_BLUE}📁 Creating workflow_logs directory with correct permissions...{C_RESET}")
+            try:
+                os.makedirs(workflow_logs_dir, mode=0o755, exist_ok=True)
+                print(f"{C_GREEN}✅ Created workflow_logs directory{C_RESET}")
+            except Exception as e:
+                print(f"{C_YELLOW}⚠️  Warning: Could not create workflow_logs directory: {e}{C_RESET}")
+                print(f"   Docker will create it, but it may have incorrect permissions")
+        else:
+            # Ensure existing directory has correct permissions (Unix/Linux only)
+            if OS_NAME != "Windows":
+                try:
+                    current_stat = os.stat(workflow_logs_dir)
+                    current_uid = current_stat.st_uid
+                    current_user_uid = os.getuid()
+                    if current_uid != current_user_uid and current_uid == 0:  # Owned by root
+                        print(f"{C_YELLOW}⚠️  workflow_logs directory is owned by root, fixing permissions...{C_RESET}")
+                        os.chown(workflow_logs_dir, current_user_uid, os.getgid())
+                        print(f"{C_GREEN}✅ Fixed workflow_logs directory ownership{C_RESET}")
+                except (OSError, PermissionError, AttributeError) as e:
+                    # If we don't have permission or chown is not available, warn user
+                    print(f"{C_YELLOW}⚠️  Warning: Could not fix workflow_logs permissions: {e}{C_RESET}")
+                    print(f"   You may need to run: sudo chown -R $USER:$USER {workflow_logs_dir}")
+
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
         
