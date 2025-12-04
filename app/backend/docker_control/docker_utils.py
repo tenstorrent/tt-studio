@@ -445,6 +445,7 @@ def update_deploy_cache():
                 logger.info(f"Detected TT Inference Server container: {con['name']} (ID: {con_id})")
                 
                 # Try to find the model implementation from the database
+                deployment_found = False
                 try:
                     from docker_control.models import ModelDeployment
                     deployment = ModelDeployment.objects.filter(container_id=con_id).first()
@@ -456,17 +457,35 @@ def update_deploy_cache():
                             if v.model_name == deployment.model_name:
                                 model_impl = v
                                 logger.info(f"Matched TT Inference Server container to model_impl: {model_impl.model_name}")
+                                deployment_found = True
                                 break
                         
                         if not model_impl:
                             logger.warning(f"Could not find model_impl for {deployment.model_name} in container {con['name']}")
-                            continue
                     else:
                         logger.warning(f"No deployment record found for TT Inference Server container {con_id}")
-                        continue
                 except Exception as e:
-                    logger.error(f"Error looking up deployment record for container {con_id}: {e}")
-                    continue
+                    # Check if this is a migration/database issue
+                    error_str = str(e).lower()
+                    if "no such table" in error_str or "operationalerror" in error_str:
+                        logger.warning(f"Database table not found for container {con_id} (migrations may not be applied). Using fallback logic.")
+                    else:
+                        logger.error(f"Error looking up deployment record for container {con_id}: {e}")
+                
+                # If database lookup failed or no deployment found, use fallback logic
+                if not deployment_found:
+                    logger.info(f"Using fallback logic to match container {con['name']}")
+                    # Try to match by container name
+                    model_impl = None
+                    for k, v in model_implmentations.items():
+                        if v.model_name in con["name"]:
+                            model_impl = v
+                            logger.info(f"Matched container by name to model_impl: {model_impl.model_name}")
+                            break
+                    
+                    if not model_impl:
+                        logger.warning(f"Could not match TT Inference Server container {con['name']} to any model_impl. Skipping.")
+                        continue
             else:
                 # Original fallback logic for legacy containers
                 # find first impl that uses that container name
