@@ -1371,28 +1371,27 @@ def start_fastapi_server(no_sudo=False):
     else:
         print(f"✅ Port 8001 is available")
     
-    # Create PID and log files with proper permissions (similar to startup.sh)
+    # Create PID and log files as regular user (no sudo needed for port 8001)
     print(f"🔧 Setting up log and PID files...")
+    
+    # Ensure the fastapi_logs directory exists
+    persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME")
+    if persistent_volume:
+        fastapi_logs_dir = os.path.join(persistent_volume, "backend_volume", "fastapi_logs")
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs(fastapi_logs_dir, exist_ok=True)
+        except Exception as e:
+            print(f"{C_YELLOW}Warning: Could not setup fastapi_logs directory: {e}{C_RESET}")
+    
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
         try:
-            # Try to create with sudo first (like startup.sh) unless no_sudo is specified
-            if not no_sudo:
-                subprocess.run(["sudo", "touch", file_path], check=False)
-                subprocess.run(["sudo", "chown", f"{os.getenv('USER', 'root')}", file_path], check=False)
-                subprocess.run(["sudo", "chmod", "644", file_path], check=False)
-            else:
-                # Fallback to regular file creation
-                with open(file_path, 'w') as f:
-                    pass
-                os.chmod(file_path, 0o644)
+            # Create files as regular user
+            with open(file_path, 'w') as f:
+                pass
+            os.chmod(file_path, 0o644)
         except Exception as e:
-            # Fallback to regular file creation
-            try:
-                with open(file_path, 'w') as f:
-                    pass
-                os.chmod(file_path, 0o644)
-            except Exception as e2:
-                print(f"{C_YELLOW}Warning: Could not create {file_path}: {e2}{C_RESET}")
+            print(f"{C_YELLOW}Warning: Could not create {file_path}: {e}{C_RESET}")
     
     # Get environment variables for the server (exactly like startup.sh)
     jwt_secret = get_env_var("JWT_SECRET")
@@ -1434,22 +1433,17 @@ fi
         # Make the script executable
         os.chmod(temp_script_path, 0o755)
         
-        # Start the server using the wrapper script with environment variables (exactly like startup.sh)
-        if not no_sudo:
-            # Use sudo with environment variables exactly like startup.sh
-            # The key difference: pass environment variables as separate arguments to sudo
-            cmd = ["sudo", f"JWT_SECRET={jwt_secret}", f"HF_TOKEN={hf_token}", temp_script_path, 
-                   INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
-            process = subprocess.Popen(cmd)
-        else:
-            # Fallback to running without sudo
-            env = os.environ.copy()
-            if jwt_secret:
-                env["JWT_SECRET"] = jwt_secret
-            if hf_token:
-                env["HF_TOKEN"] = hf_token
-            cmd = [temp_script_path, INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
-            process = subprocess.Popen(cmd, env=env)
+        # Start the server using the wrapper script with environment variables
+        # Run as the actual user (no sudo needed for port 8001)
+        env = os.environ.copy()
+        if jwt_secret:
+            env["JWT_SECRET"] = jwt_secret
+        if hf_token:
+            env["HF_TOKEN"] = hf_token
+        
+        # Run without sudo - port 8001 is non-privileged
+        cmd = [temp_script_path, INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        process = subprocess.Popen(cmd, env=env)
         
         # Health check (same as startup.sh)
         print(f"⏳ Waiting for FastAPI server to start...")
@@ -2334,15 +2328,8 @@ def main():
             # Store original directory to return to later
             original_dir = os.getcwd()
             
-            # Request sudo authentication upfront (unless --no-sudo is specified)
-            if not args.no_sudo:
-                if not request_sudo_authentication(force_prompt=args.reconfigure):
-                    print(f"{C_RED}⛔ Cannot proceed without sudo access. Use --no-sudo to skip sudo usage.{C_RESET}")
-                    return
-            else:
-                print(f"{C_YELLOW}⚠️  Skipping sudo authentication (--no-sudo flag used){C_RESET}")
-                print(f"{C_YELLOW}   Note: Some operations may fail if elevated privileges are required{C_RESET}")
-            
+            # Note: sudo is no longer required by default for FastAPI (port 8001 is non-privileged)
+            # The --no-sudo flag is kept for backward compatibility
             try:
                 # Setup TT Inference Server
                 if not setup_tt_inference_server():
