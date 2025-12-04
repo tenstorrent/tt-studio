@@ -1082,6 +1082,33 @@ def kill_process_on_port(port, no_sudo=False):
         
     return True
 
+def is_valid_git_repo(path):
+    """Check if directory is a valid git repository.
+    
+    Args:
+        path: Path to check
+        
+    Returns:
+        None if directory doesn't exist
+        True if directory is a valid git repository
+        False if directory exists but is not a valid git repository
+    """
+    if not os.path.exists(path):
+        return None  # Doesn't exist
+    
+    git_dir = os.path.join(path, ".git")
+    if os.path.isfile(git_dir) or os.path.isdir(git_dir):
+        # Verify it's actually valid by checking for HEAD
+        try:
+            result = subprocess.run(
+                ["git", "-C", path, "rev-parse", "--git-dir"],
+                capture_output=True, text=True, check=False
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+    return False  # Exists but not a git repo
+
 def initialize_submodules():
     """Initialize git submodules if they don't exist or are not properly set up."""
     print(f"🔧 Checking and initializing git submodules...")
@@ -1098,12 +1125,44 @@ def initialize_submodules():
         print(f"   Please ensure you have the complete repository.")
         return False
     
+    # Check for corrupted submodule directories before attempting initialization
+    submodule_path = os.path.join(TT_STUDIO_ROOT, "tt-inference-server")
+    repo_state = is_valid_git_repo(submodule_path)
+    
+    if repo_state is False:  # Directory exists but is corrupted
+        print(f"{C_YELLOW}⚠️  Detected corrupted submodule directory at {submodule_path}{C_RESET}")
+        print(f"   Cause: Directory exists but is not a valid git repository")
+        print(f"   This usually happens when:")
+        print(f"   - A previous git operation was interrupted")
+        print(f"   - The directory was created manually")
+        print(f"   - Git's internal state is corrupted")
+        print(f"   Solution: Cleaning up and re-initializing...")
+        
+        try:
+            # Clean up corrupted directory
+            shutil.rmtree(submodule_path)
+            print(f"{C_GREEN}✅ Removed corrupted directory{C_RESET}")
+            
+            # Clean up git's internal cache
+            git_modules_path = os.path.join(TT_STUDIO_ROOT, ".git", "modules", "tt-inference-server")
+            if os.path.exists(git_modules_path):
+                shutil.rmtree(git_modules_path)
+                print(f"{C_GREEN}✅ Cleaned up git submodule cache{C_RESET}")
+        except Exception as cleanup_error:
+            print(f"{C_RED}⛔ Error during cleanup: {cleanup_error}{C_RESET}")
+            print(f"   Please manually remove: {submodule_path}")
+            return False
+    
     try:
-        # Always update submodules to ensure they're properly initialized and on correct branches
+        # Step 1: Sync submodule configurations to align .gitmodules with .git/config
+        print(f"🔄 Synchronizing submodule configurations...")
+        run_command(["git", "submodule", "sync", "--recursive"], check=True)
+        
+        # Step 2: Update submodules to ensure they're properly initialized and on correct branches
         print(f"📦 Initializing and updating git submodules...")
         run_command(["git", "submodule", "update", "--init", "--recursive"], check=True)
         
-        # Additional step: ensure submodules are on the correct branch as specified in .gitmodules
+        # Step 3: Ensure submodules are on the correct branch as specified in .gitmodules
         print(f"🌿 Ensuring submodules are on correct branches...")
         run_command(["git", "submodule", "foreach", "--recursive", "git checkout $(git config -f $toplevel/.gitmodules submodule.$name.branch || echo main)"], check=True)
         
@@ -1111,8 +1170,28 @@ def initialize_submodules():
         return True
         
     except (subprocess.CalledProcessError, SystemExit) as e:
-        print(f"{C_RED}⛔ Error: Failed to initialize submodules: {e}{C_RESET}")
-        print(f"   Please try manually: git submodule update --init --recursive")
+        print(f"{C_RED}⛔ Error: Failed to initialize submodules{C_RESET}")
+        
+        # Provide specific diagnostic information
+        error_output = ""
+        if hasattr(e, 'stderr') and e.stderr:
+            error_output = str(e.stderr)
+        elif hasattr(e, 'output') and e.output:
+            error_output = str(e.output)
+        
+        if "already exists and is not an empty directory" in error_output or "already exists" in str(e):
+            print(f"   Cause: Submodule directory exists but couldn't be initialized")
+            print(f"   This usually happens when:")
+            print(f"   - A previous git operation was interrupted")
+            print(f"   - The directory was created manually")
+            print(f"   - Git's internal state is corrupted")
+            print(f"\n   Manual fix:")
+            print(f"   1. rm -rf tt-inference-server .git/modules/tt-inference-server")
+            print(f"   2. Run this script again")
+        else:
+            print(f"   Error details: {error_output if error_output else str(e)}")
+            print(f"   Please try manually: git submodule update --init --recursive")
+        
         return False
 
 def setup_tt_inference_server():
