@@ -1,6 +1,5 @@
 {
     "recommendations": [
-        "obkoro1.korofileheader",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode"
     ],
