@@ -94,6 +94,17 @@ export const models: Model[] = [
     modelType: "ImageGen",
     tpBadge: { customText: "Batch=1" },
   },
+  {
+    id: "video-generation",
+    title: "Video Generation",
+    image: "/src/assets/aiPlayground/model-logo/stable_diffusion.svg",
+    path: "/video-generation",
+    filter: "#5A4A78",
+    TTDevice: "n300",
+    poweredByText: "Powered by Wormhole n300",
+    modelType: "VideoGen",
+    tpBadge: { customText: "Batch=1" },
+  },
 ];
 
 export const tasks: Task[] = [

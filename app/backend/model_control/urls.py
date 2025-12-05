@@ -14,6 +14,7 @@ urlpatterns = [
     path("model_weights/", views.ModelWeightsView.as_view()),
     path("image-generation/", views.ImageGenerationInferenceView.as_view()),
     path("image-generation-cloud/", views.ImageGenerationInferenceCloudView.as_view()),
+    path("video-generation-cloud/", views.VideoGenerationInferenceCloudView.as_view()),
     path("object-detection/", views.ObjectDetectionInferenceView.as_view()),
     path("object-detection-cloud/", views.ObjectDetectionInferenceCloudView.as_view()),
     path("speech-recognition/", views.SpeechRecognitionInferenceView.as_view()),

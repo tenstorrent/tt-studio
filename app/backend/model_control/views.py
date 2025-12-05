@@ -68,6 +68,8 @@ CLOUD_STABLE_DIFFUSION_URL = os.environ.get("CLOUD_STABLE_DIFFUSION_URL")
 CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN")
 CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
 CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
+CLOUD_VIDEO_GENERATION_URL = os.environ.get("CLOUD_VIDEO_GENERATION_URL")
+CLOUD_VIDEO_GENERATION_AUTH_TOKEN = os.environ.get("CLOUD_VIDEO_GENERATION_AUTH_TOKEN")
 
 class InferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
@@ -616,6 +618,79 @@ class SpeechRecognitionInferenceCloudView(APIView):
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+class VideoGenerationInferenceCloudView(APIView):
+    def post(self, request, *args, **kwargs):
+        """Video generation inference view for cloud video generation API"""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} received request data: {data}")
+        
+        # Get prompt directly since we don't need deploy_id validation for cloud
+        prompt = data.get("prompt")
+        if not prompt:
+            logger.error("No prompt provided in request")
+            return Response({"error": "prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        logger.info(f"Processing prompt: {prompt}")
+        video_url = CLOUD_VIDEO_GENERATION_URL
+        if not video_url:
+            logger.error("Cloud video generation URL not configured")
+            return Response(
+                {"error": "Cloud video generation URL not configured"}, 
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        try:
+            headers = {"Authorization": f"Bearer {CLOUD_VIDEO_GENERATION_AUTH_TOKEN}"}
+            # Use default parameters as specified in the plan
+            request_data = {
+                "prompt": prompt,
+                "negative_prompt": "low quality",
+                "num_inference_steps": 12,
+                "seed": 0
+            }
+            
+            logger.info(f"Making request to cloud endpoint: {video_url}")
+            logger.info(f"Request headers: {headers}")
+            logger.info(f"Request data: {request_data}")
+            
+            # Increase timeout to 180 seconds (3 minutes) for video generation
+            # Disable SSL verification (verify=False) similar to curl -k flag
+            video_response = requests.post(video_url, json=request_data, headers=headers, timeout=180, verify=False)
+            video_response.raise_for_status()
+            logger.info("Successfully retrieved video")
+            
+            content_type = video_response.headers.get('Content-Type', 'video/mp4')
+            content_disposition = f'attachment; filename=generated_video.mp4'
+            
+            # Create a Django HttpResponse with the content of the video
+            django_response = HttpResponse(video_response.content, content_type=content_type)
+            django_response['Content-Disposition'] = content_disposition
+            logger.info("Returning video response")
+            return django_response
+
+        except requests.exceptions.Timeout as timeout_err:
+            logger.error(f"Timeout error occurred: {str(timeout_err)}")
+            return Response(
+                {"error": "Video generation timed out. Please try again."},
+                status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"HTTP Error occurred: {str(http_err)}")
+            if video_response.status_code == status.HTTP_401_UNAUTHORIZED:
+                logger.error("Unauthorized access to cloud endpoint")
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif video_response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                logger.error("Cloud service unavailable")
+                return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            else:
+                logger.error(f"Unexpected error: {str(http_err)}")
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Unexpected error in video generation: {str(e)}")
+            return Response(
+                {"error": f"Failed to generate video: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class ContainerLogsView(View):
     def get(self, request, container_id, *args, **kwargs):

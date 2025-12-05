@@ -13,6 +13,7 @@ import {
   Image,
   Eye,
   AudioLines,
+  Video,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
@@ -294,7 +295,9 @@ export default function NavBar() {
   // Check if we're in Chat UI or Image Generation mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
+  const isVideoGeneration = location.pathname === "/video-generation";
+  const shouldUseVerticalNav =
+    isChatUI || isImageGeneration || isVideoGeneration; // Always use vertical for Chat UI, Image Generation, and Video Generation
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -511,6 +514,16 @@ export default function NavBar() {
             tooltipText:
               "Deploy an image generation model to use Image Generation",
             route: "/image-generation",
+          },
+          {
+            type: "button",
+            icon: Video,
+            label: "Video Generation",
+            onClick: () => handleNavigation("/video-generation"),
+            isDisabled: true,
+            tooltipText:
+              "Deploy a video generation model to use Video Generation",
+            route: "/video-generation",
           },
           {
             type: "button",

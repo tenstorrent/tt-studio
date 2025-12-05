@@ -68,6 +68,10 @@ CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN=<your-auth-token>
 # Image Generation Configuration
 CLOUD_STABLE_DIFFUSION_URL=<your-sd-endpoint>
 CLOUD_STABLE_DIFFUSION_AUTH_TOKEN=<your-auth-token>
+
+# Video Generation Configuration
+CLOUD_VIDEO_GENERATION_URL=<your-video-gen-endpoint>
+CLOUD_VIDEO_GENERATION_AUTH_TOKEN=<your-auth-token>
 ```
 
 ### 3. Additional Requirements

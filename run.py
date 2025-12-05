@@ -523,6 +523,8 @@ def configure_environment_sequentially(dev_mode=False):
             ("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN", "🔑 Whisper Speech Recognition Auth Token", True),
             ("CLOUD_STABLE_DIFFUSION_URL", "🎨 Stable Diffusion URL", False),
             ("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN", "🔑 Stable Diffusion Auth Token", True),
+            ("CLOUD_VIDEO_GENERATION_URL", "🎬 Video Generation URL", False),
+            ("CLOUD_VIDEO_GENERATION_AUTH_TOKEN", "🔑 Video Generation Auth Token", True),
         ]
         
         for var_name, prompt, is_secret in cloud_vars:
@@ -1729,6 +1731,8 @@ def main():
   {C_YELLOW}CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN{C_RESET} Whisper API authentication token
   {C_YELLOW}CLOUD_STABLE_DIFFUSION_URL{C_RESET}          Stable Diffusion API endpoint
   {C_YELLOW}CLOUD_STABLE_DIFFUSION_AUTH_TOKEN{C_RESET}   Stable Diffusion API authentication token
+  {C_YELLOW}CLOUD_VIDEO_GENERATION_URL{C_RESET}          Video Generation API endpoint
+  {C_YELLOW}CLOUD_VIDEO_GENERATION_AUTH_TOKEN{C_RESET}   Video Generation API authentication token
 
 {C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
 {'=' * 80}

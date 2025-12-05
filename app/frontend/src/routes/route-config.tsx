@@ -51,6 +51,7 @@ import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import AudioDetectionPage from "../pages/AudioDetectionPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
+import VideoGenPage from "../pages/VideoGenPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -105,6 +106,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/image-generation",
       element: <ImageGenPage />,
+      condition: true,
+    },
+    {
+      path: "/video-generation",
+      element: <VideoGenPage />,
       condition: true,
     },
     {
