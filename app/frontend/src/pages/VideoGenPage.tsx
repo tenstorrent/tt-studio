@@ -5,7 +5,7 @@ import VideoGenParentComponent from "../components/videoGen/VideoGenParentCompon
 
 const VideoGenPage = () => {
   return (
-    <div className="h-screen w-full dark:bg-black bg-white dark:bg-grid-white/[0.2] bg-grid-black/[0.2] overflow-hidden fixed inset-0">
+    <div className="fixed inset-0 w-full dark:bg-black bg-white dark:bg-grid-white/[0.2] bg-grid-black/[0.2] lg:pl-16">
       <div
         className="absolute pointer-events-none inset-0 dark:bg-black bg-white"
         style={{
@@ -13,7 +13,7 @@ const VideoGenPage = () => {
             "radial-gradient(ellipse at center, transparent 95%, black 100%)",
         }}
       ></div>
-      <div className="relative w-full h-full overflow-hidden">
+      <div className="w-full h-full overflow-hidden pb-20">
         <VideoGenParentComponent />
       </div>
     </div>

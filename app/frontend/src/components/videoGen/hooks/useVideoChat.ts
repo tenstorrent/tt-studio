@@ -10,7 +10,7 @@ export const useVideoChat = (modelID: string) => {
     {
       id: "1",
       sender: "bot",
-      text: "Hello! I can generate videos based on your descriptions. What would you like me to create? (Note: Video generation may take 2-3 minutes)",
+      text: "Hello! I can generate videos based on your descriptions. What would you like me to create?",
     },
   ]);
   const [textInput, setTextInput] = useState("");

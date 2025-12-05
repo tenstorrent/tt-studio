@@ -33,6 +33,9 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
   } = useVideoChat(modelID);
 
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [screenSize, setScreenSize] = useState({
+    isMobileView: false,
+  });
 
   useEffect(() => {
     if (initialPrompt) {
@@ -40,21 +43,43 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
     }
   }, [initialPrompt, setTextInput]);
 
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      setScreenSize({
+        isMobileView: width < 768,
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   return (
     <div className="flex flex-col w-full h-full bg-white dark:bg-[#0a0b0f] overflow-hidden">
-      <Header
-        onBack={onBack}
-        isHistoryPanelOpen={isHistoryPanelOpen}
-        setIsHistoryPanelOpen={setIsHistoryPanelOpen}
-      />
+      <div
+        className={`${screenSize.isMobileView ? "sticky top-0 z-10 bg-background" : ""}`}
+      >
+        <Header
+          onBack={onBack}
+          isHistoryPanelOpen={isHistoryPanelOpen}
+          setIsHistoryPanelOpen={setIsHistoryPanelOpen}
+        />
+      </div>
 
       <ScrollArea.Root className="flex-1 min-h-0 overflow-hidden">
         <ScrollArea.Viewport
           ref={viewportRef}
-          className="w-full h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+          className={`w-full h-full overflow-y-auto relative ${
+            screenSize.isMobileView
+              ? "px-3 pb-[140px] pt-4"
+              : "px-4 sm:px-6 md:px-8"
+          }`}
           onScroll={handleScroll}
         >
-          <div className="px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 py-4 pb-6 space-y-4 sm:space-y-6">
+          <div className="space-y-4 sm:space-y-6 py-4">
             {messages.map((message, index) => (
               <div
                 key={message.id}
@@ -158,25 +183,34 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
 
       {isScrollButtonVisible && (
         <Button
-          className="absolute bottom-20 sm:bottom-24 right-3 sm:right-4 md:right-6 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300 z-10"
+          className="fixed bottom-40 right-4 sm:right-8 md:right-12 z-50 p-2 rounded-full bg-gray-800 text-white shadow-lg hover:bg-gray-700 transition-colors"
           onClick={() => {
             scrollToBottom();
             setIsScrollButtonVisible(false);
           }}
         >
-          <ChevronDown className="h-5 w-5 sm:h-6 sm:w-6 animate-bounce" />
+          <ChevronDown className="h-6 w-6" />
         </Button>
       )}
 
-      <div className="flex-shrink-0 px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 py-3 sm:py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0a0b0f]">
-        <div className="max-w-4xl mx-auto w-full">
-          <VideoInputArea
-            textInput={textInput}
-            setTextInput={setTextInput}
-            handleGenerate={sendMessage}
-            isGenerating={isGenerating}
-          />
-        </div>
+      <div
+        className={`${
+          screenSize.isMobileView
+            ? "fixed bottom-0 left-0 right-0 bg-background border-t border-gray-200 dark:border-gray-800 shadow-lg px-2 pb-safe"
+            : "relative"
+        }`}
+        style={{
+          paddingBottom: screenSize.isMobileView
+            ? "env(safe-area-inset-bottom, 16px)"
+            : undefined,
+        }}
+      >
+        <VideoInputArea
+          textInput={textInput}
+          setTextInput={setTextInput}
+          handleGenerate={sendMessage}
+          isGenerating={isGenerating}
+        />
       </div>
     </div>
   );
