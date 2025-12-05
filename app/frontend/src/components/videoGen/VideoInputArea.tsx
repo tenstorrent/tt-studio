@@ -53,7 +53,7 @@ export default function VideoInputArea({
   return (
     <div className="shrink-0 w-full">
       <div
-        className={`relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-4 shadow-lg dark:shadow-2xl overflow-hidden transition-all duration-300 ${
+        className={`relative w-full bg-white dark:bg-[#2A2A2A] rounded-lg p-3 sm:p-4 shadow-lg dark:shadow-2xl overflow-hidden transition-all duration-300 ${
           isFocused
             ? "border-2 border-gray-800 dark:border-white"
             : "border border-gray-200 dark:border-[#7C68FA]/20"
@@ -67,21 +67,21 @@ export default function VideoInputArea({
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           placeholder="Describe the video you want to generate... (e.g., 'Volcano on a beach')"
-          className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-base overflow-y-auto text-gray-900 dark:text-white font-medium"
+          className="w-full h-full bg-transparent border-none focus:outline-none resize-none font-mono text-sm sm:text-base overflow-y-auto text-gray-900 dark:text-white font-medium"
           disabled={isGenerating}
           style={{
             minHeight: "24px",
             maxHeight: "200px",
           }}
         />
-        <div className="flex justify-between items-center mt-2">
+        <div className="flex justify-between items-center mt-2 gap-2">
           <div className="flex gap-2 items-center">
             <Button
               type="button"
               variant="ghost"
-              className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-2 rounded-full flex items-center justify-center transition-colors duration-300"
+              className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1.5 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
             >
-              <Paperclip className="h-5 w-5" />
+              <Paperclip className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
           </div>
           <Button
@@ -91,7 +91,7 @@ export default function VideoInputArea({
               isGenerating || !textInput.trim()
                 ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
                 : "bg-[#7C68FA] hover:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-semibold cursor-pointer"
-            } px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-300`}
+            } px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg flex items-center gap-1.5 sm:gap-2 transition-colors duration-300 text-sm sm:text-base`}
           >
             {isGenerating ? (
               <LoadingDots size={3}>
@@ -100,7 +100,7 @@ export default function VideoInputArea({
             ) : (
               "Generate"
             )}
-            {!isGenerating && <Send className="h-4 w-4" />}
+            {!isGenerating && <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
           </Button>
         </div>
         {isGenerating && (
@@ -108,16 +108,16 @@ export default function VideoInputArea({
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
               <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-[#7C68FA] to-[#7C68FA] animate-pulse-ripple-x" />
             </div>
-            <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-700">
+            <div className="mt-2 p-2 sm:p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-700">
               <div className="flex items-center gap-2">
-                <Video className="h-4 w-4 text-yellow-600 dark:text-yellow-400 animate-pulse" />
+                <Video className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-yellow-600 dark:text-yellow-400 animate-pulse" />
                 <LoadingDots size={3}>
-                  <span className="text-sm text-yellow-600 dark:text-yellow-400 font-medium">
+                  <span className="text-xs sm:text-sm text-yellow-600 dark:text-yellow-400 font-medium">
                     Generating video
                   </span>
                 </LoadingDots>
               </div>
-              <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1 ml-6">
+              <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1 ml-5 sm:ml-6">
                 This process takes 2-3 minutes. Please be patient and keep this
                 tab open and come back later
               </p>
