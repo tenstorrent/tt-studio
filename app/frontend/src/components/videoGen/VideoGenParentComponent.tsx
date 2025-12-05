@@ -29,8 +29,8 @@ const VideoGenParentComponent: React.FC = () => {
   }, [location.state, modelID, modelName]);
 
   return (
-    <div className="w-full h-screen p-2 pb-20 pl-32">
-      <Card className="flex flex-col w-full h-full overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 backdrop-blur-sm">
+    <div className="w-full h-screen flex items-center justify-center pl-20 pr-4 py-4">
+      <Card className="flex flex-col w-full max-w-6xl h-[90vh] overflow-hidden shadow-xl bg-white dark:bg-black border-gray-200 dark:border-[#7C68FA]/20 rounded-xl">
         <div className="flex-1 overflow-hidden flex flex-col relative">
           <VideoGenerationChat
             onBack={() => window.history.back()}

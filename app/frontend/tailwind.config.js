@@ -168,6 +168,11 @@ export default {
           "0%": { transform: "scaleX(0)", opacity: "1" },
           "100%": { transform: "scaleX(1)", opacity: "0" },
         },
+        loading: {
+          "0%": { opacity: "0.2" },
+          "20%": { opacity: "1" },
+          "100%": { opacity: "0.2" },
+        },
         shine: {
           "0%": { backgroundPosition: "200% 0" },
           "25%": { backgroundPosition: "-200% 0" },
@@ -186,6 +191,7 @@ export default {
         "sound-wave-2": "sound-wave-2 0.8s infinite 0.2s",
         "sound-wave-3": "sound-wave-3 0.8s infinite 0.4s",
         "pulse-ripple-x": "pulse-ripple-x 1s ease-out infinite",
+        loading: "loading 1.4s linear infinite",
         ripple: "ripple 3s ease-out infinite",
         shine: "shine 3s ease-out infinite",
         "gradient-flow":

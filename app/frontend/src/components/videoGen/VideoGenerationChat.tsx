@@ -7,6 +7,7 @@ import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
 import { User, Video, ChevronDown, Download } from "lucide-react";
 import { Skeleton } from "../ui/skeleton";
+import { LoadingDots } from "../ui/loading-dots";
 import Header from "./Header";
 import VideoInputArea from "./VideoInputArea";
 import type { VideoGenerationChatProps } from "./types/chat";
@@ -40,20 +41,20 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
   }, [initialPrompt, setTextInput]);
 
   return (
-    <div className="flex flex-col w-full h-full bg-white dark:bg-[#0a0b0f]">
+    <div className="flex flex-col w-full h-full bg-white dark:bg-[#0a0b0f] overflow-hidden">
       <Header
         onBack={onBack}
         isHistoryPanelOpen={isHistoryPanelOpen}
         setIsHistoryPanelOpen={setIsHistoryPanelOpen}
       />
 
-      <ScrollArea.Root className="grow overflow-hidden">
+      <ScrollArea.Root className="flex-1 overflow-hidden">
         <ScrollArea.Viewport
           ref={viewportRef}
-          className="w-full h-full pr-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
+          className="w-full h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-500"
           onScroll={handleScroll}
         >
-          <div className="p-6 space-y-6">
+          <div className="p-4 pb-6 space-y-6">
             {messages.map((message, index) => (
               <div
                 key={message.id}
@@ -97,13 +98,13 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
                         <video
                           src={message.video || "/placeholder.mp4"}
                           controls
-                          className="rounded-lg w-full max-w-2xl h-auto max-h-96 object-contain transition-opacity duration-300 group-hover:opacity-80"
+                          className="rounded-lg w-full max-w-2xl h-auto max-h-96 object-contain transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-xl"
                         />
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                           <a
                             href={message.video}
                             download={`generated-video-${message.id}.mp4`}
-                            className="bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70 transition-colors duration-300 flex items-center justify-center"
+                            className="bg-[#7C68FA] hover:bg-[#7C68FA]/90 text-white p-3 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center"
                             aria-label="Download video"
                           >
                             <Download className="h-5 w-5" />
@@ -125,14 +126,22 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
             {isGenerating && (
               <div className="flex justify-start">
                 <div className="flex items-start gap-3">
-                  <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center">
+                  <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center animate-pulse">
                     <Video className="h-5 w-5 text-white" />
                   </div>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-3 bg-gray-100 dark:bg-TT-slate p-4 rounded-lg border-2 border-[#7C68FA] animate-[pulse_3s_ease-in-out_infinite]">
                     <Skeleton className="h-48 w-96 rounded-lg bg-gray-200 dark:bg-[#1a1c2a]" />
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Generating video... This may take 2-3 minutes
-                    </p>
+                    <div className="flex flex-col gap-2">
+                      <LoadingDots size={4}>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                          Generating your video
+                        </span>
+                      </LoadingDots>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        This typically takes 2-3 minutes. Please keep this tab
+                        open.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -149,7 +158,7 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
 
       {isScrollButtonVisible && (
         <Button
-          className="absolute bottom-20 right-4 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300"
+          className="absolute bottom-24 right-4 rounded-full shadow-lg bg-[#7C68FA] text-white hover:bg-[#7C68FA]/80 transition-all duration-300 z-10"
           onClick={() => {
             scrollToBottom();
             setIsScrollButtonVisible(false);
@@ -159,8 +168,8 @@ const VideoGenerationChat: React.FC<VideoGenerationChatProps> = ({
         </Button>
       )}
 
-      <div className="p-6">
-        <div className="max-w-5xl mx-auto">
+      <div className="flex-shrink-0 px-4 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0a0b0f]">
+        <div className="max-w-4xl mx-auto">
           <VideoInputArea
             textInput={textInput}
             setTextInput={setTextInput}

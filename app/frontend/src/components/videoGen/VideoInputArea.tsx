@@ -5,6 +5,7 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { Video, Paperclip, Send } from "lucide-react";
+import { LoadingDots } from "../ui/loading-dots";
 
 interface VideoInputAreaProps {
   textInput: string;
@@ -92,12 +93,14 @@ export default function VideoInputArea({
                 : "bg-[#7C68FA] hover:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-semibold cursor-pointer"
             } px-4 py-2 rounded-lg flex items-center gap-2 transition-colors duration-300`}
           >
-            {isGenerating ? "Generating..." : "Generate"}
             {isGenerating ? (
-              <Video className="h-4 w-4 animate-pulse" />
+              <LoadingDots size={3}>
+                <span>Generating</span>
+              </LoadingDots>
             ) : (
-              <Send className="h-4 w-4" />
+              "Generate"
             )}
+            {!isGenerating && <Send className="h-4 w-4" />}
           </Button>
         </div>
         {isGenerating && (
@@ -105,12 +108,19 @@ export default function VideoInputArea({
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
               <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-[#7C68FA] to-[#7C68FA] animate-pulse-ripple-x" />
             </div>
-            <div className="mt-2 text-sm text-yellow-600 dark:text-yellow-400 flex items-center gap-2">
-              <Video className="h-4 w-4 animate-pulse" />
-              <span>
-                Video generation typically takes 2-3 minutes. Please be
-                patient...
-              </span>
+            <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-700">
+              <div className="flex items-center gap-2">
+                <Video className="h-4 w-4 text-yellow-600 dark:text-yellow-400 animate-pulse" />
+                <LoadingDots size={3}>
+                  <span className="text-sm text-yellow-600 dark:text-yellow-400 font-medium">
+                    Generating video
+                  </span>
+                </LoadingDots>
+              </div>
+              <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1 ml-6">
+                This process takes 2-3 minutes. Please be patient and keep this
+                tab open and come back later
+              </p>
             </div>
           </>
         )}
