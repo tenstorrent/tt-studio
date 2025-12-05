@@ -48,9 +48,12 @@ export function DeployedHome({
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center mb-10 sm:mb-12 md:mb-16 text-gray-900 dark:text-white">
             Available Models
           </h2>
-          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full items-start">
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full items-start justify-center">
             {models.map((model: Model) => (
-              <div key={model.id} className="w-full h-full flex justify-center">
+              <div
+                key={model.id}
+                className="w-full h-full flex justify-center max-w-md mx-auto"
+              >
                 <ModelCard
                   title={model.title}
                   image={model.image}
@@ -141,9 +144,12 @@ export function DeployedHome({
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-center mb-10 sm:mb-12 md:mb-16 text-gray-900 dark:text-white">
             Available Models
           </h2>
-          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full items-start">
+          <div className="grid gap-6 grid-cols-[repeat(auto-fit,minmax(320px,1fr))] max-w-full items-start justify-center">
             {models.map((model: Model) => (
-              <div key={model.id} className="w-full h-full flex justify-center">
+              <div
+                key={model.id}
+                className="w-full h-full flex justify-center max-w-md mx-auto"
+              >
                 <ModelCard
                   title={model.title}
                   image={model.image}

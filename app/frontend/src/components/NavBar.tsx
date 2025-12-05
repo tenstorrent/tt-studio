@@ -442,132 +442,22 @@ export default function NavBar() {
       icon: Home,
       label: "Home",
     },
-    {
-      type: "link",
-      to: "/rag-management",
-      icon: Notebook,
-      label: "Rag Management",
-      tooltip: "Manage Retrieval Augmented Generation data",
-    },
-    {
-      type: "link",
-      to: "/models-deployed",
-      icon: Boxes,
-      label: "Models Deployed",
-      tooltip: "Manage deployed models",
-    },
-    {
-      type: "link",
-      to: "/logs",
-      icon: FileText,
-      label: "Logs",
-      tooltip: "View system logs",
-    },
   ];
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
-    console.log(
-      "createModelNavItems called - isDeployedEnabled:",
-      isDeployedEnabled
-    );
-    console.log("models array:", models);
-    console.log("models length:", models.length);
-
-    if (isDeployedEnabled) {
-      // In AI Playground mode, show navigation based on deployed models
-      if (models.length > 0) {
-        // Show navigation items for each deployed model
-        return models.map((model) => {
-          const modelType = getModelTypeFromName(model.name);
-          console.log(`Model: ${model.name}, Type: ${modelType}`);
-          return {
-            type: "button",
-            icon: getNavIconFromModelType(modelType),
-            label: getModelPageNameFromModelType(modelType),
-            onClick: () =>
-              handleNavigation(getDestinationFromModelType(modelType)),
-            isDisabled: false,
-            tooltipText: `Open ${getModelPageNameFromModelType(modelType)} (${model.name})`,
-            route: getDestinationFromModelType(modelType),
-          };
-        });
-      } else {
-        // If no models are deployed, show all available model types as disabled
-        return [
-          {
-            type: "button",
-            icon: BotMessageSquare,
-            label: "Chat UI",
-            onClick: () => handleNavigation("/chat"),
-            isDisabled: true,
-            tooltipText: "Deploy a chat model to use Chat UI",
-            route: "/chat",
-          },
-          {
-            type: "button",
-            icon: Image,
-            label: "Image Generation",
-            onClick: () => handleNavigation("/image-generation"),
-            isDisabled: true,
-            tooltipText:
-              "Deploy an image generation model to use Image Generation",
-            route: "/image-generation",
-          },
-          {
-            type: "button",
-            icon: Video,
-            label: "Video Generation",
-            onClick: () => handleNavigation("/video-generation"),
-            isDisabled: true,
-            tooltipText:
-              "Deploy a video generation model to use Video Generation",
-            route: "/video-generation",
-          },
-          {
-            type: "button",
-            icon: Eye,
-            label: "Object Detection",
-            onClick: () => handleNavigation("/object-detection"),
-            isDisabled: true,
-            tooltipText:
-              "Deploy an object detection model to use Object Detection",
-            route: "/object-detection",
-          },
-          {
-            type: "button",
-            icon: AudioLines,
-            label: "Speech Recognition",
-            onClick: () => handleNavigation("/speech-to-text"),
-            isDisabled: true,
-            tooltipText:
-              "Deploy a speech recognition model to use Speech Recognition",
-            route: "/speech-to-text",
-          },
-        ];
-      }
-    } else {
-      // In TT-Studio mode, show only deployed models
-      console.log("TT-Studio mode - creating navigation for deployed models");
-      return models.map((model) => {
-        const modelType = getModelTypeFromName(model.name);
-        console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
-        return {
-          type: "button",
-          icon: getNavIconFromModelType(modelType),
-          label: getModelPageNameFromModelType(modelType),
-          onClick: () =>
-            handleNavigation(getDestinationFromModelType(modelType)),
-          isDisabled: models.length === 0,
-          tooltipText:
-            models.length > 0
-              ? `Open ${getModelPageNameFromModelType(modelType)}`
-              : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
-          route: getDestinationFromModelType(modelType),
-        };
-      });
-    }
+    return [
+      {
+        type: "button",
+        icon: Video,
+        label: "Video Generation",
+        onClick: () => handleNavigation("/video-generation"),
+        isDisabled: false,
+        tooltipText: "Open Video Generation",
+        route: "/video-generation",
+      },
+    ];
   };
 
   // Select the appropriate navigation items based on the environment variable

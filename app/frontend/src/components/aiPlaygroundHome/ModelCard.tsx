@@ -5,12 +5,12 @@ import { Link } from "react-router-dom";
 import type { Model } from "./types";
 import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
-import { Eye, Mic, Brain, Bot, Network } from "lucide-react";
+import { Eye, Mic, Brain, Bot, Network, Video } from "lucide-react";
 import { HardwareIcon } from "./HardwareIcon";
 import { ModelLogo } from "./ModelLogo";
 
 type ModelCardProps = Omit<Model, "id"> & {
-  modelType?: "LLM" | "CNN" | "Audio" | "NLP" | "ImageGen";
+  modelType?: "LLM" | "CNN" | "Audio" | "NLP" | "ImageGen" | "VideoGen";
   statusIndicator?: { show: boolean; color: string; animate: boolean };
   hoverEffects?: {
     rotate: boolean;
@@ -140,6 +140,8 @@ export function ModelCard({
         return <Mic className="w-6 h-6" />;
       case "NLP":
         return <Brain className="w-6 h-6" />;
+      case "VideoGen":
+        return <Video className="w-6 h-6" />;
       default:
         return <Bot className="w-6 h-6" />; // Default for LLM
     }
