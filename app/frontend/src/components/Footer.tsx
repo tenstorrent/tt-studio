@@ -128,16 +128,16 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
   // Handle logs button click
   const handleLogsClick = () => {
-    console.log("=== FOOTER LOGS BUTTON CLICKED ===");
-    console.log("Available models:", models);
+    // console.log("=== FOOTER LOGS BUTTON CLICKED ===");
+    // console.log("Available models:", models);
     if (models.length > 0) {
-      console.log("Footer: Opening logs for model ID:", models[0].id);
-      console.log("Footer: Model name:", models[0].name);
+      // console.log("Footer: Opening logs for model ID:", models[0].id);
+      // console.log("Footer: Model name:", models[0].name);
       const targetUrl = `/models-deployed?openLogs=${models[0].id}`;
-      console.log("Footer: Navigating to:", targetUrl);
+      // console.log("Footer: Navigating to:", targetUrl);
       navigate(targetUrl);
     } else {
-      console.log("Footer: No models available, navigating to models page");
+      // console.log("Footer: No models available, navigating to models page");
       navigate("/models-deployed");
     }
   };

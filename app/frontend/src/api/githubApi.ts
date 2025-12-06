@@ -113,7 +113,7 @@ export const fetchLatestRelease = async (): Promise<GitHubReleaseInfo> => {
 
     // If we have cached data, return it instead of fallback
     if (releaseCache) {
-      console.log("Using cached release data due to API error");
+      // console.log("Using cached release data due to API error");
       return releaseCache;
     }
 

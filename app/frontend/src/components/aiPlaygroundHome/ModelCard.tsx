@@ -62,7 +62,7 @@ export function ModelCard({
   const animationFrameRef = useRef<number>();
   const lastUpdateRef = useRef<number>();
 
-  console.log("ModelCard props:", { title, tpBadge });
+  // console.log("ModelCard props:", { title, tpBadge });
 
   // Generate floating particles effect
   useEffect(() => {
@@ -158,7 +158,7 @@ export function ModelCard({
     }
   };
 
-  console.log("tpBadge.customText:", tpBadge.customText);
+  // console.log("tpBadge.customText:", tpBadge.customText);
 
   return (
     <Link to={path} className="block w-full h-full perspective-[2000px]">

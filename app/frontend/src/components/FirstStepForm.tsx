@@ -132,7 +132,7 @@ export function FirstStepForm({
       try {
         setIsLoading(true);
         const response = await axios.get<Model[]>(getModelsUrl);
-        console.log("fetched models:", response.data);
+        // console.log("fetched models:", response.data);
         setModels(response.data);
       } catch (error) {
         console.error("Error fetching models:", error);
@@ -204,7 +204,7 @@ export function FirstStepForm({
       );
 
       if (targetModel) {
-        console.log("Auto-selecting model:", targetModel.name);
+        // console.log("Auto-selecting model:", targetModel.name);
         form.setValue("model", targetModel.name);
 
         // Auto-submit the form after a short delay

@@ -5,7 +5,7 @@
 import axios from "axios";
 
 export const dummyImageGeneration = async (prompt: string): Promise<string> => {
-  console.log(`Generating dummy image based on: "${prompt}"`);
+  // console.log(`Generating dummy image based on: "${prompt}"`);
   await new Promise((resolve) => setTimeout(resolve, 1000));
   return `https://picsum.photos/seed/${Math.random()}/1024/1024`;
 };

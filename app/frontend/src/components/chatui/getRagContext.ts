@@ -8,22 +8,22 @@ export const getRagContext = async (
   ragDatasource: RagDataSource | undefined
 ) => {
   const ragContext: { documents: string[] } = { documents: [] };
-  console.log(
-    "2^^^Fetching RAG context for the given request...",
-    request,
-    ragDatasource
-  );
+  // console.log(
+  //   "2^^^Fetching RAG context for the given request...",
+  //   request,
+  //   ragDatasource
+  // );
 
   if (!ragDatasource) return ragContext;
 
   try {
     // Get browser ID from localStorage
     const browserId = localStorage.getItem("tt_studio_browser_id");
-    console.log(`Browser ID: ${browserId}`);
+    // console.log(`Browser ID: ${browserId}`);
 
     // If special-all is specified, query across all collections
     if (ragDatasource.id === "special-all") {
-      console.log("Querying across all collections");
+      // console.log("Querying across all collections");
       try {
         const response = await axios.get(`/collections-api/query-all`, {
           params: { query_text: request.text, limit: 5 },
@@ -32,7 +32,7 @@ export const getRagContext = async (
           },
         });
 
-        console.log("Query-all response:", response);
+        // console.log("Query-all response:", response);
 
         if (response?.data?.results) {
           // Format results to include collection name
@@ -40,7 +40,7 @@ export const getRagContext = async (
             (result: any) =>
               `[From ${result.collection.name}]\n${result.document}`
           );
-          console.log("Processed documents:", ragContext.documents.length);
+          // console.log("Processed documents:", ragContext.documents.length);
         } else {
           console.warn(
             "No results found in query-all response:",
@@ -56,7 +56,7 @@ export const getRagContext = async (
       }
     } else {
       // Standard single collection query
-      console.log(`Querying single collection: ${ragDatasource.name}`);
+      // console.log(`Querying single collection: ${ragDatasource.name}`);
       try {
         const response = await axios.get(
           `/collections-api/${ragDatasource.name}/query`,
@@ -68,11 +68,11 @@ export const getRagContext = async (
           }
         );
 
-        console.log("Single collection response:", response);
+        // console.log("Single collection response:", response);
 
         if (response?.data) {
           ragContext.documents = response.data.documents[0] || [];
-          console.log("Processed documents:", ragContext.documents.length);
+          // console.log("Processed documents:", ragContext.documents.length);
         } else {
           console.warn(
             "No results found in single collection response:",

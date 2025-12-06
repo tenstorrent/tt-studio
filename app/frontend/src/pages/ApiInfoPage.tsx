@@ -21,11 +21,11 @@ const ApiInfoPage = () => {
 
   useEffect(() => {
     const fetchModelName = async () => {
-      console.log("ApiInfoPage: Fetching model data for modelId:", modelId);
-      console.log(
-        "ApiInfoPage: Original encoded modelId from URL:",
-        encodedModelId
-      );
+      // console.log("ApiInfoPage: Fetching model data for modelId:", modelId);
+      // console.log(
+      //   "ApiInfoPage: Original encoded modelId from URL:",
+      //   encodedModelId
+      // );
 
       if (!modelId) {
         console.error("ApiInfoPage: No modelId provided in URL params");
@@ -35,7 +35,7 @@ const ApiInfoPage = () => {
       }
 
       try {
-        console.log("ApiInfoPage: Making API request to /models-api/deployed/");
+        // console.log("ApiInfoPage: Making API request to /models-api/deployed/");
         const response = await fetch("/models-api/deployed/");
 
         if (!response.ok) {
@@ -46,11 +46,11 @@ const ApiInfoPage = () => {
         }
 
         const data = await response.json();
-        console.log("ApiInfoPage: API response data:", data);
-        console.log("ApiInfoPage: Looking for model with ID:", modelId);
+        // console.log("ApiInfoPage: API response data:", data);
+        // console.log("ApiInfoPage: Looking for model with ID:", modelId);
 
         const model = data[modelId];
-        console.log("ApiInfoPage: Found model:", model);
+        // console.log("ApiInfoPage: Found model:", model);
 
         if (!model) {
           console.error(
@@ -69,7 +69,7 @@ const ApiInfoPage = () => {
         }
 
         const modelNameValue = model.model_impl.model_name || "Unknown Model";
-        console.log("ApiInfoPage: Setting model name to:", modelNameValue);
+        // console.log("ApiInfoPage: Setting model name to:", modelNameValue);
         setModelName(modelNameValue);
       } catch (error) {
         console.error("ApiInfoPage: Error fetching model name:", error);
@@ -89,13 +89,13 @@ const ApiInfoPage = () => {
   };
 
   // Log render state
-  console.log("ApiInfoPage render state:", {
-    encodedModelId,
-    modelId,
-    modelName,
-    loading,
-    error,
-  });
+  // console.log("ApiInfoPage render state:", {
+  //   encodedModelId,
+  //   modelId,
+  //   modelName,
+  //   loading,
+  //   error,
+  // });
 
   return (
     <div className="flex flex-col w-full min-h-screen bg-grid-pattern dark:bg-grid-pattern-dark">

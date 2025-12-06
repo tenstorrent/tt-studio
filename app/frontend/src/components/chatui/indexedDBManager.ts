@@ -235,22 +235,22 @@ export const migrateFromLocalStorage = async (): Promise<void> => {
             parsedValue = JSON.parse(value);
           } catch (parseError) {
             // If parsing fails, store the raw string value
-            console.log(
-              `Value for key ${key} is not valid JSON, storing as string`
-            );
+            // console.log(
+            //   `Value for key ${key} is not valid JSON, storing as string`
+            // );
             parsedValue = value;
           }
 
           // Store in IndexedDB
           await setItem(key, parsedValue);
-          console.log(`Migrated ${key} from localStorage to IndexedDB`);
+          // console.log(`Migrated ${key} from localStorage to IndexedDB`);
         }
       } catch (error) {
         console.error(`Error migrating ${key}:`, error);
       }
     }
 
-    console.log("Migration from localStorage to IndexedDB complete");
+    // console.log("Migration from localStorage to IndexedDB complete");
   } catch (error) {
     console.error("Migration error:", error);
     throw error;

@@ -18,7 +18,7 @@ export function processUploadedFiles(files: FileData[]): FileData {
   }
 
   const combinedText = textFiles.map((file) => file.text).join("\n\n");
-  console.log(`Processed ${textFiles.length} text files into single content`);
+  // console.log(`Processed ${textFiles.length} text files into single content`);
 
   return {
     type: "text",

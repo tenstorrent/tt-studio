@@ -72,11 +72,11 @@ export const encodeFile = (
   base64Encoded = true
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
-    console.log("Starting file encoding process...");
-    console.log(
-      `File name: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}`
-    );
-    console.log(`Encoding mode: ${base64Encoded ? "Base64" : "Raw binary"}`);
+    // console.log("Starting file encoding process...");
+    // console.log(
+    //   `File name: ${file.name}, Size: ${file.size} bytes, Type: ${file.type}`
+    // );
+    // console.log(`Encoding mode: ${base64Encoded ? "Base64" : "Raw binary"}`);
 
     if (!file) {
       console.error("No file provided");
@@ -87,7 +87,7 @@ export const encodeFile = (
     const reader = new FileReader();
 
     reader.onload = () => {
-      console.log("File read successfully");
+      // console.log("File read successfully");
       const result = reader.result as string;
       const extension = getFileExtension(file.name);
 
@@ -97,7 +97,7 @@ export const encodeFile = (
         supportedMimeTypes.codeFiles.includes(file.type) ||
         codeFileExtensions.has(`.${extension}`)
       ) {
-        console.log(`Text/code content length: ${result.length} chars`);
+        // console.log(`Text/code content length: ${result.length} chars`);
         resolve(result);
         customToast.success(`File ${file.name} processed successfully! 🎉`);
         return;
@@ -107,14 +107,14 @@ export const encodeFile = (
       if (base64Encoded) {
         // Extract only the base64 data without the data URI prefix
         const base64Data = result.split(",")[1];
-        console.log(
-          `Base64 encoded data (first 50 chars): ${base64Data.substring(0, 50)}...`
-        );
+        // console.log(
+        //   `Base64 encoded data (first 50 chars): ${base64Data.substring(0, 50)}...`
+        // );
         resolve(base64Data);
         customToast.success(`File name: ${file.name}, uploaded sucessfully!🎉`);
       } else {
         // Return raw binary data
-        console.log(`Raw binary data length: ${result.length} bytes`);
+        // console.log(`Raw binary data length: ${result.length} bytes`);
         resolve(result);
       }
     };
@@ -139,13 +139,13 @@ export const encodeFile = (
         supportedMimeTypes.codeFiles.includes(file.type) ||
         codeFileExtensions.has(`.${extension}`)
       ) {
-        console.log("Reading file as text...");
+        // console.log("Reading file as text...");
         reader.readAsText(file);
       } else if (base64Encoded) {
-        console.log("Reading file as Data URL...");
+        // console.log("Reading file as Data URL...");
         reader.readAsDataURL(file);
       } else {
-        console.log("Reading file as ArrayBuffer...");
+        // console.log("Reading file as ArrayBuffer...");
         reader.readAsArrayBuffer(file);
       }
     } catch (error) {
@@ -161,7 +161,7 @@ export const encodeFile = (
 
 export const isImageFile = (file: File): boolean => {
   const result = supportedMimeTypes.images.includes(file.type);
-  console.log(`File type check: ${file.type} - Is supported image: ${result}`);
+  // console.log(`File type check: ${file.type} - Is supported image: ${result}`);
   return result;
 };
 
@@ -171,9 +171,9 @@ export const isTextFile = (file: File): boolean => {
     supportedMimeTypes.textFiles.includes(file.type) ||
     supportedMimeTypes.codeFiles.includes(file.type) ||
     codeFileExtensions.has(`.${extension}`);
-  console.log(
-    `File type check: ${file.type} - Is supported text/code file: ${result}`
-  );
+  // console.log(
+  //   `File type check: ${file.type} - Is supported text/code file: ${result}`
+  // );
   return result;
 };
 
@@ -181,7 +181,7 @@ export const isPdfFile = (file: File): boolean => {
   const result =
     supportedMimeTypes.pdfFiles.includes(file.type) ||
     file.name.toLowerCase().endsWith(".pdf");
-  console.log(`File type check: ${file.type} - Is PDF file: ${result}`);
+  // console.log(`File type check: ${file.type} - Is PDF file: ${result}`);
   return result;
 };
 
@@ -189,7 +189,7 @@ export const validateFile = (
   file: File,
   maxSizeMB = 10
 ): { valid: boolean; error?: string } => {
-  console.log(`Validating file: ${file.name}`);
+  // console.log(`Validating file: ${file.name}`);
 
   if (!file) {
     console.error("No file provided for validation");
@@ -222,6 +222,6 @@ export const validateFile = (
     };
   }
 
-  console.log("File validation passed");
+  // console.log("File validation passed");
   return { valid: true };
 };

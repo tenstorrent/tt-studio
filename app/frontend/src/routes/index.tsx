@@ -12,10 +12,10 @@ const AppRouter = () => {
   const routes = getRoutes();
 
   // Log environment variables for debugging
-  console.log(
-    "isDeployedEnabled",
-    import.meta.env.VITE_ENABLE_DEPLOYED === "true"
-  );
+  // console.log(
+  //   "isDeployedEnabled",
+  //   import.meta.env.VITE_ENABLE_DEPLOYED === "true"
+  // );
 
   return (
     <RefreshProvider>

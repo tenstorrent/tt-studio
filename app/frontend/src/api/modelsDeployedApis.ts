@@ -65,7 +65,7 @@ export const ModelType = {
 
 export const fetchModels = async (): Promise<Model[]> => {
   try {
-    console.log(`Fetching models from ${statusURl}`);
+    // console.log(`Fetching models from ${statusURl}`);
     const response = await axios.get<{ [key: string]: ContainerData }>(
       statusURl,
       {
@@ -80,10 +80,10 @@ export const fetchModels = async (): Promise<Model[]> => {
     }
 
     const data = response.data;
-    console.log("Raw response data:", data);
+    // console.log("Raw response data:", data);
 
     if (Object.keys(data).length === 0) {
-      console.log("No containers found in response");
+      // console.log("No containers found in response");
       return [];
     }
 
@@ -117,7 +117,7 @@ export const fetchModels = async (): Promise<Model[]> => {
       };
     });
 
-    console.log("Processed models:", models);
+    // console.log("Processed models:", models);
     return models;
   } catch (error) {
     console.error("Error fetching models:", error);
@@ -146,14 +146,14 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
   const truncatedModelId = modelId.substring(0, 4);
   try {
     const payload = JSON.stringify({ container_id: modelId });
-    console.log("Payload:", payload);
+    // console.log("Payload:", payload);
 
     const response = await axios.post<StopResponse>(stopModelsURL, payload, {
       headers: {
         "Content-Type": "application/json",
       },
     });
-    console.log("Response: on ts from backend", response);
+    // console.log("Response: on ts from backend", response);
 
     if (
       response.data.status !== "success" ||
@@ -178,9 +178,9 @@ export const deleteModel = async (modelId: string): Promise<StopResponse> => {
         customToast.error(`Board Reset failed.`);
       }
 
-      console.log(
-        `Reset Output: ${response.data.reset_response?.output || "No reset output available"}`
-      );
+      // console.log(
+      //   `Reset Output: ${response.data.reset_response?.output || "No reset output available"}`
+      // );
     }
 
     return response.data;
@@ -218,15 +218,15 @@ export const handleModelNavigationClick = (
 ): void => {
   const modelType = getModelTypeFromName(modelName);
   const destination = getDestinationFromModelType(modelType);
-  console.log(`${modelType} button clicked for model: ${modelID}`);
-  console.log(`Opening ${modelType} for model: ${modelName}`);
+  // console.log(`${modelType} button clicked for model: ${modelID}`);
+  // console.log(`Opening ${modelType} for model: ${modelName}`);
   customToast.success(`${destination.slice(1)} page opened!`);
 
   navigate(destination, {
     state: { containerID: modelID, modelName: modelName },
   });
 
-  console.log(`Navigated to ${destination} page`);
+  // console.log(`Navigated to ${destination} page`);
 };
 
 export const getDestinationFromModelType = (modelType: string): string => {
@@ -261,10 +261,10 @@ export const getModelTypeFromName = (modelName: string): string => {
 export const checkDeployedModels = async (): Promise<boolean> => {
   try {
     const fetchedModels = await fetchModels();
-    console.log("Fetched models:", fetchedModels);
+    // console.log("Fetched models:", fetchedModels);
     return fetchedModels !== null && fetchedModels.length > 0;
   } catch (error) {
-    console.log("Error fetching models:", error);
+    // console.log("Error fetching models:", error);
     console.error("Error checking deployed models:", error);
     return false;
   }

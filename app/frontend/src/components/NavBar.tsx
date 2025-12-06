@@ -6,13 +6,6 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Home,
-  Boxes,
-  BotMessageSquare,
-  Notebook,
-  FileText,
-  Image,
-  Eye,
-  AudioLines,
   Video,
   ChevronRight,
   ChevronLeft,
@@ -42,12 +35,7 @@ import CustomToaster from "./CustomToaster";
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
 import { useModels } from "../hooks/useModels";
-import {
-  handleModelNavigationClick,
-  getDestinationFromModelType,
-  ModelType,
-  getModelTypeFromName,
-} from "../api/modelsDeployedApis";
+import { handleModelNavigationClick } from "../api/modelsDeployedApis";
 import { useHeroSection } from "../hooks/useHeroSection";
 
 // Interfaces for our components
@@ -404,36 +392,6 @@ export default function NavBar() {
     setIsHorizontalExpanded(!isHorizontalExpanded);
   };
 
-  const getNavIconFromModelType = (model_type: string): LucideIcon => {
-    switch (model_type) {
-      case ModelType.ChatModel:
-        return BotMessageSquare;
-      case ModelType.ImageGeneration:
-        return Image;
-      case ModelType.ObjectDetectionModel:
-        return Eye;
-      case ModelType.SpeechRecognitionModel:
-        return AudioLines;
-      default:
-        return BotMessageSquare;
-    }
-  };
-
-  const getModelPageNameFromModelType = (model_type: string) => {
-    switch (model_type) {
-      case ModelType.ChatModel:
-        return "Chat UI";
-      case ModelType.ImageGeneration:
-        return "Image Generation";
-      case ModelType.ObjectDetectionModel:
-        return "Object Detection";
-      case ModelType.SpeechRecognitionModel:
-        return "Speech Recognition";
-      default:
-        return "ERROR";
-    }
-  };
-
   // Define base navigation items always shown regardless of flags
   const baseNavItems: NavItemData[] = [
     {
@@ -463,8 +421,8 @@ export default function NavBar() {
   // Select the appropriate navigation items based on the environment variable
   const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
 
-  console.log("Final navItems:", navItems);
-  console.log("navItems length:", navItems.length);
+  // console.log("Final navItems:", navItems);
+  // console.log("navItems length:", navItems.length);
 
   // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [

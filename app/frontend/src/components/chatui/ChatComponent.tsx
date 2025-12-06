@@ -447,17 +447,17 @@ export default function ChatComponent() {
 
   // Handle settings changes
   const handleSettingsChange = (key: string, value: number | boolean) => {
-    console.log(`=== Settings Change ===`);
-    console.log(`Parameter: ${key}`);
-    console.log(`New Value: ${value}`);
-    console.log(`Previous Settings:`, modelSettings);
+    // console.log(`=== Settings Change ===`);
+    // console.log(`Parameter: ${key}`);
+    // console.log(`New Value: ${value}`);
+    // console.log(`Previous Settings:`, modelSettings);
 
     setModelSettings((prev) => {
       const newSettings = {
         ...prev,
         [key]: value,
       };
-      console.log(`Updated Settings:`, newSettings);
+      // console.log(`Updated Settings:`, newSettings);
       return newSettings;
     });
   };
@@ -510,12 +510,12 @@ export default function ChatComponent() {
       }
 
       // Log current model settings before creating request
-      console.log("=== Current Model Settings ===");
-      console.log("Temperature:", modelSettings.temperature);
-      console.log("Top K:", modelSettings.topK);
-      console.log("Top P:", modelSettings.topP);
-      console.log("Max Tokens:", modelSettings.maxLength);
-      console.log("=============================");
+      // console.log("=== Current Model Settings ===");
+      // console.log("Temperature:", modelSettings.temperature);
+      // console.log("Top K:", modelSettings.topK);
+      // console.log("Top P:", modelSettings.topP);
+      // console.log("Max Tokens:", modelSettings.maxLength);
+      // console.log("=============================");
 
       // Create a new AbortController for this request
       const controller = new AbortController();
@@ -604,14 +604,14 @@ export default function ChatComponent() {
       };
 
       // Log the complete inference request
-      console.log("=== Creating Inference Request ===");
-      console.log("Model ID:", inferenceRequest.deploy_id);
-      console.log("Temperature:", inferenceRequest.temperature);
-      console.log("Top K:", inferenceRequest.top_k);
-      console.log("Top P:", inferenceRequest.top_p);
-      console.log("Max Tokens:", inferenceRequest.max_tokens);
-      console.log("Text:", inferenceRequest.text);
-      console.log("===============================");
+      // console.log("=== Creating Inference Request ===");
+      // console.log("Model ID:", inferenceRequest.deploy_id);
+      // console.log("Temperature:", inferenceRequest.temperature);
+      // console.log("Top K:", inferenceRequest.top_k);
+      // console.log("Top P:", inferenceRequest.top_p);
+      // console.log("Max Tokens:", inferenceRequest.max_tokens);
+      // console.log("Text:", inferenceRequest.text);
+      // console.log("===============================");
 
       setIsStreaming(true);
 
@@ -622,10 +622,10 @@ export default function ChatComponent() {
         setIsHistoryPanelOpen(false);
       }
 
-      console.log("=== CHAT COMPONENT DEBUG ===");
-      console.log("isAgentSelected before runInference:", isAgentSelected);
-      console.log("typeof isAgentSelected:", typeof isAgentSelected);
-      console.log("=============================");
+      // console.log("=== CHAT COMPONENT DEBUG ===");
+      // console.log("isAgentSelected before runInference:", isAgentSelected);
+      // console.log("typeof isAgentSelected:", typeof isAgentSelected);
+      // console.log("=============================");
 
       try {
         await runInference(
@@ -673,7 +673,7 @@ export default function ChatComponent() {
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-          console.log("Request was aborted");
+          // console.log("Request was aborted");
         } else {
           console.error("Error during inference:", error);
         }

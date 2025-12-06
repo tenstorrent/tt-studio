@@ -73,39 +73,39 @@ export function generatePrompt(
 
   // Check for simple greetings first for faster responses
   if (isSimpleGreeting(latestUserQuestion)) {
-    console.log("👋 Detected simple greeting, using fast path");
+    // console.log("👋 Detected simple greeting, using fast path");
     return generateSimpleGreetingResponse(chatHistory);
   }
 
   // Process the user's query
   const processedQuery = processQuery(latestUserQuestion);
-  console.log("🔍 Processed Query Results:", {
-    processed: processedQuery.processed,
-    expanded: processedQuery.expanded,
-    intent: processedQuery.intent,
-  });
+  // console.log("🔍 Processed Query Results:", {
+  //   processed: processedQuery.processed,
+  //   expanded: processedQuery.expanded,
+  //   intent: processedQuery.intent,
+  // });
 
   // Log detailed intent information
-  console.log("🎯 Detailed Intent Information:", {
-    type: processedQuery.intent.type,
-    action: processedQuery.intent.action,
-    details: processedQuery.intent.details,
-    rawIntent: processedQuery.intent,
-  });
+  // console.log("🎯 Detailed Intent Information:", {
+  //   type: processedQuery.intent.type,
+  //   action: processedQuery.intent.action,
+  //   details: processedQuery.intent.details,
+  //   rawIntent: processedQuery.intent,
+  // });
 
   // Choose appropriate examples based on question type and intent
   let examples = "";
   if (processedQuery.intent.type === "question") {
-    console.log("❓ Detected Question Type:", processedQuery.intent.type);
+    // console.log("❓ Detected Question Type:", processedQuery.intent.type);
     if (processedQuery.intent.action === "debug") {
-      console.log("🐛 Detected Debug Action");
+      // console.log("🐛 Detected Debug Action");
       examples = `Example:
 Question: How do I fix the authentication error?
 Context: [tt-auth] Users are authenticated using JWT tokens stored in browser local storage.
 [auth-flow] The authentication flow requires sending credentials to /api/auth endpoint.
 Answer: To fix the authentication error, ensure you're sending valid credentials to /api/auth endpoint. The system uses JWT tokens stored in browser local storage for authentication.`;
     } else if (processedQuery.intent.action === "deploy") {
-      console.log("🚀 Detected Deploy Action");
+      // console.log("🚀 Detected Deploy Action");
       examples = `Example:
 Question: How do I deploy the application?
 Context: [deployment] The application can be deployed using Docker containers.
@@ -139,10 +139,10 @@ ${responseFormat}`
 
   // Add RAG context if available
   if (ragContext && ragContext.documents.length > 0) {
-    console.log("📚 RAG Context Available:", {
-      documentCount: ragContext.documents.length,
-      firstDocumentPreview: ragContext.documents[0].substring(0, 100) + "...",
-    });
+    // console.log("📚 RAG Context Available:", {
+    //   documentCount: ragContext.documents.length,
+    //   firstDocumentPreview: ragContext.documents[0].substring(0, 100) + "...",
+    // });
 
     // Process and format RAG documents with source attribution
     const formattedDocuments = ragContext.documents
@@ -181,7 +181,7 @@ CONTEXT INSTRUCTIONS:
     });
   });
 
-  console.log("📤 Final Messages Being Sent:", messages);
+  // console.log("📤 Final Messages Being Sent:", messages);
   return messages;
 }
 

@@ -193,7 +193,7 @@ const FileDisplay: React.FC<FileDisplayProps> = ({
 }) => {
   if (!files || files.length === 0) return null;
 
-  console.log("Files:", files);
+  // console.log("Files:", files);
   const imageFiles = files.filter(isImageFile);
   const otherFiles = files.filter((file) => !isImageFile(file));
   const allFiles = [...imageFiles, ...otherFiles];

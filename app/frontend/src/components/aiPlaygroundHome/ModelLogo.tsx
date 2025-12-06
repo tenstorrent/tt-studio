@@ -23,13 +23,13 @@ export function ModelLogo({ path, alt, className = "" }: ModelLogoProps) {
       const testImage = new Image();
 
       testImage.onload = () => {
-        console.log(`Found model logo: ${path}`);
+        // console.log(`Found model logo: ${path}`);
         setIconUrl(path);
         setIsLoading(false);
       };
 
       testImage.onerror = () => {
-        console.log(`Model logo not found: ${path}, not displaying icon`);
+        // console.log(`Model logo not found: ${path}, not displaying icon`);
         setIconUrl(null);
         setIsLoading(false);
       };

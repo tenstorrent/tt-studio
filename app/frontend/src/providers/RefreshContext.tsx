@@ -15,7 +15,7 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const triggerHardwareRefresh = async () => {
     try {
-      console.log("Triggering hardware cache refresh...");
+      // console.log("Triggering hardware cache refresh...");
       const response = await fetch("/board-api/refresh-cache/", {
         method: "POST",
         headers: {
@@ -24,7 +24,7 @@ export const RefreshProvider: React.FC<{ children: React.ReactNode }> = ({
       });
 
       if (response.ok) {
-        console.log("Hardware cache refreshed successfully");
+        // console.log("Hardware cache refreshed successfully");
         // Also trigger regular refresh to update UI
         triggerRefresh();
       } else {

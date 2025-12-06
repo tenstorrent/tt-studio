@@ -23,37 +23,37 @@ export const runInference = async (
   threadId: number,
   abortController?: AbortController
 ) => {
-  console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
-    request,
-    isAgentSelected,
-    threadId,
-  });
+  // console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
+  //   request,
+  //   isAgentSelected,
+  //   threadId,
+  // });
   try {
     setIsStreaming(true);
 
-    console.log("Uploaded files:", request.files);
-    console.log("RAG Datasource:", ragDatasource);
+    // console.log("Uploaded files:", request.files);
+    // console.log("RAG Datasource:", ragDatasource);
 
     let ragContext: { documents: string[] } | null = null;
 
     if (ragDatasource) {
-      console.log(
-        `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
-      );
+      // console.log(
+      //   `Fetching RAG context from ${ragDatasource.name ? ragDatasource.name : "all collections"}`
+      // );
       ragContext = await getRagContext(request, ragDatasource);
-      console.log("RAG context fetched:", ragContext);
+      // console.log("RAG context fetched:", ragContext);
     }
 
     let messages;
     if (request.files && request.files.length > 0) {
       const file = processUploadedFiles(request.files);
-      console.log("Processed file:", file);
+      // console.log("Processed file:", file);
 
       if (file.type === "text" && file.text) {
         // Handle text file by treating its content as RAG context
-        console.log("Text file detected, processing as RAG context");
+        // console.log("Text file detected, processing as RAG context");
         const textContent = file.text;
-        console.log("Text content:", textContent);
+        // console.log("Text content:", textContent);
 
         // Create a RAG context from the text file content
         const fileRagContext = {
@@ -71,16 +71,16 @@ export const runInference = async (
         }
 
         // Process with RAG context
-        console.log("Processing with combined RAG context:", ragContext);
+        // console.log("Processing with combined RAG context:", ragContext);
         messages = generatePrompt(
           chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
           ragContext
         );
       } else if (file.image_url?.url || file) {
-        console.log(
-          "Image file detected, using image_url message structure",
-          file.image_url?.url
-        );
+        // console.log(
+        //   "Image file detected, using image_url message structure",
+        //   file.image_url?.url
+        // );
         messages = [
           {
             role: "user",
@@ -101,7 +101,7 @@ export const runInference = async (
       request.text.includes("https://") &&
       request.text.match(/\.(jpeg|jpg|gif|png)$/)
     ) {
-      console.log("Image URL detected in the message");
+      // console.log("Image URL detected in the message");
       const match = request.text.match(/(https:\/\/.*\.(jpeg|jpg|gif|png))/);
       if (match) {
         const imageUrl = match[0];
@@ -131,50 +131,50 @@ export const runInference = async (
         ];
       }
     } else {
-      console.log("RAG context being passed to generatePrompt:", ragContext);
+      // console.log("RAG context being passed to generatePrompt:", ragContext);
       messages = generatePrompt(
         chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
         ragContext
       );
     }
 
-    console.log("Generated messages:", messages);
-    console.log("Thread ID: ", threadId);
-    console.log("=== AGENT SELECTION DEBUG ===");
-    console.log("isAgentSelected:", isAgentSelected);
-    console.log("typeof isAgentSelected:", typeof isAgentSelected);
+    // console.log("Generated messages:", messages);
+    // console.log("Thread ID: ", threadId);
+    // console.log("=== AGENT SELECTION DEBUG ===");
+    // console.log("isAgentSelected:", isAgentSelected);
+    // console.log("typeof isAgentSelected:", typeof isAgentSelected);
 
     const apiUrlDefined = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
-    console.log("apiUrlDefined:", apiUrlDefined);
-    console.log(
-      "import.meta.env.VITE_ENABLE_DEPLOYED:",
-      import.meta.env.VITE_ENABLE_DEPLOYED
-    );
-    console.log(
-      "import.meta.env.VITE_SPECIAL_API_URL:",
-      import.meta.env.VITE_SPECIAL_API_URL
-    );
-    console.log(
-      "import.meta.env.VITE_LLAMA_AUTH_TOKEN:",
-      import.meta.env.VITE_LLAMA_AUTH_TOKEN
-    );
-    console.log("isAgentSelected:", isAgentSelected);
-    console.log(
-      "import.meta.env.VITE_SPECIAL_API_URL || '/models-api/agent/'",
-      import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
-    );
-    console.log(
-      "apiUrlDefined ? '/models-api/inference_cloud/' : '/models-api/inference/'",
-      apiUrlDefined ? "/models-api/inference_cloud/" : "/models-api/inference/"
-    );
+    // console.log("apiUrlDefined:", apiUrlDefined);
+    // console.log(
+    //   "import.meta.env.VITE_ENABLE_DEPLOYED:",
+    //   import.meta.env.VITE_ENABLE_DEPLOYED
+    // );
+    // console.log(
+    //   "import.meta.env.VITE_SPECIAL_API_URL:",
+    //   import.meta.env.VITE_SPECIAL_API_URL
+    // );
+    // console.log(
+    //   "import.meta.env.VITE_LLAMA_AUTH_TOKEN:",
+    //   import.meta.env.VITE_LLAMA_AUTH_TOKEN
+    // );
+    // console.log("isAgentSelected:", isAgentSelected);
+    // console.log(
+    //   "import.meta.env.VITE_SPECIAL_API_URL || '/models-api/agent/'",
+    //   import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
+    // );
+    // console.log(
+    //   "apiUrlDefined ? '/models-api/inference_cloud/' : '/models-api/inference/'",
+    //   apiUrlDefined ? "/models-api/inference_cloud/" : "/models-api/inference/"
+    // );
     const API_URL = isAgentSelected
       ? import.meta.env.VITE_SPECIAL_API_URL || "/models-api/agent/"
       : apiUrlDefined
         ? "/models-api/inference_cloud/"
         : "/models-api/inference/";
 
-    console.log("API URL:", API_URL);
-    console.log("=============================");
+    // console.log("API URL:", API_URL);
+    // console.log("=============================");
 
     const AUTH_TOKEN = import.meta.env.VITE_LLAMA_AUTH_TOKEN || "";
 
@@ -190,7 +190,7 @@ export const runInference = async (
     const threadIdStr = threadId.toString();
 
     if (!isAgentSelected) {
-      console.log("Using normal LLM flow (not agent)");
+      // console.log("Using normal LLM flow (not agent)");
       requestBody = {
         ...(apiUrlDefined ? {} : { deploy_id: request.deploy_id }),
         ...(apiUrlDefined
@@ -208,7 +208,7 @@ export const runInference = async (
         },
       };
     } else {
-      console.log("Using agent flow");
+      // console.log("Using agent flow");
       requestBody = {
         deploy_id: request.deploy_id,
         messages: messages,
@@ -226,14 +226,14 @@ export const runInference = async (
     }
 
     // Log the complete request body with model parameters
-    console.log("=== Sending Request to Backend ===");
-    console.log("Request Body:", JSON.stringify(requestBody, null, 2));
-    console.log("Model Parameters:");
-    console.log("- Temperature:", requestBody.temperature);
-    console.log("- Top K:", requestBody.top_k);
-    console.log("- Top P:", requestBody.top_p);
-    console.log("- Max Tokens:", requestBody.max_tokens);
-    console.log("================================");
+    // console.log("=== Sending Request to Backend ===");
+    // console.log("Request Body:", JSON.stringify(requestBody, null, 2));
+    // console.log("Model Parameters:");
+    // console.log("- Temperature:", requestBody.temperature);
+    // console.log("- Top K:", requestBody.top_k);
+    // console.log("- Top P:", requestBody.top_p);
+    // console.log("- Max Tokens:", requestBody.max_tokens);
+    // console.log("================================");
 
     // Create an AbortController if not provided
     const controller = abortController || new AbortController();
@@ -244,7 +244,7 @@ export const runInference = async (
       headers["X-Abort-Requested"] = "true";
     });
 
-    console.log("payload", JSON.stringify(requestBody));
+    // console.log("payload", JSON.stringify(requestBody));
     const response = await fetch(API_URL, {
       method: "POST",
       headers: headers,
@@ -256,8 +256,8 @@ export const runInference = async (
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    console.log("Response received. Status:", response.status);
-    console.log("Response headers:", response.headers);
+    // console.log("Response received. Status:", response.status);
+    // console.log("Response headers:", response.headers);
 
     const reader = response.body?.getReader();
     const decoder = new TextDecoder("utf-8");
@@ -278,7 +278,7 @@ export const runInference = async (
           const { done, value } = await reader.read();
 
           if (done) {
-            console.log("Stream complete");
+            // console.log("Stream complete");
             break;
           }
 
@@ -290,12 +290,12 @@ export const runInference = async (
             const trimmedLine = line.trim();
             if (trimmedLine.startsWith("data: ")) {
               if (trimmedLine === "data: [DONE]") {
-                console.log("Received [DONE] signal");
+                // console.log("Received [DONE] signal");
                 continue;
               }
 
               if (trimmedLine.startsWith("data: <<END_OF_STREAM>>")) {
-                console.log("End of stream marker received");
+                // console.log("End of stream marker received");
                 continue;
               }
 
@@ -312,10 +312,10 @@ export const runInference = async (
                       tokens_prefilled: jsonData.tokens_prefilled,
                       context_length: jsonData.context_length,
                     };
-                    console.log(
-                      "Final Inference Stats received:",
-                      inferenceStats
-                    );
+                    // console.log(
+                    //   "Final Inference Stats received:",
+                    //   inferenceStats
+                    // );
                     continue; // Skip processing this chunk as part of the generated text
                   }
                 }
@@ -343,7 +343,7 @@ export const runInference = async (
       } catch (error: any) {
         // Check if this is an abort error
         if (error.name === "AbortError") {
-          console.log("Fetch aborted by user");
+          // console.log("Fetch aborted by user");
           // Add a note to the message indicating it was stopped
           setChatHistory((prevHistory) => {
             const updatedHistory = [...prevHistory];
@@ -363,14 +363,14 @@ export const runInference = async (
       }
     }
 
-    console.log("Inference stream ended.");
+    // console.log("Inference stream ended.");
     setIsStreaming(false);
 
     if (inferenceStats) {
-      console.log(
-        "Updating chat history with inference stats:",
-        inferenceStats
-      );
+      // console.log(
+      //   "Updating chat history with inference stats:",
+      //   inferenceStats
+      // );
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];
@@ -392,7 +392,7 @@ export const createInferenceController = () => {
   return {
     controller,
     stopInference: () => {
-      console.log("Stopping inference...");
+      // console.log("Stopping inference...");
       controller.abort();
     },
   };

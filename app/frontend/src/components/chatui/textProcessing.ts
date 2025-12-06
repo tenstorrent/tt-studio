@@ -246,15 +246,15 @@ const INTENT_CONTEXT_KEYWORDS: Record<string, string[]> = {
 };
 
 export const preprocessQuery = (query: string): string => {
-  console.log("🔄 Starting query preprocessing:", query);
+  // console.log("🔄 Starting query preprocessing:", query);
 
   // Convert to lowercase and trim
   let processed = query.toLowerCase().trim();
-  console.log("📝 After lowercase and trim:", processed);
+  // console.log("📝 After lowercase and trim:", processed);
 
   // Remove special characters and punctuation
   processed = processed.replace(/[^\w\s]/g, " ");
-  console.log("🔤 After removing special characters:", processed);
+  // console.log("🔤 After removing special characters:", processed);
 
   // Use compromise for advanced text processing
   const doc = nlp(processed);
@@ -269,18 +269,18 @@ export const preprocessQuery = (query: string): string => {
     .filter((text: string) => {
       // Remove common stop words that compromise might have missed
       if (STOP_WORDS.has(text)) {
-        console.log("🗑️ Removing stop word:", text);
+        // console.log("🗑️ Removing stop word:", text);
         return false;
       }
       // Preserve domain-specific and technical terms
       if (PRESERVED_TERMS.has(text)) {
-        console.log("🔒 Preserving term:", text);
+        // console.log("🔒 Preserving term:", text);
         return text;
       }
       return text;
     });
 
-  console.log("📋 Extracted terms:", terms);
+  // console.log("📋 Extracted terms:", terms);
 
   // Join the processed terms
   processed = terms.join(" ");
@@ -290,13 +290,13 @@ export const preprocessQuery = (query: string): string => {
 
   // If query becomes empty after processing, return original query
   const finalProcessed = processed.trim() || query.trim();
-  console.log("✅ Final processed query:", finalProcessed);
+  // console.log("✅ Final processed query:", finalProcessed);
 
   return finalProcessed;
 };
 
 export const expandQuery = (query: string): string => {
-  console.log("🔄 Starting query expansion:", query);
+  // console.log("🔄 Starting query expansion:", query);
 
   const doc = nlp(query);
 
@@ -309,7 +309,7 @@ export const expandQuery = (query: string): string => {
     .normalize()
     .out("array");
 
-  console.log("📋 Base terms for expansion:", baseTerms);
+  // console.log("📋 Base terms for expansion:", baseTerms);
 
   // Add synonyms for common technical terms and actions
   const synonyms: Record<string, string[]> = {
@@ -335,18 +335,18 @@ export const expandQuery = (query: string): string => {
   // Expand terms with synonyms
   const expandedTerms = baseTerms.map((term: string) => {
     const termSynonyms = synonyms[term] || [];
-    console.log(`📚 Expanding term "${term}" with synonyms:`, termSynonyms);
+    // console.log(`📚 Expanding term "${term}" with synonyms:`, termSynonyms);
     return [term, ...termSynonyms].join(" ");
   });
 
   const finalExpanded = expandedTerms.join(" ");
-  console.log("✅ Final expanded query:", finalExpanded);
+  // console.log("✅ Final expanded query:", finalExpanded);
 
   return finalExpanded;
 };
 
 export const analyzeQueryIntent = (query: string): QueryIntent => {
-  console.log("🔄 Starting intent analysis:", query);
+  // console.log("🔄 Starting intent analysis:", query);
 
   const doc = nlp(query);
   const intent: QueryIntent = {
@@ -377,33 +377,33 @@ export const analyzeQueryIntent = (query: string): QueryIntent => {
     .replace(/[^\w\s]/g, "");
   if (greetingWords.includes(cleaned)) {
     intent.type = "greeting";
-    console.log("👋 Detected greeting type");
+    // console.log("👋 Detected greeting type");
     return intent;
   }
 
   // Check for question words
   if (doc.has("^#QuestionWord")) {
     intent.type = "question";
-    console.log("❓ Detected question type");
+    // console.log("❓ Detected question type");
   }
 
   // Check for command-like queries
   if (doc.has("^#Verb")) {
     intent.type = "command";
-    console.log("⚡ Detected command type");
+    // console.log("⚡ Detected command type");
   }
 
   // Check for error-related queries
   if (doc.has("error|issue|problem|bug|fault|crash|fail")) {
     intent.type = "debug";
     intent.action = "debug";
-    console.log("⚠️ Detected debug type");
+    // console.log("⚠️ Detected debug type");
   }
 
   // Check for help-related queries
   if (doc.has("help|assist|support|aid|guide")) {
     intent.type = "help";
-    console.log("🆘 Detected help type");
+    // console.log("🆘 Detected help type");
   }
 
   // Detect specific actions and add context keywords
@@ -412,7 +412,7 @@ export const analyzeQueryIntent = (query: string): QueryIntent => {
       intent.action = action;
       // Add intent-specific context keywords to details
       intent.details.push(...(INTENT_CONTEXT_KEYWORDS[action] || []));
-      console.log(`🎯 Detected action: ${action} with context keywords`);
+      // console.log(`🎯 Detected action: ${action} with context keywords`);
       break;
     }
   }
@@ -433,7 +433,7 @@ export const analyzeQueryIntent = (query: string): QueryIntent => {
     ...technicalTerms,
   ].filter((term): term is string => typeof term === "string");
 
-  console.log("✅ Final intent analysis:", intent);
+  // console.log("✅ Final intent analysis:", intent);
   return intent;
 };
 

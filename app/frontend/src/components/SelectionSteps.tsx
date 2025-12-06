@@ -65,7 +65,7 @@ export default function StepperDemo() {
 
   // Log when selectedWeight changes
   useEffect(() => {
-    console.log("🎯 selectedWeight changed to:", selectedWeight);
+    // console.log("🎯 selectedWeight changed to:", selectedWeight);
   }, [selectedWeight]);
   const [customWeight, setCustomWeight] = useState<Weight | null>(null);
   const [loading, setLoading] = useState(false);
@@ -130,7 +130,7 @@ export default function StepperDemo() {
       const response = await axios.get(
         `${dockerAPIURL}docker/image_status/${modelId}/`
       );
-      console.log("Image status response:", response.data);
+      // console.log("Image status response:", response.data);
       setImageStatus(response.data);
     } catch (error) {
       console.error("Error checking image status:", error);
@@ -159,7 +159,7 @@ export default function StepperDemo() {
         if (line.startsWith("data: ")) {
           try {
             const data = JSON.parse(line.slice(6));
-            console.log("Pull image response:", data);
+            // console.log("Pull image response:", data);
             if (data.status === "success") {
               customToast.success("Image pulled successfully!");
               await checkImageStatus(modelId);
@@ -192,7 +192,7 @@ export default function StepperDemo() {
   // Direct auto-deploy function
   const performAutoDeploy = async (modelName: string) => {
     try {
-      console.log("🚀 Starting auto-deployment for model:", modelName);
+      // console.log("🚀 Starting auto-deployment for model:", modelName);
 
       // Find the model ID by name
       const response = await axios.get("/docker-api/get_containers/");
@@ -209,7 +209,7 @@ export default function StepperDemo() {
         return;
       }
 
-      console.log("Found model for auto-deploy:", model);
+      // console.log("Found model for auto-deploy:", model);
 
       // Deploy with default weights
       const deployPayload = {
@@ -217,7 +217,7 @@ export default function StepperDemo() {
         weights_id: "", // Empty string for default weights
       };
 
-      console.log("Auto-deploy payload:", deployPayload);
+      // console.log("Auto-deploy payload:", deployPayload);
 
       const deployResponse = await axios.post(
         "/docker-api/deploy/",
@@ -229,7 +229,7 @@ export default function StepperDemo() {
         }
       );
 
-      console.log("Auto-deploy response:", deployResponse);
+      // console.log("Auto-deploy response:", deployResponse);
       customToast.success(`Model "${modelName}" deployment started!`);
 
       // Navigate to deployed models page after short delay
@@ -249,7 +249,7 @@ export default function StepperDemo() {
     if (autoDeployModel) {
       setIsAutoDeploying(true);
       customToast.info(`🤖 Auto-deploying model: ${autoDeployModel}`);
-      console.log("Auto-deploy mode detected for model:", autoDeployModel);
+      // console.log("Auto-deploy mode detected for model:", autoDeployModel);
 
       // Perform auto-deploy directly
       performAutoDeploy(autoDeployModel);
@@ -257,12 +257,12 @@ export default function StepperDemo() {
   }, [autoDeployModel]);
 
   const handleDeploy = async (): Promise<boolean> => {
-    console.log("handleDeploy called with:", {
-      selectedModel,
-      selectedWeight,
-      customWeight,
-      isAutoDeploying,
-    });
+    // console.log("handleDeploy called with:", {
+    //   selectedModel,
+    //   selectedWeight,
+    //   customWeight,
+    //   isAutoDeploying,
+    // });
 
     setLoading(true);
     setTimeout(() => {
@@ -280,8 +280,8 @@ export default function StepperDemo() {
       weights_id,
     });
 
-    console.log("Deployment payload:", payload);
-    console.log("Deployment URL:", deployUrl);
+    // console.log("Deployment payload:", payload);
+    // console.log("Deployment URL:", deployUrl);
 
     try {
       const response = await axios.post(deployUrl, payload, {
@@ -290,7 +290,7 @@ export default function StepperDemo() {
         },
       });
 
-      console.log("Deployment response:", response);
+      // console.log("Deployment response:", response);
       customToast.success("Model deployment started!");
       return true;
     } catch (error) {
