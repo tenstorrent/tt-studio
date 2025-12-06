@@ -98,7 +98,7 @@ export const models: Model[] = [
     id: "video-generation",
     title: "Wan2.2-T2V-A14B-Diffusers Video Generation",
     image: "/src/assets/aiPlayground/model-logo/stable_diffusion.svg",
-    path: "/video-generation",
+    path: "/video-examples",
     filter: "#5A4A78",
     TTDevice: "Galaxy",
     poweredByText: "Powered by Tenstorrent Galaxy",

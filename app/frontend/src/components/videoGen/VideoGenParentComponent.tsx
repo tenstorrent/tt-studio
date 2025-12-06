@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React, { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { customToast } from "../CustomToaster";
 import { Card } from "../ui/card";
 import VideoGenerationChat from "./VideoGenerationChat";
 
 const VideoGenParentComponent: React.FC = () => {
   const [initialPrompt, setInitialPrompt] = useState<string>("");
+  const [searchParams] = useSearchParams();
 
   // model handling state
   const location = useLocation();
@@ -27,6 +28,14 @@ const VideoGenParentComponent: React.FC = () => {
       setModelName(location.state.modelName);
     }
   }, [location.state, modelID, modelName]);
+
+  // Check for prompt in URL query parameters
+  useEffect(() => {
+    const promptFromUrl = searchParams.get("prompt");
+    if (promptFromUrl) {
+      setInitialPrompt(promptFromUrl);
+    }
+  }, [searchParams]);
 
   return (
     <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6 pb-20">

@@ -52,6 +52,7 @@ import ImageGenPage from "../pages/ImageGenPage";
 import AudioDetectionPage from "../pages/AudioDetectionPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import VideoGenPage from "../pages/VideoGenPage";
+import VideoExamplesPage from "../components/videoGen/VideoExamplesPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -111,6 +112,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/video-generation",
       element: <VideoGenPage />,
+      condition: true,
+    },
+    {
+      path: "/video-examples",
+      element: <VideoExamplesPage />,
       condition: true,
     },
     {
