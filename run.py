@@ -514,6 +514,11 @@ def configure_environment_sequentially(dev_mode=False):
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- ☁️  AI Playground Model Configuration  ---{C_RESET}")
         print(f"{C_YELLOW}Note: These are optional. Press Enter to skip any field.{C_RESET}")
         
+        # Ask specifically about video generation
+        print(f"\n{C_CYAN}🎬 Cloud Video Generation{C_RESET}")
+        print(f"{C_YELLOW}Would you like to configure cloud video generation? (This enables AI video generation features in AI Playground){C_RESET}")
+        enable_video_gen = input(f"Enable cloud video generation? (y/N): ").lower().strip() in ['y', 'yes']
+        
         cloud_vars = [
             ("CLOUD_CHAT_UI_URL", "🦙 Llama Chat UI URL", False),
             ("CLOUD_CHAT_UI_AUTH_TOKEN", "🔑 Llama Chat UI Auth Token", True),
@@ -523,9 +528,24 @@ def configure_environment_sequentially(dev_mode=False):
             ("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN", "🔑 Whisper Speech Recognition Auth Token", True),
             ("CLOUD_STABLE_DIFFUSION_URL", "🎨 Stable Diffusion URL", False),
             ("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN", "🔑 Stable Diffusion Auth Token", True),
-            ("CLOUD_VIDEO_GENERATION_URL", "🎬 Video Generation URL", False),
-            ("CLOUD_VIDEO_GENERATION_AUTH_TOKEN", "🔑 Video Generation Auth Token", True),
         ]
+        
+        # Add video generation only if user wants to enable it
+        if enable_video_gen:
+            cloud_vars.extend([
+                ("CLOUD_VIDEO_GENERATION_URL", "🎬 Video Generation URL", False),
+                ("CLOUD_VIDEO_GENERATION_AUTH_TOKEN", "🔑 Video Generation Auth Token", True),
+            ])
+            print(f"{C_GREEN}✅ Video generation will be configured.{C_RESET}\n")
+        else:
+            print(f"{C_YELLOW}⏭️  Skipping video generation configuration.{C_RESET}\n")
+            # Still write empty values to .env if they don't exist
+            current_video_url = get_env_var("CLOUD_VIDEO_GENERATION_URL")
+            current_video_token = get_env_var("CLOUD_VIDEO_GENERATION_AUTH_TOKEN")
+            if not current_video_url:
+                write_env_var("CLOUD_VIDEO_GENERATION_URL", "")
+            if not current_video_token:
+                write_env_var("CLOUD_VIDEO_GENERATION_AUTH_TOKEN", "")
         
         for var_name, prompt, is_secret in cloud_vars:
             current_val = get_env_var(var_name)
