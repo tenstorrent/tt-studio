@@ -130,6 +130,10 @@ export default defineConfig({
       interval: 1000,
     },
     proxy: proxyConfig,
-    allowedHosts: ["localhost", "playground.tenstorrent.com"],
+    allowedHosts: [
+      "localhost",
+      "playground.tenstorrent.com",
+      "public-playground.tenstorrent.com",
+    ],
   },
 });
