@@ -1372,27 +1372,8 @@ def start_fastapi_server(no_sudo=False):
         print(f"✅ Port 8001 is available")
     
     # Create PID and log files as regular user (no sudo needed for port 8001)
+    # FastAPI writes logs to fastapi.log at repo root, not to persistent volume
     print(f"🔧 Setting up log and PID files...")
-    
-    # Ensure the fastapi_logs directory exists
-    persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME")
-    if persistent_volume:
-        # First ensure backend_volume directory has proper permissions
-        backend_volume_dir = os.path.join(persistent_volume, "backend_volume")
-        if os.path.exists(backend_volume_dir):
-            try:
-                os.chmod(backend_volume_dir, 0o777)
-            except Exception as e:
-                print(f"{C_YELLOW}Warning: Could not fix backend_volume permissions: {e}{C_RESET}")
-        
-        fastapi_logs_dir = os.path.join(persistent_volume, "backend_volume", "fastapi_logs")
-        try:
-            # Create directory if it doesn't exist
-            os.makedirs(fastapi_logs_dir, exist_ok=True)
-            # Fix permissions whether directory is new or existing
-            os.chmod(fastapi_logs_dir, 0o777)
-        except Exception as e:
-            print(f"{C_YELLOW}Warning: Could not setup fastapi_logs directory: {e}{C_RESET}")
     
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
         try:
@@ -1630,8 +1611,7 @@ def cleanup_fastapi_server(no_sudo=False):
             port_freed = True
     
     # Remove PID and log files
-    # Note: We only clean up the root fastapi.log, not the persistent volume logs
-    # The persistent volume logs (main-fastapi_*.log) are kept for historical reference
+    # FastAPI writes logs to fastapi.log at repo root (not persistent volume)
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
         try:
             if os.path.exists(file_path):
@@ -2197,8 +2177,13 @@ def main():
             if not os.path.isdir(host_persistent_volume):
                 print(f"\n{C_BLUE}📁 Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
                 os.makedirs(host_persistent_volume, exist_ok=True)
-            # Fix permissions whether directory is new or existing
-            os.chmod(host_persistent_volume, 0o777)
+                # Only set permissions on newly created directory (we own it)
+                # Existing subdirectories will be handled by Docker containers via docker-entrypoint.sh
+                try:
+                    os.chmod(host_persistent_volume, 0o777)
+                except (OSError, PermissionError) as e:
+                    print(f"{C_YELLOW}⚠️  Could not set permissions on persistent volume: {e}{C_RESET}")
+                    print(f"{C_YELLOW}   Docker containers will handle permissions via docker-entrypoint.sh{C_RESET}")
 
         # Create Docker network
         print(f"\n{C_BLUE}Checking for Docker network 'tt_studio_network'...{C_RESET}")
