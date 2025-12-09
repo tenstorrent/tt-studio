@@ -108,32 +108,73 @@ class SystemResourceService:
             else:
                 # Extract board type from tt-smi data
                 if "device_info" in tt_data and len(tt_data["device_info"]) > 0:
-                    device_info = tt_data["device_info"][0]
-                    if "board_info" in device_info:
-                        board_info = device_info["board_info"]
-                        raw_board_type = board_info.get("board_type", "unknown")
-                        logger.info(f"Raw board_type: '{raw_board_type}'")
-                        
-                        # Determine board type based on number of devices and board type
-                        num_devices = len(tt_data["device_info"])
-                        logger.info(f"num_devices: {num_devices}")
-                        
-                        if "n150" in raw_board_type.lower():
-                            board_type = "N150"
-                        elif "n300" in raw_board_type.lower():
-                            if num_devices == 1:
-                                board_type = "N300"
-                            elif num_devices >= 4:
-                                board_type = "T3000"
-                            else:
-                                logger.warning(f"Unexpected number of N300 devices: {num_devices}")
-                                board_type = "N300"
-                        else:
-                            logger.warning(f"Unknown board type: {raw_board_type}")
-                            board_type = "unknown"
-                    else:
-                        logger.warning("No 'board_info' found in device info")
+                    # Get all board types and validate homogeneity (like inference server does)
+                    board_types = []
+                    for info in tt_data["device_info"]:
+                        if "board_info" in info:
+                            board_info = info["board_info"]
+                            board_types.append(board_info.get("board_type", "unknown"))
+                    
+                    if not board_types:
+                        logger.warning("No 'board_info' found in any device info")
                         board_type = "unknown"
+                    else:
+                        # Remove "local" and "remote" designations, if they exist
+                        filtered_board_types = [bt.rsplit(" ", 1)[0] for bt in board_types]
+                        unique_board_types = set(filtered_board_types)
+                        
+                        # Validate homogeneous board types (all devices must be same type)
+                        if len(unique_board_types) > 1:
+                            logger.warning(f"Mixed board types detected: {unique_board_types}. Only homogeneous setups are supported.")
+                            board_type = "unknown"
+                        else:
+                            raw_board_type = unique_board_types.pop()
+                            num_devices = len(tt_data["device_info"])
+                            logger.info(f"Raw board_type: '{raw_board_type}', num_devices: {num_devices}")
+                            
+                            # Detect board type based on raw_board_type and device count
+                            raw_lower = raw_board_type.lower()
+                            
+                            # Wormhole devices
+                            if "n150" in raw_lower:
+                                if num_devices >= 4:
+                                    board_type = "N150X4"
+                                else:
+                                    board_type = "N150"
+                            elif "n300" in raw_lower:
+                                if num_devices >= 4:
+                                    board_type = "T3K"
+                                else:
+                                    board_type = "N300"
+                            
+                            # Blackhole devices
+                            elif "p300" in raw_lower:
+                                if num_devices >= 4:
+                                    board_type = "P300X2"
+                                else:
+                                    board_type = "P300"
+                            elif "p150" in raw_lower:
+                                if num_devices >= 8:
+                                    board_type = "P150X8"
+                                elif num_devices >= 4:
+                                    board_type = "P150X4"
+                                else:
+                                    board_type = "P150"
+                            elif "p100" in raw_lower:
+                                board_type = "P100"
+                            elif "e150" in raw_lower:
+                                board_type = "E150"
+                            
+                            # Galaxy systems (may need refinement based on actual tt-smi output)
+                            elif "galaxy" in raw_lower:
+                                if "t3k" in raw_lower:
+                                    board_type = "GALAXY_T3K"
+                                else:
+                                    board_type = "GALAXY"
+                            
+                            else:
+                                logger.warning(f"Unknown board type: {raw_board_type}")
+                                board_type = "unknown"
                 else:
                     logger.warning("No device info found in tt-smi data")
                     board_type = "unknown"

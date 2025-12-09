@@ -36,10 +36,30 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
     board_to_device_map = {
+        # Wormhole devices
         "N150": "n150",
         "N300": "n300",
+        "E150": "e150",
+        
+        # Wormhole multi-device
+        "N150X4": "n150x4",
         "T3000": "t3k",  # T3000 maps to t3k for TT Inference Server
         "T3K": "t3k",
+        
+        # Blackhole devices
+        "P100": "p100",
+        "P150": "p150",
+        "P300": "p300",
+        
+        # Blackhole multi-device
+        "P150X4": "p150x4",
+        "P150X8": "p150x8",
+        "P300X2": "p300x2",
+        
+        # Galaxy systems
+        "GALAXY": "galaxy",
+        "GALAXY_T3K": "galaxy_t3k",
+        
         "unknown": "cpu"  # Fallback to cpu for unknown boards
     }
 

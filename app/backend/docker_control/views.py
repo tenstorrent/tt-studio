@@ -146,10 +146,30 @@ class ContainersView(APIView):
         
         # Map board types to their corresponding device configurations
         board_to_device_map = {
+            # Wormhole single devices
             'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
             'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            'E150': [DeviceConfigurations.E150],
+            
+            # Wormhole multi-device
+            'N150X4': [DeviceConfigurations.N150X4],
             'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
-            'T3K': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            
+            # Blackhole single devices
+            'P100': [DeviceConfigurations.P100],
+            'P150': [DeviceConfigurations.P150],
+            'P300': [DeviceConfigurations.P300],
+            
+            # Blackhole multi-device
+            'P150X4': [DeviceConfigurations.P150X4],
+            'P150X8': [DeviceConfigurations.P150X8],
+            'P300X2': [DeviceConfigurations.P300X2],
+            
+            # Galaxy systems
+            'GALAXY': [DeviceConfigurations.GALAXY],
+            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K],
+            
             'unknown': []  # Empty list for unknown board type
         }
         
@@ -1179,9 +1199,30 @@ class BoardInfoView(APIView):
             
             # Map board types to friendly names
             board_name_map = {
+                # Wormhole devices
                 'N150': 'Tenstorrent N150',
-                'N300': 'Tenstorrent N300', 
+                'N300': 'Tenstorrent N300',
+                'E150': 'Tenstorrent E150',
+                
+                # Wormhole multi-device
+                'N150X4': 'Tenstorrent N150x4',
                 'T3000': 'Tenstorrent T3000',
+                'T3K': 'Tenstorrent T3K',
+                
+                # Blackhole devices
+                'P100': 'Tenstorrent P100',
+                'P150': 'Tenstorrent P150',
+                'P300': 'Tenstorrent P300',
+                
+                # Blackhole multi-device
+                'P150X4': 'Tenstorrent P150x4',
+                'P150X8': 'Tenstorrent P150x8',
+                'P300X2': 'Tenstorrent P300x2',
+                
+                # Galaxy systems
+                'GALAXY': 'Tenstorrent Galaxy',
+                'GALAXY_T3K': 'Tenstorrent Galaxy T3K',
+                
                 'unknown': 'Unknown Board'
             }
             board_name = board_name_map.get(board_type, 'Unknown Board')
