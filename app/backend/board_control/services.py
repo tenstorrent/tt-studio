@@ -149,10 +149,14 @@ class SystemResourceService:
                             
                             # Blackhole devices
                             elif "p300" in raw_lower:
-                                if num_devices >= 4:
-                                    board_type = "P300X2"
+                                if num_devices >= 8:
+                                    board_type = "P300cX8"
+                                elif num_devices >= 4:
+                                    board_type = "P300cX4"
+                                elif num_devices >= 2:
+                                    board_type = "P300cX2"
                                 else:
-                                    board_type = "P300"
+                                    board_type = "P300c"
                             elif "p150" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P150X8"
@@ -268,16 +272,9 @@ class SystemResourceService:
                         
                         system_status["devices"] = devices
                         
-                        # Determine primary board name
-                        if board_types:
-                            if len(board_types) == 1:
-                                system_status["board_name"] = "N150"
-                            elif len(board_types) == 2:
-                                system_status["board_name"] = "N300"
-                            elif len(board_types) == 8:
-                                system_status["board_name"] = "T3K"
-                            else:
-                                system_status["board_name"] = board_types[0]
+                        # Determine primary board name using proper detection
+                        detected_board_type = SystemResourceService.get_board_type()
+                        system_status["board_name"] = detected_board_type
                 else:
                     # tt-smi failed - indicate potential hardware issue
                     system_status["hardware_status"] = "error"

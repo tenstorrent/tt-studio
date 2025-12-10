@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-#
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
 import socket, os, subprocess, json, signal, time
@@ -49,12 +48,14 @@ def map_board_type_to_device_name(board_type):
         # Blackhole devices
         "P100": "p100",
         "P150": "p150",
-        "P300": "p300",
+        "P300c": "p300c",
         
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300X2": "p300x2",
+        "P300cX2": "p300cx2",
+        "P300cX4": "p300cx4",
+        "P300cX8": "p300cx8",
         
         # Galaxy systems
         "GALAXY": "galaxy",
