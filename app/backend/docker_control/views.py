@@ -159,12 +159,13 @@ class ContainersView(APIView):
             # Blackhole single devices
             'P100': [DeviceConfigurations.P100],
             'P150': [DeviceConfigurations.P150],
-            'P300': [DeviceConfigurations.P300],
+            'P300c': [DeviceConfigurations.P300c],
             
             # Blackhole multi-device
             'P150X4': [DeviceConfigurations.P150X4],
             'P150X8': [DeviceConfigurations.P150X8],
-            'P300X2': [DeviceConfigurations.P300X2],
+            'P300cX2': [DeviceConfigurations.P300cX2],  # 2 cards (4 chips)
+            'P300cX4': [DeviceConfigurations.P300cX4],  # 4 cards (8 chips)
             
             # Galaxy systems
             'GALAXY': [DeviceConfigurations.GALAXY],
@@ -1212,12 +1213,13 @@ class BoardInfoView(APIView):
                 # Blackhole devices
                 'P100': 'Tenstorrent P100',
                 'P150': 'Tenstorrent P150',
-                'P300': 'Tenstorrent P300',
+                'P300c': 'Tenstorrent P300c',
                 
                 # Blackhole multi-device
                 'P150X4': 'Tenstorrent P150x4',
                 'P150X8': 'Tenstorrent P150x8',
-                'P300X2': 'Tenstorrent P300x2',
+                'P300cX2': 'Tenstorrent P300cX2',  # 2 cards (4 chips)
+                'P300cX4': 'Tenstorrent P300cX4',  # 4 cards (8 chips)
                 
                 # Galaxy systems
                 'GALAXY': 'Tenstorrent Galaxy',

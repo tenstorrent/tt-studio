@@ -27,14 +27,13 @@ class DeviceConfigurations(Enum):
     # Blackhole devices
     P100 = auto()
     P150 = auto()
-    P300 = auto()
+    P300c = auto()
 
     # Blackhole multi-device
     P150X4 = auto()
     P150X8 = auto()
-
-    # Blackhole multi-device
-    P300X2 = auto()
+    P300cX2 = auto()  # 2 cards (4 chips)
+    P300cX4 = auto()  # 4 cards (8 chips)
     
     # Galaxy systems
     GALAXY = auto()

@@ -147,12 +147,16 @@ class SystemResourceService:
                                 else:
                                     board_type = "N300"
                             
-                            # Blackhole devices
+                            # Blackhole devices (P300c has 2 chips per card)
                             elif "p300" in raw_lower:
-                                if num_devices >= 4:
-                                    board_type = "P300X2"
+                                if num_devices >= 8:
+                                    board_type = "P300cX4"  # 8 chips = 4 cards
+                                elif num_devices >= 4:
+                                    board_type = "P300cX2"  # 4 chips = 2 cards
+                                elif num_devices == 2:
+                                    board_type = "P300c"    # 2 chips = 1 card
                                 else:
-                                    board_type = "P300"
+                                    board_type = "P300c"    # Single chip fallback
                             elif "p150" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P150X8"
