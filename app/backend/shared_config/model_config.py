@@ -224,6 +224,12 @@ N150_N300 = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, 
 ALL_BOARDS = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
 T3000_ONLY = {DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
 
+# Blackhole device configurations
+BLACKHOLE_SMALL = {DeviceConfigurations.P100, DeviceConfigurations.P150, DeviceConfigurations.P300c}
+BLACKHOLE_MULTI = {DeviceConfigurations.P300cX2, DeviceConfigurations.P300cX4}
+T3000_AND_P300CX2 = {DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.P300cX2}
+ALL_BOARDS_WITH_BLACKHOLE = ALL_BOARDS | BLACKHOLE_SMALL | BLACKHOLE_MULTI
+
 model_implmentations_list = [
     # Speech Recognition - Can run on N150 and N300
     ModelImpl(
@@ -336,7 +342,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
         image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=ALL_BOARDS,  # Can run on all boards
+        device_configurations=ALL_BOARDS | BLACKHOLE_SMALL | {DeviceConfigurations.P300cX2},  # Added Blackhole support
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -356,6 +362,17 @@ model_implmentations_list = [
  
     # ),
 
+    # 32B models - T3000 and Blackhole P300cX2
+    ModelImpl(
+        hf_model_id="Qwen/Qwen3-32B",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
+        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
+        device_configurations=T3000_AND_P300CX2,
+        docker_config=base_docker_config(),
+        service_route="/v1/chat/completions",
+        setup_type=SetupTypes.TT_INFERENCE_SERVER,
+        model_type=ModelTypes.CHAT
+    ),
 
     # 70B models - Only T3000
 
@@ -386,7 +403,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
         image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=T3000_ONLY,  # Only T3000
+        device_configurations=T3000_AND_P300CX2,  # T3000 and Blackhole P300cX2
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
