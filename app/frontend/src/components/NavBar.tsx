@@ -18,6 +18,7 @@ import {
   type LucideIcon,
   Cog,
   Menu,
+  History,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -452,6 +453,13 @@ export default function NavBar() {
       icon: Boxes,
       label: "Models Deployed",
       tooltip: "Manage deployed models",
+    },
+    {
+      type: "link",
+      to: "/deployment-history",
+      icon: History,
+      label: "Deployment History",
+      tooltip: "View deployment history and container status",
     },
     {
       type: "link",
