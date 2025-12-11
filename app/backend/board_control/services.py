@@ -74,8 +74,10 @@ class SystemResourceService:
                     process.wait(timeout=2)
                 except:
                     try:
+                        logger.error(f"Killing tt-smi process group {os.getpgid(process.pid)}")
                         os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                     except:
+                        logger.error(f"Failed to kill tt-smi process group {os.getpgid(process.pid)}")
                         pass
                 # Cache the None result for a longer time to avoid repeated timeouts
                 cache.set(SystemResourceService.TT_SMI_CACHE_KEY, None, timeout=120)  # 2 minutes for timeouts
@@ -150,9 +152,9 @@ class SystemResourceService:
                             # Blackhole devices (P300c has 2 chips per card)
                             elif "p300" in raw_lower:
                                 if num_devices >= 8:
-                                    board_type = "P300cX4"  # 8 chips = 4 cards
+                                    board_type = "P300Cx4"  # 8 chips = 4 cards
                                 elif num_devices >= 4:
-                                    board_type = "P300cX2"  # 4 chips = 2 cards
+                                    board_type = "P300Cx2"  # 4 chips = 2 cards
                                 elif num_devices == 2:
                                     board_type = "P300c"    # 2 chips = 1 card
                                 else:
@@ -272,7 +274,7 @@ class SystemResourceService:
                         
                         system_status["devices"] = devices
                         
-                        # Determine primary board name using detected board type (supports P300cX2/X4)
+                        # Determine primary board name using detected board type (supports P300Cx2/X4)
                         detected_board_type = SystemResourceService.get_board_type()
                         system_status["board_name"] = detected_board_type
                 else:

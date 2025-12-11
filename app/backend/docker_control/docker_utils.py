@@ -54,8 +54,8 @@ def map_board_type_to_device_name(board_type):
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300cX2": "p300cx2",  # 2 cards (4 chips)
-        "P300cX4": "p300cx4",  # 4 cards (8 chips)
+        "P300Cx2": "p300cx2",  # 2 cards (4 chips)
+        "P300Cx4": "p300cx4",  # 4 cards (8 chips)
         
         # Galaxy systems
         "GALAXY": "galaxy",

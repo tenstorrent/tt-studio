@@ -336,7 +336,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
         image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=ALL_BOARDS | {DeviceConfigurations.P300cX2},
+        device_configurations=ALL_BOARDS | {DeviceConfigurations.P300Cx2},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -356,12 +356,12 @@ model_implmentations_list = [
  
     # ),
 
-    # 32B models - T3000 and P300cX2
+    # 32B models - T3000 and P300Cx2
     ModelImpl(
         hf_model_id="Qwen/Qwen3-32B",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
         image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations={DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.P300cX2},
+        device_configurations={DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.P300Cx2},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
@@ -397,7 +397,7 @@ model_implmentations_list = [
         hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
         image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
         image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=T3000_ONLY | {DeviceConfigurations.P300cX2},
+        device_configurations=T3000_ONLY | {DeviceConfigurations.P300Cx2},
         docker_config=base_docker_config(),
         service_route="/v1/chat/completions",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
