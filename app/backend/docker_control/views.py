@@ -4,6 +4,7 @@
 
 from django.shortcuts import render
 from django.http import StreamingHttpResponse
+from django.views import View
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -20,6 +21,8 @@ import docker
 import re
 import os 
 import concurrent.futures
+import requests
+import json
 from .forms import DockerForm
 from .docker_utils import (
     run_container,
@@ -46,6 +49,7 @@ client = docker.from_env()
 
 # Add this near the top after imports, before classes
 pull_progress = {}  # {model_id: {status, progress, current, total, message}}
+deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
 # Add custom renderer for SSE
 class EventStreamRenderer(JSONRenderer):
@@ -64,6 +68,22 @@ class StopView(APIView):
         if serializer.is_valid():
             container_id = request.data.get("container_id")
             logger.info(f"Received request to stop container with ID: {container_id}")
+
+            # Mark deployment as stopped by user in database
+            try:
+                from docker_control.models import ModelDeployment
+                from django.utils import timezone
+                
+                deployment = ModelDeployment.objects.filter(container_id=container_id).first()
+                if deployment:
+                    deployment.stopped_by_user = True
+                    deployment.status = "stopped"
+                    deployment.stopped_at = timezone.now()
+                    deployment.save()
+                    logger.info(f"Marked deployment {container_id} as stopped by user")
+            except Exception as e:
+                logger.error(f"Failed to update deployment record: {e}")
+                # Continue with stop even if database update fails
 
             # Stop the main container
             stop_response = stop_container(container_id)
@@ -126,10 +146,31 @@ class ContainersView(APIView):
         
         # Map board types to their corresponding device configurations
         board_to_device_map = {
+            # Wormhole single devices
             'N150': [DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
             'N300': [DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            'E150': [DeviceConfigurations.E150],
+            
+            # Wormhole multi-device
+            'N150X4': [DeviceConfigurations.N150X4],
             'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
-            'T3K': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            
+            # Blackhole single devices
+            'P100': [DeviceConfigurations.P100],
+            'P150': [DeviceConfigurations.P150],
+            'P300c': [DeviceConfigurations.P300c],
+            
+            # Blackhole multi-device
+            'P150X4': [DeviceConfigurations.P150X4],
+            'P150X8': [DeviceConfigurations.P150X8],
+            'P300Cx2': [DeviceConfigurations.P300Cx2],  # 2 cards (4 chips)
+            'P300Cx4': [DeviceConfigurations.P300Cx4],  # 4 cards (8 chips)
+            
+            # Galaxy systems
+            'GALAXY': [DeviceConfigurations.GALAXY],
+            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K],
+            
             'unknown': []  # Empty list for unknown board type
         }
         
@@ -187,6 +228,19 @@ class DeployView(APIView):
             impl = model_implmentations[impl_id]
             response = run_container(impl, weights_id)
             
+            # Ensure job_id is set for progress tracking
+            # Use job_id from API response, or fallback to container_id or container_name
+            if not response.get("job_id"):
+                response["job_id"] = response.get("container_id") or response.get("container_name")
+            
+            # Check if deployment failed
+            if response.get("status") == "error":
+                logger.error(f"Deployment failed: {response.get('message', 'Unknown error')}")
+                return Response(
+                    response,
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
             # Refresh tt-smi cache after successful deployment
             if response.get("status") == "success":
                 try:
@@ -197,6 +251,356 @@ class DeployView(APIView):
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DeploymentProgressView(APIView):
+    def get(self, request, job_id, *args, **kwargs):
+        """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
+        import time
+        
+        try:
+            logger.info(f"Fetching deployment progress for job_id: {job_id}")
+            
+            # First, try to get progress from FastAPI inference server
+            try:
+                fastapi_url = "http://172.18.0.1:8001/run/progress/" + job_id
+                response = requests.get(fastapi_url, timeout=5)
+                
+                if response.status_code == 200:
+                    progress_data = response.json()
+                    logger.info(f"Got progress from FastAPI: {progress_data}")
+                    
+                    # Add support for new status types
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "stalled", "cancelled"]:
+                        return Response(progress_data, status=status.HTTP_200_OK)
+                    
+                logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
+                
+            except requests.exceptions.RequestException as e:
+                logger.info(f"FastAPI not available ({str(e)}), falling back to container-based progress")
+            
+            # Fallback: existing container-based progress tracking
+            # Track deployment start time if not already tracked
+            if job_id not in deployment_start_times:
+                deployment_start_times[job_id] = time.time()
+            
+            elapsed_time = time.time() - deployment_start_times[job_id]
+            
+            # job_id is container_id or container_name
+            # Try to get container by ID first, then by name
+            container = None
+            try:
+                # Try to get container by ID (full or partial)
+                container = client.containers.get(job_id)
+            except docker.errors.NotFound:
+                # Try by name
+                try:
+                    containers = client.containers.list(all=True)
+                    for c in containers:
+                        if c.name == job_id:
+                            container = c
+                            break
+                except Exception as e:
+                    logger.warning(f"Error listing containers: {str(e)}")
+            
+            # Container not found - deployment in early stages
+            # Map to actual FastAPI log stages with realistic timing
+            if not container:
+                logger.info(f"Container {job_id} not found yet - deployment in progress (elapsed: {elapsed_time:.1f}s)")
+                
+                # Based on FastAPI logs - realistic timing for each stage
+                if elapsed_time < 3:
+                    progress = 5
+                    stage = "initialization"
+                    message = "Loading environment files..."  # fastapi.log (13-14)
+                elif elapsed_time < 8:
+                    progress = 15
+                    stage = "setup"
+                    message = "Running workflow configuration..."  # fastapi.log (19-27)
+                elif elapsed_time < 15:
+                    progress = 25
+                    stage = "model_preparation"
+                    message = "Checking model setup and weights..."  # fastapi.log (83-91)
+                elif elapsed_time < 25:
+                    progress = 40
+                    stage = "model_preparation"
+                    message = "Downloading model weights (if needed)..."
+                elif elapsed_time < 35:
+                    progress = 55
+                    stage = "container_setup"
+                    message = "Preparing Docker configuration..."  # fastapi.log (100-113)
+                elif elapsed_time < 45:
+                    progress = 70
+                    stage = "container_setup"
+                    message = "Starting Docker container..."
+                else:
+                    # If taking longer than expected, show waiting state
+                    progress = min(75, 70 + int((elapsed_time - 45) / 10 * 5))
+                    stage = "container_setup"
+                    message = "Waiting for container to initialize..."
+                
+                return Response(
+                    {
+                        "status": "running",
+                        "stage": stage,
+                        "progress": progress,
+                        "message": message
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Container found - check its status and network connectivity
+            container_status = container.status
+            container_attrs = container.attrs
+            networks = container_attrs.get("NetworkSettings", {}).get("Networks", {})
+            container_name = container.name
+            
+            # Determine progress based on container state
+            progress = 0
+            stage = "container_setup"
+            message = "Container found..."
+            status_value = "running"
+            
+            if container_status == "created":
+                # Container created but not running yet
+                progress = 80
+                stage = "container_setup"
+                message = "Container created, starting services..."
+            elif container_status == "restarting":
+                progress = 82
+                stage = "container_setup"
+                message = "Container restarting..."
+            elif container_status == "running":
+                # Container is running - check network and finalization status
+                if "tt_studio_network" in networks:
+                    # Container is on the network - check if it's been renamed (final step)
+                    # Based on fastapi.log (178-179) - rename is the final step
+                    expected_model_name = container_name  # The job_id should match final name
+                    
+                    # If container name looks like it's been properly renamed to model name
+                    # (not a random Docker name like "romantic_khorana")
+                    if any(model_part in container_name.lower() for model_part in ['llama', 'instruct', 'model']) or '-' not in container_name:
+                        # Container renamed and finalized - deployment complete
+                        progress = 100
+                        stage = "complete"
+                        message = "Deployment complete!"  # fastapi.log (169, 178-179)
+                        status_value = "completed"
+                        # Clean up start time tracking
+                        if job_id in deployment_start_times:
+                            del deployment_start_times[job_id]
+                    else:
+                        # On network but not renamed yet - almost done
+                        progress = 95
+                        stage = "finalizing"
+                        message = "Finalizing container setup..."
+                else:
+                    # Running but not on network yet
+                    progress = 85
+                    stage = "finalizing"
+                    message = "Connecting container to network..."
+            elif container_status == "paused":
+                progress = 85
+                stage = "container_setup"
+                message = "Container paused, resuming..."
+            elif container_status == "exited":
+                # Check exit code
+                exit_code = container_attrs.get("State", {}).get("ExitCode", 0)
+                if exit_code == 0:
+                    # Successful completion
+                    progress = 100
+                    stage = "complete"
+                    message = "Deployment completed successfully!"
+                    status_value = "completed"
+                    # Clean up start time tracking
+                    if job_id in deployment_start_times:
+                        del deployment_start_times[job_id]
+                else:
+                    # Failed with error
+                    status_value = "error"
+                    stage = "error"
+                    message = f"Container failed with exit code {exit_code}"
+                    progress = 0
+                    # Clean up start time tracking
+                    if job_id in deployment_start_times:
+                        del deployment_start_times[job_id]
+            elif container_status == "dead":
+                status_value = "error"
+                stage = "error"
+                message = "Container failed to start properly"
+                progress = 0
+                # Clean up start time tracking
+                if job_id in deployment_start_times:
+                    del deployment_start_times[job_id]
+            
+            progress_data = {
+                "status": status_value,
+                "stage": stage,
+                "progress": progress,
+                "message": message,
+                "container_status": container_status,
+                "container_name": container_name
+            }
+            
+            logger.info(f"Progress data: {progress_data} (elapsed: {elapsed_time:.1f}s, networks: {list(networks.keys())})")
+            return Response(progress_data, status=status.HTTP_200_OK)
+                
+        except docker.errors.NotFound:
+            # Container not found - use time-based progress for early stages
+            elapsed_time = time.time() - deployment_start_times.get(job_id, time.time())
+            if elapsed_time < 0:
+                elapsed_time = 0
+            
+            # Map to actual log stages
+            if elapsed_time < 3:
+                progress = 5
+                stage = "initialization"
+                message = "Loading environment files..."
+            elif elapsed_time < 8:
+                progress = 15
+                stage = "setup"
+                message = "Running workflow configuration..."
+            elif elapsed_time < 15:
+                progress = 25
+                stage = "model_preparation"
+                message = "Checking model setup..."
+            else:
+                progress = min(55, 25 + int((elapsed_time - 15) / 20 * 30))
+                stage = "container_setup"
+                message = "Preparing Docker container..."
+            
+            logger.info(f"Container {job_id} not found - deployment in progress (elapsed: {elapsed_time:.1f}s)")
+            return Response(
+                {
+                    "status": "running",
+                    "stage": stage,
+                    "progress": progress,
+                    "message": message
+                },
+                status=status.HTTP_200_OK
+            )
+        except docker.errors.APIError as e:
+            logger.error(f"Docker API error fetching progress: {str(e)}")
+            return Response(
+                {"status": "error", "message": f"Docker API error: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in DeploymentProgressView: {str(e)}", exc_info=True)
+            return Response(
+                {"status": "error", "message": f"Internal server error: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeploymentLogsView(APIView):
+    def get(self, request, job_id, *args, **kwargs):
+        """Get deployment logs from FastAPI inference server"""
+        try:
+            logger.info(f"Fetching deployment logs for job_id: {job_id}")
+            
+            # Try to get logs from FastAPI inference server
+            try:
+                fastapi_url = f"http://172.18.0.1:8001/run/logs/{job_id}"
+                response = requests.get(fastapi_url, timeout=5)
+                
+                if response.status_code == 200:
+                    logs_data = response.json()
+                    logger.info(f"Got logs from FastAPI: {logs_data.get('total_messages', 0)} messages")
+                    return Response(logs_data, status=status.HTTP_200_OK)
+                
+                logger.warning(f"FastAPI logs not available (status: {response.status_code})")
+                return Response(
+                    {"job_id": job_id, "logs": [], "total_messages": 0, "error": "Logs not available"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error fetching logs from FastAPI: {str(e)}")
+                return Response(
+                    {"job_id": job_id, "logs": [], "total_messages": 0, "error": f"Failed to fetch logs: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
+        except Exception as e:
+            logger.error(f"Unexpected error in DeploymentLogsView: {str(e)}", exc_info=True)
+            return Response(
+                {"job_id": job_id, "logs": [], "total_messages": 0, "error": f"Internal server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeploymentProgressStreamView(APIView):
+    """Stream deployment progress updates from FastAPI inference server via SSE"""
+    
+    def get(self, request, job_id, *args, **kwargs):
+        """Proxy SSE stream from FastAPI inference server"""
+        
+        def event_stream():
+            """Generator that forwards SSE events from FastAPI to frontend"""
+            try:
+                # Connect to FastAPI inference server SSE endpoint
+                fastapi_url = f"http://172.18.0.1:8001/run/stream/{job_id}"
+                logger.info(f"Connecting to FastAPI SSE endpoint: {fastapi_url}")
+                
+                # Stream the response
+                response = requests.get(fastapi_url, stream=True, timeout=300)
+                
+                if response.status_code != 200:
+                    logger.error(f"FastAPI SSE endpoint returned status {response.status_code}")
+                    error_data = {
+                        "status": "error",
+                        "message": f"SSE endpoint not available (status: {response.status_code})"
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+                    return
+                
+                logger.info(f"Successfully connected to FastAPI SSE for job {job_id}")
+                
+                # Forward all SSE events from FastAPI to frontend
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8')
+                        # Forward the line as-is
+                        yield f"{line_str}\n"
+                        
+                        # Check if this is the end of the stream
+                        if line_str.startswith('data: '):
+                            try:
+                                data = json.loads(line_str[6:])  # Remove 'data: ' prefix
+                                if data.get('status') in ['completed', 'error', 'failed', 'cancelled']:
+                                    logger.info(f"Stream ended for job {job_id} with status {data.get('status')}")
+                                    break
+                            except json.JSONDecodeError:
+                                pass
+                    else:
+                        # Empty line - part of SSE format
+                        yield "\n"
+                        
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error connecting to FastAPI SSE endpoint: {str(e)}")
+                error_data = {
+                    "status": "error",
+                    "message": f"Connection error: {str(e)}"
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+            except Exception as e:
+                logger.error(f"Unexpected error in SSE stream: {str(e)}", exc_info=True)
+                error_data = {
+                    "status": "error",
+                    "message": f"Stream error: {str(e)}"
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+        
+        # Return streaming response with proper SSE headers
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['Connection'] = 'keep-alive'
+        response['X-Accel-Buffering'] = 'no'
+        
+        return response
 
 
 class RedeployView(APIView):
@@ -796,9 +1200,31 @@ class BoardInfoView(APIView):
             
             # Map board types to friendly names
             board_name_map = {
+                # Wormhole devices
                 'N150': 'Tenstorrent N150',
-                'N300': 'Tenstorrent N300', 
+                'N300': 'Tenstorrent N300',
+                'E150': 'Tenstorrent E150',
+                
+                # Wormhole multi-device
+                'N150X4': 'Tenstorrent N150x4',
                 'T3000': 'Tenstorrent T3000',
+                'T3K': 'Tenstorrent T3K',
+                
+                # Blackhole devices
+                'P100': 'Tenstorrent P100',
+                'P150': 'Tenstorrent P150',
+                'P300c': 'Tenstorrent P300c',
+                
+                # Blackhole multi-device
+                'P150X4': 'Tenstorrent P150x4',
+                'P150X8': 'Tenstorrent P150x8',
+                'P300Cx2': 'Tenstorrent P300Cx2',  # 2 cards (4 chips)
+                'P300Cx4': 'Tenstorrent P300Cx4',  # 4 cards (8 chips)
+                
+                # Galaxy systems
+                'GALAXY': 'Tenstorrent Galaxy',
+                'GALAXY_T3K': 'Tenstorrent Galaxy T3K',
+                
                 'unknown': 'Unknown Board'
             }
             board_name = board_name_map.get(board_type, 'Unknown Board')
@@ -981,4 +1407,186 @@ class DockerServiceLogsView(APIView):
             return Response(
                 {"error": "Failed to fetch Docker service logs", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ContainerEventsView(APIView):
+    """Server-Sent Events stream for container death notifications"""
+    
+    def get(self, request):
+        """Stream container death events to frontend"""
+        import time
+        from docker_control.models import ModelDeployment
+        
+        def event_stream():
+            """Generator that yields SSE-formatted events"""
+            # Keep track of last check time
+            last_check = {}
+            
+            # Send initial connection message
+            yield f"data: {json.dumps({'event': 'connected', 'message': 'Container events stream connected'})}\n\n"
+            
+            while True:
+                try:
+                    # Check for containers that died since last check
+                    recent_deaths = ModelDeployment.objects.filter(
+                        status__in=['exited', 'dead'],
+                        stopped_by_user=False
+                    ).order_by('-stopped_at')[:10]  # Get last 10 unexpected deaths
+                    
+                    for deployment in recent_deaths:
+                        # Only send if we haven't sent this one before
+                        if deployment.container_id not in last_check or last_check[deployment.container_id] != deployment.stopped_at:
+                            event_data = {
+                                'event': 'container_died',
+                                'container_id': deployment.container_id,
+                                'container_name': deployment.container_name,
+                                'model_name': deployment.model_name,
+                                'device': deployment.device,
+                                'status': deployment.status,
+                                'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None
+                            }
+                            yield f"data: {json.dumps(event_data)}\n\n"
+                            last_check[deployment.container_id] = deployment.stopped_at
+                    
+                    # Send heartbeat every 30 seconds
+                    yield f"data: {json.dumps({'event': 'heartbeat', 'timestamp': time.time()})}\n\n"
+                    
+                    # Wait before next check
+                    time.sleep(30)
+                    
+                except Exception as e:
+                    logger.error(f"Error in SSE stream: {e}")
+                    yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+                    break
+        
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
+
+class DeploymentHistoryView(APIView):
+    """Get deployment history from database"""
+    
+    def get(self, request):
+        """Return all deployments ordered by most recent first"""
+        try:
+            from docker_control.models import ModelDeployment
+            
+            # Get all deployments, ordered by most recent first
+            deployments = ModelDeployment.objects.all().order_by('-deployed_at')
+            
+            # Serialize the data
+            deployment_data = []
+            for deployment in deployments:
+                deployment_data.append({
+                    'id': deployment.id,
+                    'container_id': deployment.container_id,
+                    'container_name': deployment.container_name,
+                    'model_name': deployment.model_name,
+                    'device': deployment.device,
+                    'deployed_at': deployment.deployed_at.isoformat() if deployment.deployed_at else None,
+                    'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None,
+                    'status': deployment.status,
+                    'stopped_by_user': deployment.stopped_by_user,
+                    'port': deployment.port,
+                    'workflow_log_path': deployment.workflow_log_path,
+                })
+            
+            return Response({
+                'status': 'success',
+                'deployments': deployment_data,
+                'count': len(deployment_data)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching deployment history: {e}")
+            return Response(
+                {'status': 'error', 'message': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class WorkflowLogStreamView(View):
+    """Stream workflow logs from file using Server-Sent Events"""
+    
+    def get(self, request, deployment_id, *args, **kwargs):
+        """Stream workflow log file for a specific deployment"""
+        try:
+            from docker_control.models import ModelDeployment
+            from django.http import HttpResponse
+            
+            # Get deployment record
+            logger.info(f"Fetching workflow logs for deployment_id: {deployment_id}")
+            deployment = ModelDeployment.objects.get(id=deployment_id)
+            logger.info(f"Found deployment: {deployment.model_name}, workflow_log_path: {deployment.workflow_log_path}")
+            
+            if not deployment.workflow_log_path:
+                logger.warning(f"No workflow log path for deployment {deployment_id}")
+                return HttpResponse(
+                    status=404,
+                    content="No workflow log file available for this deployment"
+                )
+            
+            log_file_path = deployment.workflow_log_path
+            
+            # Check if file exists
+            if not os.path.exists(log_file_path):
+                logger.error(f"Log file not found at path: {log_file_path}")
+                return HttpResponse(
+                    status=404,
+                    content=f"Log file not found: {log_file_path}"
+                )
+            
+            def generate_log_data():
+                try:
+                    yield "retry: 1000\n\n"
+                    
+                    with open(log_file_path, 'r') as f:
+                        for line in f:
+                            line = line.rstrip('\n\r')
+                            if line:
+                                event_data = {
+                                    "type": "log",
+                                    "message": line
+                                }
+                                yield f"data: {json.dumps(event_data)}\n\n"
+                    
+                    # Send completion event
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'End of log file'})}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"Error streaming log file: {str(e)}")
+                    error_data = {
+                        "type": "error",
+                        "message": f"Error reading log file: {str(e)}"
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+            
+            response = StreamingHttpResponse(
+                generate_log_data(),
+                content_type='text/event-stream'
+            )
+            response['Cache-Control'] = 'no-cache, no-transform'
+            response['X-Accel-Buffering'] = 'no'
+            
+            return response
+            
+        except ModelDeployment.DoesNotExist:
+            logger.warning(f"Deployment {deployment_id} not found in database")
+            return HttpResponse(
+                status=404,
+                content=f"Deployment {deployment_id} not found"
+            )
+        except Exception as e:
+            import traceback
+            logger.error(f"Error in WorkflowLogStreamView: {str(e)}\n{traceback.format_exc()}")
+            return HttpResponse(
+                status=500,
+                content=str(e)
             )
