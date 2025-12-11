@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Card, CardContent } from "../ui/card";
-import { ChevronRight, File, Folder, ExternalLink, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  ChevronRight,
+  File,
+  Folder,
+  ExternalLink,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 import { openEncodedLogInNewTab } from "./openEncodedLogInNewTab";
 import { parseLogFileName } from "./parseLogFileName";
 
@@ -36,9 +43,13 @@ export default function LogsViewer() {
 
   const extractDateFromFileName = (fileName: string) => {
     // Adjusted regex to match 'YYYY-MM-DD-HH_MM_SS' format in log files
-    const match = fileName.match(/(\d{4})-(\d{2})-(\d{2})-(\d{2})_(\d{2})_(\d{2})/);
+    const match = fileName.match(
+      /(\d{4})-(\d{2})-(\d{2})-(\d{2})_(\d{2})_(\d{2})/
+    );
     if (match) {
-      const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+      const [year, month, day, hour, minute, second] = match
+        .slice(1)
+        .map(Number);
       return new Date(year, month - 1, day, hour, minute, second); // Create a valid Date object
     }
     return null;
@@ -51,7 +62,9 @@ export default function LogsViewer() {
         const dateB = extractDateFromFileName(b.name);
 
         if (!dateA || !dateB) {
-          return sortOrder === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+          return sortOrder === "asc"
+            ? a.name.localeCompare(b.name)
+            : b.name.localeCompare(a.name);
         }
 
         return sortOrder === "asc"
@@ -111,11 +124,11 @@ export default function LogsViewer() {
               onClick={() => toggleDir(currentPath)}
             >
               <ChevronRight
-                className={`h-4 w-4 mr-2 transition-transform duration-200 flex-shrink-0 ${
+                className={`h-4 w-4 mr-2 transition-transform duration-200 shrink-0 ${
                   isExpanded ? "rotate-90" : ""
                 }`}
               />
-              <Folder className="h-4 w-4 mr-2 flex-shrink-0 text-yellow-500" />
+              <Folder className="h-4 w-4 mr-2 shrink-0 text-yellow-500" />
               <span className="text-sm font-medium truncate">{node.name}</span>
             </Button>
             {isExpanded && node.children && (
@@ -134,9 +147,11 @@ export default function LogsViewer() {
             className="w-full justify-start px-2 py-1.5 h-auto mb-1 hover:bg-accent hover:text-accent-foreground group rounded-md transition-colors duration-200"
             onClick={() => openLogInNewTab(currentPath.slice(1))}
           >
-            <File className="h-4 w-4 mr-2 flex-shrink-0 text-blue-500" />
-            <div className="text-sm truncate text-left flex-grow">{formatFileName(node.name)}</div>
-            <ExternalLink className="h-4 w-4 ml-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+            <File className="h-4 w-4 mr-2 shrink-0 text-blue-500" />
+            <div className="text-sm truncate text-left grow">
+              {formatFileName(node.name)}
+            </div>
+            <ExternalLink className="h-4 w-4 ml-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
           </Button>
         );
       }
@@ -163,18 +178,22 @@ export default function LogsViewer() {
             </Button>
           </div>
         </div>
-        <CardContent className="flex-grow overflow-hidden">
+        <CardContent className="grow overflow-hidden">
           <ScrollArea className="h-[calc(100vh-150px)] w-full">
             <div className="p-4">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
-                  <p className="text-lg text-muted-foreground">Loading logs...</p>
+                  <p className="text-lg text-muted-foreground">
+                    Loading logs...
+                  </p>
                 </div>
               ) : logs.length > 0 ? (
                 renderTree(logs)
               ) : (
                 <div className="flex items-center justify-center h-full">
-                  <p className="text-lg text-muted-foreground">No log files found.</p>
+                  <p className="text-lg text-muted-foreground">
+                    No log files found.
+                  </p>
                 </div>
               )}
             </div>

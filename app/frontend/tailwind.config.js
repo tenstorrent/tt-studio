@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import svgToDataUri from "mini-svg-data-uri";
-import flattenColorPalette from "tailwindcss/lib/util/flattenColorPalette";
+// import flattenColorPalette from "tailwindcss/lib/util/flattenColorPalette";
 import tailwindAnimate from "tailwindcss-animate";
 
 /** @type {import('tailwindcss').Config} */
@@ -216,7 +216,7 @@ export default {
           }),
         },
         {
-          values: flattenColorPalette(theme("backgroundColor")),
+          values: theme("backgroundColor"),
           type: "color",
         }
       );
@@ -225,7 +225,7 @@ export default {
 };
 
 function addVariablesForColors({ addBase, theme }) {
-  const allColors = flattenColorPalette(theme("colors"));
+  const allColors = theme("colors");
   const newVars = Object.fromEntries(
     Object.entries(allColors).map(([key, val]) => [`--${key}`, val])
   );

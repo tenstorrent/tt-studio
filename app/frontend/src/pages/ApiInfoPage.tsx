@@ -99,7 +99,7 @@ const ApiInfoPage = () => {
 
   return (
     <div className="flex flex-col w-full min-h-screen bg-grid-pattern dark:bg-grid-pattern-dark">
-      <div className="flex flex-grow justify-center w-full pt-16 pb-0">
+      <div className="flex grow justify-center w-full pt-16 pb-0">
         <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-16 md:pt-12 md:pb-24">
           {loading ? (
             <Card className="h-auto py-4 px-8 md:px-12 lg:px-16 border-2">

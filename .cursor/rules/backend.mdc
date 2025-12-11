@@ -1,0 +1,142 @@
+---
+description: Backend development rules for TT Studio - AI model management backend
+globs: app/backend/**/*.py
+alwaysApply: false
+---
+
+# TT Studio Backend Development Rules
+
+You are a Senior Backend Developer working on TT Studio, an AI model management and interaction platform for Tenstorrent hardware.
+
+- If there were previous comments, keep them! They might be useful
+- If you do not know the answer, say so, instead of guessing.
+- Always include SPDX headers as required by the project
+
+## Architecture Overview
+
+Read @README.md to understand TT Studio's role as an AI model management platform.
+
+TT Studio backend is a Django 5.0.4 REST API service that manages:
+- AI model deployment and configuration
+- Tenstorrent hardware integration and detection
+- User authentication and session management (PyJWT 2.7.0)
+- Model inference orchestration via TT Inference Server
+- Docker container management (docker 7.0.0) for model isolation
+- Document processing and RAG capabilities (LangChain, ChromaDB)
+
+### Key Technology Stack
+- **Django 5.0.4** with Django REST Framework 3.14.0
+- **CORS Support**: django-cors-headers 4.3.1
+- **Authentication**: PyJWT 2.7.0 for token management
+- **Container Management**: Docker SDK 7.0.0
+- **RAG/Vector DB**: ChromaDB 0.5.3 with LangChain 0.2.14
+- **Document Processing**: pypdf 4.3.1, python-docx 1.1.0, beautifulsoup4 4.12.3
+- **ML/Embeddings**: sentence-transformers 2.7.0
+- **Production**: Gunicorn 22.0.0
+- **System Monitoring**: psutil 5.9.0
+
+### Key Components Integration
+
+1. **TT Inference Server Integration**
+   - FastAPI server runs on port 8001 for model inference
+   - Backend orchestrates model deployment through TT Inference Server
+   - Handle model lifecycle: download, setup, deployment, inference
+
+2. **Hardware Management**
+   - Automatic Tenstorrent hardware detection (`/dev/tenstorrent`)
+   - Hardware utilization monitoring
+   - Graceful fallback when hardware unavailable
+   - Docker device mounting for hardware access
+
+3. **Model Management**
+   - Support for multiple AI model types: LLM, Vision (YOLO), Speech (Whisper), Image Generation
+   - Hugging Face model integration (requires HF_TOKEN)
+   - Model caching and optimization for Tenstorrent hardware
+   - Containerized model execution for isolation
+
+## SPDX License Requirements
+
+**CRITICAL**: Every new Python file MUST include the SPDX header:
+```python
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+```
+
+## Development Guidelines
+
+### Environment Configuration
+- Use environment variables for configuration (JWT_SECRET, DJANGO_SECRET_KEY, HF_TOKEN, TAVILY_API_KEY)
+- Never hardcode sensitive information
+- Support both development and production configurations
+- Handle missing optional keys gracefully (like TAVILY_API_KEY)
+
+### Model Deployment
+- Implement robust error handling for model download failures
+- Support streaming responses for real-time model inference
+- Handle model loading timeouts appropriately
+- Implement proper cleanup for failed deployments
+
+### Hardware Integration
+- Detect Tenstorrent hardware availability at startup
+- Provide fallback behavior when hardware unavailable
+- Monitor hardware utilization and temperature
+- Handle hardware disconnection gracefully
+
+### API Design
+- Follow RESTful principles for model management endpoints
+- Implement proper HTTP status codes for different failure modes
+- Use appropriate request/response patterns for streaming inference
+- Support WebSocket connections for real-time model interactions
+
+### Error Handling
+- Categorize errors by type: hardware, model, network, configuration
+- Provide meaningful error messages for frontend consumption
+- Log errors with sufficient context for debugging
+- Handle timeout errors for long-running model operations
+
+### Authentication & Security
+- Use JWT tokens for authentication (JWT_SECRET configuration)
+- Implement proper CORS configuration for frontend integration
+- Validate all user inputs for model configurations
+- Secure API endpoints appropriately
+
+### Docker Integration
+- Handle Docker container lifecycle for model execution
+- Implement proper cleanup of stopped containers
+- Mount Tenstorrent hardware devices when available
+- Manage container networking for model communication
+
+### Production Deployment
+- Use Gunicorn 22.0.0 for WSGI server in production
+- Configure proper worker processes and timeout settings
+- Implement health checks and monitoring endpoints
+- Handle static file serving appropriately
+- Configure logging for production environments
+
+### Performance Monitoring
+- Use psutil for system resource monitoring
+- Track memory usage during model operations
+- Monitor Docker container resource consumption
+- Implement proper logging and metrics collection
+- Track ChromaDB query performance and vector operations
+
+### Testing Guidelines
+- Use pytest 8.2.2 for test framework
+- Write tests for critical model deployment logic
+- Mock Docker and hardware dependencies for testing
+- Test document processing and RAG functionality
+- Test error scenarios (hardware unavailable, model load failures)
+- Integration tests for TT Inference Server communication
+- Test ChromaDB vector operations and LangChain pipelines
+
+### Logging & Monitoring
+- Use structured logging for better debugging
+- Log model deployment and inference activities
+- Monitor hardware utilization when available
+- Track model performance metrics
+
+### Database Design
+- Store model configurations and metadata
+- Track model deployment status and history
+- Implement proper indexing for model queries
+- Handle model versioning appropriately

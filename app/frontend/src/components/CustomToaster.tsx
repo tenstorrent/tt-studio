@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+import { type CSSProperties } from "react";
 import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "../hooks/useTheme";
 import { Check, X, Info, AlertTriangle, Trash2 } from "lucide-react";
@@ -45,7 +46,7 @@ const getToastStyle = (
       ? "1px solid rgba(255,255,255,0.04)"
       : "1px solid rgba(0,0,0,0.06)",
     backdropFilter: "blur(6px)",
-  } as React.CSSProperties;
+  } as CSSProperties;
 };
 
 const ToastContent = ({
@@ -62,7 +63,7 @@ const ToastContent = ({
   type?: "success" | "error" | "warning" | "info" | "destructive" | "notice";
 }) => (
   <div
-    className={`${t.visible ? "animate-enter" : "animate-leave"}`}
+    className={`${t.visible ? "animate-enter" : "animate-leave"} !z-[99999]`}
     style={getToastStyle(
       document.documentElement.classList.contains("dark") ? "dark" : "light",
       type
@@ -196,7 +197,7 @@ const CustomToaster = () => {
         duration: 4000,
         style: getToastStyle(theme),
       }}
-      containerClassName="pointer-events-none !z-[9999]"
+      containerClassName="pointer-events-none !z-[99999]"
       containerStyle={{ bottom: 24, right: 96 }}
     />
   );

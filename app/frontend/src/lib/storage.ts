@@ -28,4 +28,3 @@ export function safeRemoveItem(key: string): void {
     // ignore
   }
 }
-

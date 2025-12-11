@@ -11,7 +11,10 @@ interface TTSkeletonLoaderProps {
   className?: string;
 }
 
-const TTSkeletonLoader: React.FC<TTSkeletonLoaderProps> = ({ size = 24, className = "" }) => {
+const TTSkeletonLoader: React.FC<TTSkeletonLoaderProps> = ({
+  size = 24,
+  className = "",
+}) => {
   const { logoUrl } = useLogo();
 
   return (

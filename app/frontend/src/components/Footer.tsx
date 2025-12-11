@@ -212,7 +212,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     let ttInferenceLogs = "";
     try {
       const primaryModelName = models[0]?.name;
-      const query = primaryModelName ? `?model=${encodeURIComponent(primaryModelName)}` : "";
+      const query = primaryModelName
+        ? `?model=${encodeURIComponent(primaryModelName)}`
+        : "";
       const ttResponse = await fetch(`/logs-api/tt-inference/${query}`);
       if (ttResponse.ok) {
         const ttData = await ttResponse.json();
@@ -322,12 +324,17 @@ Add any other context about the problem here.
     };
     const truncate = (text: string, maxChars: number) => {
       if (!text) return text;
-      return text.length > maxChars ? text.slice(0, maxChars) + "\n\n... (truncated)" : text;
+      return text.length > maxChars
+        ? text.slice(0, maxChars) + "\n\n... (truncated)"
+        : text;
     };
     const limitDevicesList = (maxDevices: number) => {
       if (systemStatus.devices.length <= maxDevices) return undefined;
       const blocks = systemStatus.devices
-        .map((device, index) => `**Device ${index + 1}:**\n- Board Type: ${device.board_type}\n- Temperature: ${device.temperature.toFixed(1)}°C\n- Power: ${device.power.toFixed(2)}W\n- Voltage: ${device.voltage.toFixed(2)}V`)
+        .map(
+          (device, index) =>
+            `**Device ${index + 1}:**\n- Board Type: ${device.board_type}\n- Temperature: ${device.temperature.toFixed(1)}°C\n- Power: ${device.power.toFixed(2)}W\n- Voltage: ${device.voltage.toFixed(2)}V`
+        )
         .slice(0, maxDevices)
         .join("\n\n");
       return `${blocks}\n\n... (${systemStatus.devices.length - maxDevices} more device entries truncated)`;
@@ -360,7 +367,14 @@ Add any other context about the problem here.
 ${devicesLimited ?? (systemStatus.devices.length ? "(within limit)" : "No hardware devices detected")}
 
 ### Deployed Models
-${models.length > 0 ? models.slice(0, 3).map((m) => `- ${m.name} (${m.status})`).join("\n") : "No models deployed"}
+${
+  models.length > 0
+    ? models
+        .slice(0, 3)
+        .map((m) => `- ${m.name} (${m.status})`)
+        .join("\n")
+    : "No models deployed"
+}
 
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
@@ -438,7 +452,9 @@ Full logs have been copied to your clipboard and downloaded as a file. Please pa
       let fallbackTtInferenceLogs = "";
       try {
         const primaryModelName = models[0]?.name;
-        const query = primaryModelName ? `?model=${encodeURIComponent(primaryModelName)}` : "";
+        const query = primaryModelName
+          ? `?model=${encodeURIComponent(primaryModelName)}`
+          : "";
         const ttResponse = await fetch(`/logs-api/tt-inference/${query}`);
         if (ttResponse.ok) {
           const ttData = await ttResponse.json();
@@ -448,9 +464,14 @@ Full logs have been copied to your clipboard and downloaded as a file. Please pa
           const dockerServerLogBlock = ttData.docker_server_log
             ? `### DOCKER SERVER LOG (${ttData.docker_server_log_file || "latest"})\n\n\`\`\`\n${ttData.docker_server_log}\n\`\`\``
             : "";
-          fallbackTtInferenceLogs = [runLogBlock, dockerServerLogBlock].filter(Boolean).join("\n\n");
+          fallbackTtInferenceLogs = [runLogBlock, dockerServerLogBlock]
+            .filter(Boolean)
+            .join("\n\n");
         }
-      } catch {}
+      } catch (error) {
+        // Ignore errors when fetching TT inference logs
+        console.debug("Failed to fetch TT inference logs:", error);
+      }
 
       const issueBody = encodeURIComponent(`## Bug Report
 
@@ -787,7 +808,7 @@ Add any other context about the problem here.
                     GitHub Repository
                   </div>
                   <div className="text-sm text-gray-600 dark:text-gray-300">
-                    View source code and documentation
+                    View source code and docs
                   </div>
                 </div>
                 <ExternalLink className="h-4 w-4 text-TT-purple-accent ml-auto" />

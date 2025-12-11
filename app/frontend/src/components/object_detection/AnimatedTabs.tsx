@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import React, { useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Image, Video } from "lucide-react";
@@ -40,16 +40,19 @@ export const AnimatedTabs: React.FC<AnimatedTabsProps> = ({
 
   const navRect = navRef.current?.getBoundingClientRect();
   const selectedTabIndex = tabs.findIndex((tab) => tab.value === selectedTab);
-  const selectedRect = buttonRefs.current[selectedTabIndex]?.getBoundingClientRect();
+  const selectedRect =
+    buttonRefs.current[selectedTabIndex]?.getBoundingClientRect();
   const hoveredRect =
-    hoveredTabIndex !== null && hoveredTabIndex >= 0 && hoveredTabIndex < buttonRefs.current.length
+    hoveredTabIndex !== null &&
+    hoveredTabIndex >= 0 &&
+    hoveredTabIndex < buttonRefs.current.length
       ? buttonRefs.current[hoveredTabIndex]?.getBoundingClientRect()
       : undefined;
 
   return (
     <nav
       ref={navRef}
-      className="flex flex-shrink-0 justify-center items-center relative z-0 py-2 mb-4"
+      className="flex shrink-0 justify-center items-center relative z-0 py-2 mb-4"
       onPointerLeave={() => setHoveredTabIndex(null)}
     >
       {tabs.map((item, i) => {

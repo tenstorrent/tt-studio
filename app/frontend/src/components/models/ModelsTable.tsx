@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React from "react";
+import type { JSX } from "react";
 import {
   TableBody,
   TableCell,
@@ -66,24 +67,23 @@ export default function ModelsTable({
 
   // Listen to hover-tier events for per-row actions
   React.useEffect(() => {
-    const onRefresh = (e: any) => {
-      const id = e?.detail?.id as string | undefined;
+    const onRefresh = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const id = customEvent?.detail?.id as string | undefined;
       if (!id) return;
       if (refreshHealthById) refreshHealthById(id);
     };
-    const onLogs = (e: any) => {
-      const id = e?.detail?.id as string | undefined;
+    const onLogs = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const id = customEvent?.detail?.id as string | undefined;
       if (!id) return;
       onOpenLogs(id);
     };
-    window.addEventListener("row:refresh-health", onRefresh as EventListener);
-    window.addEventListener("row:logs", onLogs as EventListener);
+    window.addEventListener("row:refresh-health", onRefresh);
+    window.addEventListener("row:logs", onLogs);
     return () => {
-      window.removeEventListener(
-        "row:refresh-health",
-        onRefresh as EventListener
-      );
-      window.removeEventListener("row:logs", onLogs as EventListener);
+      window.removeEventListener("row:refresh-health", onRefresh);
+      window.removeEventListener("row:logs", onLogs);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -242,34 +242,34 @@ export default function ModelsTable({
               {isExpanded && (
                 <TableRow className="bg-stone-50/60 dark:bg-stone-900/30">
                   <TableCell colSpan={colCount}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-2 text-sm">
-                      <div>
-                        <div className="text-xs text-stone-500">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 text-sm">
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">
                           Container ID
                         </div>
                         <CopyableText text={row.id} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">Model Name</div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">Model Name</div>
                         <CopyableText text={row.name ?? ""} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">
                           Docker Image
                         </div>
                         <CopyableText text={row.image ?? ""} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">Ports</div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">Ports</div>
                         <CopyableText text={row.ports ?? ""} />
                       </div>
-                      <div>
-                        <div className="text-xs text-stone-500">Status</div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">Status</div>
                         <CopyableText text={row.status ?? ""} />
                       </div>
                       <div className="flex items-end">
                         <button
-                          className="ml-auto rounded-md border border-TT-purple-accent/30 px-3 py-1 text-xs hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20"
+                          className="ml-auto rounded-md border border-TT-purple-accent/30 px-3 py-1.5 text-xs hover:bg-TT-purple-tint2/20 dark:hover:bg-TT-purple-shade/20 transition-colors"
                           onClick={() => {
                             const all = `id: ${row.id}\nname: ${row.name ?? ""}\nimage: ${row.image ?? ""}\nports: ${row.ports ?? ""}\nstatus: ${row.status ?? ""}`;
                             navigator.clipboard.writeText(all);

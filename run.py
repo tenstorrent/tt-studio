@@ -20,6 +20,8 @@ Options:
     --cleanup-all      Clean up everything including persistent data
     --skip-fastapi     Skip TT Inference Server FastAPI setup
     --no-sudo          Skip sudo usage for FastAPI setup
+    --check-headers       Check for missing SPDX license headers
+    --add-headers         Add missing SPDX license headers (excludes frontend)
     --help-env         Show environment variables help
 """
 
@@ -36,6 +38,9 @@ import webbrowser
 import socket
 import tempfile
 import signal
+import json
+from pathlib import Path
+from datetime import datetime
 try:
     import requests
     HAS_REQUESTS = True
@@ -58,7 +63,7 @@ C_TT_PURPLE = '\033[38;5;99m'
 
 # --- Global Paths and Constants ---
 TT_STUDIO_ROOT = os.getcwd()
-INFERENCE_SERVER_BRANCH = "anirud/fast-api-container-fetching-fixes"
+INFERENCE_SERVER_BRANCH = "anirud/v0.0.5-fast-api-for-tt-studio"
 OS_NAME = platform.system()
 
 # --- ASCII Art Constants ---
@@ -79,6 +84,8 @@ ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
 INFERENCE_SERVER_DIR = os.path.join(TT_STUDIO_ROOT, "tt-inference-server")
 FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
 FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
+PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
+EASY_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
 
 # Global flag to determine if we should overwrite existing values
 FORCE_OVERWRITE = False
@@ -102,15 +109,57 @@ def run_command(command, check=False, cwd=None, capture_output=False, shell=Fals
 
 
 def check_docker_installation():
-    """Function to check Docker installation."""
+    """Function to check Docker installation and daemon connectivity."""
     if not shutil.which("docker"):
         print(f"{C_RED}⛔ Error: Docker is not installed.{C_RESET}")
+        print(f"{C_YELLOW}Please install Docker from: https://docs.docker.com/get-docker/{C_RESET}")
         sys.exit(1)
+    
+    # Test Docker daemon connectivity
+    try:
+        result = subprocess.run(["docker", "info"], check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        error_output = e.stderr.lower()
+        print(f"{C_RED}⛔ Error: Cannot connect to Docker daemon.{C_RESET}")
+        
+        if "permission denied" in error_output:
+            print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+            print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+            print()
+            print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
+            print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+            print()
+            print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
+            print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+        elif "cannot connect" in error_output or "connection refused" in error_output:
+            print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+            print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+            print()
+            print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
+            print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+            print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
+            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+        else:
+            print(f"{C_YELLOW}Docker daemon error: {e.stderr}{C_RESET}")
+            print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
+        
+        sys.exit(1)
+    except FileNotFoundError:
+        print(f"{C_RED}⛔ Error: Docker command not found.{C_RESET}")
+        print(f"{C_YELLOW}Please install Docker from: https://docs.docker.com/get-docker/{C_RESET}")
+        sys.exit(1)
+    
     try:
         # Check if docker compose is available and working
         subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         print(f"{C_RED}⛔ Error: Docker Compose is not installed or not working correctly.{C_RESET}")
+        print(f"{C_YELLOW}Please install Docker Compose from: https://docs.docker.com/compose/install/{C_RESET}")
         sys.exit(1)
 
 def is_placeholder(value):
@@ -122,7 +171,7 @@ def is_placeholder(value):
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
-        '<PATH_TO_ROOT_OF_REPO>', 'true or flase to enable deployed mode',
+        '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
         'true or false to enable RAG admin'
     ]
     
@@ -190,6 +239,26 @@ def get_existing_env_vars():
                     env_vars[key] = value.strip('"\'')
     return env_vars
 
+def save_easy_config(config_dict):
+    """Save easy mode configuration to JSON file"""
+    try:
+        with open(EASY_CONFIG_FILE_PATH, 'w') as f:
+            json.dump(config_dict, f, indent=2)
+        print(f"{C_GREEN}✅ Easy mode configuration saved to {EASY_CONFIG_FILE_PATH}{C_RESET}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Warning: Could not save easy mode configuration: {e}{C_RESET}")
+
+def load_easy_config():
+    """Load easy mode configuration from JSON file"""
+    if os.path.exists(EASY_CONFIG_FILE_PATH):
+        try:
+            with open(EASY_CONFIG_FILE_PATH, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Warning: Could not load easy mode configuration: {e}{C_RESET}")
+            return None
+    return None
+
 def should_configure_var(var_name, current_value):
     """
     Determine if we should configure a variable based on whether it's a placeholder
@@ -208,11 +277,84 @@ def should_configure_var(var_name, current_value):
     # Otherwise, skip configuration (keep existing non-placeholder value)
     return False
 
-def ask_overwrite_preference(existing_vars):
+def load_preferences():
+    """Load user preferences from JSON file."""
+    if os.path.exists(PREFS_FILE_PATH):
+        try:
+            with open(PREFS_FILE_PATH, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+def save_preferences(prefs):
+    """Save user preferences to JSON file."""
+    try:
+        with open(PREFS_FILE_PATH, 'w') as f:
+            json.dump(prefs, f, indent=2)
+    except IOError as e:
+        print(f"{C_YELLOW}Warning: Could not save preferences: {e}{C_RESET}")
+
+def save_preference(key, value):
+    """Save a single preference key-value pair."""
+    prefs = load_preferences()
+    prefs[key] = value
+    save_preferences(prefs)
+
+def get_preference(key, default=None):
+    """Get a preference value by key, returning default if not found."""
+    prefs = load_preferences()
+    return prefs.get(key, default)
+
+def clear_preferences():
+    """Clear all user preferences by deleting the preferences file."""
+    if os.path.exists(PREFS_FILE_PATH):
+        try:
+            os.remove(PREFS_FILE_PATH)
+            return True
+        except IOError:
+            return False
+    return True
+
+def is_first_time_setup():
+    """Check if this is the first time setup by checking if preferences exist."""
+    return not os.path.exists(PREFS_FILE_PATH)
+
+def display_first_time_welcome():
+    """Display welcome message for first-time setup."""
+    print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}           📝 First-Time Setup{C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+    print()
+    print(f"{C_CYAN}Welcome to TT Studio! We'll guide you through the initial setup.{C_RESET}")
+    print()
+    print(f"{C_GREEN}ℹ️  What to expect:{C_RESET}")
+    print(f"  • Your responses will be saved for future runs")
+    print(f"  • Subsequent runs will be much faster and non-interactive")
+    print(f"  • You can reset your preferences anytime with {C_WHITE}--reconfigure{C_RESET}")
+    print()
+    print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset.{C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+    print()
+
+def ask_overwrite_preference(existing_vars, force_prompt=False):
     """
     Ask user if they want to overwrite existing environment variables.
     Returns True if user wants to overwrite, False otherwise.
+    
+    Args:
+        existing_vars: Dictionary of existing environment variables
+        force_prompt: If True, always prompt user even if preference exists
     """
+    # Check for saved preference (unless forcing prompt)
+    if not force_prompt:
+        config_mode = get_preference("configuration_mode")
+        if config_mode:
+            if config_mode == "keep_existing":
+                return False
+            elif config_mode == "reconfigure_everything":
+                return True
+    
     # Filter out placeholder values to show only real configured values
     real_vars = {k: v for k, v in existing_vars.items() if not is_placeholder(v)}
     
@@ -262,12 +404,12 @@ def ask_overwrite_preference(existing_vars):
     
     print(f"{C_YELLOW}{C_BOLD}What would you like to do?{C_RESET}")
     print()
-    print(f"  {C_GREEN}{C_BOLD}Option 1 - Keep Existing Configuration{C_RESET}")
+    print(f"  {C_GREEN}{C_BOLD}1 - Keep Existing Configuration (Recommended){C_RESET}")
     print(f"    • Keep all current values as they are")
     print(f"    • Only configure any missing or placeholder values")
     print(f"    • Recommended for normal startup")
     print()
-    print(f"  {C_ORANGE}{C_BOLD}Option 2 - Reconfigure Everything{C_RESET}")
+    print(f"  {C_ORANGE}{C_BOLD}2 - Reconfigure Everything{C_RESET}")
     print(f"    • Go through setup prompts for ALL variables")
     print(f"    • Replace existing values with new ones")
     print(f"    • Use this if you want to change your configuration")
@@ -278,11 +420,11 @@ def ask_overwrite_preference(existing_vars):
     
     while True:
         print(f"{C_WHITE}{C_BOLD}Choose an option:{C_RESET}")
-        print(f"  {C_GREEN}k{C_RESET} - Keep existing configuration (recommended)")
-        print(f"  {C_ORANGE}r{C_RESET} - Reconfigure everything")
+        print(f"  {C_GREEN}1{C_RESET} - Keep existing configuration (recommended)")
+        print(f"  {C_ORANGE}2{C_RESET} - Reconfigure everything")
         print()
         try:
-            choice = input(f"Enter your choice (k/r): ").lower().strip()
+            choice = input(f"Enter your choice (1/2): ").strip()
         except KeyboardInterrupt:
             print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
             
@@ -301,7 +443,7 @@ def ask_overwrite_preference(existing_vars):
             print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
             sys.exit(0)
         
-        if choice in ['k', 'keep']:
+        if choice == "1":
             print(f"\n{C_GREEN}✅ Keeping existing configuration. Only missing values will be configured.{C_RESET}")
             # Show which placeholder values will still need to be configured
             placeholder_vars = {k: v for k, v in existing_vars.items() if is_placeholder(v)}
@@ -310,23 +452,35 @@ def ask_overwrite_preference(existing_vars):
                 for var_name in placeholder_vars.keys():
                     print(f"    • {var_name}")
                 print()
+            save_preference("configuration_mode", "keep_existing")
             return False
-        elif choice in ['r', 'reconfigure', 'reconfig']:
+        elif choice == "2":
             print(f"\n{C_ORANGE}🔄 Will reconfigure all environment variables.{C_RESET}")
+            save_preference("configuration_mode", "reconfigure_everything")
             return True
         else:
-            print(f"{C_RED}❌ Please enter 'k' to keep existing config or 'r' to reconfigure everything.{C_RESET}")
+            print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
             print()
 
-def configure_environment_sequentially(dev_mode=False):
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
     
     Args:
         dev_mode (bool): If True, show dev mode banner but still prompt for all values
+        force_reconfigure (bool): If True, force reconfiguration and clear preferences
+        easy_mode (bool): If True, use minimal prompts and defaults for quick setup
     """
     global FORCE_OVERWRITE
+    
+    # Show first-time welcome if this is the first time
+    if is_first_time_setup():
+        display_first_time_welcome()
+    
+    # Clear preferences if reconfiguring
+    if force_reconfigure:
+        clear_preferences()
     
     env_file_exists = os.path.exists(ENV_FILE_PATH)
     
@@ -342,7 +496,10 @@ def configure_environment_sequentially(dev_mode=False):
     
     print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
     
-    if dev_mode:
+    if easy_mode:
+        print(f"{C_GREEN}⚡ Easy Mode: Minimal prompts, only HF_TOKEN required{C_RESET}")
+        print(f"{C_CYAN}   Using defaults for all other values (not for production){C_RESET}")
+    elif dev_mode:
         print(f"{C_YELLOW}Development Mode: You can use suggested defaults for quick setup{C_RESET}")
         print(f"{C_CYAN}   Note: Development defaults are NOT secure for production use{C_RESET}")
     else:
@@ -351,16 +508,24 @@ def configure_environment_sequentially(dev_mode=False):
     # Get existing variables
     existing_vars = get_existing_env_vars()
     
-    # Only ask about overwrite preference if .env file existed before
-    if env_file_exists and existing_vars:
-        FORCE_OVERWRITE = ask_overwrite_preference(existing_vars)
+    # Only ask about overwrite preference if .env file existed before (skip for easy mode)
+    if not easy_mode and env_file_exists and existing_vars:
+        FORCE_OVERWRITE = ask_overwrite_preference(existing_vars, force_prompt=force_reconfigure)
     else:
         # No need to ask, we're configuring everything
         if not env_file_exists:
             print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
+            FORCE_OVERWRITE = True
+        elif easy_mode:
+            # In easy mode with existing .env, don't force overwrite - let individual checks handle it
+            print(f"\n{C_CYAN}📝 Using easy mode configuration...{C_RESET}")
+            if env_file_exists and existing_vars:
+                FORCE_OVERWRITE = False
+            else:
+                FORCE_OVERWRITE = True
         else:
             print(f"\n{C_CYAN}📝 No existing configuration found. Will configure all environment variables.{C_RESET}")
-        FORCE_OVERWRITE = True
+            FORCE_OVERWRITE = True
 
     print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
     write_env_var("TT_STUDIO_ROOT", TT_STUDIO_ROOT, quote_value=False)
@@ -372,7 +537,14 @@ def configure_environment_sequentially(dev_mode=False):
     
     # JWT_SECRET
     current_jwt = get_env_var("JWT_SECRET")
-    if should_configure_var("JWT_SECRET", current_jwt):
+    if easy_mode:
+        # In easy mode, use default value only if not already configured
+        if should_configure_var("JWT_SECRET", current_jwt):
+            write_env_var("JWT_SECRET", "test-secret-456")
+            print("✅ JWT_SECRET set to default value (test-secret-456).")
+        else:
+            print("✅ JWT_SECRET already configured (keeping existing value).")
+    elif should_configure_var("JWT_SECRET", current_jwt):
         if is_placeholder(current_jwt):
             print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
         dev_default = "dev-jwt-secret-12345-not-for-production" if dev_mode else ""
@@ -392,7 +564,14 @@ def configure_environment_sequentially(dev_mode=False):
     
     # DJANGO_SECRET_KEY
     current_django = get_env_var("DJANGO_SECRET_KEY")
-    if should_configure_var("DJANGO_SECRET_KEY", current_django):
+    if easy_mode:
+        # In easy mode, use default value only if not already configured
+        if should_configure_var("DJANGO_SECRET_KEY", current_django):
+            write_env_var("DJANGO_SECRET_KEY", "django-insecure-default")
+            print("✅ DJANGO_SECRET_KEY set to default value.")
+        else:
+            print("✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
+    elif should_configure_var("DJANGO_SECRET_KEY", current_django):
         if is_placeholder(current_django):
             print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
         dev_default = "django-dev-secret-key-not-for-production-12345" if dev_mode else ""
@@ -412,7 +591,14 @@ def configure_environment_sequentially(dev_mode=False):
             
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
-    if should_configure_var("TAVILY_API_KEY", current_tavily):
+    if easy_mode:
+        # In easy mode, skip TAVILY_API_KEY only if not already configured
+        if should_configure_var("TAVILY_API_KEY", current_tavily):
+            write_env_var("TAVILY_API_KEY", "")
+            print("✅ TAVILY_API_KEY skipped (easy mode).")
+        else:
+            print("✅ TAVILY_API_KEY already configured (keeping existing value).")
+    elif should_configure_var("TAVILY_API_KEY", current_tavily):
         prompt_text = "🔍 Enter TAVILY_API_KEY (for search, optional - press Enter to skip): "
         val = getpass.getpass(prompt_text)
         write_env_var("TAVILY_API_KEY", val or "")
@@ -422,7 +608,19 @@ def configure_environment_sequentially(dev_mode=False):
         
     # HF_TOKEN
     current_hf = get_env_var("HF_TOKEN")
-    if should_configure_var("HF_TOKEN", current_hf):
+    if easy_mode:
+        # In easy mode, only prompt if not already configured
+        if should_configure_var("HF_TOKEN", current_hf):
+            while True:
+                val = getpass.getpass("🤗 Enter HF_TOKEN (Hugging Face token): ")
+                if val and val.strip():
+                    write_env_var("HF_TOKEN", val)
+                    print("✅ HF_TOKEN saved.")
+                    break
+                print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+        else:
+            print(f"✅ HF_TOKEN already configured (keeping existing value).")
+    elif should_configure_var("HF_TOKEN", current_hf):
         while True:
             val = getpass.getpass("🤗 Enter HF_TOKEN (Hugging Face token): ")
             if val and val.strip():
@@ -437,7 +635,14 @@ def configure_environment_sequentially(dev_mode=False):
 
     # VITE_APP_TITLE
     current_title = get_env_var("VITE_APP_TITLE")
-    if should_configure_var("VITE_APP_TITLE", current_title):
+    if easy_mode:
+        # In easy mode, use default value only if not already configured
+        if should_configure_var("VITE_APP_TITLE", current_title):
+            write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
+            print("✅ VITE_APP_TITLE set to default: Tenstorrent | TT Studio")
+        else:
+            print(f"✅ VITE_APP_TITLE already configured: {current_title}")
+    elif should_configure_var("VITE_APP_TITLE", current_title):
         dev_default = "TT Studio (Dev)" if dev_mode else "TT Studio"
         val = input(f"📝 Enter application title (default: {dev_default}): ") or dev_default
         write_env_var("VITE_APP_TITLE", val)
@@ -449,7 +654,14 @@ def configure_environment_sequentially(dev_mode=False):
     
     # VITE_ENABLE_DEPLOYED
     current_deployed = get_env_var("VITE_ENABLE_DEPLOYED")
-    if should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
+    if easy_mode:
+        # In easy mode, disable AI Playground (use TT Studio mode) only if not already configured
+        if should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
+            write_env_var("VITE_ENABLE_DEPLOYED", "false", quote_value=False)
+            print("✅ VITE_ENABLE_DEPLOYED set to false (TT Studio mode).")
+        else:
+            print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
+    elif should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
         print("Enable AI Playground Mode? (Connects to external cloud models)")
         dev_default = "false" if dev_mode else "false"
         
@@ -468,7 +680,14 @@ def configure_environment_sequentially(dev_mode=False):
     
     # VITE_ENABLE_RAG_ADMIN
     current_rag = get_env_var("VITE_ENABLE_RAG_ADMIN")
-    if should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
+    if easy_mode:
+        # In easy mode, disable RAG admin only if not already configured
+        if should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
+            write_env_var("VITE_ENABLE_RAG_ADMIN", "false", quote_value=False)
+            print("✅ VITE_ENABLE_RAG_ADMIN set to false (easy mode).")
+        else:
+            print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
+    elif should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
         print("\nEnable RAG document management admin page?")
         dev_default = "false" if dev_mode else "false"
         
@@ -485,9 +704,16 @@ def configure_environment_sequentially(dev_mode=False):
     is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
     print(f"🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}")
 
-    # RAG_ADMIN_PASSWORD (only if RAG is enabled)
-    if is_rag_admin_enabled:
-        current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
+    # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in easy mode)
+    current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
+    if easy_mode:
+        # In easy mode, set a default value even if RAG is disabled, but only if not already configured
+        if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
+            write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password")
+            print("✅ RAG_ADMIN_PASSWORD set to default (easy mode).")
+        else:
+            print("✅ RAG_ADMIN_PASSWORD already configured (keeping existing value).")
+    elif is_rag_admin_enabled:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             dev_default = "dev-admin-123" if dev_mode else ""
             prompt_text = f"Enter RAG_ADMIN_PASSWORD{' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
@@ -505,21 +731,28 @@ def configure_environment_sequentially(dev_mode=False):
         else:
             print(f"✅ RAG_ADMIN_PASSWORD already configured (keeping existing value).")
 
-    # Cloud/External model configuration (only if deployed mode is enabled)
-    if is_deployed_mode:
+    # Cloud/External model configuration
+    cloud_vars = [
+        ("CLOUD_CHAT_UI_URL", "🦙 Llama Chat UI URL", False),
+        ("CLOUD_CHAT_UI_AUTH_TOKEN", "🔑 Llama Chat UI Auth Token", True),
+        ("CLOUD_YOLOV4_API_URL", "👁️  YOLOv4 API URL", False),
+        ("CLOUD_YOLOV4_API_AUTH_TOKEN", "🔑 YOLOv4 API Auth Token", True),
+        ("CLOUD_SPEECH_RECOGNITION_URL", "🎤 Whisper Speech Recognition URL", False),
+        ("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN", "🔑 Whisper Speech Recognition Auth Token", True),
+        ("CLOUD_STABLE_DIFFUSION_URL", "🎨 Stable Diffusion URL", False),
+        ("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN", "🔑 Stable Diffusion Auth Token", True),
+    ]
+    
+    if easy_mode:
+        # In easy mode, set all cloud variables to empty defaults only if not already configured
+        for var_name, _, _ in cloud_vars:
+            current_val = get_env_var(var_name)
+            if should_configure_var(var_name, current_val):
+                write_env_var(var_name, "")
+        print("✅ Cloud model variables set to empty defaults (easy mode).")
+    elif is_deployed_mode:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- ☁️  AI Playground Model Configuration  ---{C_RESET}")
         print(f"{C_YELLOW}Note: These are optional. Press Enter to skip any field.{C_RESET}")
-        
-        cloud_vars = [
-            ("CLOUD_CHAT_UI_URL", "🦙 Llama Chat UI URL", False),
-            ("CLOUD_CHAT_UI_AUTH_TOKEN", "🔑 Llama Chat UI Auth Token", True),
-            ("CLOUD_YOLOV4_API_URL", "👁️  YOLOv4 API URL", False),
-            ("CLOUD_YOLOV4_API_AUTH_TOKEN", "🔑 YOLOv4 API Auth Token", True),
-            ("CLOUD_SPEECH_RECOGNITION_URL", "🎤 Whisper Speech Recognition URL", False),
-            ("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN", "🔑 Whisper Speech Recognition Auth Token", True),
-            ("CLOUD_STABLE_DIFFUSION_URL", "🎨 Stable Diffusion URL", False),
-            ("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN", "🔑 Stable Diffusion Auth Token", True),
-        ]
         
         for var_name, prompt, is_secret in cloud_vars:
             current_val = get_env_var(var_name)
@@ -535,6 +768,20 @@ def configure_environment_sequentially(dev_mode=False):
                 print(f"✅ {var_name} already configured (keeping existing value).")
     else:
         print(f"\n{C_YELLOW}Skipping cloud model configuration (AI Playground mode is disabled).{C_RESET}")
+    
+    # Frontend configuration (always set in easy mode, optional otherwise)
+    if easy_mode:
+        current_frontend_host = get_env_var("FRONTEND_HOST")
+        current_frontend_port = get_env_var("FRONTEND_PORT")
+        current_frontend_timeout = get_env_var("FRONTEND_TIMEOUT")
+        
+        if should_configure_var("FRONTEND_HOST", current_frontend_host):
+            write_env_var("FRONTEND_HOST", "localhost")
+        if should_configure_var("FRONTEND_PORT", current_frontend_port):
+            write_env_var("FRONTEND_PORT", "3000", quote_value=False)
+        if should_configure_var("FRONTEND_TIMEOUT", current_frontend_timeout):
+            write_env_var("FRONTEND_TIMEOUT", "60", quote_value=False)
+        print("✅ Frontend configuration set to defaults (easy mode).")
     
     print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")
 
@@ -726,6 +973,33 @@ def check_port_available(port):
         except OSError:
             return False
 
+def check_and_free_ports(ports, no_sudo=False):
+    """
+    Check if multiple ports are available and attempt to free them if not.
+    
+    Args:
+        ports: List of tuples (port_number, service_name)
+        no_sudo: Whether to skip sudo usage
+        
+    Returns:
+        tuple: (bool, list) - (True if all ports OK, list of failed ports with service names)
+    """
+    failed_ports = []
+    
+    for port, service_name in ports:
+        print(f"{C_BLUE}🔍 Checking if port {port} is available for {service_name}...{C_RESET}")
+        if not check_port_available(port):
+            print(f"{C_YELLOW}⚠️  Port {port} is already in use. Attempting to free the port...{C_RESET}")
+            if not kill_process_on_port(port, no_sudo=no_sudo):
+                print(f"{C_RED}❌ Failed to free port {port} for {service_name}{C_RESET}")
+                failed_ports.append((port, service_name))
+            else:
+                print(f"{C_GREEN}✅ Port {port} is now available{C_RESET}")
+        else:
+            print(f"{C_GREEN}✅ Port {port} is available{C_RESET}")
+    
+    return (len(failed_ports) == 0, failed_ports)
+
 
 def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     """
@@ -791,18 +1065,33 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
         print("\n⚠️  Some services may not be fully ready, but main app may still be accessible.")
     return all_healthy
 
-def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60):
+def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None):
     """
     Wait for frontend service to be healthy before opening browser.
+    
+    Args:
+        host: Frontend host
+        port: Frontend port
+        timeout: Timeout in seconds
+        auto_deploy_model: Model name to auto-deploy (optional)
     
     Returns:
         bool: True if browser opened successfully, False otherwise
     """
-    frontend_url = f"http://{host}:{port}/"
+    base_url = f"http://{host}:{port}/"
+    
+    # Add auto-deploy parameter if specified
+    if auto_deploy_model:
+        from urllib.parse import urlencode
+        params = urlencode({"auto-deploy": auto_deploy_model})
+        frontend_url = f"{base_url}?{params}"
+        print(f"\n🤖 Auto-deploying model: {auto_deploy_model}")
+    else:
+        frontend_url = base_url
     
     print(f"\n🌐 Ensuring frontend is ready before opening browser...")
     
-    if wait_for_service_health("Frontend", frontend_url, timeout=timeout, interval=2):
+    if wait_for_service_health("Frontend", base_url, timeout=timeout, interval=2):
         print(f"🚀 Opening browser to {frontend_url}")
         try:
             webbrowser.open(frontend_url)
@@ -908,6 +1197,33 @@ def kill_process_on_port(port, no_sudo=False):
         
     return True
 
+def is_valid_git_repo(path):
+    """Check if directory is a valid git repository.
+    
+    Args:
+        path: Path to check
+        
+    Returns:
+        None if directory doesn't exist
+        True if directory is a valid git repository
+        False if directory exists but is not a valid git repository
+    """
+    if not os.path.exists(path):
+        return None  # Doesn't exist
+    
+    git_dir = os.path.join(path, ".git")
+    if os.path.isfile(git_dir) or os.path.isdir(git_dir):
+        # Verify it's actually valid by checking for HEAD
+        try:
+            result = subprocess.run(
+                ["git", "-C", path, "rev-parse", "--git-dir"],
+                capture_output=True, text=True, check=False
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+    return False  # Exists but not a git repo
+
 def initialize_submodules():
     """Initialize git submodules if they don't exist or are not properly set up."""
     print(f"🔧 Checking and initializing git submodules...")
@@ -924,12 +1240,44 @@ def initialize_submodules():
         print(f"   Please ensure you have the complete repository.")
         return False
     
+    # Check for corrupted submodule directories before attempting initialization
+    submodule_path = os.path.join(TT_STUDIO_ROOT, "tt-inference-server")
+    repo_state = is_valid_git_repo(submodule_path)
+    
+    if repo_state is False:  # Directory exists but is corrupted
+        print(f"{C_YELLOW}⚠️  Detected corrupted submodule directory at {submodule_path}{C_RESET}")
+        print(f"   Cause: Directory exists but is not a valid git repository")
+        print(f"   This usually happens when:")
+        print(f"   - A previous git operation was interrupted")
+        print(f"   - The directory was created manually")
+        print(f"   - Git's internal state is corrupted")
+        print(f"   Solution: Cleaning up and re-initializing...")
+        
+        try:
+            # Clean up corrupted directory
+            shutil.rmtree(submodule_path)
+            print(f"{C_GREEN}✅ Removed corrupted directory{C_RESET}")
+            
+            # Clean up git's internal cache
+            git_modules_path = os.path.join(TT_STUDIO_ROOT, ".git", "modules", "tt-inference-server")
+            if os.path.exists(git_modules_path):
+                shutil.rmtree(git_modules_path)
+                print(f"{C_GREEN}✅ Cleaned up git submodule cache{C_RESET}")
+        except Exception as cleanup_error:
+            print(f"{C_RED}⛔ Error during cleanup: {cleanup_error}{C_RESET}")
+            print(f"   Please manually remove: {submodule_path}")
+            return False
+    
     try:
-        # Always update submodules to ensure they're properly initialized and on correct branches
+        # Step 1: Sync submodule configurations to align .gitmodules with .git/config
+        print(f"🔄 Synchronizing submodule configurations...")
+        run_command(["git", "submodule", "sync", "--recursive"], check=True)
+        
+        # Step 2: Update submodules to ensure they're properly initialized and on correct branches
         print(f"📦 Initializing and updating git submodules...")
         run_command(["git", "submodule", "update", "--init", "--recursive"], check=True)
         
-        # Additional step: ensure submodules are on the correct branch as specified in .gitmodules
+        # Step 3: Ensure submodules are on the correct branch as specified in .gitmodules
         print(f"🌿 Ensuring submodules are on correct branches...")
         run_command(["git", "submodule", "foreach", "--recursive", "git checkout $(git config -f $toplevel/.gitmodules submodule.$name.branch || echo main)"], check=True)
         
@@ -937,8 +1285,28 @@ def initialize_submodules():
         return True
         
     except (subprocess.CalledProcessError, SystemExit) as e:
-        print(f"{C_RED}⛔ Error: Failed to initialize submodules: {e}{C_RESET}")
-        print(f"   Please try manually: git submodule update --init --recursive")
+        print(f"{C_RED}⛔ Error: Failed to initialize submodules{C_RESET}")
+        
+        # Provide specific diagnostic information
+        error_output = ""
+        if hasattr(e, 'stderr') and e.stderr:
+            error_output = str(e.stderr)
+        elif hasattr(e, 'output') and e.output:
+            error_output = str(e.output)
+        
+        if "already exists and is not an empty directory" in error_output or "already exists" in str(e):
+            print(f"   Cause: Submodule directory exists but couldn't be initialized")
+            print(f"   This usually happens when:")
+            print(f"   - A previous git operation was interrupted")
+            print(f"   - The directory was created manually")
+            print(f"   - Git's internal state is corrupted")
+            print(f"\n   Manual fix:")
+            print(f"   1. rm -rf tt-inference-server .git/modules/tt-inference-server")
+            print(f"   2. Run this script again")
+        else:
+            print(f"   Error details: {error_output if error_output else str(e)}")
+            print(f"   Please try manually: git submodule update --init --recursive")
+        
         return False
 
 def setup_tt_inference_server():
@@ -1118,28 +1486,18 @@ def start_fastapi_server(no_sudo=False):
     else:
         print(f"✅ Port 8001 is available")
     
-    # Create PID and log files with proper permissions (similar to startup.sh)
+    # Create PID and log files as regular user (no sudo needed for port 8001)
+    # FastAPI writes logs to fastapi.log at repo root, not to persistent volume
     print(f"🔧 Setting up log and PID files...")
+    
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
         try:
-            # Try to create with sudo first (like startup.sh) unless no_sudo is specified
-            if not no_sudo:
-                subprocess.run(["sudo", "touch", file_path], check=False)
-                subprocess.run(["sudo", "chown", f"{os.getenv('USER', 'root')}", file_path], check=False)
-                subprocess.run(["sudo", "chmod", "644", file_path], check=False)
-            else:
-                # Fallback to regular file creation
-                with open(file_path, 'w') as f:
-                    pass
-                os.chmod(file_path, 0o644)
+            # Create files as regular user
+            with open(file_path, 'w') as f:
+                pass
+            os.chmod(file_path, 0o644)
         except Exception as e:
-            # Fallback to regular file creation
-            try:
-                with open(file_path, 'w') as f:
-                    pass
-                os.chmod(file_path, 0o644)
-            except Exception as e2:
-                print(f"{C_YELLOW}Warning: Could not create {file_path}: {e2}{C_RESET}")
+            print(f"{C_YELLOW}Warning: Could not create {file_path}: {e}{C_RESET}")
     
     # Get environment variables for the server (exactly like startup.sh)
     jwt_secret = get_env_var("JWT_SECRET")
@@ -1181,22 +1539,17 @@ fi
         # Make the script executable
         os.chmod(temp_script_path, 0o755)
         
-        # Start the server using the wrapper script with environment variables (exactly like startup.sh)
-        if not no_sudo:
-            # Use sudo with environment variables exactly like startup.sh
-            # The key difference: pass environment variables as separate arguments to sudo
-            cmd = ["sudo", f"JWT_SECRET={jwt_secret}", f"HF_TOKEN={hf_token}", temp_script_path, 
-                   INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
-            process = subprocess.Popen(cmd)
-        else:
-            # Fallback to running without sudo
-            env = os.environ.copy()
-            if jwt_secret:
-                env["JWT_SECRET"] = jwt_secret
-            if hf_token:
-                env["HF_TOKEN"] = hf_token
-            cmd = [temp_script_path, INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
-            process = subprocess.Popen(cmd, env=env)
+        # Start the server using the wrapper script with environment variables
+        # Run as the actual user (no sudo needed for port 8001)
+        env = os.environ.copy()
+        if jwt_secret:
+            env["JWT_SECRET"] = jwt_secret
+        if hf_token:
+            env["HF_TOKEN"] = hf_token
+        
+        # Run without sudo - port 8001 is non-privileged
+        cmd = [temp_script_path, INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        process = subprocess.Popen(cmd, env=env)
         
         # Health check (same as startup.sh)
         print(f"⏳ Waiting for FastAPI server to start...")
@@ -1283,49 +1636,142 @@ def cleanup_fastapi_server(no_sudo=False):
     """Clean up FastAPI server processes and files."""
     print(f"🧹 Cleaning up FastAPI server...")
     
+    # Track what was cleaned
+    pid_file_existed = False
+    process_killed = False
+    port_freed = False
+    files_removed = []
+    
+    # Helper function to check if process is still alive
+    def is_process_alive(pid):
+        """Check if a process with given PID is still running."""
+        try:
+            # Signal 0 doesn't kill, just checks if process exists
+            os.kill(int(pid), 0)
+            return True
+        except ProcessLookupError:
+            return False  # Process doesn't exist
+        except PermissionError:
+            # If we can't check, try with sudo
+            if not no_sudo:
+                result = subprocess.run(["sudo", "kill", "-0", str(pid)], 
+                                      capture_output=True, check=False)
+                return result.returncode == 0
+            return True  # Assume alive if we can't check
+    
     # Kill process if PID file exists
     if os.path.exists(FASTAPI_PID_FILE):
+        pid_file_existed = True
         try:
             with open(FASTAPI_PID_FILE, 'r') as f:
                 pid = f.read().strip()
             if pid and pid.isdigit():
-                try:
-                    os.kill(int(pid), signal.SIGTERM)
-                    time.sleep(2)
+                pid_int = int(pid)
+                # Check if process is actually running
+                if is_process_alive(pid_int):
+                    print(f"🛑 Found FastAPI process with PID {pid}. Stopping it...")
                     try:
-                        os.kill(int(pid), signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass  # Process already terminated
-                except PermissionError:
-                    if not no_sudo:
-                        # Try with sudo
-                        subprocess.run(["sudo", "kill", "-15", pid], check=False)
+                        # Try graceful termination first
+                        os.kill(pid_int, signal.SIGTERM)
                         time.sleep(2)
-                        subprocess.run(["sudo", "kill", "-9", pid], check=False)
-                    else:
-                        print(f"{C_YELLOW}Warning: Could not kill process {pid} without sudo{C_RESET}")
+                        
+                        # Check if still alive and force kill if needed
+                        if is_process_alive(pid_int):
+                            print(f"⚠️  Process {pid} still running. Forcing termination...")
+                            os.kill(pid_int, signal.SIGKILL)
+                            time.sleep(1)
+                        
+                        # Verify termination
+                        if not is_process_alive(pid_int):
+                            process_killed = True
+                            print(f"✅ FastAPI process {pid} terminated successfully")
+                        else:
+                            print(f"{C_YELLOW}⚠️  Warning: Could not verify termination of process {pid}{C_RESET}")
+                    except PermissionError:
+                        if not no_sudo:
+                            # Try with sudo
+                            print(f"🔐 Using sudo to terminate process {pid}...")
+                            subprocess.run(["sudo", "kill", "-15", pid], check=False)
+                            time.sleep(2)
+                            if is_process_alive(pid_int):
+                                subprocess.run(["sudo", "kill", "-9", pid], check=False)
+                                time.sleep(1)
+                            
+                            # Verify termination
+                            if not is_process_alive(pid_int):
+                                process_killed = True
+                                print(f"✅ FastAPI process {pid} terminated successfully")
+                            else:
+                                print(f"{C_YELLOW}⚠️  Warning: Could not verify termination of process {pid}{C_RESET}")
+                        else:
+                            print(f"{C_YELLOW}⚠️  Warning: Could not kill process {pid} without sudo{C_RESET}")
+                    except ProcessLookupError:
+                        # Process already terminated
+                        process_killed = True
+                        print(f"ℹ️  Process {pid} was already terminated")
+                    except Exception as e:
+                        print(f"{C_YELLOW}⚠️  Warning: Could not kill FastAPI process {pid}: {e}{C_RESET}")
+                else:
+                    print(f"ℹ️  PID file exists but process {pid} is not running")
         except Exception as e:
-            print(f"{C_YELLOW}Warning: Could not kill FastAPI process: {e}{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Warning: Could not read PID file: {e}{C_RESET}")
     
-    # Kill any process on port 8001
-    kill_process_on_port(8001, no_sudo=no_sudo)
+    # Kill any process on port 8001 (this handles cases where PID file is missing but port is in use)
+    port_was_in_use = not check_port_available(8001)
+    port_result = kill_process_on_port(8001, no_sudo=no_sudo)
+    if port_result and port_was_in_use:
+        # kill_process_on_port returned True and port was in use, so we freed it
+        # Verify port is now available
+        if check_port_available(8001):
+            port_freed = True
     
     # Remove PID and log files
+    # FastAPI writes logs to fastapi.log at repo root (not persistent volume)
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
+                files_removed.append(file_path)
         except Exception as e:
-            print(f"{C_YELLOW}Warning: Could not remove {file_path}: {e}{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Warning: Could not remove {file_path}: {e}{C_RESET}")
     
-    print(f"✅ FastAPI server cleanup completed")
+    # Report cleanup status
+    if process_killed or port_freed or files_removed:
+        print(f"✅ FastAPI server cleanup completed")
+        if process_killed:
+            print(f"   • Process terminated")
+        if port_freed:
+            print(f"   • Port 8001 freed")
+        if files_removed:
+            print(f"   • Removed {len(files_removed)} file(s)")
+    elif pid_file_existed:
+        # PID file existed but process was already dead
+        print(f"✅ FastAPI server cleanup completed (process was already stopped)")
+    else:
+        # Nothing to clean
+        print(f"✅ FastAPI server cleanup completed (no running process found)")
 
-def request_sudo_authentication():
-    """Request sudo authentication upfront and cache it for later use."""
+def request_sudo_authentication(force_prompt=False):
+    """
+    Request sudo authentication upfront and cache it for later use.
+    
+    Args:
+        force_prompt (bool): If True, always prompt even if sudo is already authenticated
+    
+    Returns:
+        bool: True if authenticated, False otherwise
+    """
     # Check if sudo is available
     if not shutil.which("sudo"):
         print(f"{C_RED}⛔ Error: sudo is not available on this system.{C_RESET}")
         return False
+    
+    # First, check if sudo is already authenticated (non-interactive mode)
+    if not force_prompt:
+        check_result = subprocess.run(["sudo", "-n", "-v"], capture_output=True, text=True)
+        if check_result.returncode == 0:
+            print(f"{C_GREEN}✅ Sudo is already authenticated (using cached credentials).{C_RESET}")
+            return True
     
     print(f"🔐 TT Inference Server setup requires sudo privileges. Please enter your password:")
     try:
@@ -1342,12 +1788,15 @@ def request_sudo_authentication():
         print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
         return False
 
-def ensure_frontend_dependencies():
+def ensure_frontend_dependencies(force_prompt=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
     This is optional for running the app, as dependencies are always installed
     inside the Docker container, but it greatly improves the development experience
     (e.g., for TypeScript autocompletion).
+    
+    Args:
+        force_prompt (bool): If True, always prompt user even if preference exists
     """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
@@ -1373,33 +1822,59 @@ def ensure_frontend_dependencies():
 
     try:
         if has_local_npm:
-            choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip()
-            if choice in ['n', 'no']:
-                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
-                return True # It's not a failure, just a choice.
+            # Check for saved preference
+            npm_pref = get_preference("npm_install_locally")
+            choice = None
             
-            print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
-            run_command(["npm", "install"], check=True, cwd=frontend_dir)
-            print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+            if not force_prompt and npm_pref:
+                if npm_pref in ['n', 'no', 'false']:
+                    print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
+                    return True
+                # else preference is to install
+                choice = npm_pref
+            else:
+                choice = input(f"Do you want to run 'npm install' locally? (Y/n): ").lower().strip() or 'y'
+                save_preference("npm_install_locally", choice)
+            
+            # Check the actual choice (either from preference or from user input)
+            if choice not in ['n', 'no', 'false']:
+                print(f"\n{C_BLUE}📦 Installing dependencies locally with npm...{C_RESET}")
+                run_command(["npm", "install"], check=True, cwd=frontend_dir)
+                print(f"{C_GREEN}✅ Frontend dependencies installed successfully.{C_RESET}")
+            else:
+                print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
 
         else: # No local npm found
             print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
-            choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip()
-            if choice in ['n', 'no']:
+            
+            # Check for saved preference
+            docker_pref = get_preference("npm_install_via_docker")
+            choice = None
+            
+            if not force_prompt and docker_pref:
+                if docker_pref in ['n', 'no', 'false']:
+                    print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
+                    return True
+                choice = docker_pref
+            else:
+                choice = input(f"Do you want to install dependencies using Docker? (Y/n): ").lower().strip() or 'y'
+                save_preference("npm_install_via_docker", choice)
+            
+            # Check the actual choice (either from preference or from user input)
+            if choice not in ['n', 'no', 'false']:
+                print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
+                # This command runs `npm install` inside a container and mounts the result back to the host.
+                docker_cmd = [
+                    "docker", "run", "--rm",
+                    "-v", f"{frontend_dir}:/app",
+                    "-w", "/app",
+                    "node:22-alpine3.20",
+                    "npm", "install"
+                ]
+                run_command(docker_cmd, check=True)
+                print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
+            else:
                 print(f"{C_YELLOW}Skipping local dependency installation. IDE features may be limited.{C_RESET}")
-                return True
-
-            print(f"\n{C_BLUE}📦 Installing dependencies using a temporary Docker container...{C_RESET}")
-            # This command runs `npm install` inside a container and mounts the result back to the host.
-            docker_cmd = [
-                "docker", "run", "--rm",
-                "-v", f"{frontend_dir}:/app",
-                "-w", "/app",
-                "node:22-alpine3.20",
-                "npm", "install"
-            ]
-            run_command(docker_cmd, check=True)
-            print(f"{C_GREEN}✅ Frontend dependencies installed successfully using Docker.{C_RESET}")
 
     except (subprocess.CalledProcessError, SystemExit) as e:
         print(f"{C_RED}⛔ Error installing frontend dependencies: {e}{C_RESET}")
@@ -1409,6 +1884,264 @@ def ensure_frontend_dependencies():
         print(f"\n{C_YELLOW}🛑 Installation cancelled by user.{C_RESET}")
         return True
 
+    return True
+
+def get_spdx_header_type(file_path):
+    """
+    Determines the appropriate SPDX header type based on file extension.
+    """
+    suffix = file_path.suffix.lower()
+    name = file_path.name
+    
+    if suffix in ('.py', '.sh') or name == 'Dockerfile':
+        return 'hash'
+    elif suffix in ('.ts', '.tsx', '.js', '.jsx'):
+        return 'double_slash'
+    elif suffix == '.css':
+        return 'css'
+    elif suffix in ('.html', '.htm'):
+        return 'html'
+    else:
+        return None
+
+def get_spdx_headers():
+    """
+    Returns SPDX header templates for different file types.
+    """
+    current_year = datetime.now().year
+    
+    return {
+        # Python, Bash, Dockerfile
+        'hash': f"""# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
+""",
+        # TypeScript, JavaScript
+        'double_slash': f"""// SPDX-License-Identifier: Apache-2.0
+//
+// SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
+""",
+        # CSS
+        'css': f"""/* SPDX-License-Identifier: Apache-2.0
+ *
+ * SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC
+ */
+""",
+        # HTML
+        'html': f"""<!-- SPDX-License-Identifier: Apache-2.0
+
+SPDX-FileCopyrightText: © {current_year} Tenstorrent AI ULC -->
+"""
+    }
+
+def should_skip_spdx_directory(directory_path):
+    """
+    Determines if a directory should be skipped during SPDX processing.
+    """
+    directory_name = directory_path.name
+    
+    # Skip common directories that shouldn't have SPDX headers
+    skip_dirs = {
+        'node_modules',
+        '.git',
+        '.venv',
+        '__pycache__',
+        '.pytest_cache',
+        'dist',
+        'build',
+        '.next',
+        'coverage',
+        '.nyc_output',
+        'frontend',  # Explicitly exclude frontend directory
+        'tt-inference-server',  # Exclude submodule
+        'tt_studio_persistent_volume',  # Exclude runtime data
+    }
+    
+    return directory_name in skip_dirs
+
+def add_spdx_header_to_file(file_path, headers):
+    """
+    Adds the SPDX header to the file if it doesn't already contain it.
+    """
+    header_type = get_spdx_header_type(file_path)
+    if header_type is None:
+        return False
+    
+    header = headers[header_type]
+    
+    try:
+        with open(file_path, "r+", encoding='utf-8') as file:
+            content = file.read()
+            if "SPDX-License-Identifier" not in content:
+                file.seek(0, 0)
+                file.write(header + "\n" + content)
+                print(f"{C_GREEN}✅ Added SPDX header to: {file_path}{C_RESET}")
+                return True
+            else:
+                return False
+    except Exception as e:
+        print(f"{C_RED}❌ Error processing {file_path}: {e}{C_RESET}")
+        return False
+
+def check_spdx_headers():
+    """
+    Check for missing SPDX headers in the codebase (excluding frontend).
+    """
+    print(f"{C_BLUE}{C_BOLD}🔍 Checking for missing SPDX license headers...{C_RESET}")
+    
+    repo_root = Path(TT_STUDIO_ROOT)
+    directories_to_process = [
+        repo_root / "app" / "backend",
+        repo_root / "app" / "agent", 
+        repo_root / "app" / "frontend",
+        repo_root / "dev-tools",
+        repo_root / "models",
+        repo_root / "docs",
+        repo_root,  # Root level files (like run.py, startup.sh)
+    ]
+    
+    missing_headers = []
+    total_files_checked = 0
+    
+    for directory in directories_to_process:
+        if not directory.exists():
+            print(f"{C_YELLOW}⚠️  Directory does not exist: {directory}{C_RESET}")
+            continue
+            
+        print(f"{C_CYAN}📁 Checking directory: {directory}{C_RESET}")
+        for file_path in directory.rglob("*"):
+            if file_path.is_file():
+                # Skip files in excluded directories
+                if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
+                    continue
+                    
+                # Check if the file is a supported type
+                if get_spdx_header_type(file_path) is not None:
+                    total_files_checked += 1
+                    try:
+                        with open(file_path, "r", encoding='utf-8') as file:
+                            content = file.read()
+                            if "SPDX-License-Identifier" not in content:
+                                missing_headers.append(str(file_path))
+                    except Exception as e:
+                        print(f"{C_YELLOW}⚠️  Could not read {file_path}: {e}{C_RESET}")
+    
+    print(f"\n{C_BLUE}📊 SPDX Header Check Results:{C_RESET}")
+    print(f"  Total files checked: {total_files_checked}")
+    print(f"  Files with missing headers: {len(missing_headers)}")
+    
+    if missing_headers:
+        print(f"\n{C_RED}{C_BOLD}❌ Files missing SPDX headers:{C_RESET}")
+        for file_path in missing_headers:
+            print(f"  {C_RED}• {file_path}{C_RESET}")
+        print(f"\n{C_CYAN}💡 To add missing headers, run: {C_WHITE}python run.py --add-headers{C_RESET}")
+        return False
+    else:
+        print(f"\n{C_GREEN}{C_BOLD}✅ All files have proper SPDX license headers!{C_RESET}")
+        return True
+
+def add_spdx_headers():
+    """
+    Add missing SPDX headers to all source files (excluding frontend).
+    """
+    print(f"{C_BLUE}{C_BOLD}📝 Adding missing SPDX license headers...{C_RESET}")
+    
+    repo_root = Path(TT_STUDIO_ROOT)
+    directories_to_process = [
+        repo_root / "app" / "backend",
+        repo_root / "app" / "agent", 
+        repo_root / "dev-tools",
+        repo_root / "models",
+        repo_root / "docs",
+        repo_root,  # Root level files (like run.py, startup.sh)
+    ]
+    
+    headers = get_spdx_headers()
+    files_modified = 0
+    total_files_checked = 0
+    
+    for directory in directories_to_process:
+        if not directory.exists():
+            print(f"{C_YELLOW}⚠️  Directory does not exist: {directory}{C_RESET}")
+            continue
+            
+        print(f"{C_CYAN}📁 Processing directory: {directory}{C_RESET}")
+        for file_path in directory.rglob("*"):
+            if file_path.is_file():
+                # Skip files in excluded directories
+                if any(should_skip_spdx_directory(parent) for parent in file_path.parents):
+                    continue
+                    
+                # Check if the file is a supported type
+                if get_spdx_header_type(file_path) is not None:
+                    total_files_checked += 1
+                    if add_spdx_header_to_file(file_path, headers):
+                        files_modified += 1
+    
+    print(f"\n{C_BLUE}📊 SPDX Header Addition Results:{C_RESET}")
+    print(f"  Total files checked: {total_files_checked}")
+    print(f"  Files modified: {files_modified}")
+    
+    if files_modified > 0:
+        print(f"\n{C_GREEN}{C_BOLD}✅ Successfully added SPDX headers to {files_modified} files!{C_RESET}")
+    else:
+        print(f"\n{C_GREEN}{C_BOLD}✅ All files already have proper SPDX license headers!{C_RESET}")
+
+def fix_docker_issues():
+    """Automatically fix common Docker service and permission issues."""
+    print(f"\n{C_TT_PURPLE}{C_BOLD}🔧 TT Studio Docker Fix Utility{C_RESET}")
+    print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
+    
+    try:
+        # Step 1: Start Docker service
+        print(f"\n{C_BLUE}🚀 Starting Docker service...{C_RESET}")
+        result = subprocess.run(["sudo", "service", "docker", "start"], 
+                              capture_output=True, text=True, check=False)
+        
+        if result.returncode == 0:
+            print(f"{C_GREEN}✅ Docker service started successfully{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Docker service start returned code {result.returncode}{C_RESET}")
+            if result.stderr:
+                print(f"{C_YELLOW}   {result.stderr.strip()}{C_RESET}")
+        
+        # Step 2: Fix socket permissions
+        print(f"\n{C_BLUE}🔒 Fixing Docker socket permissions...{C_RESET}")
+        socket_result = subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"], 
+                                     capture_output=True, text=True, check=False)
+        
+        if socket_result.returncode == 0:
+            print(f"{C_GREEN}✅ Docker socket permissions fixed{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Socket permission fix returned code {socket_result.returncode}{C_RESET}")
+            if socket_result.stderr:
+                print(f"{C_YELLOW}   {socket_result.stderr.strip()}{C_RESET}")
+        
+        # Step 3: Test Docker connectivity
+        print(f"\n{C_BLUE}🔍 Testing Docker connectivity...{C_RESET}")
+        test_result = subprocess.run(["docker", "info"], 
+                                   capture_output=True, text=True, check=False)
+        
+        if test_result.returncode == 0:
+            print(f"{C_GREEN}✅ Docker is working correctly!{C_RESET}")
+            print(f"\n{C_GREEN}{C_BOLD}🎉 Docker fix completed successfully!{C_RESET}")
+            print(f"{C_CYAN}You can now run: {C_WHITE}python run.py{C_RESET}")
+        else:
+            print(f"{C_RED}❌ Docker connectivity test failed{C_RESET}")
+            if test_result.stderr:
+                print(f"{C_YELLOW}Error: {test_result.stderr.strip()}{C_RESET}")
+            print(f"\n{C_YELLOW}You may need to manually troubleshoot Docker installation.{C_RESET}")
+            return False
+            
+    except FileNotFoundError:
+        print(f"{C_RED}❌ Error: 'sudo' or 'docker' command not found{C_RESET}")
+        print(f"{C_YELLOW}Please ensure Docker is installed and sudo is available.{C_RESET}")
+        return False
+    except Exception as e:
+        print(f"{C_RED}❌ Unexpected error during Docker fix: {e}{C_RESET}")
+        return False
+    
+    print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
     return True
 
 def main():
@@ -1431,12 +2164,17 @@ def main():
             epilog=f"""
 {C_GREEN}{C_BOLD}Examples:{C_RESET}
   {C_CYAN}python run.py{C_RESET}                   🚀 Normal interactive setup
+  {C_CYAN}python run.py --easy{C_RESET}            ⚡ Easy setup - minimal prompts, only HF_TOKEN required
   {C_CYAN}python run.py --dev{C_RESET}             🛠️  Development mode with suggested defaults
+  {C_CYAN}python run.py --reconfigure{C_RESET}      🔄 Reset preferences and reconfigure all options
   {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
   {C_CYAN}python run.py --no-browser{C_RESET}      🚫 Skip automatic browser opening
   {C_CYAN}python run.py --wait-for-services{C_RESET} ⏳ Wait for all services to be healthy before completing
+  {C_CYAN}python run.py --check-headers{C_RESET} 🔍 Check for missing SPDX license headers
+  {C_CYAN}python run.py --add-headers{C_RESET} 📝 Add missing SPDX license headers (excludes frontend)
+  {C_CYAN}python run.py --fix-docker{C_RESET}   🔧 Automatically fix Docker service and permission issues
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1450,6 +2188,8 @@ def main():
                            help="🗑️  Clean up everything including persistent data and .env file")
         parser.add_argument("--help-env", action="store_true", 
                            help="📚 Show detailed help for environment variables")
+        parser.add_argument("--reconfigure", action="store_true",
+                           help="🔄 Reset preferences and reconfigure all options")
         parser.add_argument("--skip-fastapi", action="store_true", 
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--no-sudo", action="store_true", 
@@ -1460,6 +2200,16 @@ def main():
                            help="⏳ Wait for all services to be healthy before completing")
         parser.add_argument("--browser-timeout", type=int, default=60,
                    help="⏳ Timeout in seconds for waiting for frontend before opening browser")
+        parser.add_argument("--add-headers", action="store_true",
+                   help="📝 Add missing SPDX license headers to all source files (excludes frontend)")
+        parser.add_argument("--check-headers", action="store_true",
+                   help="🔍 Check for missing SPDX license headers without adding them")
+        parser.add_argument("--auto-deploy", type=str, metavar="MODEL_NAME",
+                   help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
+        parser.add_argument("--fix-docker", action="store_true",
+                   help="🔧 Automatically fix Docker service and permission issues")
+        parser.add_argument("--easy", action="store_true",
+                   help="🚀 Easy setup mode - only prompts for HF_TOKEN, uses defaults for everything else")
         
         args = parser.parse_args()
         
@@ -1505,11 +2255,15 @@ def main():
 {C_MAGENTA}{C_BOLD}Usage Examples:{C_RESET}
 {'=' * 80}
   {C_CYAN}python run.py{C_RESET}                        Normal setup with prompts
+  {C_CYAN}python run.py --easy{C_RESET}                 Easy setup - minimal prompts, only HF_TOKEN required
   {C_CYAN}python run.py --dev{C_RESET}                  Development mode with defaults
+  {C_CYAN}python run.py --reconfigure{C_RESET}          Reset preferences and reconfigure
   {C_CYAN}python run.py --cleanup{C_RESET}              Clean up containers only
   {C_CYAN}python run.py --cleanup-all{C_RESET}          Complete cleanup (data + config)
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         Skip FastAPI server setup
   {C_CYAN}python run.py --no-sudo{C_RESET}              Skip sudo usage (may limit functionality)
+  {C_CYAN}python run.py --check-headers{C_RESET}        Check for missing SPDX license headers
+  {C_CYAN}python run.py --add-headers{C_RESET}          Add missing SPDX license headers
 
 {'=' * 80}
 {C_WHITE}For more information, visit: {C_CYAN}https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -1520,27 +2274,196 @@ def main():
             cleanup_resources(args)
             return
         
+        if args.check_headers:
+            check_spdx_headers()
+            return
+        
+        if args.fix_docker:
+            success = fix_docker_issues()
+            sys.exit(0 if success else 1)
+        
+        if args.add_headers:
+            add_spdx_headers()
+            return
+        
         display_welcome_banner()
         check_docker_installation()
-        configure_environment_sequentially(dev_mode=args.dev)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=args.easy)
+
+        # Save easy mode configuration to JSON if --easy flag was used
+        if args.easy:
+            easy_config = {
+                "mode": "easy",
+                "setup_timestamp": datetime.now().isoformat(),
+                "jwt_secret_default": "test-secret-456",
+                "django_secret_key_default": "django-insecure-default",
+                "hf_token_provided": True,
+                "tt_studio_mode": True,
+                "ai_playground_mode": False,
+                "vite_app_title": "Tenstorrent | TT Studio",
+                "vite_enable_deployed": "false",
+                "vite_enable_rag_admin": "false"
+            }
+            save_easy_config(easy_config)
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
-        if host_persistent_volume and not os.path.isdir(host_persistent_volume):
-            print(f"\n{C_BLUE}📁 Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
-            os.makedirs(host_persistent_volume, exist_ok=True)
+        if host_persistent_volume:
+            if not os.path.isdir(host_persistent_volume):
+                print(f"\n{C_BLUE}📁 Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
+                os.makedirs(host_persistent_volume, exist_ok=True)
+                # Only set permissions on newly created directory (we own it)
+                # Existing subdirectories will be handled by Docker containers via docker-entrypoint.sh
+                try:
+                    os.chmod(host_persistent_volume, 0o777)
+                except (OSError, PermissionError) as e:
+                    print(f"{C_YELLOW}⚠️  Could not set permissions on persistent volume: {e}{C_RESET}")
+                    print(f"{C_YELLOW}   Docker containers will handle permissions via docker-entrypoint.sh{C_RESET}")
 
         # Create Docker network
         print(f"\n{C_BLUE}Checking for Docker network 'tt_studio_network'...{C_RESET}")
-        result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True)
-        if "tt_studio_network" not in result.stdout:
-            run_command(["docker", "network", "create", "tt_studio_network"])
-            print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
-        else:
-            print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
+        try:
+            result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True, check=True)
+            if "tt_studio_network" not in result.stdout:
+                try:
+                    run_command(["docker", "network", "create", "tt_studio_network"])
+                    print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
+                except subprocess.CalledProcessError as e:
+                    error_output = e.stderr.lower() if e.stderr else ""
+                    print(f"{C_RED}⛔ Error: Failed to create Docker network.{C_RESET}")
+                    
+                    if "permission denied" in error_output:
+                        print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                        print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                        print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                        print()
+                        print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
+                        print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                        print()
+                        print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
+                        print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                    elif "cannot connect" in error_output or "connection refused" in error_output:
+                        print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                        print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                        print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                        print()
+                        print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
+                        print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                        print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
+                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                    else:
+                        print(f"{C_YELLOW}Docker network creation failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
+                        print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
+                    
+                    sys.exit(1)
+            else:
+                print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
+        except subprocess.CalledProcessError as e:
+            error_output = e.stderr.lower() if e.stderr else ""
+            print(f"{C_RED}⛔ Error: Failed to list Docker networks.{C_RESET}")
+            
+            if "permission denied" in error_output:
+                print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                print()
+                print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
+                print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                print()
+                print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
+                print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            elif "cannot connect" in error_output or "connection refused" in error_output:
+                print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                print()
+                print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
+                print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
+                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            else:
+                print(f"{C_YELLOW}Docker network listing failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
+                print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
+            
+            sys.exit(1)
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies()
+        ensure_frontend_dependencies(force_prompt=args.reconfigure)
+
+        # Check if all required ports are available
+        print(f"\n{C_BOLD}{C_BLUE}🔍 Checking port availability for all services...{C_RESET}")
+        print(f"{C_CYAN}The following ports will be checked and freed if needed:{C_RESET}")
+        print(f"  • Port 3000 - Frontend (Vite dev server)")
+        print(f"  • Port 8000 - Backend API (Django/Gunicorn)")
+        print(f"  • Port 8080 - Agent Service")
+        print(f"  • Port 8111 - ChromaDB (Vector Database)")
+        print(f"{C_YELLOW}⚠️  If any of these ports are in use, we will attempt to free them.{C_RESET}\n")
+
+        # Define ports based on mode
+        required_ports = [
+            (3000, "Frontend"),
+            (8000, "Backend API"),
+            (8080, "Agent Service"),
+            (8111, "ChromaDB"),
+        ]
+
+        ports_ok, failed_ports = check_and_free_ports(required_ports, no_sudo=args.no_sudo)
+
+        if not ports_ok:
+            print(f"\n{C_RED}{C_BOLD}❌ ERROR: The following ports are not available:{C_RESET}")
+            print()
+            for port, service_name in failed_ports:
+                print(f"  {C_RED}• Port {port} - {service_name}{C_RESET}")
+            print()
+            print(f"{C_YELLOW}These ports are required for TT Studio to run.{C_RESET}")
+            print()
+            print(f"{C_CYAN}{C_BOLD}To resolve this issue:{C_RESET}")
+            print(f"  1. Find processes using these ports:")
+            for port, _ in failed_ports:
+                print(f"     {C_WHITE}lsof -i :{port}{C_RESET}")
+            print()
+            print(f"  2. Stop the processes manually:")
+            print(f"     {C_WHITE}kill -9 <PID>{C_RESET}")
+            print()
+            print(f"  3. Or run with sudo to automatically free ports:")
+            print(f"     {C_WHITE}python run.py{C_RESET} (without --no-sudo)")
+            print()
+            sys.exit(1)
+
+        print(f"{C_GREEN}✅ All required ports are available{C_RESET}\n")
+
+        # Ensure workflow_logs directory exists with correct permissions before Docker mounts it
+        # This prevents Docker from creating it as root (which causes permission issues)
+        workflow_logs_dir = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "workflow_logs")
+        if not os.path.exists(workflow_logs_dir):
+            print(f"{C_BLUE}📁 Creating workflow_logs directory with correct permissions...{C_RESET}")
+            try:
+                os.makedirs(workflow_logs_dir, mode=0o755, exist_ok=True)
+                print(f"{C_GREEN}✅ Created workflow_logs directory{C_RESET}")
+            except Exception as e:
+                print(f"{C_YELLOW}⚠️  Warning: Could not create workflow_logs directory: {e}{C_RESET}")
+                print(f"   Docker will create it, but it may have incorrect permissions")
+        else:
+            # Ensure existing directory has correct permissions (Unix/Linux only)
+            if OS_NAME != "Windows":
+                try:
+                    current_stat = os.stat(workflow_logs_dir)
+                    current_uid = current_stat.st_uid
+                    current_user_uid = os.getuid()
+                    if current_uid != current_user_uid and current_uid == 0:  # Owned by root
+                        print(f"{C_YELLOW}⚠️  workflow_logs directory is owned by root, fixing permissions...{C_RESET}")
+                        os.chown(workflow_logs_dir, current_user_uid, os.getgid())
+                        print(f"{C_GREEN}✅ Fixed workflow_logs directory ownership{C_RESET}")
+                except (OSError, PermissionError, AttributeError) as e:
+                    # If we don't have permission or chown is not available, warn user
+                    print(f"{C_YELLOW}⚠️  Warning: Could not fix workflow_logs permissions: {e}{C_RESET}")
+                    print(f"   You may need to run: sudo chown -R $USER:$USER {workflow_logs_dir}")
 
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
@@ -1565,15 +2488,8 @@ def main():
             # Store original directory to return to later
             original_dir = os.getcwd()
             
-            # Request sudo authentication upfront (unless --no-sudo is specified)
-            if not args.no_sudo:
-                if not request_sudo_authentication():
-                    print(f"{C_RED}⛔ Cannot proceed without sudo access. Use --no-sudo to skip sudo usage.{C_RESET}")
-                    return
-            else:
-                print(f"{C_YELLOW}⚠️  Skipping sudo authentication (--no-sudo flag used){C_RESET}")
-                print(f"{C_YELLOW}   Note: Some operations may fail if elevated privileges are required{C_RESET}")
-            
+            # Note: sudo is no longer required by default for FastAPI (port 8001 is non-privileged)
+            # The --no-sudo flag is kept for backward compatibility
             try:
                 # Setup TT Inference Server
                 if not setup_tt_inference_server():
@@ -1670,11 +2586,13 @@ def main():
             host, port, timeout = get_frontend_config()
             
             # Use the new function that reuses existing infrastructure
-            if not wait_for_frontend_and_open_browser(host, port, timeout):
-                print(f"{C_YELLOW}⚠️  Browser opening failed. Please manually navigate to http://{host}:{port}{C_RESET}")
+            if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy):
+                auto_deploy_param = f"?auto-deploy={args.auto_deploy}" if args.auto_deploy else ""
+                print(f"{C_YELLOW}⚠️  Browser opening failed. Please manually navigate to http://{host}:{port}{auto_deploy_param}{C_RESET}")
         else:
             host, port, _ = get_frontend_config()
-            print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{C_RESET}")
+            auto_deploy_param = f"?auto-deploy={args.auto_deploy}" if args.auto_deploy else ""
+            print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
         
         # If in dev mode, show logs similar to startup.sh
         if args.dev:

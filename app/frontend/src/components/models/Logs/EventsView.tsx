@@ -59,7 +59,7 @@ export default function EventsView({ events, onScroll, scrollRef }: Props) {
               }}
             >
               <div className="flex items-start gap-2">
-                <span className="text-gray-500 text-xs mr-1 select-none flex-shrink-0">
+                <span className="text-gray-500 text-xs mr-1 select-none shrink-0">
                   {String(index + 1).padStart(3, "0")}
                 </span>
                 <div className="flex-1">
@@ -110,4 +110,3 @@ export default function EventsView({ events, onScroll, scrollRef }: Props) {
     </div>
   );
 }
-

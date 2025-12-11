@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-"use client";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
@@ -94,9 +94,13 @@ const FirstFormSchema = z.object({
 export function FirstStepForm({
   setSelectedModel,
   setFormError,
+  autoDeployModel,
+  isAutoDeploying,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
+  autoDeployModel?: string | null;
+  isAutoDeploying?: boolean;
 }) {
   const { nextStep } = useStepper();
   const {
@@ -107,6 +111,7 @@ export function FirstStepForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWarningDismissed, setIsWarningDismissed] = useState(false);
 
   // Refresh models context when component mounts
   useEffect(() => {
@@ -177,10 +182,22 @@ export function FirstStepForm({
           );
         }
 
+        console.log(
+          "📝 FirstStepForm: Setting selectedModel to:",
+          selectedModel.id
+        );
         setSelectedModel(selectedModel.id);
+        console.log(
+          "📝 FirstStepForm: selectedModel set, waiting for status check..."
+        );
         customToast.success("Model Selected!: " + selectedModel.name);
         setFormError(false);
-        nextStep();
+
+        // Give a small delay to allow status check to start before navigating
+        // The StepAdjuster will handle navigation if Docker step is removed
+        setTimeout(() => {
+          nextStep();
+        }, 100);
       } else {
         customToast.error("Model not found!");
         setFormError(true);
@@ -189,6 +206,33 @@ export function FirstStepForm({
       setIsSubmitting(false);
     }
   };
+
+  // Auto-select model when in auto-deploy mode
+  useEffect(() => {
+    if (autoDeployModel && models.length > 0 && isAutoDeploying) {
+      const targetModel = models.find(
+        (model) =>
+          model.name.toLowerCase().includes(autoDeployModel.toLowerCase()) ||
+          model.name === autoDeployModel
+      );
+
+      if (targetModel) {
+        console.log("Auto-selecting model:", targetModel.name);
+        form.setValue("model", targetModel.name);
+
+        // Auto-submit the form after a short delay
+        setTimeout(() => {
+          form.handleSubmit(onSubmit)();
+        }, 1000);
+      } else {
+        customToast.error(`Auto-deploy model "${autoDeployModel}" not found`);
+        console.error(
+          "Available models:",
+          models.map((m) => m.name)
+        );
+      }
+    }
+  }, [autoDeployModel, models, isAutoDeploying, form, onSubmit]);
 
   // Get current board info and group models by type and compatibility
   const currentBoard = models[0]?.current_board || "unknown";
@@ -231,7 +275,24 @@ export function FirstStepForm({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {/* Always show deployed models warning prominently */}
-        <DeployedModelsWarning className="mb-8 mt-8" />
+        {!isWarningDismissed && (
+          <DeployedModelsWarning
+            className="mb-8 mt-8"
+            onClose={() => setIsWarningDismissed(true)}
+          />
+        )}
+
+        {/* Auto-deploy indicator */}
+        {isAutoDeploying && autoDeployModel && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span className="text-blue-800 dark:text-blue-200 font-medium">
+                🤖 Auto-deploying: {autoDeployModel}
+              </span>
+            </div>
+          </div>
+        )}
 
         <FormField
           control={form.control}
@@ -390,28 +451,31 @@ export function FirstStepForm({
                     </span>
                     <div className="px-2 py-2">
                       {currentBoard !== "unknown" ? (
-                          <BoardBadge
-                            boardName={currentBoard}
-                            onClick={() => {
-                              const lower = currentBoard.toLowerCase();
-                              if (lower.includes("t3k") || lower.includes("t3000")) {
-                                window.open(
-                                  "https://tenstorrent.com/hardware/tt-quietbox",
-                                  "_blank"
-                                );
-                              } else if (lower.includes("n300")) {
-                                window.open(
-                                  "https://tenstorrent.com/hardware/wormhole",
-                                  "_blank"
-                                );
-                              } else {
-                                window.open(
-                                  "https://www.tenstorrent.com/hardware",
-                                  "_blank"
-                                );
-                              }
-                            }}
-                          />
+                        <BoardBadge
+                          boardName={currentBoard}
+                          onClick={() => {
+                            const lower = currentBoard.toLowerCase();
+                            if (
+                              lower.includes("t3k") ||
+                              lower.includes("t3000")
+                            ) {
+                              window.open(
+                                "https://tenstorrent.com/hardware/tt-quietbox",
+                                "_blank"
+                              );
+                            } else if (lower.includes("n300")) {
+                              window.open(
+                                "https://tenstorrent.com/hardware/wormhole",
+                                "_blank"
+                              );
+                            } else {
+                              window.open(
+                                "https://www.tenstorrent.com/hardware",
+                                "_blank"
+                              );
+                            }
+                          }}
+                        />
                       ) : (
                         <span className="text-xs px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
                           Unknown

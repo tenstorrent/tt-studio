@@ -1,4 +1,4 @@
-name: Front-End Linter SPDX Licenses Checker
+name: TT-Studio Frontend Linter SPDX Licenses Checker
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
     branches:
       - "main"
       - "staging"
+      - "dev"
     types:
       - opened
       - reopened
@@ -17,43 +18,132 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # Fetch full history for proper git diff
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: "app/frontend/package-lock.json"
 
       - name: Install dependencies
-        working-directory: app/frontend  
-        run: npm install
-
-      - name: Run ESLint with Auto-fix
         working-directory: app/frontend
-        run: |
-          set +e
-          npm run lint || true  # Run lint and allow the workflow to continue even if there are warnings/errors
+        run: npm ci
 
-      # Run ESLint and Capture Output
-      - name: Run ESLint and Capture Output
-        working-directory: app/frontend  
-        id: run_eslint
+      # Fetch git history for PR comparisons (must happen before header check)
+      - name: Fetch Git History for PR
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Fetching base branch: ${{ github.event.pull_request.base.ref }}"
+          git fetch origin ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }} --depth=100
+          git fetch origin ${{ github.event.pull_request.head.ref }}:refs/remotes/origin/${{ github.event.pull_request.head.ref }} --depth=100
+          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+          echo "Head SHA: ${{ github.sha }}"
+
+      # Check SPDX headers on changed files (enforces current year)
+      - name: Check SPDX Headers on Changed Files (Current Year)
+        working-directory: app/frontend
+        id: header_check
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: npm run header:check:changed
+
+      # Get list of changed frontend files for targeted ESLint check
+      - name: Get Changed Frontend Files
+        id: changed_files
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+          echo "Head SHA: ${{ github.event.pull_request.head.sha }}"
+          echo "GitHub SHA: ${{ github.sha }}"
+
+          # For pull requests, get files changed in this PR
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.sha }}"
+            echo "PR: Comparing $base_sha..$head_sha"
+            
+            # Get changed files using the most reliable method
+            changed_files=$(git diff --name-only --diff-filter=AM $base_sha..$head_sha 2>/dev/null || echo "")
+            
+            # If that fails, try alternative approaches
+            if [ -z "$changed_files" ]; then
+              echo "Trying alternative git diff approach..."
+              changed_files=$(git diff --name-only --diff-filter=AM origin/${{ github.event.pull_request.base.ref }}..HEAD 2>/dev/null || echo "")
+            fi
+          else
+            # For push events, compare with previous commit
+            echo "Push: Comparing with HEAD~1"
+            changed_files=$(git diff --name-only --diff-filter=AM HEAD~1 2>/dev/null || echo "")
+          fi
+
+          echo "All changed files:"
+          echo "$changed_files"
+
+          # Filter for frontend JS/TS files
+          frontend_files=$(echo "$changed_files" | grep -E '^app/frontend/src/.*\.(ts|tsx|js|jsx)$' | sed 's|^app/frontend/||' || echo "")
+
+          echo "Frontend files:"
+          echo "$frontend_files"
+
+          if [ -n "$frontend_files" ]; then
+            echo "CHANGED_FRONTEND_FILES<<EOF" >> $GITHUB_OUTPUT
+            echo "$frontend_files" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "Found changed frontend files: $frontend_files"
+          else
+            echo "No changed frontend files found"
+            echo "CHANGED_FRONTEND_FILES=" >> $GITHUB_OUTPUT
+          fi
+
+      # Skip ESLint if no frontend files changed
+      - name: Skip ESLint - No Frontend Changes
+        if: steps.changed_files.outputs.CHANGED_FRONTEND_FILES == ''
+        run: |
+          echo "✅ No frontend files changed in this PR"
+          echo "Skipping ESLint check"
+          echo "HAS_ERRORS=false" >> $GITHUB_ENV
+          echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
+
+      # Run ESLint on changed files only (or all files if no changes detected)
+      - name: Run ESLint on Changed Files
+        if: steps.changed_files.outputs.CHANGED_FRONTEND_FILES != ''
+        working-directory: app/frontend
+        id: eslint_check
         run: |
           set +e
-          output=$(npm run lint --silent 2>&1)
+
+          # Run ESLint on changed files or all files
+          echo "Running ESLint..."
+          if [ -n "${{ steps.changed_files.outputs.CHANGED_FRONTEND_FILES }}" ]; then
+            echo "Running ESLint on changed files only..."
+            output=$(npx eslint ${{ steps.changed_files.outputs.CHANGED_FRONTEND_FILES }} --silent 2>&1)
+          else
+            echo "No changed files detected, running ESLint on all files..."
+            output=$(npm run lint --silent 2>&1)
+          fi
           exit_code=$?
+
+          echo "ESLint completed with exit code: $exit_code"
           echo "$output"
-          clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')  # Remove ANSI escape codes
+
+          # Clean ANSI escape codes
+          clean_output=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
           echo "CLEAN_OUTPUT<<EOF" >> $GITHUB_ENV
           echo "$clean_output" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
+          # Process output for errors and missing license headers
           grouped_errors=""
           current_file=""
           errors_for_file=""
@@ -62,17 +152,21 @@ jobs:
           lc_flagged_files=""
 
           while IFS= read -r line; do
+            # Detect file paths (lines starting with /)
             if echo "$line" | grep -q '^\s*\/'; then
+              # Save previous file's errors if any
               if [ "$has_errors" = true ]; then
                 grouped_errors+="$current_file\n$errors_for_file\n------------------------------------------------------------------------------------------------------------------------------------------\n"
                 errors_for_file=""
                 has_errors=false
               fi
               current_file=$(echo "$line" | sed 's/\n//g')
-            elif echo "$line" | grep -q 'error'; then
+            # Detect actual error lines (not warnings)
+            elif echo "$line" | grep -qE '^\s*[0-9]+:[0-9]+\s+error'; then
               errors_for_file+="  $line\n"
               has_errors=true
 
+              # Check for missing license header errors
               if echo "$line" | grep -q 'missing header'; then
                 missing_lc_headers=true
                 errors_for_file+="!Flagged: LC header missing\n"
@@ -81,68 +175,95 @@ jobs:
             fi
           done <<< "$clean_output"
 
+          # Add final file errors if any
           if [ "$has_errors" = true ]; then
             grouped_errors+="$current_file\n$errors_for_file\n"
           fi
 
+          # Write to files immediately to avoid argument list too long errors
           if [ -n "$grouped_errors" ]; then
-            echo "Errors found."
-            echo "GROUPED_ERRORS<<EOF" >> $GITHUB_ENV
-            echo -e "$grouped_errors" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
+            echo "ESLint errors found."
+            echo -e "$grouped_errors" > /tmp/eslint_errors.txt
             echo "HAS_ERRORS=true" >> $GITHUB_ENV
           else
-            echo "No relevant errors found."
+            echo "No ESLint errors found."
             echo "HAS_ERRORS=false" >> $GITHUB_ENV
           fi
 
           if [ "$missing_lc_headers" = true ]; then
-            echo "LC headers missing in one or more files."
+            echo "Missing license headers detected."
+            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" > /tmp/flagged_files.txt
             echo "MISSING_LC_HEADERS=true" >> $GITHUB_ENV
-            echo "LC_FLAGGED_FILES<<EOF" >> $GITHUB_ENV
-            echo -e "$(echo -e "$lc_flagged_files" | sed '/^\s*$/d')" >> $GITHUB_ENV
-            echo "EOF" >> $GITHUB_ENV
           else
+            echo "All files have proper license headers."
             echo "MISSING_LC_HEADERS=false" >> $GITHUB_ENV
           fi
 
+          # Always exit 0 here to allow the workflow to continue to the comment step
           exit 0
 
-      # Comment on PR with ESLint Errors and LC Headers
-      - name: Comment on PR with ESLint Errors and LC Headers
-        if: env.MISSING_LC_HEADERS == 'true'  # Ensure we only comment if there are missing license headers
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const lintErrors = process.env.GROUPED_ERRORS;
-            const issueNumber = context.payload.pull_request.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            let commentBody = "";
-
-            if (process.env.MISSING_LC_HEADERS === 'true') {
-              const flaggedFiles = process.env.LC_FLAGGED_FILES.trim();
-              commentBody += `## 🚨 SPDX-License Header Errors\n\nThe following files are missing the required license headers:\n\n\`\`\`\n${flaggedFiles}\n\`\`\`\nPlease ensure each of these files includes a valid SPDX license identifier to maintain licensing compliance.`;
-            }
-
-            if (lintErrors && process.env.MISSING_LC_HEADERS === 'true') {
-              commentBody += `\n\n## Frontend Project: ESLint Errors\n\`\`\`\n${lintErrors}\n\`\`\`\nPlease review and resolve the ESLint errors.`;
-            }
-
-            if (commentBody.trim() && issueNumber) {
-              await github.rest.issues.createComment({
-                issue_number: issueNumber,
-                owner: owner,
-                repo: repo,
-                body: commentBody
-              });
-            } else {
-              console.log("No relevant errors to report.");
-            }
-
-      - name: Fail the Workflow if LC Headers Are Missing
-        if: env.MISSING_LC_HEADERS == 'true'
+      # Show results in GitHub Actions logs
+      - name: Show ESLint Results
+        if: env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true'
         run: |
-          echo "Failing the workflow because LC headers are missing."
+          echo "=================================================="
+          echo "🚨 FRONTEND LINTING ISSUES FOUND"
+          echo "=================================================="
+          echo ""
+
+          if [ "$MISSING_LC_HEADERS" = "true" ]; then
+            echo "📋 SPDX License Header Issues:"
+            echo ""
+            if [ -f /tmp/flagged_files.txt ]; then
+              while IFS= read -r file; do
+                if [ -n "$file" ]; then
+                  echo "  📄 $file"
+                fi
+              done < /tmp/flagged_files.txt
+            fi
+            echo ""
+            echo "✅ To fix: Add these lines to the top of each file:"
+            echo "// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+            echo "// SPDX-License-Identifier: Apache-2.0"
+            echo ""
+            echo "=================================================="
+          fi
+
+          if [ "$HAS_ERRORS" = "true" ]; then
+            echo "🔧 ESLint Issues:"
+            echo ""
+            if [ -f /tmp/eslint_errors.txt ]; then
+              head -100 /tmp/eslint_errors.txt
+              total_lines=$(wc -l < /tmp/eslint_errors.txt)
+              if [ $total_lines -gt 100 ]; then
+                echo ""
+                echo "... (showing first 100 lines of $total_lines total)"
+                echo "See 'Run ESLint and Process Results' step above for complete output"
+              fi
+            fi
+            echo ""
+            echo "=================================================="
+          fi
+
+      # Fail workflow if critical issues are found
+      - name: Fail Workflow for Critical Issues
+        if: env.MISSING_LC_HEADERS == 'true' || env.HAS_ERRORS == 'true'
+        run: |
+          if [ "$MISSING_LC_HEADERS" = "true" ]; then
+            echo "❌ Workflow failed due to missing SPDX license headers."
+            echo "Please add proper license headers to all flagged files before merging."
+          fi
+          if [ "$HAS_ERRORS" = "true" ]; then
+            echo "❌ Workflow failed due to ESLint errors."
+            echo "Please fix all ESLint issues before merging."
+          fi
           exit 1
+
+      # Summary step for successful runs
+      - name: Workflow Summary
+        if: env.MISSING_LC_HEADERS == 'false' && env.HAS_ERRORS == 'false'
+        run: |
+          echo "✅ All checks passed!"
+          echo "- No missing license headers"
+          echo "- No ESLint errors found"
+          echo "Code quality standards maintained."

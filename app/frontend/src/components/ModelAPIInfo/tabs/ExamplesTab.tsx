@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 import React, { useState } from "react";
 import { Copy, Code, ChevronDown, Check } from "lucide-react";
 import { Button } from "../../ui/button";

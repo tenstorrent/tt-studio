@@ -3,7 +3,13 @@
 
 import React, { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { AlertTriangle, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  AlertTriangle,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  X,
+} from "lucide-react";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
@@ -63,9 +69,10 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
         className={`bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 ${className}`}
       >
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
           <span className="text-sm text-amber-800 dark:text-amber-200">
-            {deployedInfo.count} model{deployedInfo.count > 1 ? "s" : ""} already deployed
+            {deployedInfo.count} model{deployedInfo.count > 1 ? "s" : ""}{" "}
+            already deployed
           </span>
           {showNavigateButton && (
             <Button
@@ -88,19 +95,35 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
     >
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
           <AlertTitle className="text-amber-800 dark:text-amber-200 m-0 text-left">
             Models Already Deployed
           </AlertTitle>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 p-1 h-auto"
-        >
-          {isCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 p-1 h-auto"
+          >
+            {isCollapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </Button>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+              className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 p-1 h-auto"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {!isCollapsed && (
@@ -120,8 +143,11 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
             <div className="bg-amber-50 dark:bg-amber-900/10 rounded-md p-4 border border-amber-200 dark:border-amber-800 text-left">
               <ul className="space-y-2">
                 {deployedInfo.modelNames.map((name, index) => (
-                  <li key={index} className="flex items-center gap-2 text-sm text-left">
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0"></div>
+                  <li
+                    key={index}
+                    className="flex items-center gap-2 text-sm text-left"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-500 shrink-0"></div>
                     <span className="truncate font-medium">{name}</span>
                   </li>
                 ))}
@@ -129,8 +155,8 @@ export const DeployedModelsWarning: React.FC<DeployedModelsWarningProps> = ({
             </div>
           )}
           <p className="text-sm leading-relaxed text-left">
-            Deploying additional models may affect system performance or require stopping existing
-            deployments.
+            Deploying additional models may affect system performance or require
+            stopping existing deployments.
           </p>
           {showNavigateButton && (
             <div className="flex gap-2 pt-3 text-left">

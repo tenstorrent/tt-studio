@@ -9,7 +9,12 @@ import { Progress } from "./ui/progress";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import StatusBadge from "./StatusBadge";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "./ui/tooltip";
 import { Loader2, Trash2, Download, XCircle, HardDrive } from "lucide-react";
 import { FaDocker } from "react-icons/fa";
 const dockerAPIURL = "/docker-api/";
@@ -22,6 +27,7 @@ interface DockerStepFormProps {
   pullImage: (modelId: string) => void;
   removeDynamicSteps: () => void;
   disableNext: boolean;
+  isAutoDeploying?: boolean;
 }
 
 interface ModelCatalogStatus {
@@ -51,9 +57,12 @@ export function DockerStepForm({
   pullImage,
   removeDynamicSteps,
   disableNext,
+  isAutoDeploying,
 }: DockerStepFormProps) {
-  const { prevStep } = useStepper();
-  const [catalogStatus, setCatalogStatus] = useState<Record<string, ModelCatalogStatus>>({});
+  const { prevStep, nextStep } = useStepper();
+  const [catalogStatus, setCatalogStatus] = useState<
+    Record<string, ModelCatalogStatus>
+  >({});
   const [pullProgress, setPullProgress] = useState<PullProgress | null>(null);
   const [ejecting, setEjecting] = useState(false);
 
@@ -78,7 +87,11 @@ export function DockerStepForm({
               const statusData = await statusResponse.json();
 
               if (statusData.pull_in_progress && statusData.progress) {
-                console.log("Resuming pull progress for", selectedModel, statusData.progress);
+                console.log(
+                  "Resuming pull progress for",
+                  selectedModel,
+                  statusData.progress
+                );
                 setPullProgress(statusData.progress);
 
                 // Auto-reconnect to live updates if pull is still in progress
@@ -106,10 +119,36 @@ export function DockerStepForm({
     return () => clearInterval(interval);
   }, [selectedModel]);
 
+  // Auto-progression when image exists and in auto-deploy mode
+  useEffect(() => {
+    console.log("DockerStepForm auto-progression check:", {
+      isAutoDeploying,
+      selectedModel,
+      catalogExists: selectedModel
+        ? catalogStatus[selectedModel]?.exists
+        : undefined,
+      disableNext,
+    });
+
+    if (
+      isAutoDeploying &&
+      selectedModel &&
+      catalogStatus[selectedModel]?.exists &&
+      !disableNext
+    ) {
+      console.log("Auto-progressing to next step (weights) - image exists");
+      setTimeout(() => {
+        nextStep();
+      }, 1500); // Short delay to show the status
+    }
+  }, [isAutoDeploying, selectedModel, catalogStatus, disableNext, nextStep]);
+
   // Helper to refresh image status for selected model
   const refreshImageStatus = async (modelId: string) => {
     try {
-      const response = await fetch(`${dockerAPIURL}docker/image_status/${modelId}/`);
+      const response = await fetch(
+        `${dockerAPIURL}docker/image_status/${modelId}/`
+      );
       const data = await response.json();
       if (selectedModel && modelId === selectedModel) {
         setCatalogStatus((prev) => ({
@@ -153,7 +192,9 @@ export function DockerStepForm({
         let errorMessage = `HTTP error! status: ${response.status}`;
 
         // Only try to parse JSON for non-streaming responses
-        if (!response.headers.get("content-type")?.includes("text/event-stream")) {
+        if (
+          !response.headers.get("content-type")?.includes("text/event-stream")
+        ) {
           try {
             const errorData = await response.json();
             if (errorData?.message) {
@@ -165,11 +206,18 @@ export function DockerStepForm({
         }
 
         if (response.status === 406) {
-          throw new Error("Server cannot provide the requested content format. Please try again.");
+          throw new Error(
+            "Server cannot provide the requested content format. Please try again."
+          );
         } else if (response.status === 404) {
-          throw new Error("Model not found. Please check the model ID and try again.");
+          throw new Error(
+            "Model not found. Please check the model ID and try again."
+          );
         } else if (response.status === 500) {
-          throw new Error(errorMessage || "Server error while pulling model. Please try again.");
+          throw new Error(
+            errorMessage ||
+              "Server error while pulling model. Please try again."
+          );
         }
         throw new Error(errorMessage);
       }
@@ -200,7 +248,9 @@ export function DockerStepForm({
 
               // If the pull is complete, refresh the catalog status and image status
               if (data.status === "success") {
-                console.log("Pull completed successfully, refreshing status...");
+                console.log(
+                  "Pull completed successfully, refreshing status..."
+                );
 
                 // Reset pull progress after a short delay to show completion
                 setTimeout(() => {
@@ -224,7 +274,12 @@ export function DockerStepForm({
                 throw new Error(data.message || "Failed to pull image");
               }
             } catch (parseError) {
-              console.error("Error parsing SSE data:", parseError, "Raw message:", message);
+              console.error(
+                "Error parsing SSE data:",
+                parseError,
+                "Raw message:",
+                message
+              );
             }
           }
         }
@@ -236,7 +291,8 @@ export function DockerStepForm({
         progress: 0,
         current: 0,
         total: 0,
-        message: error instanceof Error ? error.message : "Failed to pull image",
+        message:
+          error instanceof Error ? error.message : "Failed to pull image",
       });
 
       // Clear error message after 5 seconds
@@ -322,7 +378,8 @@ export function DockerStepForm({
         progress: 0,
         current: 0,
         total: 0,
-        message: error instanceof Error ? error.message : "Failed to cancel pull",
+        message:
+          error instanceof Error ? error.message : "Failed to cancel pull",
       });
     }
   };
@@ -382,7 +439,9 @@ export function DockerStepForm({
     }
   };
 
-  const selectedModelStatus = selectedModel ? catalogStatus[selectedModel] : null;
+  const selectedModelStatus = selectedModel
+    ? catalogStatus[selectedModel]
+    : null;
 
   return (
     <div className="flex flex-col items-center w-full justify-center">
@@ -394,7 +453,11 @@ export function DockerStepForm({
               {selectedModelStatus?.model_name || selectedModel}
             </CardTitle>
             {selectedModelStatus && (
-              <StatusBadge status={selectedModelStatus.exists ? "Available" : "Not Downloaded"} />
+              <StatusBadge
+                status={
+                  selectedModelStatus.exists ? "Available" : "Not Downloaded"
+                }
+              />
             )}
           </CardHeader>
           <CardContent className="space-y-4 pt-0">
@@ -419,8 +482,12 @@ export function DockerStepForm({
                     className="w-full h-2"
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>{selectedModelStatus.disk_usage.used_gb.toFixed(1)} GB</span>
-                    <span>/ {selectedModelStatus.disk_usage.total_gb.toFixed(1)} GB</span>
+                    <span>
+                      {selectedModelStatus.disk_usage.used_gb.toFixed(1)} GB
+                    </span>
+                    <span>
+                      / {selectedModelStatus.disk_usage.total_gb.toFixed(1)} GB
+                    </span>
                   </div>
                 </div>
               </div>
@@ -440,10 +507,14 @@ export function DockerStepForm({
                       : `${pullProgress.progress}%`}
                   </span>
                 </div>
-                <Progress value={pullProgress.progress} className="w-full h-2" />
+                <Progress
+                  value={pullProgress.progress}
+                  className="w-full h-2"
+                />
                 {pullProgress.current > 0 && pullProgress.total > 0 && (
                   <div className="text-xs text-gray-400 text-right">
-                    {formatBytes(pullProgress.current)} / {formatBytes(pullProgress.total)}
+                    {formatBytes(pullProgress.current)} /{" "}
+                    {formatBytes(pullProgress.total)}
                   </div>
                 )}
                 <div className="flex gap-2 mt-1">
@@ -462,7 +533,8 @@ export function DockerStepForm({
                       <TooltipContent>Cancel Pull</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  {(pullProgress.status === "pulling" || pullProgress.status === "starting") && (
+                  {(pullProgress.status === "pulling" ||
+                    pullProgress.status === "starting") && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -475,7 +547,9 @@ export function DockerStepForm({
                             <Loader2 className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Reconnect to Live Updates</TooltipContent>
+                        <TooltipContent>
+                          Reconnect to Live Updates
+                        </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   )}
@@ -525,7 +599,9 @@ export function DockerStepForm({
                         <Trash2 className="w-5 h-5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{ejecting ? "Ejecting..." : "Eject Model"}</TooltipContent>
+                    <TooltipContent>
+                      {ejecting ? "Ejecting..." : "Eject Model"}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               )}

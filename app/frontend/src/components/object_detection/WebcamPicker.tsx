@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import React, { useLayoutEffect, useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { useWebcam } from "./hooks/useWebcam";
@@ -23,14 +23,14 @@ function GridPattern() {
   const columns = 41;
   const rows = 11;
   return (
-    <div className="flex bg-gray-100 dark:bg-neutral-900 flex-shrink-0 flex-wrap justify-center items-center gap-x-px gap-y-px scale-105">
+    <div className="flex bg-gray-100 dark:bg-neutral-900 shrink-0 flex-wrap justify-center items-center gap-x-px gap-y-px scale-105">
       {Array.from({ length: rows }).map((_, row) =>
         Array.from({ length: columns }).map((_, col) => {
           const index = row * columns + col;
           return (
             <div
               key={`${col}-${row}`}
-              className={`w-10 h-10 flex flex-shrink-0 rounded-[2px] ${
+              className={`w-10 h-10 flex shrink-0 rounded-[2px] ${
                 index % 2 === 0
                   ? "bg-gray-50 dark:bg-neutral-950"
                   : "bg-gray-50 dark:bg-neutral-950 shadow-[0px_0px_1px_3px_rgba(255,255,255,1)_inset] dark:shadow-[0px_0px_1px_3px_rgba(0,0,0,1)_inset]"
@@ -52,14 +52,15 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
   modelID,
   setExternalControls,
 }) => {
-  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } = useWebcam(
-    setDetections,
-    setLiveMode,
-    setIsLoading,
-    setIsStreaming,
-    setIsCameraOn,
-    modelID ?? ""
-  );
+  const { isCapturing, handleStartCapture, handleStopCapture, videoRef } =
+    useWebcam(
+      setDetections,
+      setLiveMode,
+      setIsLoading,
+      setIsStreaming,
+      setIsCameraOn,
+      modelID ?? ""
+    );
 
   // Add a state to track if the component is mounted/visible
   const [isMounted, setIsMounted] = useState(true);
@@ -93,7 +94,11 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
       const controls = (
         <div className="flex justify-center">
           {isCapturing ? (
-            <Button onClick={handleStopCapture} variant="outline" className="w-full sm:w-auto">
+            <Button
+              onClick={handleStopCapture}
+              variant="outline"
+              className="w-full sm:w-auto"
+            >
               Stop Capture
             </Button>
           ) : (
@@ -126,7 +131,7 @@ const WebcamPicker: React.FC<WebcamPickerProps> = ({
           whileHover="animate"
           className="p-10 group/file block rounded-lg cursor-pointer w-full relative overflow-hidden"
         >
-          <div className="absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,white,transparent)]">
+          <div className="absolute inset-0 mask-[radial-gradient(ellipse_at_center,white,transparent)]">
             <GridPattern />
           </div>
           <div className="flex flex-col items-center justify-center">

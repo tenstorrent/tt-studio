@@ -41,7 +41,7 @@ export default function DeleteModelDialog({
           </div>
         </DialogHeader>
         <div className="mb-4 p-4 bg-yellow-900/30 text-yellow-100 rounded-lg border border-yellow-500/30 backdrop-blur-sm flex items-start">
-          <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 flex-shrink-0" />
+          <AlertTriangle className="h-5 w-5 text-yellow-400 mr-2 mt-1 shrink-0" />
           <div>
             <div className="font-bold mb-1 text-yellow-100">
               Warning! This action will stop and remove the model, then reset
@@ -80,4 +80,3 @@ export default function DeleteModelDialog({
     </Dialog>
   );
 }
-

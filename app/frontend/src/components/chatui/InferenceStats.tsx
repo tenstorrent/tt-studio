@@ -3,10 +3,29 @@
 
 import React from "react";
 import { useState } from "react";
-import { BarChart2, Clock, Zap, Hash, AlignJustify, FileText, Activity } from "lucide-react";
+import {
+  BarChart2,
+  Clock,
+  Zap,
+  Hash,
+  AlignJustify,
+  FileText,
+  Activity,
+} from "lucide-react";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../ui/dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "../ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
 import { useTheme } from "../../hooks/useTheme"; // Import the existing theme provider
 import type { InferenceStatsProps } from "./types";
 
@@ -31,7 +50,8 @@ export default function Component({
   if (!stats) return null;
 
   const formatValue = (value: number | undefined) => {
-    if (typeof value !== "number") return { value: "N/A", unit: "", isSmall: false };
+    if (typeof value !== "number")
+      return { value: "N/A", unit: "", isSmall: false };
 
     // Convert to milliseconds if value is small (less than 0.1 seconds)
     if (value < 0.1) {
@@ -140,11 +160,15 @@ export default function Component({
 
   // Function to get the display model name
   const getDisplayModelName = () => {
+    // Always use modelName if provided, regardless of mode
+    if (modelName) {
+      return modelName;
+    }
+    
+    // Only use mode-specific fallbacks when modelName is not available
     if (apiUrlDefined) {
-      // In deployed mode, use the actual model name or fallback
-      return modelName || "Unknown Model";
+      return "Unknown Model";
     } else {
-      // In AI playground mode, always show the 3.3 model
       return "Tenstorrent/Meta-Llama 3.3 70B";
     }
   };
@@ -191,36 +215,48 @@ export default function Component({
         className={`border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-2 sm:pt-3 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2`}
       >
         <div className="flex items-center gap-1">
-          <Clock className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`} />
+          <Clock
+            className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`}
+          />
           <span className="whitespace-normal break-words">
             Round trip time:{" "}
             {
               formatValue(
-                (stats.user_ttft_s || 0) + (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                (stats.user_ttft_s || 0) +
+                  (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
               ).value
             }
             {formatValue(
-              (stats.user_ttft_s || 0) + (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+              (stats.user_ttft_s || 0) +
+                (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
             ).isSmall ? (
               <span className={isDarkMode ? "text-red-400" : "text-red-500"}>
                 {
                   formatValue(
-                    (stats.user_ttft_s || 0) + (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                    (stats.user_ttft_s || 0) +
+                      (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
                   ).unit
                 }
               </span>
             ) : (
               formatValue(
-                (stats.user_ttft_s || 0) + (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                (stats.user_ttft_s || 0) +
+                  (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
               ).unit
             )}
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <Hash className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`} />
+          <Hash
+            className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`}
+          />
           <span className="whitespace-nowrap">
             Model:{" "}
-            <span className={isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}>
+            <span
+              className={
+                isDarkMode ? "text-TT-purple-accent" : "text-violet-600"
+              }
+            >
               {getDisplayModelName()}
             </span>
           </span>
@@ -244,7 +280,9 @@ export default function Component({
           className={`flex items-center gap-2 px-2 py-1 rounded-md text-xs cursor-pointer transition-colors ${isDarkMode ? "bg-zinc-900/50 text-white/70 hover:bg-zinc-800/50" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
           onClick={() => setOpen(true)}
         >
-          <Zap className={`h-3 w-3 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`} />
+          <Zap
+            className={`h-3 w-3 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
+          />
           <span className="flex items-center gap-3">
             <span>
               TTFT: {ttft.value}

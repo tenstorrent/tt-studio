@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
 
 FROM python:3.12.8-slim-bookworm
 
@@ -27,16 +27,18 @@ RUN apt-get update && \
 
 # Install tt-smi conditionally for local mode only
 RUN if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then \
-    echo "🔧 Local mode - installing Rust and TT-SMI" && \
+    echo "🔧 Local mode - attempting TT-SMI installation" && \
     # Install Rust
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . "$HOME/.cargo/env" && \
     # Clone and install tt-smi
     mkdir -p /opt/tenstorrent-tools && \
     git clone https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
     cd /opt/tenstorrent-tools/tt-smi && \
     pip3 install --upgrade pip && \
-    pip3 install .; \
+    pip3 install . && \
+    echo "✅ TT-SMI installation successful") || \
+    echo "⚠️  TT-SMI installation failed, continuing without it"; \
     else \
     echo "🌐 AI Playground mode - skipping TT-SMI installation"; \
     fi
