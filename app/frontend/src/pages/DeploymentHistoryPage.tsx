@@ -12,7 +12,12 @@ import {
   TableHeader,
   TableRow,
 } from "../components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
 import { Button } from "../components/ui/button";
@@ -52,7 +57,7 @@ const getStatusBadge = (status: string, stoppedByUser: boolean) => {
     return <Badge className="bg-green-500">Running</Badge>;
   }
   if (status === "stopped" && stoppedByUser) {
-    return <Badge variant="secondary">Stopped by User</Badge>;
+    return <Badge variant="outline">Stopped by User</Badge>;
   }
   if (status === "exited" || status === "dead") {
     return <Badge variant="destructive">Died Unexpectedly</Badge>;
@@ -68,16 +73,16 @@ const formatDate = (dateString: string | null) => {
 
 const formatDuration = (deployedAt: string, stoppedAt: string | null) => {
   if (!stoppedAt) return "Still running";
-  
+
   const deployed = new Date(deployedAt);
   const stopped = new Date(stoppedAt);
   const durationMs = stopped.getTime() - deployed.getTime();
-  
+
   const seconds = Math.floor(durationMs / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-  
+
   if (days > 0) return `${days}d ${hours % 24}h`;
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
@@ -85,9 +90,13 @@ const formatDuration = (deployedAt: string, stoppedAt: string | null) => {
 };
 
 export default function DeploymentHistoryPage() {
-  const [selectedDeploymentId, setSelectedDeploymentId] = useState<number | null>(null);
-  const [selectedModelName, setSelectedModelName] = useState<string | undefined>(undefined);
-  
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<
+    number | null
+  >(null);
+  const [selectedModelName, setSelectedModelName] = useState<
+    string | undefined
+  >(undefined);
+
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["deploymentHistory"],
     queryFn: fetchDeploymentHistory,
@@ -123,7 +132,9 @@ export default function DeploymentHistoryPage() {
               size="sm"
               className="gap-2"
             >
-              <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+              />
               Refresh
             </Button>
           </div>
@@ -220,7 +231,9 @@ export default function DeploymentHistoryPage() {
                             See Logs
                           </Button>
                         ) : (
-                          <span className="text-xs text-muted-foreground">N/A</span>
+                          <span className="text-xs text-muted-foreground">
+                            N/A
+                          </span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -250,4 +263,3 @@ export default function DeploymentHistoryPage() {
     </div>
   );
 }
-

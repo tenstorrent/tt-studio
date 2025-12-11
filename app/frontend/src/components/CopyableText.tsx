@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
-import { useState } from "react";
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 import {
   Tooltip,
   TooltipContent,
@@ -17,13 +16,9 @@ const CopyableText = ({
   text: string;
   isInsideButton?: boolean;
 }) => {
-  const [isCopied, setIsCopied] = useState(false);
-
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
-      setIsCopied(true);
       customToast.success("Text has been copied to clipboard.");
-      setTimeout(() => setIsCopied(false), 3000); // Reset the copied state after 3 seconds
     });
   };
 
@@ -31,7 +26,7 @@ const CopyableText = ({
     <TooltipProvider>
       <Tooltip delayDuration={100}>
         <TooltipTrigger asChild>
-          <div 
+          <div
             className="relative group pr-6 min-w-0 cursor-pointer"
             onClick={handleCopy}
           >
@@ -52,9 +47,7 @@ const CopyableText = ({
         <TooltipContent>
           <div className="max-w-md">
             <p className="break-all">{text}</p>
-            <p className="text-xs mt-1 text-gray-400">
-              Click to copy
-            </p>
+            <p className="text-xs mt-1 text-gray-400">Click to copy</p>
           </div>
         </TooltipContent>
       </Tooltip>

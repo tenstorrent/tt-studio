@@ -78,9 +78,10 @@ function StepAdjuster({
 
   useEffect(() => {
     // Check catalog status for image availability
-    const imageAvailable =
-      selectedModel && catalogStatus[selectedModel]?.exists;
-    
+    const imageAvailable = !!(
+      selectedModel && catalogStatus[selectedModel]?.exists
+    );
+
     // Check if Docker step was just removed (steps length decreased and image is now available)
     const dockerStepWasRemoved =
       !prevImageAvailable.current &&
@@ -98,10 +99,11 @@ function StepAdjuster({
         // Docker step was at index 1
         // If we were on Docker step (index 1), move to Step 2 (which is now at index 1 after removal)
         // If we were past Docker step, we need to decrement by 1
-        const newStep = activeStep === dockerStepBaseIndex 
-          ? dockerStepBaseIndex // Step 2 is now at the position Docker step was (index 1)
-          : Math.max(0, activeStep - 1); // Decrement by 1 since Docker step was removed
-        
+        const newStep =
+          activeStep === dockerStepBaseIndex
+            ? dockerStepBaseIndex // Step 2 is now at the position Docker step was (index 1)
+            : Math.max(0, activeStep - 1); // Decrement by 1 since Docker step was removed
+
         console.log(
           `Docker step removed - adjusting from step ${activeStep} to ${newStep}`
         );
@@ -111,7 +113,11 @@ function StepAdjuster({
 
     // Also handle case where user selects a model with available image while already past Docker step
     // This ensures step index is correct if catalog loads after user has progressed
-    if (imageAvailable && activeStep > dockerStepBaseIndex && dockerStepBaseIndex !== -1) {
+    if (
+      imageAvailable &&
+      activeStep > dockerStepBaseIndex &&
+      dockerStepBaseIndex !== -1
+    ) {
       // Check if current step index is out of bounds due to Docker step removal
       // This is a safety check to ensure we're not on an invalid step
       if (activeStep >= steps.length) {
@@ -180,7 +186,7 @@ export default function StepperDemo() {
     const catalogExists = selectedModel && catalogStatus[selectedModel]?.exists;
     const imageStatusExists = selectedModel && imageStatus?.exists;
     const imageAvailable = catalogExists || imageStatusExists;
-    
+
     console.log("🔍 Steps computation:", {
       selectedModel,
       catalogExists,
@@ -189,12 +195,12 @@ export default function StepperDemo() {
       catalogStatus: catalogStatus[selectedModel || ""],
       imageStatus,
     });
-    
+
     // Start with base steps, filtering out Docker Step if image is available
     let filteredSteps = imageAvailable
       ? baseSteps.filter((step) => step.label !== "Docker Step")
       : [...baseSteps];
-    
+
     console.log(
       `📋 Steps filtered: ${filteredSteps.length} steps (Docker step ${imageAvailable ? "removed" : "included"})`
     );
@@ -203,7 +209,8 @@ export default function StepperDemo() {
     const step2Index = filteredSteps.findIndex(
       (step) => step.label === "Step 2"
     );
-    const insertIndex = step2Index !== -1 ? step2Index + 1 : filteredSteps.length;
+    const insertIndex =
+      step2Index !== -1 ? step2Index + 1 : filteredSteps.length;
 
     // Add dynamic steps if they exist
     if (hasCustomStep) {
@@ -231,7 +238,13 @@ export default function StepperDemo() {
     }
 
     return filteredSteps;
-  }, [selectedModel, catalogStatus, imageStatus, hasCustomStep, hasFineTuneStep]);
+  }, [
+    selectedModel,
+    catalogStatus,
+    imageStatus,
+    hasCustomStep,
+    hasFineTuneStep,
+  ]);
 
   const addCustomStep = () => {
     setHasCustomStep(true);
@@ -316,7 +329,7 @@ export default function StepperDemo() {
   // Fetch catalog status and check image status immediately when selectedModel changes
   useEffect(() => {
     console.log("🚀 useEffect triggered for selectedModel:", selectedModel);
-    
+
     const fetchCatalogAndImageStatus = async () => {
       if (!selectedModel) {
         console.log("❌ No selectedModel, clearing status");
@@ -464,7 +477,10 @@ export default function StepperDemo() {
     }
   }, [autoDeployModel]);
 
-  const handleDeploy = async (): Promise<{ success: boolean; job_id?: string }> => {
+  const handleDeploy = async (): Promise<{
+    success: boolean;
+    job_id?: string;
+  }> => {
     console.log("handleDeploy called with:", {
       selectedModel,
       selectedWeight,
@@ -499,7 +515,7 @@ export default function StepperDemo() {
       });
 
       console.log("Deployment response:", response);
-      
+
       // Check if the response indicates an error
       if (response.data?.status === "error") {
         const errorMessage = response.data?.message || "Deployment failed";
@@ -509,22 +525,24 @@ export default function StepperDemo() {
         customToast.error(`Deployment failed: ${errorMessage}`);
         return { success: false, job_id: jobId };
       }
-      
+
       customToast.success("Model deployment started!");
-      
-      return { 
-        success: true, 
-        job_id: response.data?.job_id 
+
+      return {
+        success: true,
+        job_id: response.data?.job_id,
       };
     } catch (error) {
       console.error("Error during deployment:", error);
       // Extract error message and job_id from response if available
-      const errorMessage = axios.isAxiosError(error) && error.response?.data?.message 
-        ? error.response.data.message 
-        : "Deployment failed!";
-      const jobId = axios.isAxiosError(error) && error.response?.data?.job_id
-        ? error.response.data.job_id
-        : null;
+      const errorMessage =
+        axios.isAxiosError(error) && error.response?.data?.message
+          ? error.response.data.message
+          : "Deployment failed!";
+      const jobId =
+        axios.isAxiosError(error) && error.response?.data?.job_id
+          ? error.response.data.job_id
+          : null;
       console.log("Error job_id from catch:", jobId);
       customToast.error(`Deployment failed: ${errorMessage}`);
       return { success: false, job_id: jobId };
