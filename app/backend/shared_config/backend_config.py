@@ -44,3 +44,10 @@ backend_config = BackendConfig(
 # make backend volume if not existing
 if not Path(backend_config.backend_cache_root).exists():
     Path(backend_config.backend_cache_root).mkdir(parents=True, exist_ok=True)
+    # Set permissions on newly created directory only (we own it)
+    # Docker containers will handle subdirectory permissions via docker-entrypoint.sh
+    try:
+        os.chmod(backend_config.backend_cache_root, 0o777)
+    except (OSError, PermissionError):
+        # Silently continue if permission setting fails - Docker will handle it
+        pass

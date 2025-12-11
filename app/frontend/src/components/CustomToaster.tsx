@@ -63,7 +63,7 @@ const ToastContent = ({
   type?: "success" | "error" | "warning" | "info" | "destructive" | "notice";
 }) => (
   <div
-    className={`${t.visible ? "animate-enter" : "animate-leave"}`}
+    className={`${t.visible ? "animate-enter" : "animate-leave"} !z-[99999]`}
     style={getToastStyle(
       document.documentElement.classList.contains("dark") ? "dark" : "light",
       type
@@ -197,7 +197,7 @@ const CustomToaster = () => {
         duration: 4000,
         style: getToastStyle(theme),
       }}
-      containerClassName="pointer-events-none !z-[9999]"
+      containerClassName="pointer-events-none !z-[99999]"
       containerStyle={{ bottom: 24, right: 96 }}
     />
   );
