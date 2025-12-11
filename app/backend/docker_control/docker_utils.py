@@ -17,6 +17,7 @@ from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
 from board_control.services import SystemResourceService
+from docker_control.models import ModelDeployment
 
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
@@ -35,10 +36,31 @@ if backend_config.docker_bridge_network_name not in [net.name for net in network
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
     board_to_device_map = {
+        # Wormhole devices
         "N150": "n150",
         "N300": "n300",
+        "E150": "e150",
+        
+        # Wormhole multi-device
+        "N150X4": "n150x4",
         "T3000": "t3k",  # T3000 maps to t3k for TT Inference Server
         "T3K": "t3k",
+        
+        # Blackhole devices
+        "P100": "p100",
+        "P150": "p150",
+        "P300c": "p300c",
+        
+        # Blackhole multi-device
+        "P150X4": "p150x4",
+        "P150X8": "p150x8",
+        "P300Cx2": "p300cx2",  # 2 cards (4 chips)
+        "P300Cx4": "p300cx4",  # 4 cards (8 chips)
+        
+        # Galaxy systems
+        "GALAXY": "galaxy",
+        "GALAXY_T3K": "galaxy_t3k",
+        
         "unknown": "cpu"  # Fallback to cpu for unknown boards
     }
 
@@ -77,25 +99,101 @@ def run_container(impl, weights_id):
                 timeout=300  # 5 minute timeout for container startup
             )
 
-            if response.status_code == 200:
+            if response.status_code in [200, 202]:
                 api_result = response.json()
-                logger.info(f"API call successful: {api_result}")
+                logger.info(f"API call successful (status {response.status_code}): {api_result}")
+                logger.info(f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}")
+                if 'docker_log_file_path' in api_result:
+                    logger.info(f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}")
+                else:
+                    logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
 
                 # Update deploy cache on success
                 update_deploy_cache()
                 
                 # Notify agent about new container deployment
                 notify_agent_of_new_container(api_result["container_name"])
+                
+                # Save deployment record to database
+                container_id = None
+                container_name = "unknown"
+                try:
+                    container_id = api_result.get("container_id")
+                    container_name = api_result.get("container_name", "unknown")
+                    
+                    # If container_id is not in response, try to get it from Docker by name
+                    if not container_id and container_name:
+                        try:
+                            docker_client = docker.from_env()
+                            container = docker_client.containers.get(container_name)
+                            container_id = container.id
+                            logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
+                        except Exception as docker_error:
+                            logger.warning(f"Could not get container_id from Docker: {docker_error}")
+                            # Use container_name as fallback ID if we can't get the actual ID
+                            container_id = container_name
+                    
+                    if container_id:
+                        # Extract workflow log path from API response
+                        workflow_log_path = api_result.get("docker_log_file_path")
+                        logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
+                        logger.info(f"workflow_log_path type: {type(workflow_log_path)}, is None: {workflow_log_path is None}")
+                        
+                        ModelDeployment.objects.create(
+                            container_id=container_id,
+                            container_name=container_name,
+                            model_name=impl.model_name,
+                            device=device,
+                            status="running",
+                            stopped_by_user=False,
+                            port=7000,  # TT Inference Server default port
+                            workflow_log_path=workflow_log_path
+                        )
+                        logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                        if workflow_log_path:
+                            logger.info(f"Workflow log path saved: {workflow_log_path}")
+                        else:
+                            logger.warning(f"Workflow log path is None/empty for {container_name}")
+                    else:
+                        logger.warning(f"Could not save deployment record: no container_id or container_name")
+                except Exception as e:
+                    import traceback
+                    logger.error(
+                        f"Failed to save deployment record for {container_name} (ID: {container_id}): {type(e).__name__}: {e}\n"
+                        f"Traceback: {traceback.format_exc()}"
+                    )
+                    # Don't fail the deployment if we can't save the record
 
                 return {
                     "status": "success",
                     "container_name": api_result["container_name"],
+                    "container_id": api_result.get("container_id"),  # Pass through container_id
+                    "job_id": api_result.get("job_id") or api_result.get("container_id"),  # Use job_id or container_id as fallback
                     "api_response": api_result
                 }
             else:
                 error_msg = f"API call failed with status {response.status_code}: {response.text}"
                 logger.error(error_msg)
-                return {"status": "error", "message": error_msg}
+                
+                # Try to extract job_id and error details from response
+                job_id = None
+                error_detail = error_msg
+                try:
+                    error_data = response.json()
+                    if isinstance(error_data, dict):
+                        # Extract job_id if present
+                        job_id = error_data.get('job_id')
+                        # Extract error message if present
+                        error_detail = error_data.get('message', error_msg)
+                        logger.info(f"Extracted job_id from error response: {job_id}")
+                except Exception as parse_error:
+                    logger.warning(f"Could not parse error response: {parse_error}")
+                
+                return {
+                    "status": "error",
+                    "message": error_detail,
+                    "job_id": job_id
+                }
 
         except requests.exceptions.RequestException as e:
             error_msg = f"Network error calling TT Inference Server API: {str(e)}"
@@ -139,6 +237,30 @@ def run_container(impl, weights_id):
             
             # Notify agent about new container deployment
             notify_agent_of_new_container(container.name)
+            
+            # Save deployment record to database
+            try:
+                # Get device from impl configuration
+                device_config = impl.device_configurations[0] if impl.device_configurations else None
+                device_name = device_config.name if device_config else "unknown"
+                
+                ModelDeployment.objects.create(
+                    container_id=container.id,
+                    container_name=container.name,
+                    model_name=impl.model_name,
+                    device=device_name,
+                    status="running",
+                    stopped_by_user=False,
+                    port=host_port
+                )
+                logger.info(f"Saved deployment record for {container.name} (ID: {container.id})")
+            except Exception as e:
+                import traceback
+                logger.error(
+                    f"Failed to save deployment record for {container.name} (ID: {container.id}): {type(e).__name__}: {e}\n"
+                    f"Traceback: {traceback.format_exc()}"
+                )
+                # Don't fail the deployment if we can't save the record
             
             return {
                 "status": "success",
@@ -236,8 +358,15 @@ def get_managed_containers():
     managed_images = set([impl.image_version for impl in model_implmentations.values()])
     managed_containers = []
     for container in running_containers:
+        # Method 1: Check if container uses a managed image (legacy models)
         if managed_images.intersection(set(container.image.tags)):
             managed_containers.append(container)
+        else:
+            # Method 2: Check for TT Inference Server containers by environment variables
+            # TT Inference Server containers have specific env vars like CACHE_ROOT, TT_CACHE_PATH
+            env_vars = parse_env_var_str(container.attrs.get("Config", {}).get("Env", []))
+            if "CACHE_ROOT" in env_vars or "TT_CACHE_PATH" in env_vars:
+                managed_containers.append(container)
     return managed_containers
 
 
@@ -327,27 +456,81 @@ def update_deploy_cache():
         # logger.info(f"!!! con_model_id:= {con_model_id}")  # Temporarily hidden
         model_impl = model_implmentations.get(con_model_id)
         if not model_impl:
-            # find first impl that uses that container name
-            model_impl = [
-                v
-                for k, v in model_implmentations.items()
-                if v.model_name == con["name"]
-            ]
-            if len(model_impl) == 0:
-                # fallback to finding first impl that uses that container image
+            # Check if this is a TT Inference Server container by checking for specific env vars
+            is_tt_inference_container = (
+                "CACHE_ROOT" in con['env_vars'] or 
+                "TT_CACHE_PATH" in con['env_vars']
+            )
+            
+            if is_tt_inference_container:
+                logger.info(f"Detected TT Inference Server container: {con['name']} (ID: {con_id})")
+                
+                # Try to find the model implementation from the database
+                deployment_found = False
+                try:
+                    from docker_control.models import ModelDeployment
+                    deployment = ModelDeployment.objects.filter(container_id=con_id).first()
+                    
+                    if deployment:
+                        # Find the model implementation by model name
+                        model_impl = None
+                        for k, v in model_implmentations.items():
+                            if v.model_name == deployment.model_name:
+                                model_impl = v
+                                logger.info(f"Matched TT Inference Server container to model_impl: {model_impl.model_name}")
+                                deployment_found = True
+                                break
+                        
+                        if not model_impl:
+                            logger.warning(f"Could not find model_impl for {deployment.model_name} in container {con['name']}")
+                    else:
+                        logger.warning(f"No deployment record found for TT Inference Server container {con_id}")
+                except Exception as e:
+                    # Check if this is a migration/database issue
+                    error_str = str(e).lower()
+                    if "no such table" in error_str or "operationalerror" in error_str:
+                        logger.warning(f"Database table not found for container {con_id} (migrations may not be applied). Using fallback logic.")
+                    else:
+                        logger.error(f"Error looking up deployment record for container {con_id}: {e}")
+                
+                # If database lookup failed or no deployment found, use fallback logic
+                if not deployment_found:
+                    logger.info(f"Using fallback logic to match container {con['name']}")
+                    # Try to match by container name
+                    model_impl = None
+                    for k, v in model_implmentations.items():
+                        if v.model_name in con["name"]:
+                            model_impl = v
+                            logger.info(f"Matched container by name to model_impl: {model_impl.model_name}")
+                            break
+                    
+                    if not model_impl:
+                        logger.warning(f"Could not match TT Inference Server container {con['name']} to any model_impl. Skipping.")
+                        continue
+            else:
+                # Original fallback logic for legacy containers
+                # find first impl that uses that container name
                 model_impl = [
                     v
                     for k, v in model_implmentations.items()
-                    if v.image_version == con["image_name"]
+                    if v.model_name == con["name"]
                 ]
-            # logger.info(f"Container image name: {con['name']}")  # Temporarily hidden
-            # logger.info("Available model implementations:")  # Temporarily hidden
-            # for k, v in model_implmentations.items():  # Temporarily hidden
-            #     logger.info(f"Model ID: {k}, Image Version: {v.model_name}")  # Temporarily hidden
-            assert (
-                len(model_impl) == 1
-            ), f"Cannot find model_impl={model_impl} for {con['image_name']}"
-            model_impl = model_impl[0]
+                if len(model_impl) == 0:
+                    # fallback to finding first impl that uses that container image
+                    model_impl = [
+                        v
+                        for k, v in model_implmentations.items()
+                        if v.image_version == con["image_name"]
+                    ]
+                # logger.info(f"Container image name: {con['name']}")  # Temporarily hidden
+                # logger.info("Available model implementations:")  # Temporarily hidden
+                # for k, v in model_implmentations.items():  # Temporarily hidden
+                #     logger.info(f"Model ID: {k}, Image Version: {v.model_name}")  # Temporarily hidden
+                if len(model_impl) == 0:
+                    logger.warning(f"Cannot find model_impl for container {con['name']} with image {con['image_name']}")
+                    continue
+                
+                model_impl = model_impl[0]
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl
@@ -364,6 +547,7 @@ def update_deploy_cache():
                 f"{hostname}:{model_impl.service_port}{model_impl.health_route}"
             )
             cache.set(con_id, con, timeout=None)
+            logger.info(f"Added container {con['name']} (ID: {con_id[:12]}) to deploy cache")
             # TODO: validation
 
 
