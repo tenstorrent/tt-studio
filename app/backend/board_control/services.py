@@ -272,16 +272,9 @@ class SystemResourceService:
                         
                         system_status["devices"] = devices
                         
-                        # Determine primary board name
-                        if board_types:
-                            if len(board_types) == 1:
-                                system_status["board_name"] = "N150"
-                            elif len(board_types) == 2:
-                                system_status["board_name"] = "N300"
-                            elif len(board_types) == 8:
-                                system_status["board_name"] = "T3K"
-                            else:
-                                system_status["board_name"] = board_types[0]
+                        # Determine primary board name using detected board type (supports P300cX2/X4)
+                        detected_board_type = SystemResourceService.get_board_type()
+                        system_status["board_name"] = detected_board_type
                 else:
                     # tt-smi failed - indicate potential hardware issue
                     system_status["hardware_status"] = "error"
