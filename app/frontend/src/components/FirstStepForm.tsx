@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -182,12 +182,17 @@ export function FirstStepForm({
           );
         }
 
-        console.log("📝 FirstStepForm: Setting selectedModel to:", selectedModel.id);
+        console.log(
+          "📝 FirstStepForm: Setting selectedModel to:",
+          selectedModel.id
+        );
         setSelectedModel(selectedModel.id);
-        console.log("📝 FirstStepForm: selectedModel set, waiting for status check...");
+        console.log(
+          "📝 FirstStepForm: selectedModel set, waiting for status check..."
+        );
         customToast.success("Model Selected!: " + selectedModel.name);
         setFormError(false);
-        
+
         // Give a small delay to allow status check to start before navigating
         // The StepAdjuster will handle navigation if Docker step is removed
         setTimeout(() => {
@@ -271,8 +276,8 @@ export function FirstStepForm({
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {/* Always show deployed models warning prominently */}
         {!isWarningDismissed && (
-          <DeployedModelsWarning 
-            className="mb-8 mt-8" 
+          <DeployedModelsWarning
+            className="mb-8 mt-8"
             onClose={() => setIsWarningDismissed(true)}
           />
         )}
