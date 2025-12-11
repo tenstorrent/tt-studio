@@ -35,6 +35,9 @@ db.sqlite3
 # secrets
 .env
 
+# preferences
+.tt_studio_preferences.json
+
 # unignore
 !requirements.txt
 !app/frontend/third-party-licenses.txt
