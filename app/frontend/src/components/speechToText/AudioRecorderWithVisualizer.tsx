@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// This file incorporates work covered by the following copyright and permission notice:
+//  SPDX-FileCopyrightText: Copyright (c) 2023 shadcn
+//  SPDX-License-Identifier: MIT
 
 import { useTheme } from "../../hooks/useTheme";
 import { useEffect, useMemo, useRef, useState } from "react";
