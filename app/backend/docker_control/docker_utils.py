@@ -583,9 +583,22 @@ def perform_reset():
                 text=True,
             )
             output = []
+            detected_chips = 0
+            warnings = []
             for line in iter(process.stdout.readline, ""):
                 logger.info(f"tt-smi output: {line.strip()}")
                 output.append(line)
+                lower_line = line.lower()
+                if "detected chips" in lower_line:
+                    # Expect format like: "Detected Chips: 2"
+                    try:
+                        parts = line.strip().split(":")
+                        if len(parts) == 2:
+                            detected_chips = int(parts[1].strip().split()[0])
+                    except Exception:
+                        warnings.append(f"Unable to parse detected chips from line: {line.strip()}")
+                if "response_q out of sync" in lower_line or "rd_ptr" in lower_line:
+                    warnings.append(line.strip())
                 if "No Tenstorrent devices detected" in line:
                     return {
                         "status": "error",
@@ -595,6 +608,18 @@ def perform_reset():
                     }
             process.stdout.close()
             return_code = process.wait()
+            # If chips are detected, allow reset but surface warnings/return code
+            if detected_chips > 0:
+                if return_code != 0:
+                    warnings.append(f"tt-smi -s exited with code {return_code}")
+                status_val = "success" if not warnings and return_code == 0 else "warning"
+                return {
+                    "status": status_val,
+                    "output": "".join(output),
+                    "warnings": warnings,
+                    "detected_chips": detected_chips,
+                    "return_code": return_code,
+                }
             if return_code != 0:
                 return {
                     "status": "error",
@@ -602,12 +627,26 @@ def perform_reset():
                     "output": "".join(output),
                     "http_status": 500,  # Internal Server Error
                 }
-            return {"status": "success", "output": "".join(output)}
+            return {
+                "status": "error",
+                "message": "No Tenstorrent devices detected! Please check your hardware and try again.",
+                "output": "".join(output),
+                "http_status": 501,
+            }
 
         # Run the device detection check
         detection_result = check_device_detection()
+        detection_warnings = detection_result.get("warnings", [])
+        detection_output = detection_result.get("output", "")
         if detection_result.get("status") == "error":
             return detection_result
+        if detection_output:
+            cumulative_output = [detection_output]
+        else:
+            cumulative_output = []
+        if detection_warnings:
+            cumulative_output.append("Warnings during device detection:\n")
+            cumulative_output.extend([w + "\n" for w in detection_warnings])
 
         logger.info("Running tt-smi reset command.")
 
@@ -650,7 +689,7 @@ def perform_reset():
         MAX_RESET_ATTEMPTS = 3
         reset_attempts = 0
         reset_success = False
-        cumulative_output = []
+        cumulative_output = cumulative_output if "cumulative_output" in locals() else []
 
         # Try tt-smi reset with retries
         while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
@@ -700,6 +739,7 @@ def perform_reset():
                 "status": "success",
                 "message": f"Reset successful after {reset_attempts} attempt(s)",
                 "output": all_output,
+                "warnings": detection_warnings,
                 "http_status": 200
             }
         else:
@@ -707,6 +747,7 @@ def perform_reset():
                 "status": "error",
                 "message": "All reset attempts failed with no specific error",
                 "output": all_output,
+                "warnings": detection_warnings,
                 "http_status": 500
             }
 
