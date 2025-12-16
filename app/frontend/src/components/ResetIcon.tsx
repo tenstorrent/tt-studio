@@ -375,7 +375,6 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
             variant="outline"
             className="bg-red-600 text-white hover:bg-red-700"
             onClick={resetBoard}
-            disabled={!!(boardInfo && boardInfo.type === "unknown")}
           >
             Yes, Reset
           </Button>
