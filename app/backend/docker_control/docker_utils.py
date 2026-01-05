@@ -608,6 +608,18 @@ def perform_reset():
                     }
             process.stdout.close()
             return_code = process.wait()
+            
+            # Parse JSON output if text parsing didn't find chips
+            if detected_chips == 0:
+                full_output = "".join(output)
+                try:
+                    json_data = json.loads(full_output)
+                    if "device_info" in json_data and isinstance(json_data["device_info"], list):
+                        detected_chips = len(json_data["device_info"])
+                        logger.info(f"Detected {detected_chips} chips from JSON output")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Could not parse tt-smi output as JSON: {e}")
+            
             # If chips are detected, allow reset but surface warnings/return code
             if detected_chips > 0:
                 if return_code != 0:
