@@ -548,7 +548,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if is_placeholder(current_jwt):
             print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
         dev_default = "dev-jwt-secret-12345-not-for-production" if dev_mode else ""
-        prompt_text = f"🔐 Enter JWT_SECRET (for authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+        prompt_text = f"🔐 Enter JWT_SECRET (for authentication to models endpoints){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
         while True:
             val = getpass.getpass(prompt_text)
@@ -575,7 +575,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if is_placeholder(current_django):
             print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
         dev_default = "django-dev-secret-key-not-for-production-12345" if dev_mode else ""
-        prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+        prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django security for backend security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
         while True:
             val = getpass.getpass(prompt_text)
@@ -599,7 +599,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         else:
             print("✅ TAVILY_API_KEY already configured (keeping existing value).")
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
-        prompt_text = "🔍 Enter TAVILY_API_KEY (for search, optional - press Enter to skip): "
+        prompt_text = "🔍 Enter TAVILY_API_KEY (for search agent, optional ( Skip if you don't want to use search agent) - press Enter to skip): "
         val = getpass.getpass(prompt_text)
         write_env_var("TAVILY_API_KEY", val or "")
         print("✅ TAVILY_API_KEY saved.")
