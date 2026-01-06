@@ -579,7 +579,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if is_placeholder(current_django):
             print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
         dev_default = "django-dev-secret-key-not-for-production-12345" if dev_mode else ""
-        prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django security for backend security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+        prompt_text = f"🔑 Enter DJANGO_SECRET_KEY (for Django backend security){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
         while True:
             val = getpass.getpass(prompt_text)
@@ -598,12 +598,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     if easy_mode:
         # In easy mode, skip TAVILY_API_KEY only if not already configured
         if should_configure_var("TAVILY_API_KEY", current_tavily):
-            write_env_var("TAVILY_API_KEY", "")
+            write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured")
             print("✅ TAVILY_API_KEY skipped (easy mode).")
         else:
             print("✅ TAVILY_API_KEY already configured (keeping existing value).")
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
-        prompt_text = "🔍 Enter TAVILY_API_KEY (for search agent, optional ( Skip if you don't want to use search agent) - press Enter to skip): "
+        prompt_text = "🔍 Enter TAVILY_API_KEY for search agent (optional; press Enter to skip): "
         val = getpass.getpass(prompt_text)
         write_env_var("TAVILY_API_KEY", val or "")
         print("✅ TAVILY_API_KEY saved.")
@@ -1792,7 +1792,7 @@ def request_sudo_authentication(force_prompt=False):
         print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
         return False
 
-def ensure_frontend_dependencies(force_prompt=False):
+def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
     This is optional for running the app, as dependencies are always installed
@@ -1801,6 +1801,7 @@ def ensure_frontend_dependencies(force_prompt=False):
     
     Args:
         force_prompt (bool): If True, always prompt user even if preference exists
+        easy_mode (bool): If True, automatically skip npm installation without prompting
     """
     frontend_dir = os.path.join(TT_STUDIO_ROOT, "app", "frontend")
     node_modules_dir = os.path.join(frontend_dir, "node_modules")
@@ -1826,6 +1827,12 @@ def ensure_frontend_dependencies(force_prompt=False):
 
     try:
         if has_local_npm:
+            # In easy mode, automatically skip npm installation
+            if easy_mode:
+                print(f"{C_YELLOW}Skipping local npm installation (easy mode). IDE features may be limited.{C_RESET}")
+                save_preference("npm_install_locally", 'n')
+                return True
+            
             # Check for saved preference
             npm_pref = get_preference("npm_install_locally")
             choice = None
@@ -2400,7 +2407,7 @@ def main():
             sys.exit(1)
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies(force_prompt=args.reconfigure)
+        ensure_frontend_dependencies(force_prompt=args.reconfigure, easy_mode=args.easy)
 
         # Check if all required ports are available
         print(f"\n{C_BOLD}{C_BLUE}🔍 Checking port availability for all services...{C_RESET}")
