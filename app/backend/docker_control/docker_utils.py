@@ -703,26 +703,15 @@ def perform_reset():
         reset_success = False
         cumulative_output = cumulative_output if "cumulative_output" in locals() else []
 
-        # Try tt-smi reset with retries
+        # Try tt-smi reset with retries (no reset config file; use default tt-smi behavior)
         while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
             reset_attempts += 1
             logger.info(f"Reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
             cumulative_output.append(f"Attempting reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
 
-            # Ensure the config directory exists
-            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Check if the reset config JSON already exists
-            if not CONFIG_PATH.exists():
-                generate_result = stream_command_output(["tt-smi", "--generate_reset_json", str(CONFIG_PATH)])
-                if generate_result.get("status") == "error":
-                    cumulative_output.append(f"Error generating reset config: {generate_result.get('message')}\n")
-                    cumulative_output.append(generate_result.get('output', '') + "\n")
-                else:
-                    cumulative_output.append("Generated reset configuration successfully.\n")
-
-            # Perform reset using the generated JSON config
-            reset_result = stream_command_output(["tt-smi", "-r", str(CONFIG_PATH)])
+            # Perform reset using tt-smi default behavior (no reset_config.json)
+            cumulative_output.append("Executing tt-smi -r with default reset configuration.\n")
+            reset_result = stream_command_output(["tt-smi", "-r"])
             cumulative_output.append(reset_result.get('output', '') + "\n")
 
             if reset_result.get("status") == "success":
