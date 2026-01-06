@@ -165,8 +165,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     systemStatus.hardware_status === "error" ||
     !!error ||
     normalizedBoardName === "error" ||
-    normalizedBoardName === "unknown" ||
-    normalizedBoardName?.includes("error");
+    normalizedBoardName === "unknown";
   const remainingCooldownMs = getRemainingCooldownMs();
   const isInCooldown = remainingCooldownMs > 0;
   const cooldownSeconds = Math.ceil(remainingCooldownMs / 1000);
