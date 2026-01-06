@@ -595,8 +595,9 @@ def perform_reset():
                         parts = line.strip().split(":")
                         if len(parts) == 2:
                             detected_chips = int(parts[1].strip().split()[0])
-                    except Exception:
+                    except (ValueError, IndexError) as e:
                         warnings.append(f"Unable to parse detected chips from line: {line.strip()}")
+                        logger.warning(f"Unable to parse detected chips from line '{line.strip()}': {e}")
                 if "response_q out of sync" in lower_line or "rd_ptr" in lower_line:
                     warnings.append(line.strip())
                 if "No Tenstorrent devices detected" in line:
@@ -604,7 +605,7 @@ def perform_reset():
                         "status": "error",
                         "message": "No Tenstorrent devices detected! Please check your hardware and try again.",
                         "output": "".join(output),
-                        "http_status": 501,  # Not Implemented
+                        "http_status": 503,  # Service Unavailable
                     }
             process.stdout.close()
             return_code = process.wait()
@@ -640,10 +641,11 @@ def perform_reset():
                     "http_status": 500,  # Internal Server Error
                 }
             return {
-                "status": "error",
-                "message": "No Tenstorrent devices detected! Please check your hardware and try again.",
+                "status": "success",
+                "message": "No Tenstorrent devices detected. tt-smi executed successfully.",
                 "output": "".join(output),
-                "http_status": 501,
+                "detected_chips": 0,
+                "return_code": return_code,
             }
 
         # Run the device detection check
@@ -701,7 +703,6 @@ def perform_reset():
         MAX_RESET_ATTEMPTS = 3
         reset_attempts = 0
         reset_success = False
-        cumulative_output = cumulative_output if "cumulative_output" in locals() else []
 
         # Try tt-smi reset with retries (no reset config file; use default tt-smi behavior)
         while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
