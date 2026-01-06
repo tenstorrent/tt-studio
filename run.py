@@ -127,6 +127,8 @@ def check_docker_installation():
             print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
             print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
             print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+            print(f"   {C_CYAN}or alternatively:{C_RESET}")
+            print(f"   {C_CYAN}python3 run.py --fix-docker{C_RESET}")
             print()
             print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
             print(f"   {C_CYAN}sudo service docker start{C_RESET}")
@@ -139,6 +141,8 @@ def check_docker_installation():
             print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
             print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
             print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+            print(f"   {C_CYAN}or alternatively:{C_RESET}")
+            print(f"   {C_CYAN}python3 run.py --fix-docker{C_RESET}")
             print()
             print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
             print(f"   {C_CYAN}sudo service docker start{C_RESET}")
@@ -440,7 +444,7 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
             
             print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
             print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
-            print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
+            print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help or python3 run.py --help{C_RESET}")
             sys.exit(0)
         
         if choice == "1":
@@ -2035,6 +2039,8 @@ def check_spdx_headers():
         for file_path in missing_headers:
             print(f"  {C_RED}• {file_path}{C_RESET}")
         print(f"\n{C_CYAN}💡 To add missing headers, run: {C_WHITE}python run.py --add-headers{C_RESET}")
+        print(f"   {C_CYAN}or alternatively:{C_RESET}")
+        print(f"   {C_CYAN}python3 run.py --add-headers{C_RESET}")
         return False
     else:
         print(f"\n{C_GREEN}{C_BOLD}✅ All files have proper SPDX license headers!{C_RESET}")
