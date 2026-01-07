@@ -552,7 +552,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if is_placeholder(current_jwt):
             print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
         dev_default = "dev-jwt-secret-12345-not-for-production" if dev_mode else ""
-        prompt_text = f"🔐 Enter JWT_SECRET (for authentication to models endpoints){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+        prompt_text = f"🔐 Enter JWT_SECRET (for authentication to model endpoints){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
         
         while True:
             val = getpass.getpass(prompt_text)
