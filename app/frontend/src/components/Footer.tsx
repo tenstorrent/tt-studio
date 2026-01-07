@@ -49,8 +49,9 @@ interface SystemStatus {
   error?: string;
 }
 
+const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown between manual refreshes
+
 const Footer: React.FC<FooterProps> = ({ className }) => {
-  const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown between manual refreshes
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     cpuUsage: 0,
     memoryUsage: 0,
