@@ -444,7 +444,7 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
             
             print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
             print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
-            print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help or python3 run.py --help{C_RESET}")
+            print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help or alternatively: python3 run.py --help{C_RESET}")
             sys.exit(0)
         
         if choice == "1":
