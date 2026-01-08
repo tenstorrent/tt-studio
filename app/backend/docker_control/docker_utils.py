@@ -583,18 +583,56 @@ def perform_reset():
                 text=True,
             )
             output = []
+            detected_chips = 0
+            warnings = []
             for line in iter(process.stdout.readline, ""):
                 logger.info(f"tt-smi output: {line.strip()}")
                 output.append(line)
+                lower_line = line.lower()
+                if "detected chips" in lower_line:
+                    # Expect format like: "Detected Chips: 2"
+                    try:
+                        parts = line.strip().split(":")
+                        if len(parts) == 2:
+                            detected_chips = int(parts[1].strip().split()[0])
+                    except (ValueError, IndexError) as e:
+                        warnings.append(f"Unable to parse detected chips from line: {line.strip()}")
+                        logger.warning(f"Unable to parse detected chips from line '{line.strip()}': {e}")
+                if "response_q out of sync" in lower_line or "rd_ptr" in lower_line:
+                    warnings.append(line.strip())
                 if "No Tenstorrent devices detected" in line:
                     return {
                         "status": "error",
                         "message": "No Tenstorrent devices detected! Please check your hardware and try again.",
                         "output": "".join(output),
-                        "http_status": 501,  # Not Implemented
+                        "http_status": 503,  # Service Unavailable
                     }
             process.stdout.close()
             return_code = process.wait()
+            
+            # Parse JSON output if text parsing didn't find chips
+            if detected_chips == 0:
+                full_output = "".join(output)
+                try:
+                    json_data = json.loads(full_output)
+                    if "device_info" in json_data and isinstance(json_data["device_info"], list):
+                        detected_chips = len(json_data["device_info"])
+                        logger.info(f"Detected {detected_chips} chips from JSON output")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Could not parse tt-smi output as JSON: {e}")
+            
+            # If chips are detected, allow reset but surface warnings/return code
+            if detected_chips > 0:
+                if return_code != 0:
+                    warnings.append(f"tt-smi -s exited with code {return_code}")
+                status_val = "success" if not warnings and return_code == 0 else "warning"
+                return {
+                    "status": status_val,
+                    "output": "".join(output),
+                    "warnings": warnings,
+                    "detected_chips": detected_chips,
+                    "return_code": return_code,
+                }
             if return_code != 0:
                 return {
                     "status": "error",
@@ -602,12 +640,27 @@ def perform_reset():
                     "output": "".join(output),
                     "http_status": 500,  # Internal Server Error
                 }
-            return {"status": "success", "output": "".join(output)}
+            return {
+                "status": "success",
+                "message": "No Tenstorrent devices detected. tt-smi executed successfully.",
+                "output": "".join(output),
+                "detected_chips": 0,
+                "return_code": return_code,
+            }
 
         # Run the device detection check
         detection_result = check_device_detection()
+        detection_warnings = detection_result.get("warnings", [])
+        detection_output = detection_result.get("output", "")
         if detection_result.get("status") == "error":
             return detection_result
+        if detection_output:
+            cumulative_output = [detection_output]
+        else:
+            cumulative_output = []
+        if detection_warnings:
+            cumulative_output.append("Warnings during device detection:\n")
+            cumulative_output.extend([w + "\n" for w in detection_warnings])
 
         logger.info("Running tt-smi reset command.")
 
@@ -650,28 +703,16 @@ def perform_reset():
         MAX_RESET_ATTEMPTS = 3
         reset_attempts = 0
         reset_success = False
-        cumulative_output = []
 
-        # Try tt-smi reset with retries
+        # Try tt-smi reset with retries (no reset config file; use default tt-smi behavior)
         while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
             reset_attempts += 1
             logger.info(f"Reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
             cumulative_output.append(f"Attempting reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
 
-            # Ensure the config directory exists
-            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Check if the reset config JSON already exists
-            if not CONFIG_PATH.exists():
-                generate_result = stream_command_output(["tt-smi", "--generate_reset_json", str(CONFIG_PATH)])
-                if generate_result.get("status") == "error":
-                    cumulative_output.append(f"Error generating reset config: {generate_result.get('message')}\n")
-                    cumulative_output.append(generate_result.get('output', '') + "\n")
-                else:
-                    cumulative_output.append("Generated reset configuration successfully.\n")
-
-            # Perform reset using the generated JSON config
-            reset_result = stream_command_output(["tt-smi", "-r", str(CONFIG_PATH)])
+            # Perform reset using tt-smi default behavior (no reset_config.json)
+            cumulative_output.append("Executing tt-smi -r with default reset configuration.\n")
+            reset_result = stream_command_output(["tt-smi", "-r"])
             cumulative_output.append(reset_result.get('output', '') + "\n")
 
             if reset_result.get("status") == "success":
@@ -700,6 +741,7 @@ def perform_reset():
                 "status": "success",
                 "message": f"Reset successful after {reset_attempts} attempt(s)",
                 "output": all_output,
+                "warnings": detection_warnings,
                 "http_status": 200
             }
         else:
@@ -707,6 +749,7 @@ def perform_reset():
                 "status": "error",
                 "message": "All reset attempts failed with no specific error",
                 "output": all_output,
+                "warnings": detection_warnings,
                 "http_status": 500
             }
 
