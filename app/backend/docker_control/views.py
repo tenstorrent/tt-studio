@@ -645,6 +645,10 @@ class ResetBoardView(APIView):
 
             # If successful, return a 200 OK with the output
             output = reset_response.get("output", "Board reset successfully.")
+            warnings = reset_response.get("warnings", [])
+            if warnings:
+                warning_block = "Warnings during device detection:\n" + "\n".join(warnings) + "\n\n"
+                output = warning_block + output
             return StreamingHttpResponse(
                 output, content_type="text/plain", status=status.HTTP_200_OK
             )
