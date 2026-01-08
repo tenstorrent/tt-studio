@@ -29,6 +29,7 @@ RUN apt-get update && \
 RUN if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then \
     echo "🔧 Local mode - attempting TT-SMI installation" && \
     # Install Rust
+    #? copied from https://github.com/tenstorrent/tt-smi?tab=readme-ov-file#using-rustup to avoid build issues
     (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . "$HOME/.cargo/env" && \
     # Clone and install tt-smi
