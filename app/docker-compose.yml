@@ -7,6 +7,7 @@ services:
     #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
     image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
+    user: root
     build: 
       context: ./backend
       args:
