@@ -64,7 +64,7 @@ const ShowcaseGallery: React.FC<ShowcaseGalleryProps> = ({
 
   return (
     <div className="flex flex-col items-center w-full h-full overflow-x-hidden">
-      <div className="w-full grow overflow-y-auto">
+      <div className="w-full grow overflow-y-auto flex justify-center">
         <FocusCards
           cards={showcaseImages}
           onCardClick={(card) => handleImageClick(card.title)}

@@ -7,6 +7,7 @@ services:
     #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
     image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
+    user: root
     build: 
       context: ./backend
       args:
@@ -58,6 +59,8 @@ services:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # Mount the local api directory for live code changes
       - ./backend:/backend
+      # Mount tt-inference-server workflow logs for viewing deployment logs
+      - ${TT_STUDIO_ROOT}/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/tt-inference-server/workflow_logs:ro
 
     healthcheck:
       # On first application load resources for transformers/etc
