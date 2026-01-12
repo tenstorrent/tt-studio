@@ -5,11 +5,14 @@
 import React, { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Rocket, CheckCircle, XCircle } from "lucide-react";
+import { useDeploymentProgress } from "../../hooks/useDeploymentProgress";
+import { DeploymentProgress } from "../ui/DeploymentProgress";
+import { SimpleDeploymentProgress } from "../ui/SimpleDeploymentProgress";
 
 interface AnimatedDeployButtonProps {
   initialText: React.ReactElement | string;
   changeText: React.ReactElement | string;
-  onDeploy: () => Promise<boolean>;
+  onDeploy: () => Promise<{ success: boolean; job_id?: string }>;
   disabled?: boolean;
   onDeploymentComplete: () => void;
 }
@@ -29,6 +32,28 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     initialText
   );
 
+  // Use the deployment progress hook
+  const { progress, isPolling, startPolling, stopPolling } = useDeploymentProgress();
+
+  // Handle progress updates
+  useEffect(() => {
+    if (progress) {
+      if (progress.status === 'completed') {
+        setIsDeployed(true);
+        setIsDeploying(false);
+        setIsRocketFlying(false);
+        setDisplayText(<span>Model Deployed!</span>);
+        stopPolling();
+      } else if (progress.status === 'error' || progress.status === 'failed') {
+        setDeploymentFailed(true);
+        setIsDeploying(false);
+        setIsRocketFlying(false);
+        setDisplayText(<span>Deployment Failed</span>);
+        stopPolling();
+      }
+    }
+  }, [progress, stopPolling]);
+
   useEffect(() => {
     if (isDeployed) {
       const timer = setTimeout(() => {
@@ -47,23 +72,35 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     setDeploymentFailed(false);
 
     try {
-      const deploySuccess = await onDeploy();
+      const result = await onDeploy();
+      console.log('[Deploy] Deploy result:', result);
 
-      // Wait for the rocket animation to complete
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      if (deploySuccess) {
-        setIsDeployed(true);
-        setDisplayText(<span>Model Deployed!</span>);
+      if (result.success) {
+        if (result.job_id) {
+          console.log('[Deploy] Starting progress polling for job:', result.job_id);
+          // Start polling for progress updates
+          startPolling(result.job_id);
+        } else {
+          console.log('[Deploy] No job_id received - deployment succeeded but progress tracking unavailable');
+          // Deployment succeeded - mark as complete immediately
+          setIsDeployed(true);
+          setDisplayText(<span>Model Deployed!</span>);
+          setIsDeploying(false);
+          setIsRocketFlying(false);
+        }
+        // Keep the rocket animation going while we wait
       } else {
+        console.log('[Deploy] Deployment failed:', result);
+        // Handle immediate failure
         setDeploymentFailed(true);
         setDisplayText(<span>Deployment Failed</span>);
+        setIsDeploying(false);
+        setIsRocketFlying(false);
       }
     } catch (error) {
       console.error("Deployment failed:", error);
       setDeploymentFailed(true);
       setDisplayText(<span>Deployment Failed</span>);
-    } finally {
       setIsDeploying(false);
       setIsRocketFlying(false);
     }
@@ -98,63 +135,95 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   ));
 
   return (
-    <AnimatePresence mode="wait">
-      <motion.button
-        className={`${buttonClass} ${
-          !disabled &&
-          "cursor-pointer transition-transform duration-700 ease-in-out hover:scale-105"
-        }`}
-        onClick={handleDeploy}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        disabled={disabled || isDeploying}
-      >
-        <motion.span
-          key="reaction"
-          className="relative flex items-center font-semibold"
-          initial={{ x: 0 }}
-          exit={{ x: 50, transition: { duration: 0.6, ease: "easeIn" } }}
+    <div className="w-full flex flex-col items-center">
+      <AnimatePresence mode="wait">
+        <motion.button
+          className={`${buttonClass} ${
+            !disabled &&
+            "cursor-pointer transition-transform duration-700 ease-in-out hover:scale-105"
+          }`}
+          onClick={handleDeploy}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          disabled={disabled || isDeploying}
         >
-          {isDeploying ? "Deploying..." : displayText}
-          <AnimatePresence mode="wait">
-            {!isDeploying && !isDeployed && !deploymentFailed && (
-              <motion.div
-                key="rocket"
-                className="ml-2 relative"
-                initial={{ y: 0, opacity: 1 }}
-                exit={{ y: -100, opacity: 0 }}
-                transition={{ duration: 1, ease: "easeOut" }}
-              >
-                <Rocket className="h-5 w-5" />
-                {particles}
-              </motion.div>
+          <motion.span
+            key="reaction"
+            className="relative flex items-center font-semibold"
+            initial={{ x: 0 }}
+            exit={{ x: 50, transition: { duration: 0.6, ease: "easeIn" } }}
+          >
+            {isDeploying ? (
+              <div className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                <span>Deploying...</span>
+              </div>
+            ) : (
+              displayText
             )}
-            {isDeployed && (
-              <motion.div
-                key="success"
-                className="ml-2"
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
-              >
-                <CheckCircle className="h-5 w-5 text-white" />
-              </motion.div>
-            )}
-            {deploymentFailed && (
-              <motion.div
-                key="failure"
-                className="ml-2"
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
-              >
-                <XCircle className="h-5 w-5 text-white" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.span>
-      </motion.button>
-    </AnimatePresence>
+            <AnimatePresence mode="wait">
+              {!isDeploying && !isDeployed && !deploymentFailed && (
+                <motion.div
+                  key="rocket"
+                  className="ml-2 relative"
+                  initial={{ y: 0, opacity: 1 }}
+                  exit={{ y: -100, opacity: 0 }}
+                  transition={{ duration: 1, ease: "easeOut" }}
+                >
+                  <Rocket className="h-5 w-5" />
+                  {particles}
+                </motion.div>
+              )}
+              {isDeployed && (
+                <motion.div
+                  key="success"
+                  className="ml-2"
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.5, ease: "easeOut" }}
+                >
+                  <CheckCircle className="h-5 w-5 text-white" />
+                </motion.div>
+              )}
+              {deploymentFailed && (
+                <motion.div
+                  key="failure"
+                  className="ml-2"
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.5, ease: "easeOut" }}
+                >
+                  <XCircle className="h-5 w-5 text-white" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.span>
+        </motion.button>
+      </AnimatePresence>
+      
+      {/* Show progress - use API-based progress if available, otherwise show time-based progress */}
+      {isDeploying && !isDeployed && (
+        <motion.div
+          className="w-full max-w-md"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.3 }}
+        >
+          {(isPolling || progress) && progress ? (
+            <DeploymentProgress 
+              progress={progress} 
+              className=""
+            />
+          ) : (
+            <SimpleDeploymentProgress 
+              isDeploying={isDeploying}
+              className=""
+            />
+          )}
+        </motion.div>
+      )}
+    </div>
   );
 };
