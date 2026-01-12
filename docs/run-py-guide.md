@@ -41,6 +41,7 @@ The script will guide you through all configuration options and set up everythin
 | --------------- | ---------------------------------------------------------------------------- |
 | `--help`        | Display help message with usage details.                                     |
 | `--dev`         | Run in development mode with suggested defaults.                             |
+| `--easy`        | Easy setup mode - only prompts for HF_TOKEN, uses defaults for everything else. |
 | `--cleanup`     | Stop and remove all Docker services.                                         |
 | `--cleanup-all` | Clean up everything including persistent data and .env file.                 |
 | `--skip-fastapi`| Skip TT Inference Server FastAPI setup.                                      |
@@ -56,6 +57,138 @@ To display the same help section in the terminal, run:
 ```bash
 python run.py --help
 ```
+
+---
+
+## Easy Mode Setup
+
+Easy Mode provides a streamlined setup experience designed for first-time users, quick testing, and development environments. It minimizes the configuration prompts and uses sensible defaults for everything except the Hugging Face token.
+
+### When to Use Easy Mode
+
+**✅ Use Easy Mode for:**
+- First-time exploration of TT-Studio
+- Quick testing and evaluation
+- Development and debugging
+- Local prototyping
+- Learning how TT-Studio works
+
+**❌ Do NOT use Easy Mode for:**
+- Production deployments
+- Public-facing services
+- Environments with sensitive data
+- Production model serving
+
+### How Easy Mode Works
+
+Easy Mode (`--easy`) simplifies setup by:
+
+1. **Minimal Prompting**: Only prompts for your HF_TOKEN (Hugging Face token)
+2. **Automatic Defaults**: Uses pre-configured default values for all other settings
+3. **Faster Setup**: Skips local npm installation automatically
+4. **TT Studio Mode**: Automatically configures for TT Studio mode (not AI Playground)
+5. **Saves Configuration**: Stores settings in `.tt_studio_easy_config.json` for reference
+
+### Usage
+
+```bash
+python3 run.py --easy
+```
+
+You'll only be prompted for:
+- **HF_TOKEN**: Your Hugging Face token (required for downloading models)
+
+All other values are set automatically using defaults.
+
+### Default Values Used in Easy Mode
+
+Easy Mode uses the following default values:
+
+| Variable | Default Value | Description |
+|----------|---------------|-------------|
+| `JWT_SECRET` | `test-secret-456` | JWT authentication secret (not secure) |
+| `DJANGO_SECRET_KEY` | `django-insecure-default` | Django backend security key (not secure) |
+| `TAVILY_API_KEY` | `tavily-api-key-not-configured` | Search functionality (disabled) |
+| `VITE_APP_TITLE` | `Tenstorrent \| TT Studio` | Application title |
+| `VITE_ENABLE_DEPLOYED` | `false` | AI Playground mode (disabled - uses TT Studio mode) |
+| `VITE_ENABLE_RAG_ADMIN` | `false` | RAG admin interface (disabled) |
+| `RAG_ADMIN_PASSWORD` | `tt-studio-rag-admin-password` | Default admin password |
+| `FRONTEND_HOST` | `localhost` | Frontend host |
+| `FRONTEND_PORT` | `3000` | Frontend port |
+| `FRONTEND_TIMEOUT` | `60` | Frontend timeout (seconds) |
+| Cloud Model Variables | Empty strings | All cloud/external model endpoints (disabled) |
+| npm Installation | Automatically skipped | Local IDE support (skipped) |
+
+> **⚠️ CRITICAL SECURITY WARNING**: The default values above are **NOT secure for production use**. They are intended only for development, testing, and quick evaluation. Never use Easy Mode for production deployments or public-facing services.
+
+### Configuration File
+
+Easy Mode saves your setup configuration to `.tt_studio_easy_config.json` in the repository root. This file contains:
+
+- Setup timestamp
+- Mode indicator (`"mode": "easy"`)
+- Record of default values used
+- Configuration flags
+
+This file is for reference only and does not affect the actual runtime configuration (which is stored in `app/.env`).
+
+### Mode Comparison
+
+Here's how Easy Mode compares to other setup modes:
+
+| Feature | Easy Mode<br>`--easy` | Normal Mode<br>(default) | Development Mode<br>`--dev` |
+|---------|----------------------|-------------------------|----------------------------|
+| **Primary Use** | First-time users, quick testing | Production deployments | Development work |
+| **Prompts Required** | HF_TOKEN only | All security credentials | All with suggested defaults |
+| **Security** | ⚠️ Insecure defaults | ✅ User-provided secure values | ⚠️ Dev defaults available |
+| **AI Playground** | Disabled | User choice | User choice |
+| **RAG Admin** | Disabled | User choice | User choice |
+| **Cloud Models** | Empty/disabled | User choice | User choice |
+| **npm Installation** | Auto-skipped | User choice | User choice |
+| **Setup Time** | Fastest (~1 minute) | Moderate (~5 minutes) | Moderate (~5 minutes) |
+| **Production Ready** | ❌ No | ✅ Yes | ❌ No |
+
+### Example: Easy Mode Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/tenstorrent/tt-studio.git
+cd tt-studio
+
+# Run with easy mode
+python3 run.py --easy
+
+# You'll only see:
+# 🤗 Enter HF_TOKEN (Hugging Face token): ****
+
+# That's it! Everything else is configured automatically.
+```
+
+### Switching from Easy Mode to Production
+
+If you started with Easy Mode and want to switch to a production-ready setup:
+
+1. **Stop TT-Studio** (if running):
+   ```bash
+   python3 run.py --cleanup
+   ```
+
+2. **Reconfigure with secure values**:
+   ```bash
+   python3 run.py
+   ```
+   
+   Or use the reconfigure flag:
+   ```bash
+   python3 run.py --reconfigure
+   ```
+
+3. **Provide secure credentials** when prompted:
+   - Generate a strong JWT_SECRET
+   - Generate a strong DJANGO_SECRET_KEY
+   - Configure other services as needed
+
+4. **Restart TT-Studio** with the new secure configuration
 
 ---
 
@@ -208,6 +341,11 @@ These credentials are securely used by the TT Inference Server to authenticate r
 ### Starting TT-Studio
 ```bash
 python run.py
+```
+
+### Running in Easy Mode (First-Time Users)
+```bash
+python run.py --easy
 ```
 
 ### Running in Development Mode
