@@ -51,7 +51,7 @@ const FileUploader = () => {
         hidden={uploadProgress === 0}
         className="w-2/3 my-10"
         value={uploadProgress}
-        colorClass={progressColorClass}
+        indicatorClassName={progressColorClass}
       />
       <p className="text-center mb-4 text-lg">
         {isLinked
