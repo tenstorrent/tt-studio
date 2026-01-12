@@ -81,7 +81,7 @@ export function FocusCards({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 lg:gap-10 p-4 md:p-6 lg:p-8 w-full">
       {cards.map((card, index) => (
-        <div key={card.title} className="h-[300px] md:h-[400px] lg:h-[500px]">
+        <div key={card.title} className="h-[300px] md:h-[400px] lg:h-[500px] mx-auto">
           <Card
             card={card}
             index={index}
