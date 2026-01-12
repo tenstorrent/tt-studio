@@ -51,6 +51,7 @@ import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import AudioDetectionPage from "../pages/AudioDetectionPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
+import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -115,6 +116,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/api-info/:modelId",
       element: <ApiInfoPage />,
+      condition: true,
+    },
+    {
+      path: "/deployment-history",
+      element: <DeploymentHistoryPage />,
       condition: true,
     },
     {

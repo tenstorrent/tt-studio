@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
@@ -48,6 +48,8 @@ interface SystemStatus {
   error?: string;
 }
 
+const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown between manual refreshes
+
 const Footer: React.FC<FooterProps> = ({ className }) => {
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     cpuUsage: 0,
@@ -59,6 +61,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const lastRefreshTime = useRef<number | null>(null);
   const [showTTStudioModal, setShowTTStudioModal] = useState(false);
   const [bugReportLoading, setBugReportLoading] = useState(false);
   const { models } = useModels();
@@ -108,6 +112,43 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     }
   };
 
+  const getRemainingCooldownMs = () => {
+    if (!lastRefreshTime.current) return 0;
+    return Math.max(
+      REFRESH_COOLDOWN_MS - (Date.now() - lastRefreshTime.current),
+      0
+    );
+  };
+
+  const handleRefreshBoardDetection = async () => {
+    const remaining = getRemainingCooldownMs();
+    if (remaining > 0 || refreshing) {
+      return;
+    }
+
+    try {
+      setRefreshing(true);
+      const response = await fetch("/board-api/refresh-cache/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      await fetchSystemStatus();
+    } catch (err) {
+      console.error("Failed to refresh board detection:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      lastRefreshTime.current = Date.now();
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     // Initial fetch on mount only
     fetchSystemStatus();
@@ -119,6 +160,15 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const borderColor = theme === "dark" ? "border-zinc-700" : "border-gray-200";
   const bgColor = theme === "dark" ? "bg-zinc-900/95" : "bg-white/95";
   const mutedTextColor = theme === "dark" ? "text-zinc-400" : "text-gray-500";
+  const normalizedBoardName = systemStatus.boardName?.toLowerCase();
+  const isBoardDetectionIssue =
+    systemStatus.hardware_status === "error" ||
+    !!error ||
+    normalizedBoardName === "error" ||
+    normalizedBoardName === "unknown";
+  const remainingCooldownMs = getRemainingCooldownMs();
+  const isInCooldown = remainingCooldownMs > 0;
+  const cooldownSeconds = Math.ceil(remainingCooldownMs / 1000);
 
   // Handle click on deployed models section
   const handleDeployedModelsClick = () => {
@@ -628,27 +678,63 @@ Add any other context about the problem here.
                 </span>
               </div>
             ) : (
-              <Badge
-                variant={
-                  systemStatus.hardware_status === "error"
-                    ? "destructive"
-                    : error
+              <div className="flex items-center gap-1.5">
+                <Badge
+                  variant={
+                    systemStatus.hardware_status === "error"
                       ? "destructive"
-                      : "default"
-                }
-                className={`text-xs ${textColor} cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-opacity-80`}
-                title={
-                  systemStatus.hardware_error ||
-                  error ||
-                  "Hardware status - Click to learn more"
-                }
-                onClick={() => {
-                  window.open("https://www.tenstorrent.com/hardware", "_blank");
-                }}
-              >
-                {systemStatus.boardName}
-                {systemStatus.hardware_status === "error" && " ⚠️"}
-              </Badge>
+                      : error
+                        ? "destructive"
+                        : "default"
+                  }
+                  className={`text-xs ${textColor} cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-opacity-80`}
+                  title={
+                    systemStatus.hardware_error ||
+                    error ||
+                    "Hardware status - Click to learn more"
+                  }
+                  onClick={() => {
+                    window.open("https://www.tenstorrent.com/hardware", "_blank");
+                  }}
+                >
+                  {systemStatus.boardName}
+                  {systemStatus.hardware_status === "error" && " ⚠️"}
+                </Badge>
+                {isBoardDetectionIssue && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={handleRefreshBoardDetection}
+                          disabled={refreshing || isInCooldown}
+                          className={`p-1 rounded-full border border-transparent transition-colors duration-150 ${
+                            refreshing
+                              ? "opacity-70 cursor-wait"
+                              : isInCooldown
+                                ? "opacity-60 cursor-not-allowed"
+                                : "hover:bg-TT-purple-accent/10 dark:hover:bg-TT-purple-accent/20"
+                          }`}
+                          aria-label="Retry board detection"
+                        >
+                          <RefreshCw
+                            className={`h-4 w-4 text-TT-purple-accent ${
+                              refreshing ? "animate-spin" : ""
+                            }`}
+                          />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>
+                          {isInCooldown
+                            ? `Please wait ${cooldownSeconds}s before refreshing again`
+                            : "Click to retry board detection"}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
             )}
             {(error || systemStatus.hardware_error) && (
               <span
