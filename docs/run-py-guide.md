@@ -5,10 +5,11 @@ The `run.py` script automates the complete TT-Studio setup process, including en
 ## Table of Contents
 1. [Basic Usage](#basic-usage)
 2. [Command-Line Options](#command-line-options)
-3. [Environment Configuration](#environment-configuration)
-4. [Automatic Tenstorrent Hardware Detection](#automatic-tenstorrent-hardware-detection)
-5. [Authentication Requirements](#authentication-requirements)
-6. [Common Operations](#common-operations)
+3. [Easy Mode Setup](#easy-mode-setup)
+4. [Environment Configuration](#environment-configuration)
+5. [Automatic Tenstorrent Hardware Detection](#automatic-tenstorrent-hardware-detection)
+6. [Authentication Requirements](#authentication-requirements)
+7. [Common Operations](#common-operations)
 
 ---
 
