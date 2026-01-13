@@ -173,21 +173,19 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
   if (!showFooter) {
     return (
-      <motion.div
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 z-40"
-        initial={{ y: 100 }}
-        animate={{ y: 0 }}
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      >
+      <motion.div className="fixed -bottom-1 left-1/2 -translate-x-1/2 z-40">
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={() => setShowFooter(true)}
-                className={`${bgColor} backdrop-blur-sm border-t border-x ${borderColor} rounded-t-lg px-4 py-2 hover:bg-opacity-80 transition-all duration-200 shadow-lg`}
-                aria-label="Show footer"
+                className=" hover:scale-110 transition-transform duration-200"
               >
-                <ChevronUp className={`w-5 h-5 ${textColor}`} />
+                <ChevronUp
+                  className="w-7 h-7"
+                  strokeWidth={3}
+                  style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
+                />
               </button>
             </TooltipTrigger>
             <TooltipContent>
@@ -612,17 +610,20 @@ Add any other context about the problem here.
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
-        {/* Toggle button to hide footer - at top center */}
-        <div className="flex justify-center">
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setShowFooter(false)}
-                  className={`px-3 py-0.5 hover:bg-opacity-80 transition-all duration-200 ${textColor} hover:text-TT-purple-accent`}
+                  className="hover:scale-110 transition-transform duration-200"
                   aria-label="Hide footer"
                 >
-                  <ChevronDown className={`w-4 h-4`} />
+                  <ChevronDown
+                    className="w-7 h-7"
+                    strokeWidth={3}
+                    style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
+                  />
                 </button>
               </TooltipTrigger>
               <TooltipContent>
@@ -641,6 +642,7 @@ Add any other context about the problem here.
               Loading...
             </Badge>
           </div>
+
           <div className="flex items-center space-x-6">
             <span className={`text-sm ${mutedTextColor}`}>
               LOADING SYSTEM RESOURCES...
@@ -659,17 +661,23 @@ Add any other context about the problem here.
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
-        {/* Toggle button to hide footer - at top center */}
-        <div className="flex justify-center">
+        {/* Toggle button - absolutely positioned at bottom center */}
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setShowFooter(false)}
-                  className={`px-3 py-0.5 hover:bg-opacity-80 transition-all duration-200 ${textColor} hover:text-TT-purple-accent`}
+                  className="hover:scale-110 transition-transform duration-200"
                   aria-label="Hide footer"
                 >
-                  <ChevronDown className={`w-4 h-4`} />
+                  <ChevronDown
+                    className="w-7 h-7"
+                    strokeWidth={3}
+                    style={{
+                      color: theme === "dark" ? "#e4e4e7" : "#18181b",
+                    }}
+                  />
                 </button>
               </TooltipTrigger>
               <TooltipContent>
