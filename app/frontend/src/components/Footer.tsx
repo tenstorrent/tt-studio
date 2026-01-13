@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
 import { useNavigate } from "react-router-dom";
@@ -173,7 +173,13 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
   if (!showFooter) {
     return (
-      <motion.div className="fixed -bottom-1 left-1/2 -translate-x-1/2 z-40">
+      <motion.div
+        className="fixed -bottom-1 left-1/2 -translate-x-1/2 z-40"
+        initial={{ y: 100 }}
+        animate={{ y: 0 }}
+        exit={{ y: 100 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      >
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -608,6 +614,7 @@ Add any other context about the problem here.
         className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
         initial={{ y: 100 }}
         animate={{ y: 0 }}
+        exit={{ y: 100 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10">
@@ -655,12 +662,15 @@ Add any other context about the problem here.
 
   return (
     <>
-      <motion.footer
-        className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
-        initial={{ y: 100 }}
-        animate={{ y: 0 }}
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      >
+      <AnimatePresence>
+        {showFooter && (
+          <motion.footer
+            className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+            initial={{ y: 100 }}
+            animate={{ y: 0 }}
+            exit={{ y: 100 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          >
         {/* Toggle button - absolutely positioned at bottom center */}
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10">
           <TooltipProvider>
@@ -892,6 +902,8 @@ Add any other context about the problem here.
           </div>
         </div>
       </motion.footer>
+        )}
+      </AnimatePresence>
 
       {/* TT Studio Information Modal */}
       <Dialog open={showTTStudioModal} onOpenChange={setShowTTStudioModal}>
