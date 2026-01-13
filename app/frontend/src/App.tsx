@@ -6,7 +6,7 @@ import { ThemeProvider } from "./providers/ThemeProvider";
 import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSetTitle } from "./api/utlis.ts";
-import { HeroSectionProvider } from "./contexts/HeroSectionContext.tsx";
+import { HeroSectionProvider } from "./providers/HeroSectionContext.tsx";
 // Development toolbar imports commented out - remove if not needed
 // import { StagewiseToolbar } from "@stagewise/toolbar-react";
 // import ReactPlugin from "@stagewise-plugins/react";
