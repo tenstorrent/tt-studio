@@ -3,7 +3,6 @@
 import React from "react";
 import NavBar from "../components/NavBar";
 import Footer from "../components/Footer";
-import { isDeployedEnabled } from "../utils/env";
 
 export const MainLayout = ({ children }: { children: React.ReactNode }) => (
   <div className="min-h-screen w-full dark:bg-black bg-white dark:bg-grid-white/[0.2] bg-grid-black/[0.2] relative">
@@ -16,7 +15,7 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => (
     ></div>
     <NavBar />
     <div className="main-content pt-16 pb-20 relative z-10">{children}</div>
-    {!isDeployedEnabled() && <Footer />}
+    <Footer />
   </div>
 );
 

@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useModels } from "../hooks/useModels";
 import {
   Tooltip,
@@ -23,9 +23,12 @@ import {
   FileText,
   RefreshCw,
   Bug,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useGitHubReleases } from "../hooks/useGitHubReleases";
 import { HardwareIcon } from "./aiPlaygroundHome/HardwareIcon";
+import { useFooterVisibility } from "../hooks/useFooterVisibility";
 
 interface FooterProps {
   className?: string;
@@ -52,6 +55,8 @@ interface SystemStatus {
 const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown between manual refreshes
 
 const Footer: React.FC<FooterProps> = ({ className }) => {
+  const { showFooter, setShowFooter } = useFooterVisibility();
+  const { theme } = useTheme();
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     cpuUsage: 0,
     memoryUsage: 0,
@@ -68,8 +73,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const [bugReportLoading, setBugReportLoading] = useState(false);
   const { models } = useModels();
   const navigate = useNavigate();
-  const location = useLocation();
-  const { theme } = useTheme();
   const {
     releaseInfo,
     parsedNotes,
@@ -78,9 +81,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     error: releasesError,
     refetch,
   } = useGitHubReleases();
-
-  // Check if we should hide the footer
-  const shouldHideFooter = location.pathname === "/chat";
 
   // Fetch system status from API
   const fetchSystemStatus = async () => {
@@ -170,6 +170,34 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const remainingCooldownMs = getRemainingCooldownMs();
   const isInCooldown = remainingCooldownMs > 0;
   const cooldownSeconds = Math.ceil(remainingCooldownMs / 1000);
+
+  if (!showFooter) {
+    return (
+      <motion.div
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 z-40"
+        initial={{ y: 100 }}
+        animate={{ y: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      >
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowFooter(true)}
+                className={`${bgColor} backdrop-blur-sm border-t border-x ${borderColor} rounded-t-lg px-4 py-2 hover:bg-opacity-80 transition-all duration-200 shadow-lg`}
+                aria-label="Show footer"
+              >
+                <ChevronUp className={`w-5 h-5 ${textColor}`} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Show footer</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </motion.div>
+    );
+  }
 
   // Handle click on deployed models section
   const handleDeployedModelsClick = () => {
@@ -391,7 +419,7 @@ Add any other context about the problem here.
     };
 
     const MAX_URL_LENGTH = 7000; // conservative safety limit for GitHub new-issue URL
-    let fullUrl = buildIssueUrl(titleRaw, fullBody);
+    const fullUrl = buildIssueUrl(titleRaw, fullBody);
     if (fullUrl.length > MAX_URL_LENGTH) {
       // Build shortened body
       const truncatedFastapi = truncate(fastapiLogs, 800);
@@ -551,9 +579,9 @@ ${fallbackTtInferenceLogs || "Unavailable in fallback"}
 Please describe the bug you encountered:
 
 ### Steps to Reproduce
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 ### Expected Behavior
 What did you expect to happen?
@@ -577,13 +605,33 @@ Add any other context about the problem here.
 
   // Show loading state
   if (loading) {
-    return shouldHideFooter ? null : (
+    return (
       <motion.footer
         className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
+        {/* Toggle button to hide footer - at top center */}
+        <div className="flex justify-center">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setShowFooter(false)}
+                  className={`px-3 py-0.5 hover:bg-opacity-80 transition-all duration-200 ${textColor} hover:text-TT-purple-accent`}
+                  aria-label="Hide footer"
+                >
+                  <ChevronDown className={`w-4 h-4`} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Hide footer</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center space-x-4">
             <span className={`text-sm ${textColor}`}>
@@ -603,7 +651,7 @@ Add any other context about the problem here.
     );
   }
 
-  return shouldHideFooter ? null : (
+  return (
     <>
       <motion.footer
         className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
@@ -611,6 +659,26 @@ Add any other context about the problem here.
         animate={{ y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
+        {/* Toggle button to hide footer - at top center */}
+        <div className="flex justify-center">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setShowFooter(false)}
+                  className={`px-3 py-0.5 hover:bg-opacity-80 transition-all duration-200 ${textColor} hover:text-TT-purple-accent`}
+                  aria-label="Hide footer"
+                >
+                  <ChevronDown className={`w-4 h-4`} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Hide footer</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
         <div className="flex items-center justify-between px-4 py-3">
           {/* Left Section - App Info & Board */}
           <div className="flex items-center space-x-4">
