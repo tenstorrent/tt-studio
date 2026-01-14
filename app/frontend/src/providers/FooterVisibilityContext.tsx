@@ -3,19 +3,20 @@
 
 import React, { useEffect, useState } from "react";
 import { FooterVisibilityContext } from "../contexts/FooterVisibilityContext";
+import { safeGetItem, safeSetItem } from "../lib/storage";
 
 export const FooterVisibilityProvider: React.FC<{
   children: React.ReactNode;
 }> = ({ children }) => {
   const [showFooter, setShowFooter] = useState(() => {
-    const storedFooterVal = localStorage.getItem("showFooter");
+    const storedFooterVal = safeGetItem<boolean | null>("showFooter", null);
     return storedFooterVal !== null
-      ? storedFooterVal === "true"
+      ? storedFooterVal
       : window.location.pathname === "/";
   });
 
   useEffect(() => {
-    localStorage.setItem("showFooter", showFooter ? "true" : "false");
+    safeSetItem("showFooter", showFooter);
   }, [showFooter]);
 
   return (
