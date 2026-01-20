@@ -50,6 +50,24 @@ git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python
 6. **Builds containers** - Sets up Docker environments for frontend and backend
 7. **Starts all services** - Launches the web interface and backend server
 
+**⚡ Easy Setup Mode (Recommended for First-Time Users):**
+
+Want an even simpler setup? Use **Easy Mode** which only requires your Hugging Face token:
+
+```bash
+python3 run.py --easy
+```
+
+**What Easy Mode does:**
+- ✅ Only prompts for your HF_TOKEN (Hugging Face token)
+- ✅ Uses secure defaults for quick testing
+- ✅ Skips local npm installation automatically
+- ✅ Perfect for first-time users and quick evaluation
+
+> **⚠️ Security Note:** Easy mode uses default values that are **NOT secure for production**. Use this mode only for development, testing, and quick evaluation. For production deployments, use the standard setup (`python3 run.py`) or development mode (`python3 run.py --dev`).
+
+📖 **More Details:** See the [Complete run.py Guide](docs/run-py-guide.md#easy-mode-setup) for a full comparison of setup modes.
+
 **After Setup:**
 
 - Go to **[http://localhost:3000](http://localhost:3000)** to use TT-Studio
