@@ -63,7 +63,9 @@ C_TT_PURPLE = '\033[38;5;99m'
 
 # --- Global Paths and Constants ---
 TT_STUDIO_ROOT = os.getcwd()
-INFERENCE_SERVER_BRANCH = "anirud/v0.0.5-fast-api-for-tt-studio"
+# INFERENCE_SERVER_BRANCH = "anirud/v0.0.5-fast-api-for-tt-studio"
+# switch to this tmp branch for running models on qb-ge
+INFERENCE_SERVER_BRANCH = "anirud/feat-qb-ge-tt-studio-link"
 OS_NAME = platform.system()
 
 # --- ASCII Art Constants ---
