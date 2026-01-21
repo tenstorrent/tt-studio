@@ -63,7 +63,7 @@ C_TT_PURPLE = '\033[38;5;99m'
 
 # --- Global Paths and Constants ---
 TT_STUDIO_ROOT = os.getcwd()
-INFERENCE_SERVER_BRANCH = "anirud/v0.0.5-fast-api-for-tt-studio"
+# Removed: INFERENCE_SERVER_BRANCH - no longer using git submodule
 OS_NAME = platform.system()
 
 # --- ASCII Art Constants ---
@@ -81,7 +81,12 @@ DOCKER_COMPOSE_PROD_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.p
 DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-compose.tt-hardware.yml")
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
-INFERENCE_SERVER_DIR = os.path.join(TT_STUDIO_ROOT, "tt-inference-server")
+# Updated: Use inference-api instead of tt-inference-server submodule
+INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
+INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
+# These will be read from .env file or environment variables
+INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
+INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
 FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
@@ -897,20 +902,20 @@ def cleanup_resources(args):
             else:
                 print(f"{C_CYAN}⚙️  Keeping .env file.{C_RESET}")
         
-        # Remove TT Inference Server directory
-        if os.path.exists(INFERENCE_SERVER_DIR):
+        # Remove artifact directory if it exists
+        if os.path.exists(INFERENCE_ARTIFACT_DIR):
             try:
-                confirm = input(f"{C_YELLOW}🔧 Remove TT Inference Server directory at {INFERENCE_SERVER_DIR}? (y/N): {C_RESET}")
+                confirm = input(f"{C_YELLOW}🔧 Remove TT Inference Server artifact directory at {INFERENCE_ARTIFACT_DIR}? (y/N): {C_RESET}")
             except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. TT Inference Server directory kept.{C_RESET}")
+                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Artifact directory kept.{C_RESET}")
                 print(f"{C_GREEN}✅ Partial cleanup completed.{C_RESET}")
                 return
             
             if confirm.lower() in ['y', 'yes']:
-                shutil.rmtree(INFERENCE_SERVER_DIR)
-                print(f"{C_GREEN}✅ Removed TT Inference Server directory.{C_RESET}")
+                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                print(f"{C_GREEN}✅ Removed artifact directory.{C_RESET}")
             else:
-                print(f"{C_CYAN}🔧 Keeping TT Inference Server directory.{C_RESET}")
+                print(f"{C_CYAN}🔧 Keeping artifact directory.{C_RESET}")
     
     print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
 
@@ -1229,186 +1234,264 @@ def is_valid_git_repo(path):
     return False  # Exists but not a git repo
 
 def initialize_submodules():
-    """Initialize git submodules if they don't exist or are not properly set up."""
-    print(f"🔧 Checking and initializing git submodules...")
+    """Initialize git submodules (excluding tt-inference-server which is now an artifact)."""
+    print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}         📦 Initializing Git Submodules              {C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     
     # Check if we're in a git repository
     if not os.path.exists(".git"):
-        print(f"{C_RED}⛔ Error: Not in a git repository. Cannot initialize submodules.{C_RESET}")
-        print(f"   Please ensure you cloned the repository with: git clone --recurse-submodules https://github.com/tenstorrent/tt-studio.git")
-        return False
+        print(f"{C_YELLOW}⚠️  Not in a git repository, skipping submodule initialization{C_RESET}")
+        return True
     
     # Check if .gitmodules exists
     if not os.path.exists(".gitmodules"):
-        print(f"{C_RED}⛔ Error: .gitmodules file not found. Cannot initialize submodules.{C_RESET}")
-        print(f"   Please ensure you have the complete repository.")
-        return False
-    
-    # Check for corrupted submodule directories before attempting initialization
-    submodule_path = os.path.join(TT_STUDIO_ROOT, "tt-inference-server")
-    repo_state = is_valid_git_repo(submodule_path)
-    
-    if repo_state is False:  # Directory exists but is corrupted
-        print(f"{C_YELLOW}⚠️  Detected corrupted submodule directory at {submodule_path}{C_RESET}")
-        print(f"   Cause: Directory exists but is not a valid git repository")
-        print(f"   This usually happens when:")
-        print(f"   - A previous git operation was interrupted")
-        print(f"   - The directory was created manually")
-        print(f"   - Git's internal state is corrupted")
-        print(f"   Solution: Cleaning up and re-initializing...")
-        
-        try:
-            # Clean up corrupted directory
-            shutil.rmtree(submodule_path)
-            print(f"{C_GREEN}✅ Removed corrupted directory{C_RESET}")
-            
-            # Clean up git's internal cache
-            git_modules_path = os.path.join(TT_STUDIO_ROOT, ".git", "modules", "tt-inference-server")
-            if os.path.exists(git_modules_path):
-                shutil.rmtree(git_modules_path)
-                print(f"{C_GREEN}✅ Cleaned up git submodule cache{C_RESET}")
-        except Exception as cleanup_error:
-            print(f"{C_RED}⛔ Error during cleanup: {cleanup_error}{C_RESET}")
-            print(f"   Please manually remove: {submodule_path}")
-            return False
+        print(f"ℹ️  No .gitmodules file found, no submodules to initialize")
+        return True
     
     try:
-        # Step 1: Sync submodule configurations to align .gitmodules with .git/config
-        print(f"🔄 Synchronizing submodule configurations...")
-        run_command(["git", "submodule", "sync", "--recursive"], check=True)
+        # Initialize and update submodules (excluding tt-inference-server)
+        print(f"📥 Initializing submodules...")
+        run_command(["git", "submodule", "init"], check=False)
         
-        # Step 2: Update submodules to ensure they're properly initialized and on correct branches
-        print(f"📦 Initializing and updating git submodules...")
-        run_command(["git", "submodule", "update", "--init", "--recursive"], check=True)
+        # Update only non-tt-inference-server submodules
+        result = subprocess.run(
+            ["git", "submodule", "update", "--recursive"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
         
-        # Step 3: Ensure submodules are on the correct branch as specified in .gitmodules
-        print(f"🌿 Ensuring submodules are on correct branches...")
-        run_command(["git", "submodule", "foreach", "--recursive", "git checkout $(git config -f $toplevel/.gitmodules submodule.$name.branch || echo main)"], check=True)
-        
-        print(f"✅ Successfully initialized and updated git submodules")
-        return True
-        
-    except (subprocess.CalledProcessError, SystemExit) as e:
-        print(f"{C_RED}⛔ Error: Failed to initialize submodules{C_RESET}")
-        
-        # Provide specific diagnostic information
-        error_output = ""
-        if hasattr(e, 'stderr') and e.stderr:
-            error_output = str(e.stderr)
-        elif hasattr(e, 'output') and e.output:
-            error_output = str(e.output)
-        
-        if "already exists and is not an empty directory" in error_output or "already exists" in str(e):
-            print(f"   Cause: Submodule directory exists but couldn't be initialized")
-            print(f"   This usually happens when:")
-            print(f"   - A previous git operation was interrupted")
-            print(f"   - The directory was created manually")
-            print(f"   - Git's internal state is corrupted")
-            print(f"\n   Manual fix:")
-            print(f"   1. rm -rf tt-inference-server .git/modules/tt-inference-server")
-            print(f"   2. Run this script again")
+        if result.returncode == 0:
+            print(f"✅ Submodules initialized successfully")
+            return True
         else:
-            print(f"   Error details: {error_output if error_output else str(e)}")
-            print(f"   Please try manually: git submodule update --init --recursive")
-        
-        return False
+            print(f"{C_YELLOW}⚠️  Submodule update had issues: {result.stderr}{C_RESET}")
+            return True  # Continue anyway
+            
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Warning: Could not initialize submodules: {e}{C_RESET}")
+        return True  # Continue anyway
+
+def _set_artifact_environment_variables(artifact_dir):
+    """Set environment variables for artifact directory."""
+    os.environ["TT_INFERENCE_ARTIFACT_PATH"] = artifact_dir
+    # Set OVERRIDE_BENCHMARK_TARGETS to point to the file in the artifact directory
+    benchmark_file = os.path.join(artifact_dir, "benchmarking", "benchmark_targets", "model_performance_reference.json")
+    if os.path.exists(benchmark_file):
+        os.environ["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
+
+
+def get_inference_server_version():
+    """Get the version of TT Inference Server from the artifact directory."""
+    version_file = os.path.join(INFERENCE_ARTIFACT_DIR, "VERSION")
+    if os.path.exists(version_file):
+        try:
+            with open(version_file, 'r') as f:
+                version = f.read().strip()
+                return version
+        except Exception:
+            pass
+    
+    # Fallback: try to get from environment variable
+    env_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION")
+    if env_version and env_version != "latest":
+        return env_version
+    
+    return None
+
 
 def setup_tt_inference_server():
-    """Set up TT Inference Server by preparing environment (submodule expected)."""
+    """Set up TT Inference Server by downloading/extracting artifact from GitHub release."""
     print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
-    print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server          {C_RESET}")
+    print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server (Artifact){C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     
-    # Always ensure submodules are properly initialized
-    if not initialize_submodules():
-        return False
+    # Read from .env file or environment (prefer .env file)
+    artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION", "latest")
+    artifact_url = get_env_var("TT_INFERENCE_ARTIFACT_URL") or os.getenv("TT_INFERENCE_ARTIFACT_URL", None)
     
-    # Check if the directory exists after submodule initialization
-    if not os.path.exists(INFERENCE_SERVER_DIR):
-        print(f"{C_RED}⛔ Error: TT Inference Server directory still not found at {INFERENCE_SERVER_DIR}{C_RESET}")
-        print(f"   This suggests the submodule configuration may be incorrect.")
-        return False
+    # Check if artifact already exists
+    if os.path.exists(INFERENCE_ARTIFACT_DIR):
+        version = get_inference_server_version()
+        version_str = f" (v{version})" if version else ""
+        print(f"✅ TT Inference Server artifact already exists at {INFERENCE_ARTIFACT_DIR}{version_str}")
+        _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+        return True
+    
+    # Create artifacts directory
+    artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
+    os.makedirs(artifacts_dir, exist_ok=True)
+    
+    # If artifact URL is provided, download it
+    if artifact_url:
+        print(f"📥 Downloading TT Inference Server artifact from {artifact_url}...")
+        
+        # Download artifact
+        artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz")
+        
+        try:
+            import urllib.request
+            urllib.request.urlretrieve(artifact_url, artifact_file)
+            print(f"✅ Artifact downloaded to {artifact_file}")
+            
+            # Extract artifact
+            import tarfile
+            with tarfile.open(artifact_file, "r:gz") as tar:
+                tar.extractall(artifacts_dir)
+            
+            # Rename extracted directory if needed
+            extracted_dir = os.path.join(artifacts_dir, "tt-inference-server")
+            if os.path.exists(extracted_dir):
+                if extracted_dir != INFERENCE_ARTIFACT_DIR:
+                    if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                        shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                    os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
+            
+            _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+            print(f"✅ Artifact extracted to {INFERENCE_ARTIFACT_DIR}")
+            return True
+            
+        except Exception as e:
+            print(f"{C_RED}⛔ Error downloading/extracting artifact: {e}{C_RESET}")
+            return False
     else:
-        print(f"📁 TT Inference Server directory found at {INFERENCE_SERVER_DIR}")
-    
-    # Ensure the submodule is on the correct branch and up to date
-    try:
-        print(f"🔧 Ensuring TT Inference Server is on the correct branch and up to date...")
-        original_dir = os.getcwd()
-        os.chdir(INFERENCE_SERVER_DIR)
+        # Try to download from GitHub release if version is set
+        if artifact_version and artifact_version != "latest":
+            print(f"📥 Downloading TT Inference Server from GitHub release: {artifact_version}")
+            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/tags/{artifact_version}.tar.gz"
+            artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz")
+            
+            try:
+                import urllib.request
+                print(f"   Downloading from: {github_url}")
+                urllib.request.urlretrieve(github_url, artifact_file)
+                print(f"✅ Artifact downloaded to {artifact_file}")
+                
+                # Extract artifact
+                import tarfile
+                with tarfile.open(artifact_file, "r:gz") as tar:
+                    tar.extractall(artifacts_dir)
+                
+                # GitHub releases extract to tt-inference-server-{version} (without 'v' prefix)
+                # Try both with and without 'v' prefix
+                version_without_v = artifact_version.lstrip('v')  # Remove 'v' prefix if present
+                possible_dirs = [
+                    os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}"),
+                    os.path.join(artifacts_dir, f"tt-inference-server-{version_without_v}"),
+                ]
+                
+                extracted_dir = None
+                for possible_dir in possible_dirs:
+                    if os.path.exists(possible_dir):
+                        extracted_dir = possible_dir
+                        break
+                
+                if extracted_dir and extracted_dir != INFERENCE_ARTIFACT_DIR:
+                    if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                        shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                    os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
+                    print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
+                
+                os.environ["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
+                print(f"✅ Artifact extracted to {INFERENCE_ARTIFACT_DIR}")
+                return True
+                
+            except Exception as e:
+                print(f"{C_YELLOW}⚠️  Failed to download from GitHub release: {e}{C_RESET}")
+                print(f"   Falling back to manual setup...")
         
-        # Check current branch/status
-        result = subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True, check=False)
-        current_branch = result.stdout.strip()
-        
-        if current_branch != INFERENCE_SERVER_BRANCH:
-            print(f"🌿 Current branch: {current_branch or 'detached HEAD'}, switching to: {INFERENCE_SERVER_BRANCH}")
-            
-            # Fetch the latest changes from remote
-            print(f"📥 Fetching latest changes from remote...")
-            run_command(["git", "fetch", "origin"], check=True)
-            
-            # Check out the correct branch as specified in .gitmodules
-            run_command(["git", "checkout", INFERENCE_SERVER_BRANCH], check=True)
-            
-            # Pull the latest changes
-            print(f"📥 Pulling latest changes...")
-            run_command(["git", "pull", "origin", INFERENCE_SERVER_BRANCH], check=True)
+        # Fallback: check if artifact directory exists
+        if os.path.exists(INFERENCE_ARTIFACT_DIR):
+            os.environ["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
+            return True
         else:
-            print(f"✅ Already on correct branch: {INFERENCE_SERVER_BRANCH}")
-            # Still pull latest changes
-            print(f"📥 Pulling latest changes...")
-            run_command(["git", "pull", "origin", INFERENCE_SERVER_BRANCH], check=True)
+            print(f"{C_RED}⛔ Error: Artifact directory not found{C_RESET}")
+            print(f"   Options:")
+            print(f"   1. Set TT_INFERENCE_ARTIFACT_VERSION to a release tag (e.g., 'v0.8.0')")
+            print(f"   2. Set TT_INFERENCE_ARTIFACT_URL to a direct download URL")
+            print(f"   3. Extract the artifact manually to: {INFERENCE_ARTIFACT_DIR}")
+            print(f"   See: https://github.com/tenstorrent/tt-inference-server/releases")
+            return False
+        # Try to download from GitHub release if version is set
+        if artifact_version and artifact_version != "latest":
+            print(f"📥 Downloading TT Inference Server from GitHub release: {artifact_version}")
+            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/tags/{artifact_version}.tar.gz"
+            artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz")
+            
+            try:
+                import urllib.request
+                print(f"   Downloading from: {github_url}")
+                urllib.request.urlretrieve(github_url, artifact_file)
+                print(f"✅ Artifact downloaded to {artifact_file}")
+                
+                # Extract artifact
+                import tarfile
+                with tarfile.open(artifact_file, "r:gz") as tar:
+                    tar.extractall(artifacts_dir)
+                
+                # GitHub releases extract to tt-inference-server-{version} (without 'v' prefix)
+                # Try both with and without 'v' prefix
+                version_without_v = artifact_version.lstrip('v')  # Remove 'v' prefix if present
+                possible_dirs = [
+                    os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}"),
+                    os.path.join(artifacts_dir, f"tt-inference-server-{version_without_v}"),
+                ]
+                
+                extracted_dir = None
+                for possible_dir in possible_dirs:
+                    if os.path.exists(possible_dir):
+                        extracted_dir = possible_dir
+                        break
+                
+                if extracted_dir and extracted_dir != INFERENCE_ARTIFACT_DIR:
+                    if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                        shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                    os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
+                    print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
+                
+                _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+                print(f"✅ Artifact extracted to {INFERENCE_ARTIFACT_DIR}")
+                return True
+                
+            except Exception as e:
+                print(f"{C_YELLOW}⚠️  Failed to download from GitHub release: {e}{C_RESET}")
+                print(f"   Falling back to manual setup...")
         
-        print(f"✅ TT Inference Server is now on the correct branch: {INFERENCE_SERVER_BRANCH}")
-        
-    except (subprocess.CalledProcessError, SystemExit) as e:
-        print(f"{C_YELLOW}⚠️  Warning: Could not update TT Inference Server branch: {e}{C_RESET}")
-        print(f"   Continuing with current state...")
-    finally:
-        os.chdir(original_dir)
-    
-    # Verify that requirements-api.txt exists
-    requirements_file = os.path.join(INFERENCE_SERVER_DIR, "requirements-api.txt")
-    if not os.path.exists(requirements_file):
-        print(f"{C_RED}⛔ Error: requirements-api.txt not found in TT Inference Server directory{C_RESET}")
-        print(f"   Expected path: {requirements_file}")
-        print(f"   This suggests the submodule is not properly set up or on the wrong branch.")
-        return False
-    else:
-        print(f"✅ Found requirements-api.txt in TT Inference Server directory")
-    
-    return True
+        # Fallback: check if artifact directory exists
+        if os.path.exists(INFERENCE_ARTIFACT_DIR):
+            _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+            return True
+        else:
+            print(f"{C_RED}⛔ Error: Artifact directory not found{C_RESET}")
+            print(f"   Options:")
+            print(f"   1. Set TT_INFERENCE_ARTIFACT_VERSION to a release tag (e.g., 'v0.8.0')")
+            print(f"   2. Set TT_INFERENCE_ARTIFACT_URL to a direct download URL")
+            print(f"   3. Extract the artifact manually to: {INFERENCE_ARTIFACT_DIR}")
+            print(f"   See: https://github.com/tenstorrent/tt-inference-server/releases")
+            return False
 
 def setup_fastapi_environment():
-    """Set up the FastAPI environment with virtual environment and dependencies."""
-    print(f"🔧 Setting up FastAPI environment...")
+    """Set up the inference-api FastAPI environment."""
+    print(f"🔧 Setting up inference-api environment...")
     
-    # Store original directory
     original_dir = os.getcwd()
     
     try:
-        # Change to inference server directory (like startup.sh)
-        print(f"📁 Changing to TT Inference Server directory: {INFERENCE_SERVER_DIR}")
-        os.chdir(INFERENCE_SERVER_DIR)
-        
-        # Verify we're in the right directory and can see the requirements file
-        current_dir = os.getcwd()
-        print(f"📍 Current directory: {current_dir}")
-        
-        if not os.path.exists("requirements-api.txt"):
-            print(f"{C_RED}⛔ Error: requirements-api.txt not found in {current_dir}{C_RESET}")
-            print(f"📂 Files in current directory:")
-            try:
-                for item in os.listdir("."):
-                    print(f"   - {item}")
-            except Exception as e:
-                print(f"   Could not list directory: {e}")
+        if not os.path.exists(INFERENCE_API_DIR):
+            print(f"{C_RED}⛔ Error: inference-api directory not found at {INFERENCE_API_DIR}{C_RESET}")
             return False
-        else:
-            print(f"✅ Found requirements-api.txt in {current_dir}")
         
-        # Create virtual environment if it doesn't exist (like startup.sh)
+        print(f"📁 Changing to inference-api directory: {INFERENCE_API_DIR}")
+        os.chdir(INFERENCE_API_DIR)
+        
+        # Verify requirements.txt exists
+        if not os.path.exists("requirements.txt"):
+            print(f"{C_RED}⛔ Error: requirements.txt not found{C_RESET}")
+            return False
+        
+        # Create virtual environment if it doesn't exist
+        # Create virtual environment if it doesn't exist
         if not os.path.exists(".venv"):
             print(f"🐍 Creating Python virtual environment...")
             try:
@@ -1420,65 +1503,63 @@ def setup_fastapi_environment():
         else:
             print(f"🐍 Virtual environment already exists")
         
-        # Verify the virtual environment was created properly
+        # Verify venv
+        # Verify venv
         venv_pip = ".venv/bin/pip"
         if OS_NAME == "Windows":
             venv_pip = ".venv/Scripts/pip.exe"
         
         if not os.path.exists(venv_pip):
-            print(f"{C_RED}⛔ Error: Virtual environment pip not found at {venv_pip}{C_RESET}")
+            print(f"{C_RED}⛔ Error: Virtual environment pip not found{C_RESET}")
+            print(f"{C_RED}⛔ Error: Virtual environment pip not found{C_RESET}")
             return False
         
-        # Upgrade pip first
-        print(f"📦 Upgrading pip in virtual environment...")
+        # Upgrade pip
+        print(f"📦 Upgrading pip...")
+        # Upgrade pip
+        print(f"📦 Upgrading pip...")
         try:
             run_command([venv_pip, "install", "--upgrade", "pip"], check=True)
-            print(f"✅ Pip upgraded successfully")
         except (subprocess.CalledProcessError, SystemExit) as e:
             print(f"{C_YELLOW}⚠️  Warning: Failed to upgrade pip: {e}{C_RESET}")
-            print(f"   Continuing with installation...")
         
-        # Install requirements (like startup.sh)
-        print(f"📦 Installing Python requirements from requirements-api.txt...")
+        # Install requirements
+        print(f"📦 Installing Python requirements...")
         try:
-            run_command([venv_pip, "install", "-r", "requirements-api.txt"], check=True)
+            run_command([venv_pip, "install", "-r", "requirements.txt"], check=True)
             print(f"✅ Requirements installed successfully")
         except (subprocess.CalledProcessError, SystemExit) as e:
             print(f"{C_RED}⛔ Error: Failed to install requirements: {e}{C_RESET}")
-            print(f"📜 Contents of requirements-api.txt:")
-            try:
-                with open("requirements-api.txt", "r") as f:
-                    for line_num, line in enumerate(f, 1):
-                        print(f"   {line_num}: {line.rstrip()}")
-            except Exception as read_e:
-                print(f"   Could not read requirements file: {read_e}")
             return False
         
-        # Verify uvicorn was installed
+        # Verify uvicorn
+        # Verify uvicorn
         venv_uvicorn = ".venv/bin/uvicorn"
         if OS_NAME == "Windows":
             venv_uvicorn = ".venv/Scripts/uvicorn.exe"
         
-        if os.path.exists(venv_uvicorn):
-            print(f"✅ uvicorn installed successfully at {venv_uvicorn}")
-        else:
-            print(f"{C_YELLOW}⚠️  Warning: uvicorn not found at expected location {venv_uvicorn}{C_RESET}")
-            print(f"   Checking if uvicorn is available in the virtual environment...")
+        if not os.path.exists(venv_uvicorn):
             try:
-                run_command([".venv/bin/python", "-c", "import uvicorn; print('uvicorn is available')"], check=True)
-                print(f"✅ uvicorn is available in the virtual environment")
+                run_command([".venv/bin/python", "-c", "import uvicorn; print('uvicorn available')"], check=True)
+                print(f"✅ uvicorn is available")
+        if not os.path.exists(venv_uvicorn):
+            try:
+                run_command([".venv/bin/python", "-c", "import uvicorn; print('uvicorn available')"], check=True)
+                print(f"✅ uvicorn is available")
             except (subprocess.CalledProcessError, SystemExit):
-                print(f"{C_RED}⛔ Error: uvicorn is not available in the virtual environment{C_RESET}")
+                print(f"{C_RED}⛔ Error: uvicorn is not available{C_RESET}")
+                print(f"{C_RED}⛔ Error: uvicorn is not available{C_RESET}")
                 return False
         
         return True
     finally:
-        # Always return to original directory
         os.chdir(original_dir)
 
 def start_fastapi_server(no_sudo=False):
-    """Start the FastAPI server on port 8001."""
-    print(f"🚀 Starting FastAPI server on port 8001...")
+    """Start the inference-api FastAPI server on port 8001."""
+    print(f"🚀 Starting inference-api FastAPI server on port 8001...")
+    """Start the inference-api FastAPI server on port 8001."""
+    print(f"🚀 Starting inference-api FastAPI server on port 8001...")
     
     # Check if port 8001 is available
     if not check_port_available(8001):
@@ -1491,7 +1572,6 @@ def start_fastapi_server(no_sudo=False):
         print(f"✅ Port 8001 is available")
     
     # Create PID and log files as regular user (no sudo needed for port 8001)
-    # FastAPI writes logs to fastapi.log at repo root, not to persistent volume
     print(f"🔧 Setting up log and PID files...")
     
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
@@ -1503,38 +1583,87 @@ def start_fastapi_server(no_sudo=False):
         except Exception as e:
             print(f"{C_YELLOW}Warning: Could not create {file_path}: {e}{C_RESET}")
     
-    # Get environment variables for the server (exactly like startup.sh)
+    # Get environment variables for the server
+    # Get environment variables for the server
     jwt_secret = get_env_var("JWT_SECRET")
     hf_token = get_env_var("HF_TOKEN")
     
-    # Export the environment variables (exactly like startup.sh)
+    # Export the environment variables
+    env = os.environ.copy()
+    # Export the environment variables
+    env = os.environ.copy()
     if jwt_secret:
-        os.environ["JWT_SECRET"] = jwt_secret
+        env["JWT_SECRET"] = jwt_secret
+        env["JWT_SECRET"] = jwt_secret
     if hf_token:
-        os.environ["HF_TOKEN"] = hf_token
+        env["HF_TOKEN"] = hf_token
+        env["HF_TOKEN"] = hf_token
     
-    # Start the FastAPI server - use the same approach as startup.sh
-    venv_uvicorn = os.path.join(INFERENCE_SERVER_DIR, ".venv", "bin", "uvicorn")
+    # Set artifact path if available
+    if os.path.exists(INFERENCE_ARTIFACT_DIR):
+        env["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
+    
+    # Start the server - use inference-api/main.py
+    venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
+    # Set artifact path if available
+    if os.path.exists(INFERENCE_ARTIFACT_DIR):
+        env["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
+        # Also set OVERRIDE_BENCHMARK_TARGETS to point to the file in the artifact directory
+        benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
+        if os.path.exists(benchmark_file):
+            env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
+    
+    # Start the server - use inference-api/main.py
+    venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
     if OS_NAME == "Windows":
-        venv_uvicorn = os.path.join(INFERENCE_SERVER_DIR, ".venv", "Scripts", "uvicorn.exe")
+        venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "uvicorn.exe")
+        venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "Scripts", "uvicorn.exe")
     
     if not os.path.exists(venv_uvicorn):
         print(f"{C_RED}⛔ Error: uvicorn not found in virtual environment{C_RESET}")
         print(f"   Expected path: {venv_uvicorn}")
-        print(f"   Please ensure requirements-api.txt was installed correctly")
+        print(f"   Please ensure requirements.txt was installed correctly")
+        print(f"   Please ensure requirements.txt was installed correctly")
         return False
     
     try:
-        # Create a temporary wrapper script exactly like startup.sh
+        # Create a temporary wrapper script
+        # Create a temporary wrapper script
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as temp_script:
-            temp_script.write('''#!/bin/bash
+            # Export TT_INFERENCE_ARTIFACT_PATH if it's in the environment
+            artifact_path_export = ""
+            if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                artifact_path_export = f'export TT_INFERENCE_ARTIFACT_PATH="{INFERENCE_ARTIFACT_DIR}"\n'
+            
+            # Set PYTHONPATH to include artifact directory so imports work correctly
+            pythonpath_export = ""
+            if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                pythonpath_export = f'export PYTHONPATH="{INFERENCE_ARTIFACT_DIR}:$PYTHONPATH"\n'
+            
+            temp_script.write(f'''#!/bin/bash
+            # Export TT_INFERENCE_ARTIFACT_PATH if it's in the environment
+            artifact_path_export = ""
+            benchmark_targets_export = ""
+            if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                artifact_path_export = f'export TT_INFERENCE_ARTIFACT_PATH="{INFERENCE_ARTIFACT_DIR}"\n'
+                benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
+                if os.path.exists(benchmark_file):
+                    benchmark_targets_export = f'export OVERRIDE_BENCHMARK_TARGETS="{benchmark_file}"\n'
+            
+            # Set PYTHONPATH to include artifact directory so imports work correctly (currently it searches in the root)
+            pythonpath_export = ""
+            if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                pythonpath_export = f'export PYTHONPATH="{INFERENCE_ARTIFACT_DIR}:$PYTHONPATH"\n'
+            
+            temp_script.write(f'''#!/bin/bash
 set -e
 cd "$1"
-# Save PID to file first to avoid permission issues
-echo $$ > "$2"
-# Try to start the server with specific error handling
-if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
-    echo "Failed to start FastAPI server. Check logs at $4"
+{artifact_path_export}{pythonpath_export}echo $$ > "$2"
+if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
+    echo "Failed to start inference-api server. Check logs at $4"
+{artifact_path_export}{benchmark_targets_export}{pythonpath_export}echo $$ > "$2"
+if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
+    echo "Failed to start inference-api server. Check logs at $4"
     exit 1
 fi
 ''')
@@ -1543,27 +1672,25 @@ fi
         # Make the script executable
         os.chmod(temp_script_path, 0o755)
         
-        # Start the server using the wrapper script with environment variables
-        # Run as the actual user (no sudo needed for port 8001)
-        env = os.environ.copy()
-        if jwt_secret:
-            env["JWT_SECRET"] = jwt_secret
-        if hf_token:
-            env["HF_TOKEN"] = hf_token
-        
-        # Run without sudo - port 8001 is non-privileged
-        cmd = [temp_script_path, INFERENCE_SERVER_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        # Start server
+        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
+        # Start server
+        cmd = [temp_script_path, INFERENCE_API_DIR, FASTAPI_PID_FILE, ".venv", FASTAPI_LOG_FILE]
         process = subprocess.Popen(cmd, env=env)
         
-        # Health check (same as startup.sh)
-        print(f"⏳ Waiting for FastAPI server to start...")
+        # Health check
+        print(f"⏳ Waiting for inference-api server to start...")
+        # Health check
+        print(f"⏳ Waiting for inference-api server to start...")
         health_check_retries = 30
         health_check_delay = 2
         
         for i in range(1, health_check_retries + 1):
-            # First check if process is running (exactly like startup.sh)
+            # First check if process is running
+            # First check if process is running
             if process.poll() is not None:
-                print(f"{C_RED}⛔ Error: FastAPI server process died{C_RESET}")
+                print(f"{C_RED}⛔ Error: inference-api server process died{C_RESET}")
+                print(f"{C_RED}⛔ Error: inference-api server process died{C_RESET}")
                 print(f"📜 Last few lines of FastAPI log:")
                 try:
                     with open(FASTAPI_LOG_FILE, 'r') as f:
@@ -1573,7 +1700,8 @@ fi
                 except:
                     print("   No log file found")
                 
-                # Check for common errors in the log (exactly like startup.sh)
+                # Check for common errors in the log
+                # Check for common errors in the log
                 try:
                     with open(FASTAPI_LOG_FILE, 'r') as f:
                         log_content = f.read()
@@ -1586,30 +1714,40 @@ fi
                     pass
                 return False
             
-            # Check if server is responding to HTTP requests (exactly like startup.sh)
+            # Check if server is responding to HTTP requests
+            # Check if server is responding to HTTP requests
             try:
-                result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/"], 
+                result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/health"], 
+                result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/health"], 
                                        capture_output=True, text=True, timeout=5, check=False)
                 if result.stdout.strip() in ["200", "404"]:
-                    print(f"✅ FastAPI server started successfully (PID: {process.pid})")
-                    print(f"🌐 FastAPI server accessible at: http://localhost:8001")
-                    print(f"🔐 FastAPI server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/)")
+                    print(f"✅ inference-api server started successfully (PID: {process.pid})")
+                    print(f"🌐 inference-api server accessible at: http://localhost:8001")
+                    print(f"🔐 inference-api server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/health)")
+                    print(f"✅ inference-api server started successfully (PID: {process.pid})")
+                    print(f"🌐 inference-api server accessible at: http://localhost:8001")
+                    print(f"🔐 inference-api server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/health)")
                     return True
             except:
                 # Fallback to urllib if curl is not available
                 try:
                     import urllib.request
-                    response = urllib.request.urlopen("http://localhost:8001/", timeout=5)
+                    response = urllib.request.urlopen("http://localhost:8001/health", timeout=5)
+                    response = urllib.request.urlopen("http://localhost:8001/health", timeout=5)
                     if response.getcode() in [200, 404]:
-                        print(f"✅ FastAPI server started successfully (PID: {process.pid})")
-                        print(f"🌐 FastAPI server accessible at: http://localhost:8001")
-                        print(f"🔐 FastAPI server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/)")
+                        print(f"✅ inference-api server started successfully (PID: {process.pid})")
+                        print(f"🌐 inference-api server accessible at: http://localhost:8001")
+                        print(f"🔐 inference-api server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/health)")
+                        print(f"✅ inference-api server started successfully (PID: {process.pid})")
+                        print(f"🌐 inference-api server accessible at: http://localhost:8001")
+                        print(f"🔐 inference-api server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/health)")
                         return True
                 except:
                     pass
             
             if i == health_check_retries:
-                print(f"{C_RED}⛔ Error: FastAPI server failed health check after {health_check_retries} attempts{C_RESET}")
+                print(f"{C_RED}⛔ Error: inference-api server failed health check after {health_check_retries} attempts{C_RESET}")
+                print(f"{C_RED}⛔ Error: inference-api server failed health check after {health_check_retries} attempts{C_RESET}")
                 print(f"📜 Last few lines of FastAPI log:")
                 try:
                     with open(FASTAPI_LOG_FILE, 'r') as f:
@@ -1618,7 +1756,8 @@ fi
                             print(f"   {line.rstrip()}")
                 except:
                     print("   No log file found")
-                print(f"💡 Try running: curl -v http://localhost:8001/ to debug connection issues")
+                print(f"💡 Try running: curl -v http://localhost:8001/health to debug connection issues")
+                print(f"💡 Try running: curl -v http://localhost:8001/health to debug connection issues")
                 return False
             
             print(f"⏳ Health check attempt {i}/{health_check_retries} - waiting {health_check_delay}s...")
@@ -1964,7 +2103,7 @@ def should_skip_spdx_directory(directory_path):
         'coverage',
         '.nyc_output',
         'frontend',  # Explicitly exclude frontend directory
-        'tt-inference-server',  # Exclude submodule
+        'tt-inference-server',  # Exclude (no longer used, replaced by artifact)
         'tt_studio_persistent_volume',  # Exclude runtime data
     }
     
@@ -2531,6 +2670,14 @@ def main():
         print("=" * 60)
         print("🚀 Tenstorrent TT Studio is ready!")
         print("=" * 60)
+        
+        # Display TT Inference Server version if available
+        inference_version = get_inference_server_version()
+        if inference_version:
+            print(f"📦 TT Inference Server: {C_CYAN}v{inference_version}{C_RESET}")
+        elif os.path.exists(INFERENCE_ARTIFACT_DIR):
+            print(f"📦 TT Inference Server: {C_YELLOW}installed (version unknown){C_RESET}")
+        
         print(f"Access it at: {C_CYAN}http://localhost:3000{C_RESET}")
         
         if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE):
