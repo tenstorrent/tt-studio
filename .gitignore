@@ -47,3 +47,12 @@ app/frontend/src/assets/*
 
 fastapi.pid
 fastapi.log
+
+# Artifacts
+.artifacts/
+*.tar.gz
+*.zip
+
+# Inference API
+inference-api/.venv/
+inference-api/__pycache__/
