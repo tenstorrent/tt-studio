@@ -18,7 +18,6 @@ tt_studio_persistent_volume
 # Output Files
 *netlist.yaml
 *.dump
-*.log
 docs/build
 .hlkc_cache
 tt_build
@@ -31,6 +30,10 @@ generated_modules
 *.txt
 unzipped_tti/
 db.sqlite3
+
+# Runtime files
+*.pid
+*.log
 
 # secrets
 .env
@@ -45,5 +48,8 @@ db.sqlite3
 
 app/frontend/src/assets/*
 
-fastapi.pid
-fastapi.log
+# Agent working directory (temporary files only)
+.claude/*
+CLAUDE.md
+docs/RAG_PRODUCTIONIZATION_PLAN.md
+docs/DOCKER_CONTROL_SERVICE_PLAN.md

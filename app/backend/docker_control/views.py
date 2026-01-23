@@ -17,9 +17,8 @@ import shutil
 import subprocess
 import os
 
-import docker
 import re
-import os 
+import os
 import concurrent.futures
 import requests
 import json
@@ -33,6 +32,7 @@ from .docker_utils import (
     pull_image_with_progress,
     detect_board_type,
 )
+from .docker_control_client import get_docker_client
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
@@ -43,9 +43,6 @@ from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
-
-# Create docker client for use across views
-client = docker.from_env()
 
 # Add this near the top after imports, before classes
 pull_progress = {}  # {model_id: {status, progress, current, total, message}}
@@ -290,19 +287,21 @@ class DeploymentProgressView(APIView):
             # Try to get container by ID first, then by name
             container = None
             try:
-                # Try to get container by ID (full or partial)
-                container = client.containers.get(job_id)
-            except docker.errors.NotFound:
-                # Try by name
-                try:
-                    containers = client.containers.list(all=True)
-                    for c in containers:
-                        if c.name == job_id:
-                            container = c
-                            break
-                except Exception as e:
-                    logger.warning(f"Error listing containers: {str(e)}")
-            
+                # Try to get container via docker-control-service
+                docker_client = get_docker_client()
+                container_data = docker_client.get_container(job_id)
+                if container_data.get("status") == "success":
+                    # Create container-like object for compatibility
+                    class ContainerWrapper:
+                        def __init__(self, data):
+                            self.id = data.get("id")
+                            self.name = data.get("name")
+                            self.status = data.get("status")
+                            self.attrs = data.get("attrs", {})
+                    container = ContainerWrapper(container_data)
+            except Exception as e:
+                logger.warning(f"Error getting container {job_id}: {str(e)}")
+
             # Container not found - deployment in early stages
             # Map to actual FastAPI log stages with realistic timing
             if not container:
@@ -443,9 +442,9 @@ class DeploymentProgressView(APIView):
             
             logger.info(f"Progress data: {progress_data} (elapsed: {elapsed_time:.1f}s, networks: {list(networks.keys())})")
             return Response(progress_data, status=status.HTTP_200_OK)
-                
-        except docker.errors.NotFound:
-            # Container not found - use time-based progress for early stages
+
+        except Exception as e:
+            # Container not found or error - use time-based progress for early stages
             elapsed_time = time.time() - deployment_start_times.get(job_id, time.time())
             if elapsed_time < 0:
                 elapsed_time = 0
@@ -478,8 +477,8 @@ class DeploymentProgressView(APIView):
                 },
                 status=status.HTTP_200_OK
             )
-        except docker.errors.APIError as e:
-            logger.error(f"Docker API error fetching progress: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error fetching progress: {str(e)}")
             return Response(
                 {"status": "error", "message": f"Docker API error: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -818,43 +817,33 @@ class PullImageView(APIView):
                     try:
                         image = f"{image_name}:{image_tag}"
                         logger.info(f"Starting streaming pull for: {image}")
-                        
-                        # Authenticate with ghcr.io if credentials are available
-                        if image_name.startswith("ghcr.io") and backend_config.github_username and backend_config.github_pat:
-                            logger.info("Authenticating with GitHub Container Registry")
-                            try:
-                                client.login(
-                                    username=backend_config.github_username,
-                                    password=backend_config.github_pat,
-                                    registry="ghcr.io"
-                                )
-                                logger.info("Successfully authenticated with ghcr.io")
-                            except Exception as auth_error:
-                                logger.error(f"Failed to authenticate with ghcr.io: {str(auth_error)}")
-                                error_result = {"status": "error", "progress": 0, "current": 0, "total": 0, "message": f"Authentication failed: {str(auth_error)}"}
-                                pull_progress[model_id] = error_result
-                                yield f"data: {json.dumps(error_result)}\n\n"
-                                # Clear progress on error
-                                pull_progress.pop(model_id, None)
-                                return
-                        
-                        # Pull the image with real-time progress streaming
-                        for line in client.api.pull(image, stream=True, decode=True):
-                            if isinstance(line, dict) and 'status' in line:
-                                progress_update = progress_callback(line)
-                                yield progress_update
-                        
-                        # Verify the image was pulled successfully and send final status
+
+                        # Use docker-control-service to pull image
+                        # Note: Streaming progress not yet implemented in docker-control-service
+                        # For now, do a non-streaming pull
+                        docker_client = get_docker_client()
+
                         try:
-                            client.images.get(image)
-                            final_result = {
-                                "status": "success",
-                                "progress": 100,
-                                "current": progress_data["total_layers"],
-                                "total": progress_data["total_layers"],
-                                "message": f"Successfully pulled {image}"
-                            }
-                        except Exception as verify_error:
+                            result = docker_client.pull_image(image_name, image_tag)
+
+                            if result.get("status") == "success":
+                                final_result = {
+                                    "status": "success",
+                                    "progress": 100,
+                                    "current": 1,
+                                    "total": 1,
+                                    "message": f"Successfully pulled {image}"
+                                }
+                            else:
+                                final_result = {
+                                    "status": "error",
+                                    "progress": 0,
+                                    "current": 0,
+                                    "total": 0,
+                                    "message": result.get("message", "Pull failed")
+                                }
+                        except Exception as e:
+                            logger.error(f"Error pulling image via docker-control-service: {str(e)}")
                             final_result = {
                                 "status": "error",
                                 "progress": 0,
@@ -1054,12 +1043,15 @@ class ModelCatalogView(APIView):
             impl = model_implmentations[model_id]
             image_name, image_tag = impl.image_version.split(':')
             logger.info(f"Attempting to remove image: {image_name}:{image_tag}")
-            
-            # Remove the image
+
+            # Remove the image via docker-control-service
             try:
-                image = client.images.get(f"{image_name}:{image_tag}")
-                logger.info(f"Found image with ID: {image.id}")
-                client.images.remove(image.id, force=True)
+                docker_client = get_docker_client()
+                result = docker_client.remove_image(image_name, image_tag, force=True)
+                if result.get("status") == "success":
+                    logger.info(f"Successfully removed image: {image_name}:{image_tag}")
+                else:
+                    raise Exception(result.get("message", "Unknown error"))
                 logger.info(f"Successfully removed image: {image_name}:{image_tag}")
                 
                 # Remove volume if it exists
@@ -1073,9 +1065,9 @@ class ModelCatalogView(APIView):
                     "status": "success",
                     "message": f"Successfully removed model {model_id}"
                 }, status=status.HTTP_200_OK)
-                
-            except docker.errors.ImageNotFound:
-                logger.warning(f"Image {image_name}:{image_tag} not found")
+
+            except Exception as e:
+                logger.warning(f"Image {image_name}:{image_tag} not found: {str(e)}")
                 return Response({
                     "status": "error",
                     "message": f"Image {image_name}:{image_tag} not found"
@@ -1104,15 +1096,22 @@ class ModelCatalogView(APIView):
             impl = model_implmentations[model_id]
             image_name, image_tag = impl.image_version.split(':')
             logger.info(f"Looking for containers pulling image: {image_name}:{image_tag}")
-            
-            # Find and stop any ongoing pulls for this image
+
+            # Find and stop any ongoing pulls for this image via docker-control-service
+            docker_client = get_docker_client()
             containers_stopped = 0
-            for container in client.containers.list():
-                if container.image.tags and f"{image_name}:{image_tag}" in container.image.tags:
-                    logger.info(f"Found container {container.id} pulling the image, stopping it")
-                    container.stop()
-                    container.remove()
-                    containers_stopped += 1
+            try:
+                containers_data = docker_client.list_containers(all=False)
+                for container_data in containers_data.get("containers", []):
+                    image_tags = container_data.get("image_tags", [])
+                    if f"{image_name}:{image_tag}" in image_tags:
+                        container_id = container_data.get("id")
+                        logger.info(f"Found container {container_id} pulling the image, stopping it")
+                        docker_client.stop_container(container_id)
+                        docker_client.remove_container(container_id, force=True)
+                        containers_stopped += 1
+            except Exception as e:
+                logger.error(f"Error stopping containers: {str(e)}")
             
             logger.info(f"Successfully cancelled pull for model {model_id}, stopped {containers_stopped} containers")
             
@@ -1149,26 +1148,31 @@ class CancelPullView(APIView):
             impl = model_implmentations[model_id]
             image_name, image_tag = impl.image_version.split(':')
             logger.info(f"Looking for containers pulling image: {image_name}:{image_tag}")
-            
-            # Find and stop any ongoing pulls for this image
+
+            # Find and stop any ongoing pulls for this image via docker-control-service
+            docker_client = get_docker_client()
             containers_stopped = 0
-            for container in client.containers.list():
-                if container.image.tags and f"{image_name}:{image_tag}" in container.image.tags:
-                    logger.info(f"Found container {container.id} pulling the image, stopping it")
-                    try:
-                        container.stop()
-                        container.remove()
-                        containers_stopped += 1
-                    except Exception as e:
-                        logger.error(f"Error stopping container {container.id}: {str(e)}")
-            
+            try:
+                containers_data = docker_client.list_containers(all=False)
+                for container_data in containers_data.get("containers", []):
+                    image_tags = container_data.get("image_tags", [])
+                    if f"{image_name}:{image_tag}" in image_tags:
+                        container_id = container_data.get("id")
+                        logger.info(f"Found container {container_id} pulling the image, stopping it")
+                        try:
+                            docker_client.stop_container(container_id)
+                            docker_client.remove_container(container_id, force=True)
+                            containers_stopped += 1
+                        except Exception as e:
+                            logger.error(f"Error stopping container {container_id}: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error listing containers: {str(e)}")
+
             # Also try to remove the image if it exists
             try:
-                image = client.images.get(f"{image_name}:{image_tag}")
-                client.images.remove(image.id, force=True)
-                logger.info(f"Removed partial image: {image_name}:{image_tag}")
-            except docker.errors.ImageNotFound:
-                pass  # Image doesn't exist, which is fine
+                result = docker_client.remove_image(image_name, image_tag, force=True)
+                if result.get("status") == "success":
+                    logger.info(f"Removed partial image: {image_name}:{image_tag}")
             except Exception as e:
                 logger.error(f"Error removing image: {str(e)}")
             
@@ -1275,7 +1279,25 @@ class DockerServiceLogsView(APIView):
                         return "tt_studio_other"
                     return "other"
 
-                containers = client.containers.list(all=True)
+                # Get containers via docker-control-service
+                docker_client = get_docker_client()
+                containers_data = docker_client.list_containers(all=True)
+
+                # Convert to container-like objects
+                class ContainerWrapper:
+                    def __init__(self, data):
+                        self.id = data.get("id")
+                        self.name = data.get("name")
+                        self.status = data.get("status")
+                        self.attrs = data.get("attrs", {})
+                        self.image = type('obj', (object,), {
+                            'tags': data.get("image_tags", [])
+                        })()
+                    def logs(self, tail=200, timestamps=False):
+                        # This is a stub - docker-control-service doesn't support logs yet
+                        return b"Logs not available via docker-control-service"
+
+                containers = [ContainerWrapper(c) for c in containers_data.get("containers", [])]
 
                 service_to_containers = {}
                 for c in containers:
