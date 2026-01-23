@@ -694,7 +694,56 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
         print(f"✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
-            
+
+    # DOCKER_CONTROL_SERVICE_URL
+    current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
+    if easy_mode:
+        # In easy mode, use default value only if not already configured
+        if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
+            write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://127.0.0.1:8002")
+            print("✅ DOCKER_CONTROL_SERVICE_URL set to default value.")
+        else:
+            print("✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
+    elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
+        if is_placeholder(current_docker_url):
+            print(f"🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...")
+        dev_default = "http://127.0.0.1:8002"
+        prompt_text = f"🐳 Enter DOCKER_CONTROL_SERVICE_URL{' [default: ' + dev_default + ']' if dev_mode else ' (default: http://127.0.0.1:8002)'}: "
+        val = input(prompt_text)
+        if not val:
+            val = dev_default
+        write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
+        print("✅ DOCKER_CONTROL_SERVICE_URL saved.")
+    else:
+        print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
+
+    # DOCKER_CONTROL_JWT_SECRET
+    current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
+    if easy_mode:
+        # In easy mode, use default value only if not already configured
+        if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
+            write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456")
+            print("✅ DOCKER_CONTROL_JWT_SECRET set to default value (test-secret-456).")
+        else:
+            print("✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
+    elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
+        if is_placeholder(current_docker_jwt):
+            print(f"🔄 DOCKER_CONTROL_JWT_SECRET has placeholder value '{current_docker_jwt}' - configuring...")
+        dev_default = "dev-docker-jwt-secret-12345-not-for-production" if dev_mode else ""
+        prompt_text = f"🔐 Enter DOCKER_CONTROL_JWT_SECRET (for Docker Control Service authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+
+        while True:
+            val = getpass.getpass(prompt_text)
+            if not val and dev_mode:
+                val = dev_default
+            if val and val.strip():
+                write_env_var("DOCKER_CONTROL_JWT_SECRET", val)
+                print("✅ DOCKER_CONTROL_JWT_SECRET saved.")
+                break
+            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+    else:
+        print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
+
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
     if easy_mode:
