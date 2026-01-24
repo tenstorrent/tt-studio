@@ -700,15 +700,15 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     if easy_mode:
         # In easy mode, use default value only if not already configured
         if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
-            write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://127.0.0.1:8002")
+            write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
             print("✅ DOCKER_CONTROL_SERVICE_URL set to default value.")
         else:
             print("✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
         if is_placeholder(current_docker_url):
             print(f"🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...")
-        dev_default = "http://127.0.0.1:8002"
-        prompt_text = f"🐳 Enter DOCKER_CONTROL_SERVICE_URL{' [default: ' + dev_default + ']' if dev_mode else ' (default: http://127.0.0.1:8002)'}: "
+        dev_default = "http://host.docker.internal:8002"
+        prompt_text = f"🐳 Enter DOCKER_CONTROL_SERVICE_URL{' [default: ' + dev_default + ']' if dev_mode else ' (default: http://host.docker.internal:8002)'}: "
         val = input(prompt_text)
         if not val:
             val = dev_default
