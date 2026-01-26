@@ -5,11 +5,10 @@
 import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { useStepper } from "./ui/stepper";
-import { Weight } from "./SelectionSteps";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
-import { Cpu, Sliders, AlertTriangle, ExternalLink } from "lucide-react";
+import { Cpu, AlertTriangle, ExternalLink } from "lucide-react";
 import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
@@ -18,12 +17,8 @@ import axios from "axios";
 export function DeployModelStep({
   handleDeploy,
   selectedModel,
-  selectedWeight,
-  customWeight,
 }: {
   selectedModel: string | null;
-  selectedWeight: string | null;
-  customWeight: Weight | null;
   handleDeploy: () => Promise<{ success: boolean; job_id?: string }>;
 }) {
   const { nextStep, isLastStep } = useStepper();
@@ -182,18 +177,14 @@ export function DeployModelStep({
       return "Delete Existing Models First";
     }
     if (!selectedModel) return "Select a Model";
-    if (!selectedWeight && !customWeight) return "Select a Weight";
     return "Deploy Model";
   }, [
     selectedModel,
-    selectedWeight,
-    customWeight,
     deployedInfo.hasDeployedModels,
   ]);
 
   const isDeployDisabled =
     !selectedModel ||
-    (!selectedWeight && !customWeight) ||
     deployedInfo.hasDeployedModels;
 
   const onDeploy = useCallback(async () => {
@@ -377,17 +368,6 @@ export function DeployModelStep({
               </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {modelName}
-              </span>
-            </div>
-          )}
-          {(selectedWeight || customWeight) && (
-            <div className="flex items-center space-x-2">
-              <Sliders className="text-TT-purple-accent" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">
-                Weight:
-              </span>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
-                {selectedWeight || (customWeight && customWeight.name)}
               </span>
             </div>
           )}

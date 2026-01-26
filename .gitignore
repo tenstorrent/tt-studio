@@ -50,7 +50,8 @@ db.sqlite3
 app/frontend/src/assets/*
 
 # Agent working directory (temporary files only)
-.claude/*
+.claude/**/*
+.cursor/agent/**/*
 CLAUDE.md
 docs/RAG_PRODUCTIONIZATION_PLAN.md
 docs/DOCKER_CONTROL_SERVICE_PLAN.md
