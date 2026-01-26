@@ -112,7 +112,10 @@ export const customToast = {
           type="error"
         />
       ),
-      { id: "tt-global-toast" }
+      {
+        id: "tt-global-toast",
+        duration: 4000,
+      }
     ),
   warning: (message: string) =>
     toast.custom(
@@ -125,7 +128,10 @@ export const customToast = {
           type="warning"
         />
       ),
-      { id: "tt-global-toast" }
+      {
+        id: "tt-global-toast",
+        duration: 3000,
+      }
     ),
   info: (message: string) =>
     toast.custom(
@@ -138,7 +144,10 @@ export const customToast = {
           type="info"
         />
       ),
-      { id: "tt-global-toast" }
+      {
+        id: "tt-global-toast",
+        duration: 3000,
+      }
     ),
   destructive: (message: string) =>
     toast.custom(
@@ -151,7 +160,10 @@ export const customToast = {
           type="destructive"
         />
       ),
-      { id: "tt-global-toast" }
+      {
+        id: "tt-global-toast",
+        duration: 4000,
+      }
     ),
   persistentNotice: (message: string) =>
     toast.custom(
