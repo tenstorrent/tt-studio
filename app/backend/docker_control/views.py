@@ -29,6 +29,7 @@ from .docker_utils import (
     perform_reset,
     check_image_exists,
     detect_board_type,
+    DEPLOYMENT_TIMEOUT_SECONDS,
 )
 from .docker_control_client import get_docker_client
 from shared_config.model_config import model_implmentations
@@ -240,34 +241,65 @@ class DeploymentProgressView(APIView):
     def get(self, request, job_id, *args, **kwargs):
         """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
         import time
-        
+
         try:
             logger.info(f"Fetching deployment progress for job_id: {job_id}")
-            
+
+            # Track deployment start time if not already tracked
+            if job_id not in deployment_start_times:
+                deployment_start_times[job_id] = time.time()
+
+            elapsed_time = time.time() - deployment_start_times[job_id]
+
             # First, try to get progress from FastAPI inference server
             try:
                 fastapi_url = "http://172.18.0.1:8001/run/progress/" + job_id
                 response = requests.get(fastapi_url, timeout=5)
-                
+
                 if response.status_code == 200:
                     progress_data = response.json()
                     logger.info(f"Got progress from FastAPI: {progress_data}")
-                    
+
+                    # Normalize 'stalled' status to 'running' with appropriate message
+                    # 'stalled' typically means downloading weights, which can take hours
+                    if progress_data.get("status") == "stalled":
+                        # Check if we've exceeded the 5-hour timeout
+                        if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
+                            progress_data["status"] = "timeout"
+                            progress_data["message"] = f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            # Clean up start time tracking
+                            if job_id in deployment_start_times:
+                                del deployment_start_times[job_id]
+                        else:
+                            # Still within timeout - treat as running with descriptive message
+                            progress_data["status"] = "running"
+                            progress_data["message"] = "Downloading model weights... (this may take several hours for large models)"
+
+                    # Check timeout for other running statuses
+                    elif progress_data.get("status") in ["starting", "running"]:
+                        if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
+                            progress_data["status"] = "timeout"
+                            progress_data["message"] = f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            # Clean up start time tracking
+                            if job_id in deployment_start_times:
+                                del deployment_start_times[job_id]
+
+                    # Clean up start time tracking on terminal statuses
+                    elif progress_data.get("status") in ["completed", "error", "failed", "cancelled"]:
+                        if job_id in deployment_start_times:
+                            del deployment_start_times[job_id]
+
                     # Add support for new status types
-                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "stalled", "cancelled"]:
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying"]:
                         return Response(progress_data, status=status.HTTP_200_OK)
-                    
+
                 logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
-                
+
             except requests.exceptions.RequestException as e:
                 logger.info(f"FastAPI not available ({str(e)}), falling back to container-based progress")
             
             # Fallback: existing container-based progress tracking
-            # Track deployment start time if not already tracked
-            if job_id not in deployment_start_times:
-                deployment_start_times[job_id] = time.time()
-            
-            elapsed_time = time.time() - deployment_start_times[job_id]
+            # elapsed_time already calculated above
             
             # job_id is container_id or container_name
             # Try to get container by ID first, then by name
@@ -292,7 +324,22 @@ class DeploymentProgressView(APIView):
             # Map to actual FastAPI log stages with realistic timing
             if not container:
                 logger.info(f"Container {job_id} not found yet - deployment in progress (elapsed: {elapsed_time:.1f}s)")
-                
+
+                # Check for timeout
+                if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
+                    # Clean up start time tracking
+                    if job_id in deployment_start_times:
+                        del deployment_start_times[job_id]
+                    return Response(
+                        {
+                            "status": "timeout",
+                            "stage": "error",
+                            "progress": 0,
+                            "message": f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                        },
+                        status=status.HTTP_200_OK
+                    )
+
                 # Based on FastAPI logs - realistic timing for each stage
                 if elapsed_time < 3:
                     progress = 5
@@ -319,11 +366,15 @@ class DeploymentProgressView(APIView):
                     stage = "container_setup"
                     message = "Starting Docker container..."
                 else:
-                    # If taking longer than expected, show waiting state
+                    # If taking longer than expected, show downloading/waiting state
+                    # For very long operations (hours), show a more informative message
                     progress = min(75, 70 + int((elapsed_time - 45) / 10 * 5))
-                    stage = "container_setup"
-                    message = "Waiting for container to initialize..."
-                
+                    stage = "model_preparation"
+                    if elapsed_time > 300:  # After 5 minutes, assume downloading weights
+                        message = "Downloading model weights... (this may take several hours for large models)"
+                    else:
+                        message = "Waiting for container to initialize..."
+
                 return Response(
                     {
                         "status": "running",
