@@ -202,12 +202,6 @@ class DockerControlClient:
         response = self._request("GET", "/api/v1/images", params=params)
         return response.json()
 
-    def pull_image(self, name: str, tag: str = "latest") -> Dict:
-        """Pull a Docker image"""
-        payload = {"name": name, "tag": tag}
-        response = self._request("POST", "/api/v1/images/pull", json=payload, timeout=600)
-        return response.json()
-
     def remove_image(self, name: str, tag: str = "latest", force: bool = False) -> Dict:
         """Remove a Docker image"""
         # Use query parameters to avoid route parsing issues with special characters

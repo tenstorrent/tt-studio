@@ -894,30 +894,6 @@ def check_image_exists(image_name, image_tag):
             "status": "error"
         }
 
-def pull_image_with_progress(image_name, image_tag, progress_callback=None):
-    """Pull a Docker image with progress tracking"""
-    try:
-        image = f"{image_name}:{image_tag}"
-        logger.info(f"Pulling image via docker-control-service: {image}")
-
-        docker_client = get_docker_client()
-
-        # Note: docker-control-service handles authentication internally if configured
-        # For now, we'll use the simplified API
-        result = docker_client.pull_image(image_name, image_tag)
-
-        if result.get("status") == "success":
-            logger.info(f"Successfully pulled {image}")
-            return {"status": "success", "message": f"Successfully pulled {image}"}
-        else:
-            error_msg = result.get("message", "Unknown error")
-            logger.error(f"Failed to pull {image}: {error_msg}")
-            return {"status": "error", "message": error_msg}
-
-    except Exception as e:
-        logger.error(f"Error pulling image: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
 def detect_board_type():
     """Detect board type using cached data from SystemResourceService"""
     try:
