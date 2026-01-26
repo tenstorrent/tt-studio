@@ -24,6 +24,9 @@ CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "r
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
+# Deployment timeout: 5 hours to allow for large model downloads
+DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
+
 # Ensure the bridge network exists on startup
 def _ensure_network():
     """Ensure the tt_studio_network exists via docker-control-service"""
@@ -111,7 +114,7 @@ def run_container(impl, weights_id):
             response = requests.post(
                 api_url,
                 json=payload,
-                timeout=300  # 5 minute timeout for container startup
+                timeout=DEPLOYMENT_TIMEOUT_SECONDS  # 5 hour timeout for container startup and weight downloads
             )
 
             if response.status_code in [200, 202]:

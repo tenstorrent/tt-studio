@@ -93,19 +93,21 @@ export function DeployModelStep({
         const response = await fetch(`/docker-api/deploy/progress/${currentJobId}/`);
         if (response.ok) {
           const progressData = await response.json();
-          
-          if (progressData.status === 'error' || progressData.status === 'failed') {
+
+          // Only treat terminal failure statuses as errors
+          // Ignore intermediate statuses like 'stalled', 'retrying', 'starting', 'running'
+          if (progressData.status === 'error' || progressData.status === 'failed' || progressData.status === 'timeout') {
             // Clean the error message (remove "exception:" prefix if present)
             let errorMessage = progressData.message || "Deployment failed";
             if (errorMessage.startsWith("exception: ")) {
               errorMessage = errorMessage.substring("exception: ".length);
             }
-            
+
             setDeploymentError({
               hasError: true,
               message: errorMessage,
             });
-            
+
             // Stop polling but keep currentJobId so user can view logs
             setShouldPoll(false);
             // Reset deployment in progress on error
@@ -117,6 +119,7 @@ export function DeployModelStep({
             // Keep deployment in progress state until navigation completes
             // This prevents the blocking UI from showing immediately after success
           }
+          // For 'stalled', 'retrying', 'starting', 'running' - continue polling
         }
       } catch (error) {
         console.error("Error polling deployment progress:", error);
