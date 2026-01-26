@@ -10,24 +10,11 @@ import { Step, Stepper, useStepper } from "./ui/stepper";
 import CustomToaster, { customToast } from "./CustomToaster";
 import StepperFooter from "./StepperFooter";
 import { DeployModelStep } from "./DeployModelStep";
-import { StepperFormActions } from "./StepperFormActions";
-import { WeightForm } from "./WeightForm";
-import { SecondStepForm } from "./SecondStepForm";
 import { FirstStepForm } from "./FirstStepForm";
-// import { UseFormReturn } from "react-hook-form";
 
 const dockerAPIURL = "/docker-api/";
-const modelAPIURL = "/models-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
 export const getModelsUrl = `${dockerAPIURL}get_containers/`;
-export const getWeightsUrl = (modelId: string) =>
-  `${modelAPIURL}model_weights/?model_id=${modelId}`;
-
-export interface SecondStepFormProps {
-  addCustomStep: () => void;
-  addFineTuneStep: () => void;
-  removeDynamicSteps: () => void;
-}
 
 export interface Model {
   id: string;
@@ -38,11 +25,6 @@ export interface Model {
   current_board: string; // The detected board type
 }
 
-export interface Weight {
-  weights_id: string;
-  name: string;
-}
-
 export default function StepperDemo() {
   // Remove unused destructured elements from useStepper
   // const { prevStep, nextStep, resetSteps, isDisabledStep, hasCompletedAllSteps, isOptionalStep, activeStep, steps: stepperSteps } = useStepper();
@@ -51,81 +33,20 @@ export default function StepperDemo() {
   const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
 
-  const baseSteps = [
+  const steps = [
     { label: "Step 1", description: "Model Selection" },
-    { label: "Step 2", description: "Model Weight Selection" },
     { label: "Final Step", description: "Deploy Model" },
   ];
 
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [selectedWeight, setSelectedWeight] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState(false);
+  const [isAutoDeploying, setIsAutoDeploying] = useState(false);
 
   // Log when selectedModel changes
   useEffect(() => {
     console.log("🎯 selectedModel changed to:", selectedModel);
   }, [selectedModel]);
-
-  // Log when selectedWeight changes
-  useEffect(() => {
-    console.log("🎯 selectedWeight changed to:", selectedWeight);
-  }, [selectedWeight]);
-  const [customWeight, setCustomWeight] = useState<Weight | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [formError, setFormError] = useState(false);
-  const [isAutoDeploying, setIsAutoDeploying] = useState(false);
-
-  // Track dynamic steps (Custom Step, Fine-Tune Step)
-  const [hasCustomStep, setHasCustomStep] = useState(false);
-  const [hasFineTuneStep, setHasFineTuneStep] = useState(false);
-
-  // Combine base steps with dynamic steps
-  const steps = useMemo(() => {
-    let allSteps = [...baseSteps];
-
-    // Find the index where dynamic steps should be inserted (after Step 2)
-    const step2Index = allSteps.findIndex((step) => step.label === "Step 2");
-    const insertIndex = step2Index !== -1 ? step2Index + 1 : allSteps.length;
-
-    // Add dynamic steps if they exist
-    if (hasCustomStep) {
-      const customStep = {
-        label: "Custom Step",
-        description: "Upload Custom Weights",
-      };
-      if (!allSteps.some((step) => step.label === "Custom Step")) {
-        allSteps.splice(insertIndex, 0, customStep);
-      }
-    }
-
-    if (hasFineTuneStep) {
-      const fineTuneStep = {
-        label: "Fine-Tune Step",
-        description: "Link to Fine Tuner",
-      };
-      if (!allSteps.some((step) => step.label === "Fine-Tune Step")) {
-        // Insert after Custom Step if it exists, otherwise after Step 2
-        const insertPos = hasCustomStep
-          ? allSteps.findIndex((step) => step.label === "Custom Step") + 1
-          : insertIndex;
-        allSteps.splice(insertPos, 0, fineTuneStep);
-      }
-    }
-
-    return allSteps;
-  }, [hasCustomStep, hasFineTuneStep]);
-
-  const addCustomStep = () => {
-    setHasCustomStep(true);
-  };
-
-  const addFineTuneStep = () => {
-    setHasFineTuneStep(true);
-  };
-
-  const removeDynamicSteps = useCallback(() => {
-    setHasCustomStep(false);
-    setHasFineTuneStep(false);
-  }, []);
 
   // Direct auto-deploy function
   const performAutoDeploy = async (modelName: string) => {
@@ -198,10 +119,9 @@ export default function StepperDemo() {
     success: boolean;
     job_id?: string;
   }> => {
+    console.log("🚀 Simplified deployment flow: 2-step process");
     console.log("handleDeploy called with:", {
       selectedModel,
-      selectedWeight,
-      customWeight,
       isAutoDeploying,
     });
 
@@ -211,15 +131,14 @@ export default function StepperDemo() {
     }, 2500);
 
     const model_id = selectedModel || "0";
-    const weights_id =
-      selectedWeight === "Default Weights"
-        ? ""
-        : customWeight?.weights_id || selectedWeight;
+    const weights_id = ""; // Always use default weights
 
     const payload = JSON.stringify({
       model_id,
       weights_id,
     });
+
+    console.log("📦 Deploying with default weights:", { model_id, weights_id });
 
     console.log("Deployment payload:", payload);
     console.log("Deployment URL:", deployUrl);
@@ -299,50 +218,16 @@ export default function StepperDemo() {
                   isAutoDeploying={isAutoDeploying}
                 />
               )}
-              {step.label === "Step 2" && (
-                <SecondStepForm
-                  setSelectedWeight={setSelectedWeight}
-                  addCustomStep={addCustomStep}
-                  addFineTuneStep={addFineTuneStep}
-                  removeDynamicSteps={removeDynamicSteps}
-                  setFormError={setFormError}
-                />
-              )}
-              {step.label === "Custom Step" && (
-                <div className="py-8 px-16">
-                  <WeightForm
-                    selectedModel={selectedModel}
-                    setCustomWeight={setCustomWeight}
-                    setFormError={setFormError}
-                  />
-                </div>
-              )}
-              {step.label === "Fine-Tune Step" && (
-                <>
-                  <div className="flex flex-col items-center w-full justify-center p-10">
-                    <Button
-                      onClick={() =>
-                        customToast.success("Link to Fine Tuner activated")
-                      }
-                    >
-                      Link to Fine Tuner
-                    </Button>
-                  </div>
-                  <StepperFormActions removeDynamicSteps={removeDynamicSteps} />
-                </>
-              )}
               {step.label === "Final Step" && (
                 <DeployModelStep
                   selectedModel={selectedModel}
-                  selectedWeight={selectedWeight}
-                  customWeight={customWeight}
                   handleDeploy={handleDeploy}
                 />
               )}
             </Step>
           ))}
           <div className="py-12">
-            <StepperFooter removeDynamicSteps={removeDynamicSteps} />
+            <StepperFooter />
           </div>
         </Stepper>
       </ElevatedCard>

@@ -34,33 +34,24 @@ const Sidebar = forwardRef((_, ref) => {
             </CardHeader>
             <CardContent>
               <p className="text-lg leading-relaxed text-left">
-                The "Home" page serves as your central hub for exploring the
-                various features of the TT-Studio app. Use the dropdown to
-                browse and select from a list of available models, and click the
-                "Deploy" button to begin the process.
+                The "Home" page serves as your central hub for deploying AI models
+                on Tenstorrent hardware. Use the simple 2-step wizard to select
+                and deploy models.
               </p>
               <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
-                <ul className="list-disc text-sm mt-4 space-y-3 pl-6 text-left">
-                  <li>
-                    <strong>Model Selection:</strong> Start by selecting a model
-                    from the dropdown menu. This is the first step in
-                    configuring your deployment.
-                  </li>
-                  <li>
-                    <strong>Weight Selection:</strong> After choosing a model,
-                    select the appropriate weights for your model to ensure
-                    optimal performance.
-                  </li>
-                  <li>
-                    <strong>Deploy Model:</strong> Once you've configured the
-                    model and selected the weights, click the "Deploy" button to
-                    initiate the deployment process.
-                  </li>
-                  <li>
-                    <strong>Navigation:</strong> Use the "Next" and "Previous"
-                    buttons at the bottom to move between these steps as needed.
-                  </li>
-                </ul>
+                <li>
+                  <strong>Model Selection:</strong> Select a model from the
+                  dropdown menu. Models are automatically configured with
+                  optimal default weights.
+                </li>
+                <li>
+                  <strong>Deploy Model:</strong> Click the "Deploy" button to
+                  start your model deployment.
+                </li>
+                <li>
+                  <strong>Navigation:</strong> Use the "Next" button to proceed
+                  to deployment, or "Previous" to go back.
+                </li>
               </ul>
             </CardContent>
           </Card>
