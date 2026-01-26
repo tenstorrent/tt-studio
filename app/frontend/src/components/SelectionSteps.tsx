@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import axios from "axios";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import ElevatedCard from "./ui/elevated-card";
-import { Button } from "./ui/button";
-import { Step, Stepper, useStepper } from "./ui/stepper";
+import { Step, Stepper } from "./ui/stepper";
 import CustomToaster, { customToast } from "./CustomToaster";
 import StepperFooter from "./StepperFooter";
 import { DeployModelStep } from "./DeployModelStep";
@@ -26,9 +25,6 @@ export interface Model {
 }
 
 export default function StepperDemo() {
-  // Remove unused destructured elements from useStepper
-  // const { prevStep, nextStep, resetSteps, isDisabledStep, hasCompletedAllSteps, isOptionalStep, activeStep, steps: stepperSteps } = useStepper();
-
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
@@ -37,6 +33,11 @@ export default function StepperDemo() {
     { label: "Step 1", description: "Model Selection" },
     { label: "Final Step", description: "Deploy Model" },
   ];
+
+  // No-op function for removing dynamic steps (no dynamic steps in this component)
+  const removeDynamicSteps = () => {
+    // This component uses static steps, so no action needed
+  };
 
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -227,7 +228,7 @@ export default function StepperDemo() {
             </Step>
           ))}
           <div className="py-12">
-            <StepperFooter />
+            <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>
         </Stepper>
       </ElevatedCard>
