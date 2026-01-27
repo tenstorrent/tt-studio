@@ -145,7 +145,7 @@ The environment variables MODEL_WEIGHTS_ID and MODEL_WEIGHTS_PATH are then set a
 # Docker build
 
 ```bash
-docker build -t ghcr.io/tenstorrent/tt-studio/api:v0.0.0 .
+docker build -t ghcr.io/tenstorrent/tt-studio/api:v0.0.1 .
 ```
 
 ## Developing and running tests
