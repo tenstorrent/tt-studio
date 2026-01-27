@@ -28,6 +28,23 @@ Before you start, make sure you have:
 - **Python 3.8+** ([Download here](https://www.python.org/downloads/))
 - **Docker** ([Installation guide](https://docs.docker.com/engine/install/))
 
+> **⚠️ IMPORTANT - Docker Group Setup:**
+>
+> After installing Docker, you must add your user to the `docker` group to run Docker commands without `sudo`:
+>
+> ```bash
+> sudo usermod -aG docker $USER
+> ```
+>
+> **Then log out and log back in** (or restart your system) for the group change to take effect.
+>
+> To verify your user is in the docker group:
+> ```bash
+> groups | grep docker
+> ```
+>
+> If you see "docker" in the output, you're ready to go! If not, make sure you've logged out and back in after running the `usermod` command.
+
 ## 📚 Choose Your Path
 
 ### 👤 I'm a Normal User
