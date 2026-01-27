@@ -9,7 +9,6 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer
-from rest_framework.negotiation import DefaultContentNegotiation
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json  
@@ -17,9 +16,8 @@ import shutil
 import subprocess
 import os
 
-import docker
 import re
-import os 
+import os
 import concurrent.futures
 import requests
 import json
@@ -30,9 +28,10 @@ from .docker_utils import (
     get_container_status,
     perform_reset,
     check_image_exists,
-    pull_image_with_progress,
     detect_board_type,
+    DEPLOYMENT_TIMEOUT_SECONDS,
 )
+from .docker_control_client import get_docker_client
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
@@ -44,23 +43,8 @@ from board_control.services import SystemResourceService
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
 
-# Create docker client for use across views
-client = docker.from_env()
-
-# Add this near the top after imports, before classes
-pull_progress = {}  # {model_id: {status, progress, current, total, message}}
+# Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
-
-# Add custom renderer for SSE
-class EventStreamRenderer(JSONRenderer):
-    media_type = 'text/event-stream'
-    format = 'txt'
-
-# Add custom negotiation class to handle SSE
-class IgnoreClientContentNegotiation(DefaultContentNegotiation):
-    def select_renderer(self, request, renderers, format_suffix):
-        # Force the first renderer without checking Accept headers
-        return (renderers[0], renderers[0].media_type)
 
 class StopView(APIView):
     def post(self, request, *args, **kwargs):
@@ -257,57 +241,105 @@ class DeploymentProgressView(APIView):
     def get(self, request, job_id, *args, **kwargs):
         """Track deployment progress - proxy FastAPI progress endpoints with fallback"""
         import time
-        
+
         try:
             logger.info(f"Fetching deployment progress for job_id: {job_id}")
-            
+
+            # Track deployment start time if not already tracked
+            if job_id not in deployment_start_times:
+                deployment_start_times[job_id] = time.time()
+
+            elapsed_time = time.time() - deployment_start_times[job_id]
+
             # First, try to get progress from FastAPI inference server
             try:
                 fastapi_url = "http://172.18.0.1:8001/run/progress/" + job_id
                 response = requests.get(fastapi_url, timeout=5)
-                
+
                 if response.status_code == 200:
                     progress_data = response.json()
                     logger.info(f"Got progress from FastAPI: {progress_data}")
-                    
+
+                    # Normalize 'stalled' status to 'running' with appropriate message
+                    # 'stalled' typically means downloading weights, which can take hours
+                    if progress_data.get("status") == "stalled":
+                        # Check if we've exceeded the 5-hour timeout
+                        if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
+                            progress_data["status"] = "timeout"
+                            progress_data["message"] = f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            # Clean up start time tracking
+                            if job_id in deployment_start_times:
+                                del deployment_start_times[job_id]
+                        else:
+                            # Still within timeout - treat as running with descriptive message
+                            progress_data["status"] = "running"
+                            progress_data["message"] = "Downloading model weights... (this may take several hours for large models)"
+
+                    # Check timeout for other running statuses
+                    elif progress_data.get("status") in ["starting", "running"]:
+                        if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
+                            progress_data["status"] = "timeout"
+                            progress_data["message"] = f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                            # Clean up start time tracking
+                            if job_id in deployment_start_times:
+                                del deployment_start_times[job_id]
+
+                    # Clean up start time tracking on terminal statuses
+                    elif progress_data.get("status") in ["completed", "error", "failed", "cancelled"]:
+                        if job_id in deployment_start_times:
+                            del deployment_start_times[job_id]
+
                     # Add support for new status types
-                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "stalled", "cancelled"]:
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying"]:
                         return Response(progress_data, status=status.HTTP_200_OK)
-                    
+
                 logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
-                
+
             except requests.exceptions.RequestException as e:
                 logger.info(f"FastAPI not available ({str(e)}), falling back to container-based progress")
             
             # Fallback: existing container-based progress tracking
-            # Track deployment start time if not already tracked
-            if job_id not in deployment_start_times:
-                deployment_start_times[job_id] = time.time()
-            
-            elapsed_time = time.time() - deployment_start_times[job_id]
+            # elapsed_time already calculated above
             
             # job_id is container_id or container_name
             # Try to get container by ID first, then by name
             container = None
             try:
-                # Try to get container by ID (full or partial)
-                container = client.containers.get(job_id)
-            except docker.errors.NotFound:
-                # Try by name
-                try:
-                    containers = client.containers.list(all=True)
-                    for c in containers:
-                        if c.name == job_id:
-                            container = c
-                            break
-                except Exception as e:
-                    logger.warning(f"Error listing containers: {str(e)}")
-            
+                # Try to get container via docker-control-service
+                docker_client = get_docker_client()
+                container_data = docker_client.get_container(job_id)
+                if container_data.get("status") == "success":
+                    # Create container-like object for compatibility
+                    class ContainerWrapper:
+                        def __init__(self, data):
+                            self.id = data.get("id")
+                            self.name = data.get("name")
+                            self.status = data.get("status")
+                            self.attrs = data.get("attrs", {})
+                    container = ContainerWrapper(container_data)
+            except Exception as e:
+                logger.warning(f"Error getting container {job_id}: {str(e)}")
+
             # Container not found - deployment in early stages
             # Map to actual FastAPI log stages with realistic timing
             if not container:
                 logger.info(f"Container {job_id} not found yet - deployment in progress (elapsed: {elapsed_time:.1f}s)")
-                
+
+                # Check for timeout
+                if elapsed_time > DEPLOYMENT_TIMEOUT_SECONDS:
+                    # Clean up start time tracking
+                    if job_id in deployment_start_times:
+                        del deployment_start_times[job_id]
+                    return Response(
+                        {
+                            "status": "timeout",
+                            "stage": "error",
+                            "progress": 0,
+                            "message": f"Deployment timeout after {int(elapsed_time/60)} minutes"
+                        },
+                        status=status.HTTP_200_OK
+                    )
+
                 # Based on FastAPI logs - realistic timing for each stage
                 if elapsed_time < 3:
                     progress = 5
@@ -334,11 +366,15 @@ class DeploymentProgressView(APIView):
                     stage = "container_setup"
                     message = "Starting Docker container..."
                 else:
-                    # If taking longer than expected, show waiting state
+                    # If taking longer than expected, show downloading/waiting state
+                    # For very long operations (hours), show a more informative message
                     progress = min(75, 70 + int((elapsed_time - 45) / 10 * 5))
-                    stage = "container_setup"
-                    message = "Waiting for container to initialize..."
-                
+                    stage = "model_preparation"
+                    if elapsed_time > 300:  # After 5 minutes, assume downloading weights
+                        message = "Downloading model weights... (this may take several hours for large models)"
+                    else:
+                        message = "Waiting for container to initialize..."
+
                 return Response(
                     {
                         "status": "running",
@@ -443,9 +479,9 @@ class DeploymentProgressView(APIView):
             
             logger.info(f"Progress data: {progress_data} (elapsed: {elapsed_time:.1f}s, networks: {list(networks.keys())})")
             return Response(progress_data, status=status.HTTP_200_OK)
-                
-        except docker.errors.NotFound:
-            # Container not found - use time-based progress for early stages
+
+        except Exception as e:
+            # Container not found or error - use time-based progress for early stages
             elapsed_time = time.time() - deployment_start_times.get(job_id, time.time())
             if elapsed_time < 0:
                 elapsed_time = 0
@@ -478,8 +514,8 @@ class DeploymentProgressView(APIView):
                 },
                 status=status.HTTP_200_OK
             )
-        except docker.errors.APIError as e:
-            logger.error(f"Docker API error fetching progress: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error fetching progress: {str(e)}")
             return Response(
                 {"status": "error", "message": f"Docker API error: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -694,235 +730,15 @@ class ImageStatusView(APIView):
 
 
 @method_decorator(csrf_exempt, name='dispatch')
-class PullImageView(APIView):
-    renderer_classes = [JSONRenderer, EventStreamRenderer]  # Add EventStreamRenderer
-    content_negotiation_class = IgnoreClientContentNegotiation  # Use custom negotiation
-    
-    def options(self, request, *args, **kwargs):
-        """Handle preflight requests for CORS"""
-        response = Response(status=status.HTTP_200_OK)
-        response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-        response['Access-Control-Allow-Headers'] = 'Content-Type, Accept, Authorization'
-        response['Access-Control-Max-Age'] = '86400'
-        return response
-
-    def post(self, request, *args, **kwargs):
-        try:
-            logger.info(f"Received request to pull Docker image")
-            logger.info(f"Request data: {request.data}")
-            logger.info(f"Request headers: {dict(request.headers)}")
-            
-            # Use DeploymentSerializer to validate and get model_id from request body
-            serializer = DeploymentSerializer(data=request.data)
-            if not serializer.is_valid():
-                logger.warning(f"Invalid request data: {serializer.errors}")
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
-            model_id = serializer.validated_data["model_id"]
-            logger.info(f"Pulling image for model_id: {model_id}")
-            
-            try:
-                impl = model_implmentations[model_id]
-            except KeyError:
-                logger.warning(f"Model {model_id} not found in model_implementations")
-                return Response(
-                    {"status": "error", "message": f"Model {model_id} not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-                
-            image_name, image_tag = impl.image_version.split(':')
-            logger.info(f"Pulling image: {image_name}:{image_tag} for model: {impl.model_name}")
-            
-            # Check if client wants SSE updates
-            accept_header = request.headers.get('Accept', '')
-            logger.info(f"Accept header received: {accept_header}")
-            if 'text/event-stream' in accept_header:
-                logger.info("Client requested SSE updates for pull progress")
-                
-                def event_stream():
-                    # Check if pull already in progress
-                    if model_id in pull_progress:
-                        logger.info(f"Pull already in progress for {model_id}, streaming current progress")
-                        yield f"data: {json.dumps(pull_progress[model_id])}\n\n"
-                        return
-                    
-                    # Simple test first
-                    initial_progress = {'status': 'starting', 'progress': 0, 'current': 0, 'total': 0, 'message': 'Starting pull...'}
-                    pull_progress[model_id] = initial_progress
-                    yield f"data: {json.dumps(initial_progress)}\n\n"
-                    
-                    # Now do the actual pull with progress
-                    progress_data = {
-                        "current_layer": 0,
-                        "total_layers": 0,
-                        "overall_progress": 0,
-                        "current_bytes": 0,
-                        "total_bytes": 0
-                    }
-                    
-                    def progress_callback(progress):
-                        # Process Docker API progress and convert to numeric values
-                        nonlocal progress_data
-                        
-                        # Extract numeric progress if available
-                        numeric_progress = 0
-                        if 'progressDetail' in progress and progress['progressDetail']:
-                            detail = progress['progressDetail']
-                            if 'current' in detail and 'total' in detail:
-                                current = detail['current']
-                                total = detail['total']
-                                if total > 0:
-                                    numeric_progress = int((current / total) * 100)
-                                    progress_data["current_layer"] = current
-                                    progress_data["total_layers"] = total
-                                    progress_data["current_bytes"] = current
-                                    progress_data["total_bytes"] = total
-                        
-                        # Parse progress string (e.g., "50%" -> 50)
-                        elif 'progress' in progress and progress['progress']:
-                            try:
-                                progress_str = progress['progress'].strip()
-                                if progress_str.endswith('%'):
-                                    numeric_progress = int(float(progress_str[:-1]))
-                            except (ValueError, AttributeError):
-                                numeric_progress = 0
-                        
-                        # Update overall progress
-                        if numeric_progress > progress_data["overall_progress"]:
-                            progress_data["overall_progress"] = numeric_progress
-                        
-                        # Calculate progress percentage based on bytes if available
-                        progress_percentage = 0
-                        if progress_data["total_bytes"] > 0:
-                            progress_percentage = int((progress_data["current_bytes"] / progress_data["total_bytes"]) * 100)
-                        else:
-                            progress_percentage = progress_data["overall_progress"]
-                        
-                        formatted_progress = {
-                            "status": progress.get('status', 'pulling'),
-                            "progress": progress_percentage,
-                            "current": progress_data["current_bytes"],
-                            "total": progress_data["total_bytes"],
-                            "message": progress.get('status', 'Pulling image...'),
-                            "layer_id": progress.get('id', '')
-                        }
-                        
-                        # Update global progress tracking
-                        pull_progress[model_id] = formatted_progress
-                        
-                        logger.info(f"Sending progress update: {formatted_progress}")
-                        return f"data: {json.dumps(formatted_progress)}\n\n"
-                    
-                    # Do the actual pull with progress streaming
-                    try:
-                        image = f"{image_name}:{image_tag}"
-                        logger.info(f"Starting streaming pull for: {image}")
-                        
-                        # Authenticate with ghcr.io if credentials are available
-                        if image_name.startswith("ghcr.io") and backend_config.github_username and backend_config.github_pat:
-                            logger.info("Authenticating with GitHub Container Registry")
-                            try:
-                                client.login(
-                                    username=backend_config.github_username,
-                                    password=backend_config.github_pat,
-                                    registry="ghcr.io"
-                                )
-                                logger.info("Successfully authenticated with ghcr.io")
-                            except Exception as auth_error:
-                                logger.error(f"Failed to authenticate with ghcr.io: {str(auth_error)}")
-                                error_result = {"status": "error", "progress": 0, "current": 0, "total": 0, "message": f"Authentication failed: {str(auth_error)}"}
-                                pull_progress[model_id] = error_result
-                                yield f"data: {json.dumps(error_result)}\n\n"
-                                # Clear progress on error
-                                pull_progress.pop(model_id, None)
-                                return
-                        
-                        # Pull the image with real-time progress streaming
-                        for line in client.api.pull(image, stream=True, decode=True):
-                            if isinstance(line, dict) and 'status' in line:
-                                progress_update = progress_callback(line)
-                                yield progress_update
-                        
-                        # Verify the image was pulled successfully and send final status
-                        try:
-                            client.images.get(image)
-                            final_result = {
-                                "status": "success",
-                                "progress": 100,
-                                "current": progress_data["total_layers"],
-                                "total": progress_data["total_layers"],
-                                "message": f"Successfully pulled {image}"
-                            }
-                        except Exception as verify_error:
-                            final_result = {
-                                "status": "error",
-                                "progress": 0,
-                                "current": 0,
-                                "total": 0,
-                                "message": f"Failed to verify pulled image: {str(verify_error)}"
-                            }
-                        
-                        yield f"data: {json.dumps(final_result)}\n\n"
-                        
-                        # Clear progress when done
-                        pull_progress.pop(model_id, None)
-                        
-                    except Exception as e:
-                        logger.error(f"Error during streaming pull: {str(e)}")
-                        error_result = {
-                            "status": "error",
-                            "progress": 0,
-                            "current": 0,
-                            "total": 0,
-                            "message": str(e)
-                        }
-                        yield f"data: {json.dumps(error_result)}\n\n"
-                        
-                        # Clear progress on error
-                        pull_progress.pop(model_id, None)
-                
-                response = StreamingHttpResponse(
-                    event_stream(),
-                    content_type='text/event-stream'
-                )
-                response['Cache-Control'] = 'no-cache'
-                response['X-Accel-Buffering'] = 'no'
-                response['Access-Control-Allow-Origin'] = '*'
-                response['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
-                response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-                return response
-            else:
-                # Regular non-SSE request - use the existing function
-                logger.info("Processing regular (non-SSE) pull request")
-                def progress_callback(progress):
-                    logger.info(f"Pull progress: {progress}")
-                
-                result = pull_image_with_progress(image_name, image_tag, progress_callback)
-                logger.info(f"Pull operation completed with result: {result}")
-                
-                if result["status"] == "success":
-                    return Response(result, status=status.HTTP_200_OK)
-                else:
-                    return Response(result, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                
-        except Exception as e:
-            logger.error(f"Error pulling image: {str(e)}")
-            return Response(
-                {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-
-@method_decorator(csrf_exempt, name='dispatch')
 class ModelCatalogView(APIView):
     """
-    Comprehensive model catalog management API that handles:
-    - Model pulling with progress tracking
+    Model catalog management API that handles:
     - Model ejection (removal)
     - Space usage checking
-    - Pull cancellation
     - Model status and metadata
+
+    Note: Docker image pulling is now handled automatically by TT Inference Server
+    during deployment via ensure_docker_image() function.
     """
     renderer_classes = [JSONRenderer]  # Allow JSON renderer to prevent content negotiation issues
     
@@ -930,7 +746,7 @@ class ModelCatalogView(APIView):
         """Handle preflight requests for CORS"""
         response = Response(status=status.HTTP_200_OK)
         response['Access-Control-Allow-Origin'] = '*'
-        response['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, PATCH, OPTIONS'
+        response['Access-Control-Allow-Methods'] = 'GET, DELETE, OPTIONS'
         response['Access-Control-Allow-Headers'] = 'Content-Type, Accept, Authorization'
         response['Access-Control-Max-Age'] = '86400'
         return response
@@ -974,65 +790,9 @@ class ModelCatalogView(APIView):
                 "status": "success",
                 "models": model_status
             }, status=status.HTTP_200_OK)
-            
+
         except Exception as e:
             logger.error(f"Error getting catalog status: {str(e)}")
-            return Response(
-                {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def post(self, request, *args, **kwargs):
-        """Pull a model with progress tracking"""
-        try:
-            model_id = request.data.get("model_id")
-            logger.info(f"Received request to pull model: {model_id}")
-            
-            if not model_id or model_id not in model_implmentations:
-                logger.warning(f"Invalid model_id provided: {model_id}")
-                return Response(
-                    {"status": "error", "message": f"Invalid model_id: {model_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            impl = model_implmentations[model_id]
-            image_name, image_tag = impl.image_version.split(':')
-            logger.info(f"Starting pull for image: {image_name}:{image_tag}")
-            
-            # Check if client wants SSE updates
-            accept_header = request.headers.get('Accept', '')
-            logger.info(f"Accept header received: {accept_header}")
-            if 'text/event-stream' in accept_header:
-                logger.info("Client requested SSE updates for pull progress")
-                def event_stream():
-                    def progress_callback(progress):
-                        yield f"data: {json.dumps(progress)}\n\n"
-                    
-                    result = pull_image_with_progress(image_name, image_tag, progress_callback)
-                    logger.info(f"Pull operation completed with result: {result}")
-                    yield f"data: {json.dumps(result)}\n\n"
-                
-                response = StreamingHttpResponse(
-                    event_stream(),
-                    content_type='text/event-stream'
-                )
-                response['Cache-Control'] = 'no-cache'
-                response['X-Accel-Buffering'] = 'no'
-                response['Access-Control-Allow-Origin'] = '*'
-                response['Access-Control-Allow-Headers'] = 'Content-Type, Accept'
-                response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-                return response
-            else:
-                logger.info("Processing regular (non-SSE) pull request")
-                def progress_callback(progress):
-                    logger.info(f"Pull progress: {progress}")
-                
-                result = pull_image_with_progress(image_name, image_tag, progress_callback)
-                logger.info(f"Pull operation completed with result: {result}")
-                return Response(result, status=status.HTTP_200_OK)
-                
-        except Exception as e:
-            logger.error(f"Error pulling model: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1054,12 +814,15 @@ class ModelCatalogView(APIView):
             impl = model_implmentations[model_id]
             image_name, image_tag = impl.image_version.split(':')
             logger.info(f"Attempting to remove image: {image_name}:{image_tag}")
-            
-            # Remove the image
+
+            # Remove the image via docker-control-service
             try:
-                image = client.images.get(f"{image_name}:{image_tag}")
-                logger.info(f"Found image with ID: {image.id}")
-                client.images.remove(image.id, force=True)
+                docker_client = get_docker_client()
+                result = docker_client.remove_image(image_name, image_tag, force=True)
+                if result.get("status") == "success":
+                    logger.info(f"Successfully removed image: {image_name}:{image_tag}")
+                else:
+                    raise Exception(result.get("message", "Unknown error"))
                 logger.info(f"Successfully removed image: {image_name}:{image_tag}")
                 
                 # Remove volume if it exists
@@ -1073,9 +836,9 @@ class ModelCatalogView(APIView):
                     "status": "success",
                     "message": f"Successfully removed model {model_id}"
                 }, status=status.HTTP_200_OK)
-                
-            except docker.errors.ImageNotFound:
-                logger.warning(f"Image {image_name}:{image_tag} not found")
+
+            except Exception as e:
+                logger.warning(f"Image {image_name}:{image_tag} not found: {str(e)}")
                 return Response({
                     "status": "error",
                     "message": f"Image {image_name}:{image_tag} not found"
@@ -1083,108 +846,6 @@ class ModelCatalogView(APIView):
                 
         except Exception as e:
             logger.error(f"Error ejecting model: {str(e)}")
-            return Response(
-                {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def patch(self, request, *args, **kwargs):
-        """Cancel an ongoing model pull"""
-        try:
-            model_id = request.data.get("model_id")
-            logger.info(f"Received request to cancel pull for model: {model_id}")
-            
-            if not model_id or model_id not in model_implmentations:
-                logger.warning(f"Invalid model_id provided: {model_id}")
-                return Response(
-                    {"status": "error", "message": f"Invalid model_id: {model_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            impl = model_implmentations[model_id]
-            image_name, image_tag = impl.image_version.split(':')
-            logger.info(f"Looking for containers pulling image: {image_name}:{image_tag}")
-            
-            # Find and stop any ongoing pulls for this image
-            containers_stopped = 0
-            for container in client.containers.list():
-                if container.image.tags and f"{image_name}:{image_tag}" in container.image.tags:
-                    logger.info(f"Found container {container.id} pulling the image, stopping it")
-                    container.stop()
-                    container.remove()
-                    containers_stopped += 1
-            
-            logger.info(f"Successfully cancelled pull for model {model_id}, stopped {containers_stopped} containers")
-            
-            # Clear pull progress
-            pull_progress.pop(model_id, None)
-            
-            return Response({
-                "status": "success",
-                "message": f"Successfully cancelled pull for model {model_id}",
-                "containers_stopped": containers_stopped
-            }, status=status.HTTP_200_OK)
-                
-        except Exception as e:
-            logger.error(f"Error cancelling model pull: {str(e)}")
-            return Response(
-                {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-@method_decorator(csrf_exempt, name='dispatch')
-class CancelPullView(APIView):
-    def post(self, request, *args, **kwargs):
-        try:
-            model_id = request.data.get("model_id")
-            logger.info(f"Received request to cancel pull for model: {model_id}")
-            
-            if not model_id or model_id not in model_implmentations:
-                logger.warning(f"Invalid model_id provided: {model_id}")
-                return Response(
-                    {"status": "error", "message": f"Invalid model_id: {model_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            impl = model_implmentations[model_id]
-            image_name, image_tag = impl.image_version.split(':')
-            logger.info(f"Looking for containers pulling image: {image_name}:{image_tag}")
-            
-            # Find and stop any ongoing pulls for this image
-            containers_stopped = 0
-            for container in client.containers.list():
-                if container.image.tags and f"{image_name}:{image_tag}" in container.image.tags:
-                    logger.info(f"Found container {container.id} pulling the image, stopping it")
-                    try:
-                        container.stop()
-                        container.remove()
-                        containers_stopped += 1
-                    except Exception as e:
-                        logger.error(f"Error stopping container {container.id}: {str(e)}")
-            
-            # Also try to remove the image if it exists
-            try:
-                image = client.images.get(f"{image_name}:{image_tag}")
-                client.images.remove(image.id, force=True)
-                logger.info(f"Removed partial image: {image_name}:{image_tag}")
-            except docker.errors.ImageNotFound:
-                pass  # Image doesn't exist, which is fine
-            except Exception as e:
-                logger.error(f"Error removing image: {str(e)}")
-            
-            logger.info(f"Successfully cancelled pull for model {model_id}, stopped {containers_stopped} containers")
-            
-            # Clear pull progress
-            pull_progress.pop(model_id, None)
-            
-            return Response({
-                "status": "success",
-                "message": f"Successfully cancelled pull for model {model_id}",
-                "containers_stopped": containers_stopped
-            }, status=status.HTTP_200_OK)
-                
-        except Exception as e:
-            logger.error(f"Error cancelling model pull: {str(e)}")
             return Response(
                 {"status": "error", "message": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1275,7 +936,25 @@ class DockerServiceLogsView(APIView):
                         return "tt_studio_other"
                     return "other"
 
-                containers = client.containers.list(all=True)
+                # Get containers via docker-control-service
+                docker_client = get_docker_client()
+                containers_data = docker_client.list_containers(all=True)
+
+                # Convert to container-like objects
+                class ContainerWrapper:
+                    def __init__(self, data):
+                        self.id = data.get("id")
+                        self.name = data.get("name")
+                        self.status = data.get("status")
+                        self.attrs = data.get("attrs", {})
+                        self.image = type('obj', (object,), {
+                            'tags': data.get("image_tags", [])
+                        })()
+                    def logs(self, tail=200, timestamps=False):
+                        # This is a stub - docker-control-service doesn't support logs yet
+                        return b"Logs not available via docker-control-service"
+
+                containers = [ContainerWrapper(c) for c in containers_data.get("containers", [])]
 
                 service_to_containers = {}
                 for c in containers:

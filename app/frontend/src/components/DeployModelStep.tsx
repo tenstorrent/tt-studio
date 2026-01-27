@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 "use client";
 
 import { useCallback, useMemo, useEffect, useState } from "react";
 import { AnimatedDeployButton } from "./magicui/AnimatedDeployButton";
 import { useStepper } from "./ui/stepper";
-import { Weight } from "./SelectionSteps";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
-import { Cpu, Sliders, AlertTriangle, ExternalLink } from "lucide-react";
+import { Cpu, AlertTriangle, ExternalLink } from "lucide-react";
 import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
@@ -18,12 +17,8 @@ import axios from "axios";
 export function DeployModelStep({
   handleDeploy,
   selectedModel,
-  selectedWeight,
-  customWeight,
 }: {
   selectedModel: string | null;
-  selectedWeight: string | null;
-  customWeight: Weight | null;
   handleDeploy: () => Promise<{ success: boolean; job_id?: string }>;
 }) {
   const { nextStep, isLastStep } = useStepper();
@@ -98,19 +93,21 @@ export function DeployModelStep({
         const response = await fetch(`/docker-api/deploy/progress/${currentJobId}/`);
         if (response.ok) {
           const progressData = await response.json();
-          
-          if (progressData.status === 'error' || progressData.status === 'failed') {
+
+          // Only treat terminal failure statuses as errors
+          // Ignore intermediate statuses like 'stalled', 'retrying', 'starting', 'running'
+          if (progressData.status === 'error' || progressData.status === 'failed' || progressData.status === 'timeout') {
             // Clean the error message (remove "exception:" prefix if present)
             let errorMessage = progressData.message || "Deployment failed";
             if (errorMessage.startsWith("exception: ")) {
               errorMessage = errorMessage.substring("exception: ".length);
             }
-            
+
             setDeploymentError({
               hasError: true,
               message: errorMessage,
             });
-            
+
             // Stop polling but keep currentJobId so user can view logs
             setShouldPoll(false);
             // Reset deployment in progress on error
@@ -122,6 +119,7 @@ export function DeployModelStep({
             // Keep deployment in progress state until navigation completes
             // This prevents the blocking UI from showing immediately after success
           }
+          // For 'stalled', 'retrying', 'starting', 'running' - continue polling
         }
       } catch (error) {
         console.error("Error polling deployment progress:", error);
@@ -182,18 +180,14 @@ export function DeployModelStep({
       return "Delete Existing Models First";
     }
     if (!selectedModel) return "Select a Model";
-    if (!selectedWeight && !customWeight) return "Select a Weight";
     return "Deploy Model";
   }, [
     selectedModel,
-    selectedWeight,
-    customWeight,
     deployedInfo.hasDeployedModels,
   ]);
 
   const isDeployDisabled =
     !selectedModel ||
-    (!selectedWeight && !customWeight) ||
     deployedInfo.hasDeployedModels;
 
   const onDeploy = useCallback(async () => {
@@ -377,17 +371,6 @@ export function DeployModelStep({
               </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {modelName}
-              </span>
-            </div>
-          )}
-          {(selectedWeight || customWeight) && (
-            <div className="flex items-center space-x-2">
-              <Sliders className="text-TT-purple-accent" />
-              <span className="text-sm text-gray-800 dark:text-gray-400">
-                Weight:
-              </span>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
-                {selectedWeight || (customWeight && customWeight.name)}
               </span>
             </div>
           )}

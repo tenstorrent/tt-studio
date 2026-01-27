@@ -7,7 +7,6 @@ import socket, os, subprocess, json, signal, time
 import copy
 from pathlib import Path
 
-import docker
 import requests
 from django.core.cache import caches
 
@@ -18,19 +17,38 @@ from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
+from docker_control.docker_control_client import get_docker_client
 
 
 CONFIG_PATH = Path(backend_config.backend_cache_root).joinpath("tenstorrent", "reset_config.json")
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
-client = docker.from_env()
 
-# docker internal bridge network used for models and applications.
-networks = client.networks.list()
-if backend_config.docker_bridge_network_name not in [net.name for net in networks]:
-    network = client.networks.create(
-        backend_config.docker_bridge_network_name, driver="bridge"
-    )
+# Deployment timeout: 5 hours to allow for large model downloads
+DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
+
+# Ensure the bridge network exists on startup
+def _ensure_network():
+    """Ensure the tt_studio_network exists via docker-control-service"""
+    try:
+        docker_client = get_docker_client()
+        networks = docker_client.list_networks()
+
+        network_names = [net.get("Name") for net in networks]
+        if backend_config.docker_bridge_network_name not in network_names:
+            docker_client.create_network(
+                name=backend_config.docker_bridge_network_name,
+                driver="bridge"
+            )
+            logger.info(f"Created Docker network via docker-control-service: {backend_config.docker_bridge_network_name}")
+        else:
+            logger.info(f"Docker network already exists: {backend_config.docker_bridge_network_name}")
+    except Exception as e:
+        logger.warning(f"Could not create Docker network: {e}")
+
+
+# Initialize network on module load
+_ensure_network()
 
 
 def map_board_type_to_device_name(board_type):
@@ -96,7 +114,7 @@ def run_container(impl, weights_id):
             response = requests.post(
                 api_url,
                 json=payload,
-                timeout=300  # 5 minute timeout for container startup
+                timeout=DEPLOYMENT_TIMEOUT_SECONDS  # 5 hour timeout for container startup and weight downloads
             )
 
             if response.status_code in [200, 202]:
@@ -124,9 +142,9 @@ def run_container(impl, weights_id):
                     # If container_id is not in response, try to get it from Docker by name
                     if not container_id and container_name:
                         try:
-                            docker_client = docker.from_env()
-                            container = docker_client.containers.get(container_name)
-                            container_id = container.id
+                            docker_client = get_docker_client()
+                            container_info = docker_client.get_container(container_name)
+                            container_id = container_info.get("id")
                             logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
                         except Exception as docker_error:
                             logger.warning(f"Could not get container_id from Docker: {docker_error}")
@@ -229,47 +247,72 @@ def run_container(impl, weights_id):
                 impl.model_container_weights_dir, weights_id
             )
             logger.info(f"run_kwargs:= {run_kwargs}")
-            container = client.containers.run(impl.image_version, **run_kwargs)
-            #
-            verify_container(impl, run_kwargs, container)
+
+            # Convert run_kwargs to docker-control-service API format
+            docker_client = get_docker_client()
+            api_kwargs = {
+                "image": impl.image_version,
+                "name": run_kwargs.get("name"),
+                "command": run_kwargs.get("command"),
+                "environment": run_kwargs.get("environment", {}),
+                "ports": run_kwargs.get("ports", {}),
+                "volumes": run_kwargs.get("volumes"),
+                "network": run_kwargs.get("network"),
+                "detach": run_kwargs.get("detach", True),
+            }
+
+            # Add devices if present
+            if "devices" in run_kwargs:
+                api_kwargs["devices"] = run_kwargs["devices"]
+
+            # Add hostname if present
+            if "hostname" in run_kwargs:
+                api_kwargs["hostname"] = run_kwargs["hostname"]
+
+            container_result = docker_client.run_container(**api_kwargs)
+            logger.info(f"Container started via docker-control-service: {container_result}")
+
+            # Extract container info from API response
+            container_id = container_result.get("id")
+            container_name = container_result.get("name")
             # on changes to containers, update deploy cache
             update_deploy_cache()
-            
+
             # Notify agent about new container deployment
-            notify_agent_of_new_container(container.name)
-            
+            notify_agent_of_new_container(container_name)
+
             # Save deployment record to database
             try:
                 # Get device from impl configuration
                 device_config = impl.device_configurations[0] if impl.device_configurations else None
                 device_name = device_config.name if device_config else "unknown"
-                
+
                 ModelDeployment.objects.create(
-                    container_id=container.id,
-                    container_name=container.name,
+                    container_id=container_id,
+                    container_name=container_name,
                     model_name=impl.model_name,
                     device=device_name,
                     status="running",
                     stopped_by_user=False,
                     port=host_port
                 )
-                logger.info(f"Saved deployment record for {container.name} (ID: {container.id})")
+                logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
             except Exception as e:
                 import traceback
                 logger.error(
-                    f"Failed to save deployment record for {container.name} (ID: {container.id}): {type(e).__name__}: {e}\n"
+                    f"Failed to save deployment record for {container_name} (ID: {container_id}): {type(e).__name__}: {e}\n"
                     f"Traceback: {traceback.format_exc()}"
                 )
                 # Don't fail the deployment if we can't save the record
-            
+
             return {
                 "status": "success",
-                "container_id": container.id,
-                "container_name": container.name,
+                "container_id": container_id,
+                "container_name": container_name,
                 "service_route": impl.service_route,
                 "port_bindings": run_kwargs["ports"],
             }
-        except docker.errors.ContainerError as e:
+        except Exception as e:
             return {"status": "error", "message": str(e)}
 
 def run_agent_container(container_name, port_bindings, impl):
@@ -277,35 +320,33 @@ def run_agent_container(container_name, port_bindings, impl):
     run_kwargs = copy.deepcopy(impl.docker_config)
     host_agent_port = get_host_agent_port()
     llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
-    run_kwargs = {
-    'name': f'ai_agent_container_p{llm_host_port}',  # Container name
-    'network': 'tt_studio_network',  # Docker network
-    'ports': {'8080/tcp': host_agent_port},  # Mapping container port 8080 to host port (host port dependent on LLM port)
-    'environment': {
-        'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'), # found in env file
-        'LLM_CONTAINER_NAME': container_name,
-        'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-        'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
-    },  # Set the environment variables
-    'detach': True,  # Run the container in detached mode
-}
-    container = client.containers.run(
-    'agent_image:v1',
-    f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
-    auto_remove=True,
-    **run_kwargs
-)
+
+    docker_client = get_docker_client()
+    docker_client.run_container(
+        image='agent_image:v1',
+        command=f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
+        name=f'ai_agent_container_p{llm_host_port}',
+        network='tt_studio_network',
+        ports={'8080/tcp': host_agent_port},
+        environment={
+            'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
+            'LLM_CONTAINER_NAME': container_name,
+            'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
+            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
+        },
+        detach=True
+    )
 
 def stop_container(container_id):
     """Stop a specific docker container"""
     try:
-        container = client.containers.get(container_id)
-        container.stop()
+        docker_client = get_docker_client()
+        result = docker_client.stop_container(container_id)
         # on changes to containers, update deploy cache
         update_deploy_cache()
-        return {"status": "success"}
-    except docker.errors.NotFound as e:
-        return {"status": "error", "message": "Container not found"}
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 def get_runtime_device_configuration(device_configurations):
@@ -354,19 +395,63 @@ def get_host_port(impl):
 
 def get_managed_containers():
     """get containers configured in model_config.py for LLM-studio management"""
-    running_containers = client.containers.list()
+    docker_client = get_docker_client()
+    response = docker_client.list_containers(all=False)
+
+    # Extract containers array from response
+    containers_list = response.get("containers", []) if isinstance(response, dict) else []
+
     managed_images = set([impl.image_version for impl in model_implmentations.values()])
     managed_containers = []
-    for container in running_containers:
+
+    for container_data in containers_list:
+        # Convert API response to container-like object for backwards compatibility
+        class ContainerWrapper:
+            def __init__(self, data):
+                self.id = data.get("id")
+                self.name = data.get("name")
+                self.status = data.get("status")
+                self.attrs = data
+                # Create image object
+                self.image = type('obj', (object,), {
+                    'tags': data.get("image_tags", [])
+                })()
+
+            @property
+            def health(self):
+                """Extract health status from nested attrs structure"""
+                # Try to get from State.Health (Docker SDK structure)
+                # Health can be in attrs["State"]["Health"] or attrs["attrs"]["State"]["Health"]
+
+                # First try: attrs["State"]["Health"] (if attrs is the Docker container.attrs directly)
+                state = self.attrs.get("State", {})
+                if state and "Health" in state:
+                    return state["Health"]
+
+                # Second try: attrs["attrs"]["State"]["Health"] (if data has nested attrs)
+                nested_attrs = self.attrs.get("attrs", {})
+                if nested_attrs:
+                    nested_state = nested_attrs.get("State", {})
+                    if nested_state and "Health" in nested_state:
+                        return nested_state["Health"]
+
+                # Return empty dict if no health info found
+                return {}
+
+        container = ContainerWrapper(container_data)
         # Method 1: Check if container uses a managed image (legacy models)
         if managed_images.intersection(set(container.image.tags)):
             managed_containers.append(container)
         else:
             # Method 2: Check for TT Inference Server containers by environment variables
             # TT Inference Server containers have specific env vars like CACHE_ROOT, TT_CACHE_PATH
-            env_vars = parse_env_var_str(container.attrs.get("Config", {}).get("Env", []))
+            env_list = container.attrs.get("Config", {}).get("Env", [])
+            if not env_list:
+                env_list = container.attrs.get("environment", [])
+            env_vars = parse_env_var_str(env_list) if env_list else {}
             if "CACHE_ROOT" in env_vars or "TT_CACHE_PATH" in env_vars:
                 managed_containers.append(container)
+
     return managed_containers
 
 
@@ -768,45 +853,36 @@ def check_image_exists(image_name, image_tag):
         target_image = f"{image_name}:{image_tag}"
         logger.info(f"Checking for image: {target_image}")
 
-        # First try exact match (current behavior)
-        try:
-            image_info = client.images.get(target_image)
-            size_bytes = image_info.attrs['Size']
-            size_mb = round(size_bytes / (1024 * 1024), 2)
-            logger.info(f"Found exact match for image: {target_image}")
-            return {
-                "exists": True,
-                "size": f"{size_mb}MB",
-                "status": "available"
-            }
-        except docker.errors.ImageNotFound:
-            logger.info(f"Exact match not found for: {target_image}")
-            pass
+        docker_client = get_docker_client()
 
-        # If exact match fails, search through all images
-        logger.info("Searching through all available images for partial matches...")
-        all_images = client.images.list()
-        available_images = []
+        # Try using docker-control-service API
+        exists = docker_client.image_exists(image_name, image_tag)
 
-        for image in all_images:
-            for tag in image.tags:
-                available_images.append(tag)
-                # Check for partial matches
-                if image_name in tag and image_tag in tag:
-                    size_bytes = image.attrs['Size']
+        if exists:
+            # Get all images to find size info
+            response = docker_client.list_images()
+            # Extract images array from response dict
+            images_list = response.get("images", []) if isinstance(response, dict) else []
+            for image_data in images_list:
+                tags = image_data.get("tags", [])
+                if target_image in tags or any(image_name in tag and image_tag in tag for tag in tags):
+                    size_bytes = image_data.get("size", 0)
                     size_mb = round(size_bytes / (1024 * 1024), 2)
-                    logger.info(f"Found partial match: {tag} (looking for {target_image})")
+                    logger.info(f"Found image: {target_image}")
                     return {
                         "exists": True,
                         "size": f"{size_mb}MB",
-                        "status": "available",
-                        "actual_tag": tag
+                        "status": "available"
                     }
 
-        # Log available images for debugging
-        logger.warning(f"Image not found: {target_image}")
-        logger.info(f"Available images: {available_images[:10]}...")  # Show first 10 to avoid spam
+            # Image exists but no size info
+            return {
+                "exists": True,
+                "size": "unknown",
+                "status": "available"
+            }
 
+        logger.warning(f"Image not found: {target_image}")
         return {
             "exists": False,
             "size": "0MB",
@@ -820,44 +896,6 @@ def check_image_exists(image_name, image_tag):
             "size": "0MB",
             "status": "error"
         }
-
-def pull_image_with_progress(image_name, image_tag, progress_callback=None):
-    """Pull a Docker image with progress tracking"""
-    try:
-        image = f"{image_name}:{image_tag}"
-        logger.info(f"Pulling image: {image}")
-
-        # Authenticate with ghcr.io if credentials are available
-        if image_name.startswith("ghcr.io") and backend_config.github_username and backend_config.github_pat:
-            logger.info("Authenticating with GitHub Container Registry")
-            try:
-                client.login(
-                    username=backend_config.github_username,
-                    password=backend_config.github_pat,
-                    registry="ghcr.io"
-                )
-                logger.info("Successfully authenticated with ghcr.io")
-            except Exception as auth_error:
-                logger.error(f"Failed to authenticate with ghcr.io: {str(auth_error)}")
-                return {"status": "error", "message": f"Authentication failed: {str(auth_error)}"}
-
-        # Pull the image with progress tracking
-        for line in client.api.pull(image, stream=True, decode=True):
-            if progress_callback and isinstance(line, dict):
-                if 'status' in line:
-                    progress = {
-                        'status': line['status'],
-                        'progress': line.get('progress', ''),
-                        'id': line.get('id', '')
-                    }
-                    progress_callback(progress)
-
-        # Verify the image was pulled successfully
-        client.images.get(image)
-        return {"status": "success", "message": f"Successfully pulled {image}"}
-    except Exception as e:
-        logger.error(f"Error pulling image: {str(e)}")
-        return {"status": "error", "message": str(e)}
 
 def detect_board_type():
     """Detect board type using cached data from SystemResourceService"""

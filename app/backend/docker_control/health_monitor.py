@@ -4,10 +4,10 @@
 
 import threading
 import time
-import docker
 from django.utils import timezone
 from shared_config.logger_config import get_logger
 from docker_control.models import ModelDeployment
+from docker_control.docker_control_client import get_docker_client
 
 logger = get_logger(__name__)
 
@@ -26,40 +26,43 @@ def check_container_health():
             return
         
         logger.debug(f"Checking health of {running_deployments.count()} running deployments")
-        
-        # Check actual Docker container status
-        docker_client = docker.from_env()
-        
+
+        # Check actual Docker container status via docker-control-service
+        docker_client = get_docker_client()
+
         for deployment in running_deployments:
             try:
-                container = docker_client.containers.get(deployment.container_id)
-                actual_status = container.status  # running, exited, dead, etc.
-                
+                # Get container info from docker-control-service
+                container_info = docker_client.get_container(deployment.container_id)
+                actual_status = container_info.get("status", "unknown")  # running, exited, dead, etc.
+
                 # If container is not running but we didn't mark it as stopped by user
                 if actual_status not in ["running", "restarting"] and not deployment.stopped_by_user:
                     # Container died unexpectedly!
                     logger.warning(f"Container {deployment.container_name} died unexpectedly. Status: {actual_status}")
-                    
+
                     deployment.status = actual_status  # exited, dead, etc.
                     deployment.stopped_at = timezone.now()
                     deployment.save()
-                    
+
                     # TODO: Emit event for frontend notification
                     logger.info(f"Updated deployment record for unexpected death: {deployment.container_name}")
-                    
-            except docker.errors.NotFound:
-                # Container doesn't exist anymore - it died
-                if not deployment.stopped_by_user:
-                    logger.warning(f"Container {deployment.container_name} not found - marking as dead")
-                    deployment.status = "dead"
-                    deployment.stopped_at = timezone.now()
-                    deployment.save()
-                    
-                    # TODO: Emit event for frontend notification
-                    logger.info(f"Updated deployment record for missing container: {deployment.container_name}")
-                    
+
             except Exception as e:
-                logger.error(f"Error checking container {deployment.container_id}: {e}")
+                # Check if it's a 404 (container not found)
+                error_msg = str(e).lower()
+                if "not found" in error_msg or "404" in error_msg:
+                    # Container doesn't exist anymore - it died
+                    if not deployment.stopped_by_user:
+                        logger.warning(f"Container {deployment.container_name} not found - marking as dead")
+                        deployment.status = "dead"
+                        deployment.stopped_at = timezone.now()
+                        deployment.save()
+
+                        # TODO: Emit event for frontend notification
+                        logger.info(f"Updated deployment record for missing container: {deployment.container_name}")
+                else:
+                    logger.error(f"Error checking container {deployment.container_id}: {e}")
                 
     except Exception as e:
         logger.error(f"Error in check_container_health: {e}")

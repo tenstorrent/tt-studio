@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
+# FastAPI and server
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+
+# Docker SDK
+docker==7.1.0
+
+# JWT authentication
+PyJWT==2.10.1
+
+# HTTP client (for health checks in run.py)
+requests==2.32.3

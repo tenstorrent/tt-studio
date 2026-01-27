@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from "react";
-import { HeroSectionContext } from "./HeroSectionContext";
+import { HeroSectionContext } from "../contexts/HeroSectionContext";
 
 export const HeroSectionProvider: React.FC<{ children: React.ReactNode }> = ({
   children,

@@ -28,6 +28,23 @@ Before you start, make sure you have:
 - **Python 3.8+** ([Download here](https://www.python.org/downloads/))
 - **Docker** ([Installation guide](https://docs.docker.com/engine/install/))
 
+> **⚠️ IMPORTANT - Docker Group Setup:**
+>
+> After installing Docker, you must add your user to the `docker` group to run Docker commands without `sudo`:
+>
+> ```bash
+> sudo usermod -aG docker $USER
+> ```
+>
+> **Then log out and log back in** (or restart your system) for the group change to take effect.
+>
+> To verify your user is in the docker group:
+> ```bash
+> groups | grep docker
+> ```
+>
+> If you see "docker" in the output, you're ready to go! If not, make sure you've logged out and back in after running the `usermod` command.
+
 ## 📚 Choose Your Path
 
 ### 👤 I'm a Normal User
@@ -49,6 +66,24 @@ git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python
 5. **Prompts for configuration** - Asks for your Hugging Face token and generates security keys
 6. **Builds containers** - Sets up Docker environments for frontend and backend
 7. **Starts all services** - Launches the web interface and backend server
+
+**⚡ Easy Setup Mode (Recommended for First-Time Users):**
+
+Want an even simpler setup? Use **Easy Mode** which only requires your Hugging Face token:
+
+```bash
+python3 run.py --easy
+```
+
+**What Easy Mode does:**
+- ✅ Only prompts for your HF_TOKEN (Hugging Face token)
+- ✅ Uses secure defaults for quick testing
+- ✅ Skips local npm installation automatically
+- ✅ Perfect for first-time users and quick evaluation
+
+> **⚠️ Security Note:** Easy mode uses default values that are **NOT secure for production**. Use this mode only for development, testing, and quick evaluation. For production deployments, use the standard setup (`python3 run.py`) or development mode (`python3 run.py --dev`).
+
+📖 **More Details:** See the [Complete run.py Guide](docs/run-py-guide.md#easy-mode-setup) for a full comparison of setup modes.
 
 **After Setup:**
 

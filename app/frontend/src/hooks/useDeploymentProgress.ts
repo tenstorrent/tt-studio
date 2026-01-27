@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
@@ -59,11 +59,13 @@ export const useDeploymentProgress = (
       console.log(`[Progress] Received progress data:`, progressData);
       setProgress(progressData);
       setError(null);
-      
-      // Stop polling if deployment is complete or failed
-      if (progressData.status === 'completed' || 
-          progressData.status === 'failed' || 
-          progressData.status === 'error') {
+
+      // Stop polling only on terminal statuses
+      // Continue polling for 'stalled', 'retrying', 'starting', 'running'
+      if (progressData.status === 'completed' ||
+          progressData.status === 'failed' ||
+          progressData.status === 'error' ||
+          progressData.status === 'timeout') {
         console.log(`[Progress] Stopping polling - final status: ${progressData.status}`);
         stopPolling();
       }
@@ -92,11 +94,13 @@ export const useDeploymentProgress = (
           console.log(`[Progress] Received SSE progress data:`, progressData);
           setProgress(progressData);
           setError(null);
-          
-          // Stop SSE if deployment is complete or failed
-          if (progressData.status === 'completed' || 
-              progressData.status === 'failed' || 
+
+          // Stop SSE only on terminal statuses
+          // Continue for 'stalled', 'retrying', 'starting', 'running'
+          if (progressData.status === 'completed' ||
+              progressData.status === 'failed' ||
               progressData.status === 'error' ||
+              progressData.status === 'timeout' ||
               progressData.status === 'cancelled') {
             console.log(`[Progress] Stopping SSE - final status: ${progressData.status}`);
             stopPolling();

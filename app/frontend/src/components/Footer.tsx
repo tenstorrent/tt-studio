@@ -1094,7 +1094,7 @@ Add any other context about the problem here.
                 className="bg-TT-purple-accent hover:bg-TT-purple-accent/90 text-white"
               >
                 {/* <Github className="h-4 w-4 mr-2" /> */}
-                <ExternalLink className="h-4 w-4 text-TT-purple-accent ml-auto" />
+                <ExternalLink className="h-4 w-4 text-white dark:text-current ml-auto" />
                 Visit GitHub
               </Button>
             </div>
