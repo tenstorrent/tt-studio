@@ -13,6 +13,9 @@ services:
     command: python ./manage.py runserver 0.0.0.0:8000
     environment:
       - DEBUG=True
+    # Allow container to access host services (docker-control-service)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   tt_studio_frontend:
     container_name: tt_studio_frontend_dev
