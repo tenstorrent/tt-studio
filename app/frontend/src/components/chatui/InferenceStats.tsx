@@ -11,6 +11,8 @@ import {
   AlignJustify,
   FileText,
   Activity,
+  Network,
+  Timer,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -27,10 +29,47 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { useTheme } from "../../hooks/useTheme"; // Import the existing theme provider
-import type { InferenceStatsProps } from "./types";
+import type { InferenceStatsProps, TokenTimestamp } from "./types";
 
 interface InferenceStatsComponentProps extends InferenceStatsProps {
   inline?: boolean;
+}
+
+interface TokenTimingStats {
+  median: number;
+  p95: number;
+  p99: number;
+  mean: number;
+  min: number;
+  max: number;
+}
+
+function calculateTokenTimingStats(timestamps: TokenTimestamp[]): TokenTimingStats | null {
+  if (timestamps.length < 2) return null;
+
+  const intervals: number[] = [];
+  for (let i = 1; i < timestamps.length; i++) {
+    const deltaTokens = timestamps[i].count - timestamps[i-1].count;
+    const deltaTime = timestamps[i].timestamp - timestamps[i-1].timestamp;
+    if (deltaTokens > 0) {
+      // Calculate per-token time
+      intervals.push(deltaTime / deltaTokens);
+    }
+  }
+
+  if (intervals.length === 0) return null;
+
+  // Sort for percentile calculations
+  intervals.sort((a, b) => a - b);
+
+  const median = intervals[Math.floor(intervals.length / 2)];
+  const p95 = intervals[Math.floor(intervals.length * 0.95)];
+  const p99 = intervals[Math.floor(intervals.length * 0.99)];
+  const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+  const min = intervals[0];
+  const max = intervals[intervals.length - 1];
+
+  return { median, p95, p99, mean, min, max };
 }
 
 export default function Component({
@@ -83,6 +122,11 @@ export default function Component({
     isSmall?: boolean;
   };
 
+  // Calculate token timing stats if available
+  const tokenTimingStats = stats.token_timestamps
+    ? calculateTokenTimingStats(stats.token_timestamps)
+    : null;
+
   const sections = [
     {
       title: "Time Metrics",
@@ -94,8 +138,35 @@ export default function Component({
             />
           ),
           ...formatValue(stats.user_ttft_s),
-          label: "Time to First Token",
+          label: "Backend TTFT",
         } as StatItem,
+        {
+          icon: (
+            <Timer
+              className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
+            />
+          ),
+          value: stats.client_ttft_ms ? (stats.client_ttft_ms / 1000).toFixed(3) : "N/A",
+          label: "Client TTFT",
+          unit: stats.client_ttft_ms ? "s" : "",
+          isSmall: false,
+        } as StatItem,
+        {
+          icon: (
+            <Network
+              className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
+            />
+          ),
+          value: stats.network_latency_ms !== undefined ? stats.network_latency_ms.toFixed(0) : "N/A",
+          label: "Network Latency",
+          unit: stats.network_latency_ms !== undefined ? "ms" : "",
+          isSmall: false,
+        } as StatItem,
+      ],
+    },
+    {
+      title: "Throughput Metrics",
+      stats: [
         {
           icon: (
             <Zap
@@ -112,10 +183,21 @@ export default function Component({
             />
           ),
           value: userTPS,
-          label: "User Tokens Per Second",
-          unit: "",
+          label: "Tokens Per Second",
+          unit: "tok/s",
           isSmall: false,
         } as StatItem,
+        ...(tokenTimingStats ? [{
+          icon: (
+            <Activity
+              className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
+            />
+          ),
+          value: tokenTimingStats.median.toFixed(1),
+          label: "Median Token Time",
+          unit: "ms",
+          isSmall: false,
+        } as StatItem] : []),
       ],
     },
     {
@@ -211,6 +293,45 @@ export default function Component({
         </div>
       ))}
 
+      {/* Per-Token Timing Details */}
+      {tokenTimingStats && (
+        <div className="space-y-2 sm:space-y-3">
+          <h3
+            className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
+          >
+            Per-Token Timing Statistics
+          </h3>
+          <div className={`rounded-lg p-3 ${isDarkMode ? "bg-zinc-900/50" : "bg-gray-100"}`}>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className={`flex justify-between ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                <span>Mean:</span>
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>{tokenTimingStats.mean.toFixed(1)}ms</span>
+              </div>
+              <div className={`flex justify-between ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                <span>Median:</span>
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>{tokenTimingStats.median.toFixed(1)}ms</span>
+              </div>
+              <div className={`flex justify-between ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                <span>P95:</span>
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>{tokenTimingStats.p95.toFixed(1)}ms</span>
+              </div>
+              <div className={`flex justify-between ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                <span>P99:</span>
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>{tokenTimingStats.p99.toFixed(1)}ms</span>
+              </div>
+              <div className={`flex justify-between ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                <span>Min:</span>
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>{tokenTimingStats.min.toFixed(1)}ms</span>
+              </div>
+              <div className={`flex justify-between ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                <span>Max:</span>
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>{tokenTimingStats.max.toFixed(1)}ms</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         className={`border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-2 sm:pt-3 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2`}
       >
@@ -271,7 +392,11 @@ export default function Component({
       typeof stats.user_tpot === "number"
         ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(1)
         : "N/A";
-    const ttft = formatValue(stats.user_ttft_s);
+    // Use client TTFT if available, otherwise fall back to backend TTFT
+    const ttftValue = stats.client_ttft_ms
+      ? stats.client_ttft_ms / 1000
+      : stats.user_ttft_s;
+    const ttft = formatValue(ttftValue);
     const tokens = stats.tokens_decoded || 0;
 
     return (
@@ -285,7 +410,7 @@ export default function Component({
           />
           <span className="flex items-center gap-3">
             <span>
-              TTFT: {ttft.value}
+              {stats.client_ttft_ms ? "Client TTFT" : "TTFT"}: {ttft.value}
               {ttft.unit}
             </span>
             <span>•</span>

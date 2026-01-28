@@ -82,6 +82,19 @@ export interface InferenceRequest {
   };
 }
 
+export interface TokenTimestamp {
+  count: number;          // completion_tokens at this point
+  timestamp: number;      // performance.now() value
+  promptTokens: number;   // from usage.prompt_tokens
+  totalTokens: number;    // from usage.total_tokens
+}
+
+export interface ProgressiveStats {
+  tokensGenerated: number;
+  tokensPerSecond: number;
+  elapsedSeconds: number;
+}
+
 export interface InferenceStats {
   user_ttft_s?: number;
   user_tpot?: number;
@@ -96,6 +109,11 @@ export interface InferenceStats {
   completionTokens?: number;
   totalTokens?: number;
   total_time_ms?: number;
+
+  // NEW fields for enhanced metrics
+  client_ttft_ms?: number;        // Client-measured TTFT
+  network_latency_ms?: number;    // Derived: client_ttft - backend_ttft
+  token_timestamps?: TokenTimestamp[];  // Per-token timing data
 }
 
 // Component Props Types
@@ -118,6 +136,8 @@ export interface InferenceStatsProps {
 export interface StreamingMessageProps {
   content: string;
   isStreamFinished: boolean;
+  isStopped?: boolean;
+  progressiveStats?: ProgressiveStats;
 }
 
 export interface HistoryPanelProps {
