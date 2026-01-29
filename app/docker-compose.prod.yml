@@ -2,7 +2,7 @@
 services:
   tt_studio_backend:
     container_name: tt_studio_backend_api_prod
-    image: ghcr.io/tenstorrent/tt-studio/backend-prod:v0.0.0
+    image: ghcr.io/tenstorrent/tt-studio/backend-prod:v0.0.1
   
   tt_studio_frontend:
     container_name: tt_studio_frontend_prod
