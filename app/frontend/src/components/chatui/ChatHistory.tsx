@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
@@ -136,6 +136,11 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     isExtraLargeScreen: boolean;
   }>({ isLargeScreen: false, isExtraLargeScreen: false });
 
+  // Track thinking blocks state per message
+  const [messageThinkingState, setMessageThinkingState] = useState<
+    Record<string, { hasThinking: boolean; showThinking: boolean }>
+  >({});
+
   const shouldShowMessageIndicator = useCallback(() => {
     // Check if streaming AND last message is from user
     return (
@@ -257,6 +262,21 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             index < chatHistory.length - 1 // If it's not the absolute last message
                           }
                           isStopped={message.isStopped}
+                          onThinkingBlocksChange={(hasThinking, _blocks) => {
+                            const messageId = message.id || index.toString();
+                            setMessageThinkingState((prev) => ({
+                              ...prev,
+                              [messageId]: {
+                                hasThinking,
+                                showThinking:
+                                  prev[messageId]?.showThinking || false,
+                              },
+                            }));
+                          }}
+                          showThinking={
+                            messageThinkingState[message.id || index.toString()]
+                              ?.showThinking || false
+                          }
                         />
                       </div>
                     </>
@@ -318,6 +338,26 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                       messageContent={message.text}
                       modelName={modelName}
                       toggleableInlineStats={toggleableInlineStats}
+                      hasThinking={
+                        messageThinkingState[message.id || index.toString()]
+                          ?.hasThinking || false
+                      }
+                      showThinking={
+                        messageThinkingState[message.id || index.toString()]
+                          ?.showThinking || false
+                      }
+                      onToggleThinking={() => {
+                        const messageId = message.id || index.toString();
+                        setMessageThinkingState((prev) => ({
+                          ...prev,
+                          [messageId]: {
+                            ...prev[messageId],
+                            showThinking: !(
+                              prev[messageId]?.showThinking || false
+                            ),
+                          },
+                        }));
+                      }}
                     />
                   </div>
                 )}
