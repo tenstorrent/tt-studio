@@ -52,11 +52,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     showThinking: externalShowThinking,
   }) {
     const [renderedContent, setRenderedContent] = useState("");
-    const [internalShowThinking, setInternalShowThinking] = useState(false);
-    const showThinking =
-      externalShowThinking !== undefined
-        ? externalShowThinking
-        : internalShowThinking;
+    const showThinking = externalShowThinking ?? false;
     const [isThinkingActive, setIsThinkingActive] = useState(false);
     const contentRef = useRef(processContent(content).cleanedContent);
     const thinkingBlocksRef = useRef<string[]>([]);
