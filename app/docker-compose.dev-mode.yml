@@ -6,7 +6,7 @@
 services:
   tt_studio_backend:
     container_name: tt_studio_backend_api_dev
-    image: ghcr.io/tenstorrent/tt-studio/backend-dev:v0.0.0
+    image: ghcr.io/tenstorrent/tt-studio/backend-dev:v0.0.1
     volumes:
       # Mount the local api directory for live code changes
       - ./backend:/backend
