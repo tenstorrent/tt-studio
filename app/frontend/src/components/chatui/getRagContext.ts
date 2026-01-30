@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import axios from "axios";
 import { InferenceRequest, RagDataSource } from "./types.ts";
 
@@ -71,7 +71,25 @@ export const getRagContext = async (
         console.log("Single collection response:", response);
 
         if (response?.data) {
-          ragContext.documents = response.data.documents[0] || [];
+           const docs = response.data.documents;
+          if (Array.isArray(docs)) {
+            const items = docs.flat(Infinity);
+            ragContext.documents = items.map((d: any) => {
+	              if (typeof d === "string") {
+	                return d;
+	              } else if (d?.document) {
+	                return d.document;
+	              } else if (d?.text) {
+	                return d.text;
+	              } else {
+	                console.warn("Unrecognized document format in RAG response:", d);
+	                return "[Unrecognized document format]";
+	              }
+	            });
+          } else {
+            // If it's not an array, fall back to empty array for safety.
+            ragContext.documents = [];
+          }
           console.log("Processed documents:", ragContext.documents.length);
         } else {
           console.warn(
