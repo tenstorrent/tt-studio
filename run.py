@@ -63,7 +63,7 @@ C_TT_PURPLE = '\033[38;5;99m'
 
 # --- Global Paths and Constants ---
 TT_STUDIO_ROOT = os.getcwd()
-# Removed: INFERENCE_SERVER_BRANCH - no longer using git submodule
+# Removed: INFERENCE_SERVER_BRANCH - no longer using git submodule (externalized as artifact)
 OS_NAME = platform.system()
 
 # --- ASCII Art Constants ---
@@ -89,6 +89,9 @@ INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
 FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
+DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
+DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.pid")
+DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
 EASY_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
 
@@ -119,63 +122,160 @@ def check_docker_installation():
         print(f"{C_RED}⛔ Error: Docker is not installed.{C_RESET}")
         print(f"{C_YELLOW}Please install Docker from: https://docs.docker.com/get-docker/{C_RESET}")
         sys.exit(1)
-    
-    # Test Docker daemon connectivity
-    try:
-        result = subprocess.run(["docker", "info"], check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        error_output = e.stderr.lower()
-        print(f"{C_RED}⛔ Error: Cannot connect to Docker daemon.{C_RESET}")
-        
+
+    # Test Docker daemon connectivity - first try without sudo
+    result = subprocess.run(["docker", "info"], capture_output=True, text=True, check=False)
+
+    if result.returncode != 0:
+        error_output = result.stderr.lower()
+
         if "permission denied" in error_output:
+            # Permission issue - try with sudo
             print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
-            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-            print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
-            print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-            print(f"   {C_CYAN}or alternatively:{C_RESET}")
-            print(f"   {C_CYAN}python3 run.py --fix-docker{C_RESET}")
-            print()
-            print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
-            print(f"   {C_CYAN}sudo service docker start{C_RESET}")
-            print()
-            print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
-            print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
-            print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            print(f"{C_YELLOW}Docker socket has secure 660 permissions - sudo access will be used{C_RESET}")
+            print(f"{C_CYAN}Verifying Docker daemon is running with sudo...{C_RESET}")
+
+            # Try with sudo to verify Docker daemon is actually running
+            sudo_result = subprocess.run(["sudo", "docker", "info"], capture_output=True, text=True, check=False)
+
+            if sudo_result.returncode == 0:
+                print(f"{C_GREEN}✅ Docker daemon is running (sudo access confirmed){C_RESET}")
+                print(f"{C_CYAN}TT Studio will use sudo for Docker commands when needed{C_RESET}\n")
+                # Docker is working with sudo - continue
+                return
+            else:
+                # Even with sudo it's not working
+                sudo_error = sudo_result.stderr.lower()
+                if "cannot connect" in sudo_error or "connection refused" in sudo_error:
+                    print(f"\n{C_RED}⛔ Error: Docker daemon is not running{C_RESET}")
+                    print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
+                    print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                    print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
+                    print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
+                    print()
+                    print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
+                    print(f"   {C_CYAN}sudo service docker start{C_RESET}")
+                    print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
+                    print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+                else:
+                    print(f"{C_RED}⛔ Error: Docker daemon error{C_RESET}")
+                    print(f"{C_YELLOW}Error: {sudo_result.stderr}{C_RESET}")
+                sys.exit(1)
+
         elif "cannot connect" in error_output or "connection refused" in error_output:
+            print(f"\n{C_RED}⛔ Error: Cannot connect to Docker daemon.{C_RESET}")
             print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
             print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
             print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
             print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-            print(f"   {C_CYAN}or alternatively:{C_RESET}")
-            print(f"   {C_CYAN}python3 run.py --fix-docker{C_RESET}")
             print()
             print(f"{C_GREEN}🚀 Or manually start Docker with one of these:{C_RESET}")
             print(f"   {C_CYAN}sudo service docker start{C_RESET}")
             print(f"   {C_CYAN}sudo systemctl start docker{C_RESET}")
             print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
+            sys.exit(1)
         else:
-            print(f"{C_YELLOW}Docker daemon error: {e.stderr}{C_RESET}")
+            print(f"{C_RED}⛔ Error: Cannot connect to Docker daemon.{C_RESET}")
+            print(f"{C_YELLOW}Docker daemon error: {result.stderr}{C_RESET}")
             print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
-        
-        sys.exit(1)
-    except FileNotFoundError:
-        print(f"{C_RED}⛔ Error: Docker command not found.{C_RESET}")
-        print(f"{C_YELLOW}Please install Docker from: https://docs.docker.com/get-docker/{C_RESET}")
-        sys.exit(1)
-    
+            sys.exit(1)
+    else:
+        # Docker accessible without sudo
+        print(f"{C_GREEN}✅ Docker daemon is accessible{C_RESET}")
+
+    # Check if docker compose is available
+    compose_result = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True, check=False)
+
+    if compose_result.returncode != 0:
+        # Try with sudo if permission denied
+        if "permission denied" in compose_result.stderr.lower():
+            compose_result = subprocess.run(["sudo", "docker", "compose", "version"], capture_output=True, text=True, check=False)
+
+        if compose_result.returncode != 0:
+            print(f"{C_RED}⛔ Error: Docker Compose is not installed or not working correctly.{C_RESET}")
+            print(f"{C_YELLOW}Please install Docker Compose from: https://docs.docker.com/compose/install/{C_RESET}")
+            sys.exit(1)
+
+def check_docker_access():
+    """
+    Check if current user has access to Docker socket.
+    Returns True if user can access Docker, False otherwise.
+    """
     try:
-        # Check if docker compose is available and working
-        subprocess.run(["docker", "compose", "version"], check=True, capture_output=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print(f"{C_RED}⛔ Error: Docker Compose is not installed or not working correctly.{C_RESET}")
-        print(f"{C_YELLOW}Please install Docker Compose from: https://docs.docker.com/compose/install/{C_RESET}")
-        sys.exit(1)
+        result = subprocess.run(["docker", "info"], capture_output=True, text=True, check=False)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+def run_docker_command(command, use_sudo=False, capture_output=False, check=False):
+    """
+    Run a Docker command with automatic sudo fallback if permission denied.
+
+    Args:
+        command (list): Docker command to run
+        use_sudo (bool): Force use of sudo
+        capture_output (bool): Capture command output (only for non-sudo or successful commands)
+        check (bool): Raise exception on non-zero exit code
+
+    Returns:
+        subprocess.CompletedProcess: Result of command execution
+    """
+    # First try without sudo if not forced
+    if not use_sudo:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+        # If permission denied, try with sudo
+        if result.returncode != 0 and "permission denied" in result.stderr.lower():
+            print(f"{C_YELLOW}⚠️  Permission denied, retrying with sudo (you may be prompted for password)...{C_RESET}")
+            sudo_command = ["sudo"] + command
+            # Don't capture output when using sudo interactively - allow password prompt to show
+            # But capture stderr to check for errors after authentication
+            result = subprocess.run(sudo_command, capture_output=False, text=True, check=check)
+            return result
+
+        # If check=True and command failed, raise exception
+        if check and result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
+
+        return result
+    else:
+        # Use sudo directly - don't capture output to allow interactive password prompt
+        sudo_command = ["sudo"] + command
+        return subprocess.run(sudo_command, capture_output=False, text=True, check=check)
+
+def ensure_docker_group_membership():
+    """
+    Check if user is in Docker group and provide guidance if not.
+    Returns True if user has access, False otherwise.
+    """
+    if check_docker_access():
+        return True
+
+    # Check socket permissions
+    try:
+        socket_stat = os.stat("/var/run/docker.sock")
+        import grp
+        socket_group = grp.getgrgid(socket_stat.st_gid).gr_name
+
+        print(f"\n{C_YELLOW}🔒 Docker Socket Access Issue{C_RESET}")
+        print(f"{C_YELLOW}{'─' * 60}{C_RESET}")
+        print(f"{C_CYAN}The Docker socket requires group membership: {socket_group}{C_RESET}")
+        print(f"\n{C_GREEN}To fix this, run:{C_RESET}")
+        print(f"   {C_CYAN}sudo usermod -aG {socket_group} $USER{C_RESET}")
+        print(f"   {C_CYAN}newgrp {socket_group}{C_RESET}")
+        print(f"\n{C_YELLOW}Or continue with sudo access (commands will prompt for password){C_RESET}")
+        print(f"{C_YELLOW}{'─' * 60}{C_RESET}\n")
+
+        return False
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Could not check Docker socket permissions: {e}{C_RESET}")
+        return False
 
 def is_placeholder(value):
     """Check for common placeholder or empty values."""
     if not value or str(value).strip() == "":
         return True
-    
+
     placeholder_patterns = [
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
@@ -183,7 +283,7 @@ def is_placeholder(value):
         '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
         'true or false to enable RAG admin'
     ]
-    
+
     value_str = str(value).strip().strip('"\'')
     return value_str in placeholder_patterns
 
@@ -597,7 +697,56 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
         print(f"✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
-            
+
+    # DOCKER_CONTROL_SERVICE_URL
+    current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
+    if easy_mode:
+        # In easy mode, use default value only if not already configured
+        if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
+            write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
+            print("✅ DOCKER_CONTROL_SERVICE_URL set to default value.")
+        else:
+            print("✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
+    elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
+        if is_placeholder(current_docker_url):
+            print(f"🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...")
+        dev_default = "http://host.docker.internal:8002"
+        prompt_text = f"🐳 Enter DOCKER_CONTROL_SERVICE_URL{' [default: ' + dev_default + ']' if dev_mode else ' (default: http://host.docker.internal:8002)'}: "
+        val = input(prompt_text)
+        if not val:
+            val = dev_default
+        write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
+        print("✅ DOCKER_CONTROL_SERVICE_URL saved.")
+    else:
+        print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
+
+    # DOCKER_CONTROL_JWT_SECRET
+    current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
+    if easy_mode:
+        # In easy mode, use default value only if not already configured
+        if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
+            write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456")
+            print("✅ DOCKER_CONTROL_JWT_SECRET set to default value (test-secret-456).")
+        else:
+            print("✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
+    elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
+        if is_placeholder(current_docker_jwt):
+            print(f"🔄 DOCKER_CONTROL_JWT_SECRET has placeholder value '{current_docker_jwt}' - configuring...")
+        dev_default = "dev-docker-jwt-secret-12345-not-for-production" if dev_mode else ""
+        prompt_text = f"🔐 Enter DOCKER_CONTROL_JWT_SECRET (for Docker Control Service authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+
+        while True:
+            val = getpass.getpass(prompt_text)
+            if not val and dev_mode:
+                val = dev_default
+            if val and val.strip():
+                write_env_var("DOCKER_CONTROL_JWT_SECRET", val)
+                print("✅ DOCKER_CONTROL_JWT_SECRET saved.")
+                break
+            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+    else:
+        print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
+
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
     if easy_mode:
@@ -843,31 +992,51 @@ def display_welcome_banner():
 def cleanup_resources(args):
     """Clean up Docker resources"""
     print(f"\n{C_TT_PURPLE}{C_BOLD}🧹 Cleaning up TT Studio resources...{C_RESET}")
-    
+
+    # Check Docker access and warn if needed
+    has_docker_access = check_docker_access()
+    if not has_docker_access:
+        print(f"{C_YELLOW}⚠️  Docker permission issue detected - will use sudo for Docker commands{C_RESET}")
+
     # Build Docker Compose command for cleanup (use same logic as startup)
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
     docker_compose_cmd.extend(["down", "-v"])
-    
+
     # Stop and remove containers
     try:
         print(f"{C_BLUE}🛑 Stopping Docker containers...{C_RESET}")
-        run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
-        print(f"{C_GREEN}✅ Docker containers stopped successfully.{C_RESET}")
-    except:
+        result = run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=False)
+        if result.returncode == 0:
+            print(f"{C_GREEN}✅ Docker containers stopped successfully.{C_RESET}")
+        else:
+            print(f"{C_GREEN}✅ Docker containers stopped successfully.{C_RESET}")
+    except subprocess.CalledProcessError as e:
+        print(f"{C_YELLOW}⚠️  Error stopping containers{C_RESET}")
+    except Exception as e:
         print(f"{C_YELLOW}⚠️  No running containers to stop.{C_RESET}")
-    
+
     # Remove network if it exists
     try:
         print(f"{C_BLUE}🌐 Removing Docker network...{C_RESET}")
-        run_command(["docker", "network", "rm", "tt_studio_network"])
-        print(f"{C_GREEN}✅ Removed network 'tt_studio_network'.{C_RESET}")
-    except:
+        result = run_docker_command(["docker", "network", "rm", "tt_studio_network"],
+                                    use_sudo=not has_docker_access, capture_output=False)
+        if result.returncode == 0:
+            print(f"{C_GREEN}✅ Removed network 'tt_studio_network'.{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Network 'tt_studio_network' may not exist or couldn't be removed.{C_RESET}")
+    except subprocess.CalledProcessError as e:
         print(f"{C_YELLOW}⚠️  Network 'tt_studio_network' doesn't exist or couldn't be removed.{C_RESET}")
-    
+    except Exception:
+        print(f"{C_YELLOW}⚠️  Network 'tt_studio_network' doesn't exist or couldn't be removed.{C_RESET}")
+
     # Clean up FastAPI server
     print(f"{C_BLUE}🔧 Cleaning up FastAPI server...{C_RESET}")
     cleanup_fastapi_server(no_sudo=args.no_sudo)
-    
+
+    # Clean up Docker Control Service
+    print(f"{C_BLUE}🔧 Cleaning up Docker Control Service...{C_RESET}")
+    cleanup_docker_control_service(no_sudo=args.no_sudo)
+
     if args.cleanup_all:
         print(f"\n{C_ORANGE}{C_BOLD}🗑️  Performing complete cleanup (--cleanup-all)...{C_RESET}")
         
@@ -1738,6 +1907,312 @@ def cleanup_fastapi_server(no_sudo=False):
         # Nothing to clean
         print(f"✅ FastAPI server cleanup completed (no running process found)")
 
+def start_docker_control_service(no_sudo=False):
+    """Start the Docker Control Service on port 8002."""
+    print(f"🚀 Starting Docker Control Service on port 8002...")
+
+    # Check if user has Docker access
+    if not check_docker_access():
+        print(f"{C_YELLOW}⚠️  Docker Control Service requires direct Docker socket access{C_RESET}")
+        print(f"{C_YELLOW}   (660 permissions detected - service would need sudo which is not supported){C_RESET}")
+        print(f"{C_CYAN}   Skipping Docker Control Service - Backend will use direct Docker SDK instead{C_RESET}")
+        return False
+
+    # Check if port 8002 is available
+    if not check_port_available(8002):
+        print(f"⚠️  Port 8002 is already in use. Attempting to free the port...")
+        if not kill_process_on_port(8002, no_sudo=no_sudo):
+            print(f"{C_RED}❌ Failed to free port 8002. Please manually stop any process using this port.{C_RESET}")
+            return False
+        print(f"✅ Port 8002 is now available")
+    else:
+        print(f"✅ Port 8002 is available")
+
+    # Check if service is already running
+    if HAS_REQUESTS:
+        try:
+            response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=2)
+            if response.status_code == 200:
+                print(f"{C_GREEN}✅ Docker Control Service already running{C_RESET}")
+                return True
+        except requests.exceptions.RequestException:
+            pass
+
+    # Check if service directory exists
+    if not os.path.exists(DOCKER_CONTROL_SERVICE_DIR):
+        print(f"{C_RED}⛔ Error: Docker Control Service directory not found at {DOCKER_CONTROL_SERVICE_DIR}{C_RESET}")
+        return False
+
+    # Create PID and log files
+    print(f"🔧 Setting up log and PID files...")
+
+    for file_path in [DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_LOG_FILE]:
+        try:
+            with open(file_path, 'w') as f:
+                pass
+            os.chmod(file_path, 0o644)
+        except Exception as e:
+            print(f"{C_YELLOW}Warning: Could not create {file_path}: {e}{C_RESET}")
+
+    # Check for virtual environment
+    venv_dir = os.path.join(DOCKER_CONTROL_SERVICE_DIR, ".venv")
+    venv_python = os.path.join(venv_dir, "bin", "python")
+
+    if OS_NAME == "Windows":
+        venv_python = os.path.join(venv_dir, "Scripts", "python.exe")
+
+    # Create virtual environment and install dependencies if needed
+    if not os.path.exists(venv_dir):
+        print("📦 Creating virtual environment for Docker Control Service...")
+        try:
+            subprocess.run(
+                ["python3", "-m", "venv", ".venv"],
+                cwd=DOCKER_CONTROL_SERVICE_DIR,
+                check=True
+            )
+        except Exception as e:
+            print(f"{C_RED}⛔ Error creating virtual environment: {e}{C_RESET}")
+            return False
+
+    # Check if requirements are installed
+    requirements_file = os.path.join(DOCKER_CONTROL_SERVICE_DIR, "requirements-api.txt")
+    if not os.path.exists(requirements_file):
+        print(f"{C_RED}⛔ Error: requirements-api.txt not found at {requirements_file}{C_RESET}")
+        return False
+
+    # Install/upgrade dependencies
+    print("📦 Installing Docker Control Service dependencies...")
+    venv_pip = os.path.join(venv_dir, "bin", "pip")
+    if OS_NAME == "Windows":
+        venv_pip = os.path.join(venv_dir, "Scripts", "pip.exe")
+
+    try:
+        subprocess.run(
+            [venv_pip, "install", "--upgrade", "pip"],
+            cwd=DOCKER_CONTROL_SERVICE_DIR,
+            capture_output=True,
+            check=True
+        )
+        subprocess.run(
+            [venv_pip, "install", "-r", "requirements-api.txt"],
+            cwd=DOCKER_CONTROL_SERVICE_DIR,
+            capture_output=True,
+            check=True
+        )
+    except Exception as e:
+        print(f"{C_RED}⛔ Error installing dependencies: {e}{C_RESET}")
+        return False
+
+    # Get environment variables for the service
+    jwt_secret = get_env_var("DOCKER_CONTROL_JWT_SECRET")
+
+    # Export environment variables
+    env = os.environ.copy()
+    if jwt_secret:
+        env["DOCKER_CONTROL_JWT_SECRET"] = jwt_secret
+
+    # Start the service using uvicorn
+    try:
+        # Create a temporary wrapper script similar to FastAPI
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as temp_script:
+            temp_script.write('''#!/bin/bash
+set -e
+cd "$1"
+# Save PID to file
+echo $$ > "$2"
+# Start the service
+if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 > "$4" 2>&1; then
+    echo "Failed to start Docker Control Service. Check logs at $4"
+    exit 1
+fi
+''')
+            temp_script_path = temp_script.name
+
+        # Make the script executable
+        os.chmod(temp_script_path, 0o755)
+
+        # Start the service
+        cmd = [temp_script_path, DOCKER_CONTROL_SERVICE_DIR, DOCKER_CONTROL_PID_FILE, ".venv", DOCKER_CONTROL_LOG_FILE]
+        process = subprocess.Popen(cmd, env=env)
+
+        # Health check
+        print(f"⏳ Waiting for Docker Control Service to start...")
+        health_check_retries = 30
+        health_check_delay = 2
+
+        for i in range(1, health_check_retries + 1):
+            # Check if process is still running
+            if process.poll() is not None:
+                print(f"{C_RED}⛔ Error: Docker Control Service process died{C_RESET}")
+                print(f"📜 Last few lines of log:")
+                try:
+                    with open(DOCKER_CONTROL_LOG_FILE, 'r') as f:
+                        lines = f.readlines()
+                        for line in lines[-15:]:
+                            print(f"   {line.rstrip()}")
+                except:
+                    print("   No log file found")
+                return False
+
+            # Check if service is responding
+            if HAS_REQUESTS:
+                try:
+                    response = requests.get("http://127.0.0.1:8002/api/v1/health", timeout=5)
+                    if response.status_code == 200:
+                        print(f"✅ Docker Control Service started successfully (PID: {process.pid})")
+                        print(f"🌐 Docker Control Service accessible at: http://localhost:8002")
+                        print(f"🔐 API documentation: {C_CYAN}http://localhost:8002/api/v1/docs{C_RESET}")
+                        return True
+                except:
+                    pass
+            else:
+                # Fallback to urllib if requests not available
+                try:
+                    import urllib.request
+                    response = urllib.request.urlopen("http://localhost:8002/api/v1/health", timeout=5)
+                    if response.getcode() == 200:
+                        print(f"✅ Docker Control Service started successfully (PID: {process.pid})")
+                        print(f"🌐 Docker Control Service accessible at: http://localhost:8002")
+                        print(f"🔐 API documentation: {C_CYAN}http://localhost:8002/api/v1/docs{C_RESET}")
+                        return True
+                except:
+                    pass
+
+            if i == health_check_retries:
+                print(f"{C_RED}⛔ Error: Docker Control Service failed health check after {health_check_retries} attempts{C_RESET}")
+                print(f"📜 Last few lines of log:")
+                try:
+                    with open(DOCKER_CONTROL_LOG_FILE, 'r') as f:
+                        lines = f.readlines()
+                        for line in lines[-10:]:
+                            print(f"   {line.rstrip()}")
+                except:
+                    print("   No log file found")
+                return False
+
+            print(f"⏳ Health check attempt {i}/{health_check_retries} - waiting {health_check_delay}s...")
+            time.sleep(health_check_delay)
+
+    except Exception as e:
+        print(f"{C_RED}⛔ Error starting Docker Control Service: {e}{C_RESET}")
+        return False
+    finally:
+        # Clean up the temporary script
+        try:
+            os.unlink(temp_script_path)
+        except:
+            pass
+
+    return True
+
+def cleanup_docker_control_service(no_sudo=False):
+    """Clean up Docker Control Service processes and files."""
+    print(f"🧹 Cleaning up Docker Control Service...")
+
+    # Track what was cleaned
+    pid_file_existed = False
+    process_killed = False
+    port_freed = False
+    files_removed = []
+
+    # Helper function to check if process is still alive
+    def is_process_alive(pid):
+        """Check if a process with given PID is still running."""
+        try:
+            os.kill(int(pid), 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            if not no_sudo:
+                result = subprocess.run(["sudo", "kill", "-0", str(pid)],
+                                      capture_output=True, check=False)
+                return result.returncode == 0
+            return True
+
+    # Kill process if PID file exists
+    if os.path.exists(DOCKER_CONTROL_PID_FILE):
+        pid_file_existed = True
+        try:
+            with open(DOCKER_CONTROL_PID_FILE, 'r') as f:
+                pid = f.read().strip()
+            if pid and pid.isdigit():
+                pid_int = int(pid)
+                if is_process_alive(pid_int):
+                    print(f"🛑 Found Docker Control Service process with PID {pid}. Stopping it...")
+                    try:
+                        # Try graceful termination first
+                        os.kill(pid_int, signal.SIGTERM)
+                        time.sleep(2)
+
+                        # Check if still alive and force kill if needed
+                        if is_process_alive(pid_int):
+                            print(f"⚠️  Process {pid} still running. Forcing termination...")
+                            os.kill(pid_int, signal.SIGKILL)
+                            time.sleep(1)
+
+                        # Verify termination
+                        if not is_process_alive(pid_int):
+                            process_killed = True
+                            print(f"✅ Docker Control Service process {pid} terminated successfully")
+                        else:
+                            print(f"{C_YELLOW}⚠️  Warning: Could not verify termination of process {pid}{C_RESET}")
+                    except PermissionError:
+                        if not no_sudo:
+                            print(f"🔐 Using sudo to terminate process {pid}...")
+                            subprocess.run(["sudo", "kill", "-15", pid], check=False)
+                            time.sleep(2)
+                            if is_process_alive(pid_int):
+                                subprocess.run(["sudo", "kill", "-9", pid], check=False)
+                                time.sleep(1)
+
+                            if not is_process_alive(pid_int):
+                                process_killed = True
+                                print(f"✅ Docker Control Service process {pid} terminated successfully")
+                            else:
+                                print(f"{C_YELLOW}⚠️  Warning: Could not verify termination of process {pid}{C_RESET}")
+                        else:
+                            print(f"{C_YELLOW}⚠️  Warning: Could not kill process {pid} without sudo{C_RESET}")
+                    except ProcessLookupError:
+                        process_killed = True
+                        print(f"ℹ️  Process {pid} was already terminated")
+                    except Exception as e:
+                        print(f"{C_YELLOW}⚠️  Warning: Could not kill process {pid}: {e}{C_RESET}")
+                else:
+                    print(f"ℹ️  PID file exists but process {pid} is not running")
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Warning: Could not read PID file: {e}{C_RESET}")
+
+    # Kill any process on port 8002
+    port_was_in_use = not check_port_available(8002)
+    port_result = kill_process_on_port(8002, no_sudo=no_sudo)
+    if port_result and port_was_in_use:
+        if check_port_available(8002):
+            port_freed = True
+
+    # Remove PID and log files
+    for file_path in [DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_LOG_FILE]:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                files_removed.append(file_path)
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Warning: Could not remove {file_path}: {e}{C_RESET}")
+
+    # Report cleanup status
+    if process_killed or port_freed or files_removed:
+        print(f"✅ Docker Control Service cleanup completed")
+        if process_killed:
+            print(f"   • Process terminated")
+        if port_freed:
+            print(f"   • Port 8002 freed")
+        if files_removed:
+            print(f"   • Removed {len(files_removed)} file(s)")
+    elif pid_file_existed:
+        print(f"✅ Docker Control Service cleanup completed (process was already stopped)")
+    else:
+        print(f"✅ Docker Control Service cleanup completed (no running process found)")
+
 def request_sudo_authentication(force_prompt=False):
     """
     Request sudo authentication upfront and cache it for later use.
@@ -2087,37 +2562,87 @@ def fix_docker_issues():
     """Automatically fix common Docker service and permission issues."""
     print(f"\n{C_TT_PURPLE}{C_BOLD}🔧 TT Studio Docker Fix Utility{C_RESET}")
     print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
-    
+
     try:
         # Step 1: Start Docker service
         print(f"\n{C_BLUE}🚀 Starting Docker service...{C_RESET}")
-        result = subprocess.run(["sudo", "service", "docker", "start"], 
+        result = subprocess.run(["sudo", "service", "docker", "start"],
                               capture_output=True, text=True, check=False)
-        
+
         if result.returncode == 0:
             print(f"{C_GREEN}✅ Docker service started successfully{C_RESET}")
         else:
             print(f"{C_YELLOW}⚠️  Docker service start returned code {result.returncode}{C_RESET}")
             if result.stderr:
                 print(f"{C_YELLOW}   {result.stderr.strip()}{C_RESET}")
-        
-        # Step 2: Fix socket permissions
-        print(f"\n{C_BLUE}🔒 Fixing Docker socket permissions...{C_RESET}")
-        socket_result = subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"], 
-                                     capture_output=True, text=True, check=False)
-        
-        if socket_result.returncode == 0:
-            print(f"{C_GREEN}✅ Docker socket permissions fixed{C_RESET}")
-        else:
-            print(f"{C_YELLOW}⚠️  Socket permission fix returned code {socket_result.returncode}{C_RESET}")
-            if socket_result.stderr:
-                print(f"{C_YELLOW}   {socket_result.stderr.strip()}{C_RESET}")
-        
+
+        # Step 2: Determine socket group and provide guidance
+        print(f"\n{C_BLUE}🔒 Checking Docker socket permissions...{C_RESET}")
+        try:
+            import grp
+            socket_stat = os.stat("/var/run/docker.sock")
+            socket_group = grp.getgrgid(socket_stat.st_gid).gr_name
+            current_user = getpass.getuser()
+
+            print(f"{C_CYAN}Docker socket group: {socket_group}{C_RESET}")
+            print(f"\n{C_YELLOW}Choose permission fix method:{C_RESET}")
+            print(f"  {C_GREEN}1){C_RESET} Add user to {socket_group} group (recommended, secure)")
+            print(f"  {C_GREEN}2){C_RESET} Set socket to 666 (quick fix, less secure)")
+            print(f"  {C_GREEN}3){C_RESET} Keep current permissions and use sudo for Docker commands")
+
+            try:
+                choice = input(f"\n{C_CYAN}Enter choice (1-3) [1]: {C_RESET}").strip() or "1"
+            except KeyboardInterrupt:
+                print(f"\n{C_YELLOW}⚠️  Cancelled by user{C_RESET}")
+                return False
+
+            if choice == "1":
+                print(f"\n{C_BLUE}Adding user '{current_user}' to '{socket_group}' group...{C_RESET}")
+                group_result = subprocess.run(["sudo", "usermod", "-aG", socket_group, current_user],
+                                            capture_output=True, text=True, check=False)
+
+                if group_result.returncode == 0:
+                    print(f"{C_GREEN}✅ User added to {socket_group} group{C_RESET}")
+                    print(f"\n{C_YELLOW}⚠️  IMPORTANT: You need to log out and log back in for group changes to take effect{C_RESET}")
+                    print(f"{C_CYAN}Or run this command to apply changes in current session:{C_RESET}")
+                    print(f"   {C_WHITE}newgrp {socket_group}{C_RESET}")
+                else:
+                    print(f"{C_RED}❌ Failed to add user to group: {group_result.stderr.strip() if group_result.stderr else 'Unknown error'}{C_RESET}")
+                    return False
+
+            elif choice == "2":
+                print(f"\n{C_YELLOW}⚠️  Setting socket permissions to 666 (less secure){C_RESET}")
+                socket_result = subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"],
+                                             capture_output=True, text=True, check=False)
+
+                if socket_result.returncode == 0:
+                    print(f"{C_GREEN}✅ Docker socket permissions set to 666{C_RESET}")
+                    print(f"{C_YELLOW}Note: To reset to secure 660, run: sudo chmod 660 /var/run/docker.sock{C_RESET}")
+                else:
+                    print(f"{C_RED}❌ Failed to set permissions: {socket_result.stderr.strip() if socket_result.stderr else 'Unknown error'}{C_RESET}")
+                    return False
+
+            elif choice == "3":
+                print(f"\n{C_CYAN}✅ Keeping current permissions{C_RESET}")
+                print(f"{C_YELLOW}TT Studio will use sudo for Docker commands when needed{C_RESET}")
+
+            else:
+                print(f"{C_RED}❌ Invalid choice{C_RESET}")
+                return False
+
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Could not check socket permissions: {e}{C_RESET}")
+            print(f"{C_YELLOW}Defaulting to 666 permissions...{C_RESET}")
+            socket_result = subprocess.run(["sudo", "chmod", "666", "/var/run/docker.sock"],
+                                         capture_output=True, text=True, check=False)
+            if socket_result.returncode == 0:
+                print(f"{C_GREEN}✅ Docker socket permissions set to 666{C_RESET}")
+
         # Step 3: Test Docker connectivity
         print(f"\n{C_BLUE}🔍 Testing Docker connectivity...{C_RESET}")
-        test_result = subprocess.run(["docker", "info"], 
+        test_result = subprocess.run(["docker", "info"],
                                    capture_output=True, text=True, check=False)
-        
+
         if test_result.returncode == 0:
             print(f"{C_GREEN}✅ Docker is working correctly!{C_RESET}")
             print(f"\n{C_GREEN}{C_BOLD}🎉 Docker fix completed successfully!{C_RESET}")
@@ -2128,7 +2653,7 @@ def fix_docker_issues():
                 print(f"{C_YELLOW}Error: {test_result.stderr.strip()}{C_RESET}")
             print(f"\n{C_YELLOW}You may need to manually troubleshoot Docker installation.{C_RESET}")
             return False
-            
+
     except FileNotFoundError:
         print(f"{C_RED}❌ Error: 'sudo' or 'docker' command not found{C_RESET}")
         print(f"{C_YELLOW}Please ensure Docker is installed and sudo is available.{C_RESET}")
@@ -2136,7 +2661,7 @@ def fix_docker_issues():
     except Exception as e:
         print(f"{C_RED}❌ Unexpected error during Docker fix: {e}{C_RESET}")
         return False
-    
+
     print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
     return True
 
@@ -2186,9 +2711,11 @@ def main():
                            help="📚 Show detailed help for environment variables")
         parser.add_argument("--reconfigure", action="store_true",
                            help="🔄 Reset preferences and reconfigure all options")
-        parser.add_argument("--skip-fastapi", action="store_true", 
+        parser.add_argument("--skip-fastapi", action="store_true",
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
-        parser.add_argument("--no-sudo", action="store_true", 
+        parser.add_argument("--skip-docker-control", action="store_true",
+                           help="⏭️  Skip Docker Control Service setup")
+        parser.add_argument("--no-sudo", action="store_true",
                            help="🚫 Skip sudo usage for FastAPI setup (may limit functionality)")
         parser.add_argument("--no-browser", action="store_true", 
                            help="🚫 Skip automatic browser opening")
@@ -2318,29 +2845,40 @@ def main():
 
         # Create Docker network
         print(f"\n{C_BLUE}Checking for Docker network 'tt_studio_network'...{C_RESET}")
+        has_docker_access = check_docker_access()
+        if not has_docker_access:
+            print(f"{C_YELLOW}⚠️  Docker permission issue detected - will use sudo for Docker commands (password may be required){C_RESET}")
+
         try:
-            result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True, check=True)
+            # For network ls, we need to capture output to check if network exists
+            # First try without sudo to check if we can access Docker
+            result = subprocess.run(["docker", "network", "ls"], capture_output=True, text=True, check=False)
+
+            if result.returncode != 0 and "permission denied" in result.stderr.lower():
+                # Permission denied, try with sudo (without capturing output for password prompt)
+                print(f"{C_YELLOW}⚠️  Permission denied, using sudo (you may be prompted for password)...{C_RESET}")
+                # First authenticate with a simple sudo command
+                subprocess.run(["sudo", "-v"], check=False)
+                # Now run the network ls command with sudo and capture output
+                result = subprocess.run(["sudo", "docker", "network", "ls"], capture_output=True, text=True, check=True)
+            elif result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, ["docker", "network", "ls"], result.stdout, result.stderr)
+
             if "tt_studio_network" not in result.stdout:
                 try:
-                    run_command(["docker", "network", "create", "tt_studio_network"])
+                    print(f"{C_BLUE}Creating Docker network 'tt_studio_network'...{C_RESET}")
+                    if has_docker_access:
+                        result = subprocess.run(["docker", "network", "create", "tt_studio_network"],
+                                              capture_output=True, text=True, check=True)
+                    else:
+                        result = subprocess.run(["sudo", "docker", "network", "create", "tt_studio_network"],
+                                              capture_output=True, text=True, check=True)
                     print(f"{C_GREEN}Network 'tt_studio_network' created.{C_RESET}")
                 except subprocess.CalledProcessError as e:
                     error_output = e.stderr.lower() if e.stderr else ""
                     print(f"{C_RED}⛔ Error: Failed to create Docker network.{C_RESET}")
-                    
-                    if "permission denied" in error_output:
-                        print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
-                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-                        print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
-                        print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-                        print()
-                        print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
-                        print(f"   {C_CYAN}sudo service docker start{C_RESET}")
-                        print()
-                        print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
-                        print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
-                        print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-                    elif "cannot connect" in error_output or "connection refused" in error_output:
+
+                    if "cannot connect" in error_output or "connection refused" in error_output:
                         print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
                         print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
                         print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
@@ -2353,27 +2891,15 @@ def main():
                     else:
                         print(f"{C_YELLOW}Docker network creation failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
                         print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
-                    
+
                     sys.exit(1)
             else:
                 print(f"{C_GREEN}Network 'tt_studio_network' already exists.{C_RESET}")
         except subprocess.CalledProcessError as e:
             error_output = e.stderr.lower() if e.stderr else ""
             print(f"{C_RED}⛔ Error: Failed to list Docker networks.{C_RESET}")
-            
-            if "permission denied" in error_output:
-                print(f"\n{C_YELLOW}🔒 Docker Permission Issue Detected{C_RESET}")
-                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-                print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
-                print(f"   {C_CYAN}python run.py --fix-docker{C_RESET}")
-                print()
-                print(f"{C_GREEN}🚀 Or manually start Docker service:{C_RESET}")
-                print(f"   {C_CYAN}sudo service docker start{C_RESET}")
-                print()
-                print(f"{C_GREEN}💡 Quick fix for socket permissions:{C_RESET}")
-                print(f"   {C_CYAN}sudo chmod 666 /var/run/docker.sock{C_RESET}")
-                print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
-            elif "cannot connect" in error_output or "connection refused" in error_output:
+
+            if "cannot connect" in error_output or "connection refused" in error_output:
                 print(f"\n{C_YELLOW}🚫 Docker Daemon Not Running{C_RESET}")
                 print(f"{C_YELLOW}{'─' * 50}{C_RESET}")
                 print(f"{C_GREEN}🔧 Easy fix - run the Docker fix utility:{C_RESET}")
@@ -2386,7 +2912,7 @@ def main():
             else:
                 print(f"{C_YELLOW}Docker network listing failed: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
                 print(f"{C_YELLOW}Please check your Docker installation and try again.{C_RESET}")
-            
+
             sys.exit(1)
 
         # Ensure frontend dependencies are installed
@@ -2461,17 +2987,40 @@ def main():
                     print(f"{C_YELLOW}⚠️  Warning: Could not fix workflow_logs permissions: {e}{C_RESET}")
                     print(f"   You may need to run: sudo chown -R $USER:$USER {workflow_logs_dir}")
 
+        # Start Docker Control Service BEFORE starting Docker containers
+        # This ensures the backend can connect to it when it starts
+        if not args.skip_docker_control:
+            print(f"\n{C_BLUE}{'='*60}{C_RESET}")
+            print(f"{C_BLUE}Step 7: Starting Docker Control Service{C_RESET}")
+            print(f"{C_BLUE}{'='*60}{C_RESET}")
+
+            if not start_docker_control_service(no_sudo=args.no_sudo):
+                print(f"{C_RED}⛔ Failed to start Docker Control Service. Continuing without it.{C_RESET}")
+                print(f"{C_YELLOW}Note: Backend will not be able to manage Docker containers.{C_RESET}")
+        else:
+            print(f"\n{C_YELLOW}⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used){C_RESET}")
+
         # Start Docker services
         print(f"\n{C_BOLD}{C_BLUE}🚀 Starting Docker services...{C_RESET}")
-        
+
+        # Check Docker access to determine if sudo is needed
+        has_docker_access = check_docker_access()
+        if not has_docker_access:
+            print(f"{C_YELLOW}⚠️  Using sudo for docker-compose (you may be prompted for password)...{C_RESET}")
+
         # Set up the Docker Compose command
         docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev)
-        
+
         # Add the up command and flags
         docker_compose_cmd.extend(["up", "--build", "-d"])
-        
-        # Run the Docker Compose command
-        run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
+
+        # Run the Docker Compose command with sudo if needed
+        if has_docker_access:
+            run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
+        else:
+            # Need sudo for docker-compose
+            sudo_cmd = ["sudo"] + docker_compose_cmd
+            subprocess.run(sudo_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"), check=True)
         
         # Check if AI Playground mode is enabled
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
@@ -2506,7 +3055,7 @@ def main():
         elif is_deployed_mode:
             print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
             print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
-        
+
         print(f"\n{C_GREEN}✔ Setup Complete!{C_RESET}")
         print()
         
@@ -2527,7 +3076,11 @@ def main():
         if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE):
             print(f"FastAPI server: {C_CYAN}http://localhost:8001{C_RESET}")
             print(f"Health check: curl http://localhost:8001/")
-        
+
+        if not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):
+            print(f"Docker Control Service: {C_CYAN}http://localhost:8002{C_RESET}")
+            print(f"API docs: http://localhost:8002/api/v1/docs")
+
         if OS_NAME == "Darwin":
             print("(Cmd+Click the link to open in browser)")
         else:
