@@ -35,7 +35,7 @@ You can use the playground with **remote endpoints only** (no local hardware), w
    - `CLOUD_STABLE_DIFFUSION_URL` – Image generation endpoint
 
 3. **Start TT-Studio**  
-   Run `python run.py --easy` (or `python run.py`). Open [http://localhost:3000](http://localhost:3000) to use the full AI Playground UI; requests go to your configured remote endpoints.
+   Run `python3 run.py --easy` (or `python3 run.py`). Open [http://localhost:3000](http://localhost:3000) to use the full AI Playground UI; requests go to your configured remote endpoints.
 
 ## More details
 
