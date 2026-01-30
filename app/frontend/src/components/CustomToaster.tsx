@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
-import { type CSSProperties } from "react";
+import React, { type CSSProperties, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "../hooks/useTheme";
 import { Check, X, Info, AlertTriangle, Trash2 } from "lucide-react";
@@ -55,34 +56,60 @@ const ToastContent = ({
   iconColor,
   t,
   type,
+  durationMs,
 }: {
   message: string;
-  icon: any;
+  icon: React.ComponentType<{ size?: number | string; className?: string }>;
   iconColor: string;
-  t: any;
+  t: { id: string; visible?: boolean };
   type?: "success" | "error" | "warning" | "info" | "destructive" | "notice";
-}) => (
-  <div
-    className={`${t.visible ? "animate-enter" : "animate-leave"} !z-[99999]`}
-    style={getToastStyle(
-      document.documentElement.classList.contains("dark") ? "dark" : "light",
-      type
-    )}
-  >
-    <div className="flex items-center gap-2 min-w-0 flex-1">
-      <Icon size={16} className={`${iconColor} shrink-0`} />
-      <span className="whitespace-pre-wrap break-words leading-relaxed">
-        {message}
-      </span>
-    </div>
-    <button
-      onClick={() => toast.dismiss(t.id)}
-      className="ml-2 p-1 opacity-60 hover:opacity-100 shrink-0"
+  durationMs?: number;
+}) => {
+  const handleDismiss = () => {
+    toast.dismiss(t.id);
+    toast.remove(t.id);
+  };
+
+  // Manual auto-dismiss fallback (custom toasts don't always respect duration)
+  useEffect(() => {
+    if (durationMs == null || durationMs <= 0) return;
+    const toastId = t.id;
+    const timer = setTimeout(() => {
+      toast.dismiss(toastId);
+      toast.remove(toastId);
+    }, durationMs);
+    return () => clearTimeout(timer);
+  }, [durationMs, t.id]);
+
+  return (
+    <div
+      className={`${t.visible ? "animate-enter" : "animate-leave"} !z-[99999] pointer-events-auto`}
+      style={getToastStyle(
+        document.documentElement.classList.contains("dark") ? "dark" : "light",
+        type
+      )}
     >
-      <X size={14} />
-    </button>
-  </div>
-);
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <Icon size={16} className={`${iconColor} shrink-0`} />
+        <span className="whitespace-pre-wrap break-words leading-relaxed">
+          {message}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleDismiss();
+        }}
+        className="ml-2 p-1 opacity-60 hover:opacity-100 shrink-0"
+        aria-label="Dismiss"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+};
 
 export const customToast = {
   success: (message: string) =>
@@ -94,11 +121,12 @@ export const customToast = {
           iconColor="text-green-400"
           t={t}
           type="success"
+          durationMs={3000}
         />
       ),
       {
-        duration: 2000,
-        id: "tt-global-toast",
+        duration: 3000,
+        id: `tt-toast-success-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       }
     ),
   error: (message: string) =>
@@ -110,10 +138,11 @@ export const customToast = {
           iconColor="text-red-400"
           t={t}
           type="error"
+          durationMs={4000}
         />
       ),
       {
-        id: "tt-global-toast",
+        id: `tt-toast-error-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         duration: 4000,
       }
     ),
@@ -126,10 +155,11 @@ export const customToast = {
           iconColor="text-yellow-400"
           t={t}
           type="warning"
+          durationMs={3000}
         />
       ),
       {
-        id: "tt-global-toast",
+        id: `tt-global-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         duration: 3000,
       }
     ),
@@ -142,10 +172,11 @@ export const customToast = {
           iconColor="text-blue-400"
           t={t}
           type="info"
+          durationMs={3000}
         />
       ),
       {
-        id: "tt-global-toast",
+        id: `tt-global-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         duration: 3000,
       }
     ),
@@ -158,10 +189,11 @@ export const customToast = {
           iconColor="text-red-400"
           t={t}
           type="destructive"
+          durationMs={4000}
         />
       ),
       {
-        id: "tt-global-toast",
+        id: `tt-global-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         duration: 4000,
       }
     ),
@@ -190,7 +222,10 @@ export const customToast = {
         error: messages.error,
       },
       {
-        id: "tt-global-toast",
+        id: `tt-global-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        duration: 3000,
+        success: { duration: 3000 },
+        error: { duration: 4000 },
         style: getToastStyle(
           document.documentElement.classList.contains("dark") ? "dark" : "light"
         ),
@@ -198,21 +233,35 @@ export const customToast = {
     ),
 };
 
+const TOASTER_Z_INDEX = 99999;
+
 const CustomToaster = () => {
   const { theme } = useTheme();
 
-  return (
-    <Toaster
-      position="bottom-right"
-      gutter={10}
-      toastOptions={{
-        duration: 4000,
-        style: getToastStyle(theme),
-      }}
-      containerClassName="pointer-events-none !z-[99999]"
-      containerStyle={{ bottom: 24, right: 96 }}
-    />
+  const toaster = (
+    <div
+      className="fixed inset-0 pointer-events-none"
+      style={{ zIndex: TOASTER_Z_INDEX }}
+    >
+      <div className="absolute bottom-24 right-8 pointer-events-auto sm:right-12 md:right-16">
+        <Toaster
+          position="bottom-right"
+          gutter={10}
+          toastOptions={{
+            duration: 4000,
+            style: getToastStyle(theme),
+          }}
+          containerClassName="!z-[99999]"
+          containerStyle={{ bottom: 24, right: 96 }}
+
+        />
+      </div>
+    </div>
   );
+
+  return typeof document !== "undefined"
+    ? createPortal(toaster, document.body)
+    : toaster;
 };
 
 export default CustomToaster;
