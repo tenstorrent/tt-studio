@@ -118,17 +118,23 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
           intervalRef.current = null;
         }
       };
-    }, [content, isStreamFinished, renderNextChunk, renderedContent]);
+    }, [
+      content,
+      isStreamFinished,
+      renderNextChunk,
+      renderedContent,
+      onThinkingBlocksChange,
+    ]);
 
     const hasThinking = thinkingBlocksRef.current.length > 0;
 
-    // Debug logging
-    console.log("[StreamingMessage] Render:", {
-      hasThinking,
-      showThinking,
-      thinkingBlocksCount: thinkingBlocksRef.current.length,
-      isStreamFinished,
-    });
+    // // Debug logging
+    // console.log("[StreamingMessage] Render:", {
+    //   hasThinking,
+    //   showThinking,
+    //   thinkingBlocksCount: thinkingBlocksRef.current.length,
+    //   isStreamFinished,
+    // });
 
     return (
       <div className="relative">
