@@ -228,7 +228,7 @@ export default function StepperDemo() {
             </Step>
           ))}
           <div className="py-12">
-            <StepperFooter />
+            <StepperFooter removeDynamicSteps={removeDynamicSteps} />
           </div>
         </Stepper>
       </ElevatedCard>
