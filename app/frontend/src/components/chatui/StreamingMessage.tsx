@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import MarkdownComponent from "./MarkdownComponent";
@@ -17,7 +16,7 @@ interface ProcessedContent {
   thinkingBlocks: string[];
 }
 
-const processContent = (content: string, isStreamFinished: boolean): ProcessedContent => {
+const processContent = (content: string): ProcessedContent => {
   const thinkingBlocks: string[] = [];
 
   // Extract completed thinking blocks (before cleaning)
@@ -27,20 +26,17 @@ const processContent = (content: string, isStreamFinished: boolean): ProcessedCo
     thinkingBlocks.push(match[1].trim());
   }
 
-  // Check if there's an incomplete thinking block being streamed
-  const hasIncompleteThinking = !isStreamFinished && /^think\s+(?!.*\/think)/ims.test(content);
-
   // Clean the content - be aggressive about removing thinking tokens
-  let cleanedContent = content
+  const cleanedContent = content
     .replace(/<\|.*?\|>(&gt;)?/g, "")
     .replace(/\b(assistant|user)\b/gi, "")
     .replace(/[<>]/g, "")
     .replace(/&(lt|gt);/g, "")
     .replace(/\|(?:eot_id|start_header_id)\|/g, "")
-    .replace(/^think\s+.*?\/think\s*/gims, "")  // Remove completed thinking blocks
-    .replace(/^think\s+.*$/ims, "")  // Remove incomplete thinking blocks during streaming
-    .replace(/^\s*think\b.*$/ims, "")  // Extra pass to catch any remaining "think" at start
-    .replace(/^\/think\s*/gim, "")  // Remove any stray /think tokens
+    .replace(/^think\s+.*?\/think\s*/gims, "") // Remove completed thinking blocks
+    .replace(/^think\s+.*$/ims, "") // Remove incomplete thinking blocks during streaming
+    .replace(/^\s*think\b.*$/ims, "") // Extra pass to catch any remaining "think" at start
+    .replace(/^\/think\s*/gim, "") // Remove any stray /think tokens
     .trim();
 
   return { cleanedContent, thinkingBlocks };
@@ -51,7 +47,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     const [renderedContent, setRenderedContent] = useState("");
     const [showThinking, setShowThinking] = useState(false);
     const [isThinkingActive, setIsThinkingActive] = useState(false);
-    const contentRef = useRef(processContent(content, isStreamFinished).cleanedContent);
+    const contentRef = useRef(processContent(content).cleanedContent);
     const thinkingBlocksRef = useRef<string[]>([]);
     const intervalRef = useRef<number | null>(null);
     const lastChunkRef = useRef("");
@@ -71,12 +67,13 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     }, [renderedContent]);
 
     useEffect(() => {
-      const processed = processContent(content, isStreamFinished);
+      const processed = processContent(content);
       contentRef.current = processed.cleanedContent;
       thinkingBlocksRef.current = processed.thinkingBlocks;
 
       // Check if thinking is actively streaming
-      const hasIncompleteThinking = !isStreamFinished && /^think\s+(?!.*\/think)/ims.test(content);
+      const hasIncompleteThinking =
+        !isStreamFinished && /^think\s+(?!.*\/think)/ims.test(content);
       setIsThinkingActive(hasIncompleteThinking);
 
       if (isStreamFinished) {
@@ -131,10 +128,9 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
             <button
               onClick={() => setShowThinking(!showThinking)}
               className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors"
+              aria-label="Toggle thinking process visibility"
             >
-              <span className="text-xs">
-                {showThinking ? "▼" : "▶"}
-              </span>
+              <span className="text-xs">{showThinking ? "▼" : "▶"}</span>
               <span className="italic">
                 {showThinking ? "Hide" : "Show"} thinking process
               </span>
@@ -147,7 +143,10 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                 className="mt-2 p-3 bg-gray-800/50 border border-gray-700 rounded-md"
               >
                 {thinkingBlocksRef.current.map((block, index) => (
-                  <div key={index} className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
+                  <div
+                    key={index}
+                    className="text-sm text-gray-300 whitespace-pre-wrap font-mono"
+                  >
                     {block}
                   </div>
                 ))}
@@ -155,7 +154,10 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
             )}
           </div>
         )}
-        {renderedContent.length === 0 && !isStreamFinished && !isThinkingActive && !isStopped ? (
+        {renderedContent.length === 0 &&
+        !isStreamFinished &&
+        !isThinkingActive &&
+        !isStopped ? (
           <motion.span
             className="text-gray-400"
             animate={{ opacity: [1, 0.5, 1] }}
