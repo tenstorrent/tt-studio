@@ -273,6 +273,19 @@ class VectorCollectionsAPIView(ViewSet):
             )
 
         document = request.FILES["document"]
+
+        # Check file size (25 MB limit)
+        max_size = 26214400  # 25 MB in bytes
+        if document.size > max_size:
+            logger.warning(f"File {document.name} rejected: size {document.size} bytes exceeds {max_size} bytes")
+            return Response(
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                data={
+                    "error": f"File size ({(document.size / (1024 * 1024)):.2f} MB) exceeds maximum allowed size of {(max_size / (1024 * 1024)):.0f} MB",
+                    "file_size_mb": round(document.size / (1024 * 1024), 2),
+                    "max_size_mb": round(max_size / (1024 * 1024), 0)
+                },
+            )
         
         # Create a temporary file to store the uploaded document
         temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp')

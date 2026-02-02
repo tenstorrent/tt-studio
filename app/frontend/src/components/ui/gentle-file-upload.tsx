@@ -5,6 +5,11 @@ import  { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { IconUpload } from "@tabler/icons-react";
 import { useDropzone } from "react-dropzone";
+import { customToast } from "../CustomToaster";
+
+// Maximum file size: 25 MB (must match backend and nginx config)
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB in bytes
+const LARGE_FILE_WARNING = 10 * 1024 * 1024; // Warn for files >10 MB
 
 const mainVariant = {
   initial: {
@@ -35,9 +40,49 @@ export const GentleFileUpload = ({
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const validateAndHandleFiles = (newFiles: File[]) => {
+    const validFiles: File[] = [];
+    const rejectedFiles: { name: string; reason: string }[] = [];
+
+    newFiles.forEach((file) => {
+      if (file.size > MAX_FILE_SIZE) {
+        rejectedFiles.push({
+          name: file.name,
+          reason: `exceeds ${(MAX_FILE_SIZE / (1024 * 1024)).toFixed(0)} MB limit (${(file.size / (1024 * 1024)).toFixed(2)} MB)`,
+        });
+      } else {
+        validFiles.push(file);
+
+        // Show warning for large files
+        if (file.size > LARGE_FILE_WARNING) {
+          customToast.warning(
+            `Large file detected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB) may take longer to process.`
+          );
+        }
+      }
+    });
+
+    // Show errors for rejected files
+    if (rejectedFiles.length > 0) {
+      const errorMessage = rejectedFiles
+        .map((f) => `• ${f.name}: ${f.reason}`)
+        .join("\n");
+
+      customToast.error(
+        `${rejectedFiles.length} file${rejectedFiles.length > 1 ? "s" : ""} rejected:\n${errorMessage}`
+      );
+    }
+
+    return validFiles;
+  };
+
   const handleFileChange = (newFiles: File[]) => {
-    setFiles((prevFiles) => [...prevFiles, ...newFiles]);
-    onChange && onChange(newFiles);
+    const validFiles = validateAndHandleFiles(newFiles);
+
+    if (validFiles.length > 0) {
+      setFiles((prevFiles) => [...prevFiles, ...validFiles]);
+      onChange && onChange(validFiles);
+    }
   };
 
   const handleClick = () => {
@@ -78,6 +123,9 @@ export const GentleFileUpload = ({
           </p>
           <p className="relative z-20 font-sans font-normal text-neutral-400 dark:text-neutral-400 text-base mt-2">
             Drag & drop files here or click to browse. Datasources will be created automatically using file names.
+          </p>
+          <p className="relative z-20 font-sans font-normal text-neutral-500 dark:text-neutral-500 text-sm mt-1">
+            Maximum file size: {(MAX_FILE_SIZE / (1024 * 1024)).toFixed(0)} MB
           </p>
           <div className="relative w-full mt-10 max-w-xl mx-auto">
             {files.length > 0 &&
