@@ -59,13 +59,102 @@ def delete_collection(collection_name: str):
 
 
 def query_collection(
-    collection_name: str, embedding_func_name: str, query_texts: List[str], n_results: int = 10
+    collection_name: str,
+    embedding_func_name: str,
+    query_texts: List[str],
+    n_results: int = 10,
+    distance_threshold: float = None,
+    min_documents: int = None
 ):
+    """
+    Query a collection with optional confidence filtering.
+
+    Args:
+        collection_name: Name of the collection to query
+        embedding_func_name: Name of the embedding function to use
+        query_texts: List of query texts
+        n_results: Maximum number of results to return
+        distance_threshold: Maximum distance to consider (lower is better, typical range 0-2)
+                          Results with distance > threshold will be filtered out
+        min_documents: Minimum number of documents required to pass threshold after filtering
+
+    Returns:
+        dict: Query results with additional metadata:
+            - documents: List of document texts
+            - metadatas: List of metadata dicts
+            - distances: List of distance scores
+            - ids: List of document IDs
+            - is_answerable: Boolean indicating if query has sufficient confident results
+            - confidence_level: String indicating confidence ('high', 'medium', 'low', 'insufficient')
+            - filtered_count: Number of results that passed the threshold
+    """
     embedding_func = get_embedding_function(model_name=embedding_func_name)
     target_collection = ChromaClient().get_collection(
         name=collection_name, embedding_function=embedding_func
     )
-    return target_collection.query(query_texts=query_texts, n_results=n_results)
+
+    # Get raw results from ChromaDB
+    raw_results = target_collection.query(query_texts=query_texts, n_results=n_results)
+
+    # If no threshold filtering requested, return raw results with metadata
+    if distance_threshold is None:
+        raw_results['is_answerable'] = True
+        raw_results['confidence_level'] = 'high'
+        raw_results['filtered_count'] = len(raw_results.get('distances', [[]])[0])
+        return raw_results
+
+    # Apply distance threshold filtering
+    filtered_results = {
+        'documents': [[]],
+        'metadatas': [[]],
+        'distances': [[]],
+        'ids': [[]]
+    }
+
+    # Process first query (batch index 0)
+    if raw_results.get('distances') and len(raw_results['distances']) > 0:
+        for i, distance in enumerate(raw_results['distances'][0]):
+            if distance <= distance_threshold:
+                filtered_results['documents'][0].append(raw_results['documents'][0][i])
+                filtered_results['metadatas'][0].append(raw_results['metadatas'][0][i])
+                filtered_results['distances'][0].append(distance)
+                filtered_results['ids'][0].append(raw_results['ids'][0][i])
+
+    # Determine if query is answerable based on filtered results
+    filtered_count = len(filtered_results['distances'][0])
+    min_docs = min_documents if min_documents is not None else 0
+    is_answerable = filtered_count >= min_docs
+
+    # Calculate confidence level based on distances and count
+    if filtered_count == 0:
+        confidence_level = 'insufficient'
+    elif filtered_count < min_docs:
+        confidence_level = 'insufficient'
+    else:
+        # Use the best (lowest) distance to determine confidence
+        best_distance = min(filtered_results['distances'][0]) if filtered_results['distances'][0] else float('inf')
+        if best_distance <= 0.5:
+            confidence_level = 'high'
+        elif best_distance <= 0.8:
+            confidence_level = 'medium'
+        else:
+            confidence_level = 'low'
+
+    # Add metadata to results
+    filtered_results['is_answerable'] = is_answerable
+    filtered_results['confidence_level'] = confidence_level
+    filtered_results['filtered_count'] = filtered_count
+    filtered_results['raw_count'] = len(raw_results.get('distances', [[]])[0])
+    filtered_results['threshold_used'] = distance_threshold
+    filtered_results['min_documents_required'] = min_docs
+
+    logger.info(
+        f"Query filtering: {filtered_count}/{filtered_results['raw_count']} results "
+        f"passed threshold {distance_threshold}, answerable={is_answerable}, "
+        f"confidence={confidence_level}"
+    )
+
+    return filtered_results
 
 
 def serialize_collection(collection: Collection):

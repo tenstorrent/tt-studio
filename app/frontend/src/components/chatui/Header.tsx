@@ -44,6 +44,7 @@ import {
   Eye,
   Mic,
   Database,
+  BookOpen,
   Search,
   FolderOpen,
   // Settings as SettingsIcon,
@@ -130,7 +131,7 @@ const ForwardedSelect = React.forwardRef<
       {value === "special-all" ? (
         <Search className="h-4 w-4 text-[#7C68FA]" />
       ) : (
-        <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+        <BookOpen className="h-4 w-4 text-indigo-500 dark:text-indigo-400" strokeWidth={2.5} />
       )}
       <SelectValue placeholder="Select knowledge base">
         {value
@@ -160,7 +161,7 @@ const ForwardedSelect = React.forwardRef<
               </span>
             </div>
             <div className="flex items-center gap-1 text-[#7C68FA] bg-[#7C68FA]/10 px-2 py-1 rounded-full text-sm">
-              <Database className="h-4 w-4" />
+              <BookOpen className="h-4 w-4" strokeWidth={2.5} />
               <span>{ragDataSources?.length || 0} Collections</span>
             </div>
           </div>

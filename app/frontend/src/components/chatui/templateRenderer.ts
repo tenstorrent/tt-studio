@@ -58,7 +58,7 @@ function generateSimpleGreetingResponse(
 
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
-  ragContext: { documents: string[] } | null = null
+  ragContext: { documents: string[]; confidenceLevel?: string; isAnswerable?: boolean } | null = null
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
@@ -116,16 +116,77 @@ Answer: To deploy the application, you'll need to set up the required environmen
 
   const responseFormat = getResponseFormat(processedQuery.intent);
 
+  // Determine confidence level and build appropriate instructions
+  const confidenceLevel = ragContext?.confidenceLevel || 'high';
+  const isAnswerable = ragContext?.isAnswerable !== false;
+
+  console.log("🎯 RAG Confidence Level:", confidenceLevel, "Answerable:", isAnswerable);
+
+  // Build confidence-specific instructions
+  let confidenceInstructions = "";
+  if (ragContext && ragContext.documents.length > 0) {
+    if (!isAnswerable || confidenceLevel === 'insufficient') {
+      confidenceInstructions = `
+⚠️ CRITICAL - LOW CONFIDENCE RETRIEVAL ⚠️
+The document retrieval system found NO sufficiently relevant documents for this query.
+You MUST respond with EXACTLY this message:
+
+"I cannot answer this question based on the provided documents. The available documents don't contain information relevant to your query. Please consider:
+• Uploading documents that cover this topic
+• Rephrasing your question to match the content in your documents
+• Asking a different question about the topics covered in your uploaded documents"
+
+DO NOT attempt to answer from general knowledge or training data.
+DO NOT provide any information not explicitly in the context below.
+DO NOT say "based on the context" if the context is insufficient.`;
+    } else if (confidenceLevel === 'low') {
+      confidenceInstructions = `
+⚠️ LOW CONFIDENCE RETRIEVAL ⚠️
+The retrieved documents have LOW relevance scores to the query.
+• ONLY use information explicitly stated in the context below
+• If the context doesn't fully answer the question, say: "The available documents provide limited information on this topic. Based on what I found: [answer], but this may be incomplete."
+• DO NOT supplement with general knowledge
+• DO NOT make assumptions beyond what's explicitly stated
+• ALWAYS cite the specific source file for each piece of information`;
+    } else if (confidenceLevel === 'medium') {
+      confidenceInstructions = `
+⚡ MEDIUM CONFIDENCE RETRIEVAL
+The retrieved documents have MODERATE relevance to the query.
+• Use ONLY information from the context below
+• Cite sources for all claims
+• If any part of the question isn't covered, explicitly state what's missing
+• DO NOT fill gaps with general knowledge`;
+    } else {
+      confidenceInstructions = `
+✅ HIGH CONFIDENCE RETRIEVAL
+The retrieved documents are highly relevant to the query.
+• Answer using ONLY the provided context
+• Cite sources for all information
+• Be thorough but stay within document boundaries`;
+    }
+  }
+
   // Add system message first
   messages.push({
     role: "system",
     content: `You are an open source language model running on Tenstorrent hardware.
 
+STRICT DOCUMENT SCOPING RULES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• You MUST answer ONLY from the provided document context
+• You MUST NOT use your training data or general knowledge
+• If the context doesn't contain the answer, you MUST refuse with: "I cannot answer this based on the provided documents"
+• NEVER make up information, NEVER guess, NEVER infer beyond what's explicitly stated
+• ALWAYS cite the source file name for each piece of information used
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${confidenceInstructions}
+
 SAFETY GUIDELINES:
-• Only answer if you are confident and the information is in your training or the provided context
-• Do NOT guess or make up answers
-• If unsure, reply with: "I'm not sure — please upload a document or ask a human reviewer"
+• Only answer if information is explicitly in the provided context
+• If unsure or context is insufficient, reply with: "I cannot answer this based on the provided documents"
 • Format replies with markdown, bullet points, and code blocks where applicable
+• Never fabricate dates, names, numbers, or facts not in the documents
 
 ${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
 
@@ -141,6 +202,8 @@ ${responseFormat}`
   if (ragContext && ragContext.documents.length > 0) {
     console.log("📚 RAG Context Available:", {
       documentCount: ragContext.documents.length,
+      confidenceLevel: confidenceLevel,
+      isAnswerable: isAnswerable,
       firstDocumentPreview: ragContext.documents[0].substring(0, 100) + "...",
     });
 
@@ -157,20 +220,20 @@ ${responseFormat}`
       })
       .join("\n\n---\n\n");
 
-    // Add context to system message with improved formatting and instructions
+    // Add context to system message with clear boundaries
     messages[0].content += `
 
-RELEVANT CONTEXT:
-----------------
+════════════════ DOCUMENT CONTEXT START ════════════════
 ${formattedDocuments}
-----------------
+════════════════ DOCUMENT CONTEXT END ════════════════
 
 CONTEXT INSTRUCTIONS:
-• Use ONLY the provided context to inform your response
-• Always cite the source file name when using specific information
-• If context is insufficient, acknowledge this and suggest uploading relevant documents
-• Do not make assumptions beyond what's in the context
-• If multiple sources conflict, acknowledge the conflict and explain the different perspectives`;
+• Use ONLY the content between "DOCUMENT CONTEXT START" and "DOCUMENT CONTEXT END"
+• Everything outside these boundaries is NOT part of the available documents
+• Always cite the [Source: filename] when using information
+• If the context is insufficient, you MUST refuse to answer
+• If multiple sources conflict, acknowledge both perspectives without synthesizing
+• NEVER add information from your training data or general knowledge`;
   }
 
   // Add chat history

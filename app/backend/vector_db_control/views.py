@@ -474,11 +474,22 @@ class VectorCollectionsAPIView(ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"error": "No query text provided"},
             )
+
+        # Apply RAG strict mode if enabled
+        distance_threshold = None
+        min_documents = None
+        if settings.RAG_STRICT_MODE:
+            distance_threshold = settings.RAG_CONFIDENCE_THRESHOLD
+            min_documents = settings.RAG_MIN_DOCUMENTS
+            logger.info(f"RAG strict mode enabled: threshold={distance_threshold}, min_docs={min_documents}")
+
         results = query_collection(
             collection_name=pk,
             query_texts=[query_text],
             n_results=self.query_results_limit,
             embedding_func_name=self.EMBED_MODEL,
+            distance_threshold=distance_threshold,
+            min_documents=min_documents,
         )
         return Response(results)
 
@@ -496,10 +507,10 @@ class VectorCollectionsAPIView(ViewSet):
         all_collections: List[Collection] = list_collections()
         user_id = self.get_user_identifier(request)
         user_collections = [
-            col for col in all_collections 
+            col for col in all_collections
             if not col.metadata or not col.metadata.get('user_id') or col.metadata.get('user_id') == user_id
         ]
-        
+
         if not user_collections:
             return Response(
                 status=status.HTTP_404_NOT_FOUND,
@@ -507,8 +518,19 @@ class VectorCollectionsAPIView(ViewSet):
             )
 
         logger.info(f"Querying across {len(user_collections)} collections for user {user_id}")
-        
-        all_results = {"results": []}
+
+        # Apply RAG strict mode if enabled
+        distance_threshold = None
+        min_documents = None
+        if settings.RAG_STRICT_MODE:
+            distance_threshold = settings.RAG_CONFIDENCE_THRESHOLD
+            min_documents = settings.RAG_MIN_DOCUMENTS
+            logger.info(f"RAG strict mode enabled: threshold={distance_threshold}, min_docs={min_documents}")
+
+        all_results = {"results": [], "is_answerable": True, "confidence_level": "high"}
+        total_filtered_count = 0
+        total_raw_count = 0
+
         for collection in user_collections:
             logger.info(f"Querying collection: {collection.name}")
             try:
@@ -517,7 +539,15 @@ class VectorCollectionsAPIView(ViewSet):
                     query_texts=[query_text],
                     n_results=self.query_results_limit,
                     embedding_func_name=self.EMBED_MODEL,
+                    distance_threshold=distance_threshold,
+                    min_documents=min_documents,
                 )
+
+                # Track overall confidence metadata
+                if results.get('filtered_count') is not None:
+                    total_filtered_count += results.get('filtered_count', 0)
+                    total_raw_count += results.get('raw_count', 0)
+
                 if results and results.get("documents"):
                     # Add collection name to each result for context
                     serialized_collection = serialize_collection(collection)
@@ -540,6 +570,27 @@ class VectorCollectionsAPIView(ViewSet):
         # Limit the final results to the top N
         limit = int(request.GET.get("limit", 10))
         all_results["results"] = all_results["results"][:limit]
+
+        # Determine overall answerability based on aggregated results
+        if settings.RAG_STRICT_MODE and distance_threshold is not None:
+            all_results["is_answerable"] = total_filtered_count >= min_documents
+            if total_filtered_count == 0:
+                all_results["confidence_level"] = "insufficient"
+            elif total_filtered_count < min_documents:
+                all_results["confidence_level"] = "insufficient"
+            else:
+                # Use best distance from results
+                best_distance = all_results["results"][0]["distance"] if all_results["results"] else float('inf')
+                if best_distance <= 0.5:
+                    all_results["confidence_level"] = "high"
+                elif best_distance <= 0.8:
+                    all_results["confidence_level"] = "medium"
+                else:
+                    all_results["confidence_level"] = "low"
+
+            all_results["filtered_count"] = total_filtered_count
+            all_results["raw_count"] = total_raw_count
+            all_results["threshold_used"] = distance_threshold
 
         return Response(all_results)
 

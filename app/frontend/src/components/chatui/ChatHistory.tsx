@@ -4,7 +4,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Database, File, X } from "lucide-react";
+import { Database, File, X, BookOpen, FileText, Library } from "lucide-react";
 import { motion } from "framer-motion";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
@@ -26,11 +26,11 @@ const RagPill: React.FC<{
     };
   };
 }> = ({ ragDatasource }) => (
-  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-TT-slate/30 dark:bg-TT-slate/30 text-xs text-black dark:text-gray-300 mb-2">
-    <Database size={12} className="text-black dark:text-gray-300" />
-    <span>{ragDatasource.name}</span>
+  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20 border border-indigo-500/30 text-xs text-indigo-300 dark:text-indigo-300 mb-2 hover:bg-indigo-500/20 transition-colors">
+    <BookOpen size={13} className="text-indigo-400 dark:text-indigo-300" strokeWidth={2.5} />
+    <span className="font-medium">{ragDatasource.name}</span>
     {ragDatasource.metadata?.last_uploaded_document && (
-      <span className="text-gray-600 dark:text-gray-400">
+      <span className="text-indigo-400/70 dark:text-indigo-400/70">
         · {ragDatasource.metadata.last_uploaded_document}
       </span>
     )}
@@ -237,13 +237,33 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                   className={`chat-bubble ${
                     message.sender === "user"
                       ? "bg-TT-green-accent text-white"
-                      : "bg-TT-purple-accent text-white"
+                      : message.isRefusal
+                        ? "bg-amber-900/50 border-2 border-amber-600/50 text-amber-100"
+                        : message.confidenceLevel === "low"
+                          ? "bg-TT-purple-accent/80 border border-yellow-500/30 text-white"
+                          : "bg-TT-purple-accent text-white"
                   } p-4 rounded-2xl mb-1 ${
                     isMobileView ? "text-[15px]" : "text-[15px]"
                   } ${getBubbleMaxWidth()} break-words overflow-hidden shadow-sm leading-relaxed`}
                 >
                   {message.sender === "assistant" && (
                     <>
+                      {message.isRefusal && (
+                        <div className="text-amber-300 font-semibold mb-2 flex items-center text-sm gap-2 border-b border-amber-500/30 pb-2">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <span>Insufficient Document Context</span>
+                        </div>
+                      )}
+                      {message.confidenceLevel === "low" && !message.isRefusal && (
+                        <div className="text-yellow-300 text-xs mb-2 flex items-center gap-1.5 opacity-80">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span>Low confidence - answer may be incomplete</span>
+                        </div>
+                      )}
                       {reRenderingMessageId === message.id && (
                         <div className="text-yellow-300 font-bold mb-1 sm:mb-2 flex items-center text-xs sm:text-sm">
                           <span className="mr-1 sm:mr-2">Re-rendering</span>

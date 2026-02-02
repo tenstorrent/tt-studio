@@ -37,6 +37,8 @@ export interface ChatMessage {
   inferenceStats?: InferenceStats;
   ragDatasource?: RagDataSource;
   isStopped?: boolean;
+  isRefusal?: boolean; // Indicates if this is a refusal message due to insufficient context
+  confidenceLevel?: string; // RAG confidence level: 'high', 'medium', 'low', 'insufficient'
 }
 
 export type MessageContent =

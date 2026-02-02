@@ -42,6 +42,34 @@ export const runInference = async (
       );
       ragContext = await getRagContext(request, ragDatasource);
       console.log("RAG context fetched:", ragContext);
+
+      // HARD REFUSAL CHECK - If retrieval confidence is insufficient, force refusal
+      if (ragContext && ragContext.isAnswerable === false) {
+        console.warn("⚠️ FORCING REFUSAL - isAnswerable is false");
+
+        const refusalMessage = `I cannot answer this question based on the provided documents. The available documents don't contain information relevant to your query.
+
+Please consider:
+• Uploading documents that cover this topic
+• Rephrasing your question to match the content in your documents
+• Asking a different question about the topics covered in your uploaded documents`;
+
+        const refusalMessageId = uuidv4();
+        setChatHistory((prevHistory) => [
+          ...prevHistory,
+          {
+            id: refusalMessageId,
+            sender: "assistant",
+            text: refusalMessage,
+            confidenceLevel: ragContext?.confidenceLevel || 'insufficient',
+            isRefusal: true,
+          },
+        ]);
+
+        setIsStreaming(false);
+        console.log("Refusal message added, skipping LLM call");
+        return; // Exit early - don't call LLM
+      }
     }
 
     let messages;
@@ -267,7 +295,12 @@ export const runInference = async (
     const newMessageId = uuidv4();
     setChatHistory((prevHistory) => [
       ...prevHistory,
-      { id: newMessageId, sender: "assistant", text: "" },
+      {
+        id: newMessageId,
+        sender: "assistant",
+        text: "",
+        confidenceLevel: ragContext?.confidenceLevel,
+      },
     ]);
 
     let inferenceStats: InferenceStats | undefined;
@@ -366,16 +399,39 @@ export const runInference = async (
     console.log("Inference stream ended.");
     setIsStreaming(false);
 
-    if (inferenceStats) {
+    // Detect if the response is a refusal
+    const isRefusalResponse = (text: string): boolean => {
+      const refusalPhrases = [
+        "i cannot answer this based on the provided documents",
+        "i cannot answer this question based on the provided documents",
+        "i'm not sure — please upload a document",
+        "i don't have enough information",
+        "the documents don't contain",
+        "not found in the provided documents",
+        "insufficient information in the documents",
+        "the available documents don't contain",
+      ];
+      const lowerText = text.toLowerCase().trim();
+      return refusalPhrases.some(phrase => lowerText.includes(phrase));
+    };
+
+    // Update with inference stats and refusal detection
+    if (inferenceStats || accumulatedText) {
       console.log(
-        "Updating chat history with inference stats:",
-        inferenceStats
+        "Updating chat history with inference stats and refusal detection"
       );
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];
         if (lastMessage.id === newMessageId) {
-          lastMessage.inferenceStats = inferenceStats;
+          if (inferenceStats) {
+            lastMessage.inferenceStats = inferenceStats;
+          }
+          // Detect and mark refusal messages
+          if (accumulatedText && isRefusalResponse(accumulatedText)) {
+            lastMessage.isRefusal = true;
+            console.log("Detected refusal response in message");
+          }
         }
         return updatedHistory;
       });

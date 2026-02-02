@@ -178,6 +178,15 @@ CHROMA_DB_PORT = int(os.environ.get("CHROMA_DB_PORT", 8111))
 CHROMA_DB_HOST = os.environ.get("CHROMA_DB_HOST", "tt_studio_chromadb")
 CHROMA_DB_EMBED_MODEL = "all-MiniLM-L6-v2"
 
+# RAG Answer Scoping Guardrails Configuration
+RAG_STRICT_MODE = os.environ.get("RAG_STRICT_MODE", "True").lower() == "true"
+RAG_CONFIDENCE_THRESHOLD = float(os.environ.get("RAG_CONFIDENCE_THRESHOLD", "0.8"))
+RAG_MIN_DOCUMENTS = int(os.environ.get("RAG_MIN_DOCUMENTS", "2"))
+RAG_VALIDATION_ENABLED = os.environ.get("RAG_VALIDATION_ENABLED", "True").lower() == "true"
+
+# RAG Admin Password (optional, for admin endpoints)
+RAG_ADMIN_PASSWORD = os.environ.get("RAG_ADMIN_PASSWORD", None)
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],
     "DEFAULT_PERMISSION_CLASSES": [],

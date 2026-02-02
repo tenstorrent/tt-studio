@@ -7,7 +7,13 @@ export const getRagContext = async (
   request: InferenceRequest,
   ragDatasource: RagDataSource | undefined
 ) => {
-  const ragContext: { documents: string[] } = { documents: [] };
+  const ragContext: {
+    documents: string[];
+    confidenceLevel?: string;
+    isAnswerable?: boolean;
+    filteredCount?: number;
+    rawCount?: number;
+  } = { documents: [] };
   console.log(
     "2^^^Fetching RAG context for the given request...",
     request,
@@ -41,6 +47,19 @@ export const getRagContext = async (
               `[From ${result.collection.name}]\n${result.document}`
           );
           console.log("Processed documents:", ragContext.documents.length);
+
+          // Extract confidence metadata
+          ragContext.confidenceLevel = response.data.confidence_level || 'high';
+          ragContext.isAnswerable = response.data.is_answerable !== false;
+          ragContext.filteredCount = response.data.filtered_count;
+          ragContext.rawCount = response.data.raw_count;
+
+          console.log("RAG Confidence Metadata:", {
+            confidenceLevel: ragContext.confidenceLevel,
+            isAnswerable: ragContext.isAnswerable,
+            filteredCount: ragContext.filteredCount,
+            rawCount: ragContext.rawCount,
+          });
         } else {
           console.warn(
             "No results found in query-all response:",
@@ -71,26 +90,39 @@ export const getRagContext = async (
         console.log("Single collection response:", response);
 
         if (response?.data) {
-           const docs = response.data.documents;
+          const docs = response.data.documents;
           if (Array.isArray(docs)) {
             const items = docs.flat(Infinity);
             ragContext.documents = items.map((d: any) => {
-	              if (typeof d === "string") {
-	                return d;
-	              } else if (d?.document) {
-	                return d.document;
-	              } else if (d?.text) {
-	                return d.text;
-	              } else {
-	                console.warn("Unrecognized document format in RAG response:", d);
-	                return "[Unrecognized document format]";
-	              }
-	            });
+              if (typeof d === "string") {
+                return d;
+              } else if (d?.document) {
+                return d.document;
+              } else if (d?.text) {
+                return d.text;
+              } else {
+                console.warn("Unrecognized document format in RAG response:", d);
+                return "[Unrecognized document format]";
+              }
+            });
           } else {
             // If it's not an array, fall back to empty array for safety.
             ragContext.documents = [];
           }
+
+          // Extract confidence metadata
+          ragContext.confidenceLevel = response.data.confidence_level || 'high';
+          ragContext.isAnswerable = response.data.is_answerable !== false;
+          ragContext.filteredCount = response.data.filtered_count;
+          ragContext.rawCount = response.data.raw_count;
+
           console.log("Processed documents:", ragContext.documents.length);
+          console.log("RAG Confidence Metadata:", {
+            confidenceLevel: ragContext.confidenceLevel,
+            isAnswerable: ragContext.isAnswerable,
+            filteredCount: ragContext.filteredCount,
+            rawCount: ragContext.rawCount,
+          });
         } else {
           console.warn(
             "No results found in single collection response:",
