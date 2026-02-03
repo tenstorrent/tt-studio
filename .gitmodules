@@ -1,4 +1,4 @@
 [submodule "tt-inference-server"]
 	path = tt-inference-server
 	url = https://github.com/tenstorrent/tt-inference-server.git
-	branch = anirud/v0.0.5-fast-api-for-tt-studio
+	branch = anirud/feat-qb-ge-tt-studio-link
