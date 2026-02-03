@@ -1213,7 +1213,69 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     return False
 
 
-def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
+def verify_docker_containers():
+    """
+    Verify that Docker containers started successfully.
+    Returns dict with container names as keys and status info as values.
+    """
+    try:
+        # Run docker ps to check running containers
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=tt_studio", "--format", "{{.Names}}\t{{.Status}}"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        containers = {}
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if '\t' in line:
+                    name, status = line.split('\t', 1)
+                    # Check if container is running
+                    is_running = status.startswith('Up')
+                    containers[name] = {
+                        'status': status,
+                        'running': is_running
+                    }
+
+        return containers
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Could not verify container status: {e}{C_RESET}")
+        return {}
+
+
+def print_container_diagnostics(containers):
+    """
+    Print helpful diagnostic information for failed containers.
+    """
+    failed_containers = {name: info for name, info in containers.items() if not info['running']}
+
+    if not failed_containers:
+        return
+
+    print(f"\n{C_RED}⚠️  Some containers failed to start properly:{C_RESET}")
+    for name, info in failed_containers.items():
+        print(f"  • {C_YELLOW}{name}{C_RESET}: {info['status']}")
+
+    print(f"\n{C_CYAN}📋 To diagnose issues, run these commands:{C_RESET}")
+    print(f"  # View logs for failed containers:")
+    for name in failed_containers.keys():
+        print(f"  docker logs -f {name}")
+
+    print(f"\n  # View all container logs:")
+    print(f"  docker logs -f tt_studio_backend")
+    print(f"  docker logs -f tt_studio_frontend")
+    print(f"  docker logs -f tt_studio_chroma")
+
+    print(f"\n  # Check container status:")
+    print(f"  docker ps -a | grep tt_studio")
+    print(f"\n  # Container logs are also stored at:")
+    print(f"  /var/lib/docker/containers/<container-id>/<container-id>-json.log")
+
+
+def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docker_control=False):
     """
     Wait for all core services to become healthy before continuing.
     Returns True if all are healthy.
@@ -1225,19 +1287,54 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
         ("Backend API", "http://localhost:8000/up/"),
         ("Frontend", "http://localhost:3000/"),
     ]
+    # Optionally add Docker Control Service
+    if not skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):
+        services_to_check.append(("Docker Control Service", "http://localhost:8002/api/v1/health"))
     # Optionally add FastAPI
     if not skip_fastapi and not is_deployed_mode:
         services_to_check.append(("FastAPI Server", "http://localhost:8001/"))
     
     all_healthy = True
+    failed_services = []
+
     for service_name, health_url in services_to_check:
         if not wait_for_service_health(service_name, health_url, timeout=120, interval=3):
             all_healthy = False
-    
+            failed_services.append(service_name)
+
     if all_healthy:
-        print("\n✅ All services are healthy and ready!")
+        print(f"\n{C_GREEN}✅ All services are healthy and ready!{C_RESET}")
     else:
-        print("\n⚠️  Some services may not be fully ready, but main app may still be accessible.")
+        print(f"\n{C_YELLOW}⚠️  Some services did not become healthy:{C_RESET}")
+        for service in failed_services:
+            print(f"  • {C_YELLOW}{service}{C_RESET}")
+
+        print(f"\n{C_CYAN}📋 To diagnose issues, check the logs:{C_RESET}")
+
+        # Map service names to container names or log files
+        service_to_container = {
+            "ChromaDB": "tt_studio_chroma",
+            "Backend API": "tt_studio_backend",
+            "Frontend": "tt_studio_frontend",
+            "FastAPI Server": "FastAPI logs (not containerized)",
+            "Docker Control Service": "Docker Control Service logs (not containerized)"
+        }
+
+        for service in failed_services:
+            container = service_to_container.get(service, "unknown")
+            if container == "FastAPI logs (not containerized)":
+                fastapi_log = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "fastapi.log")
+                print(f"  # {service}:")
+                print(f"  tail -f {fastapi_log}")
+            elif container == "Docker Control Service logs (not containerized)":
+                print(f"  # {service}:")
+                print(f"  tail -f {DOCKER_CONTROL_LOG_FILE}")
+            else:
+                print(f"  # {service}:")
+                print(f"  docker logs -f {container}")
+
+        print(f"\n{C_YELLOW}The app may still be accessible, but some features might not work.{C_RESET}")
+
     return all_healthy
 
 def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None):
@@ -2334,11 +2431,17 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
 
         else: # No local npm found
             print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
-            
+
+            # In easy mode, automatically skip npm installation
+            if easy_mode:
+                print(f"{C_YELLOW}Skipping local dependency installation (easy mode). IDE features may be limited.{C_RESET}")
+                save_preference("npm_install_via_docker", 'n')
+                return True
+
             # Check for saved preference
             docker_pref = get_preference("npm_install_via_docker")
             choice = None
-            
+
             if not force_prompt and docker_pref:
                 if docker_pref in ['n', 'no', 'false']:
                     print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
@@ -3010,7 +3113,7 @@ def main():
         # This ensures the backend can connect to it when it starts
         if not args.skip_docker_control:
             print(f"\n{C_BLUE}{'='*60}{C_RESET}")
-            print(f"{C_BLUE}Step 7: Starting Docker Control Service{C_RESET}")
+            print(f"{C_BLUE}🔧 Starting Docker Control Service{C_RESET}")
             print(f"{C_BLUE}{'='*60}{C_RESET}")
 
             if not start_docker_control_service(no_sudo=args.no_sudo):
@@ -3034,13 +3137,38 @@ def main():
         docker_compose_cmd.extend(["up", "--build", "-d"])
 
         # Run the Docker Compose command with sudo if needed
-        if has_docker_access:
-            run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
-        else:
-            # Need sudo for docker-compose
-            sudo_cmd = ["sudo"] + docker_compose_cmd
-            subprocess.run(sudo_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"), check=True)
-        
+        try:
+            if has_docker_access:
+                run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
+            else:
+                # Need sudo for docker-compose
+                sudo_cmd = ["sudo"] + docker_compose_cmd
+                subprocess.run(sudo_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"), check=True)
+
+            # Give containers a moment to start
+            print(f"{C_BLUE}⏳ Waiting for containers to initialize...{C_RESET}")
+            time.sleep(3)
+
+            # Verify containers started successfully
+            containers = verify_docker_containers()
+            failed_any = any(not info['running'] for info in containers.values())
+
+            if failed_any:
+                print(f"\n{C_YELLOW}⚠️  Warning: Some containers may have failed to start{C_RESET}")
+                print_container_diagnostics(containers)
+                print(f"\n{C_YELLOW}Continuing with setup, but some services may not be available...{C_RESET}")
+            else:
+                print(f"{C_GREEN}✅ All containers started successfully{C_RESET}")
+
+        except subprocess.CalledProcessError as e:
+            print(f"\n{C_RED}⛔ Error: Docker compose failed to start containers{C_RESET}")
+            print(f"{C_RED}   {e}{C_RESET}")
+            print(f"\n{C_CYAN}📋 To diagnose the issue, run:{C_RESET}")
+            print(f"  docker logs -f tt_studio_backend")
+            print(f"  docker logs -f tt_studio_frontend")
+            print(f"  docker logs -f tt_studio_chroma")
+            raise
+
         # Check if AI Playground mode is enabled
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
         
@@ -3115,6 +3243,20 @@ def main():
                 print(f"  {mode}")
             print()
         
+        print(f"{C_CYAN}📋 To view logs:{C_RESET}")
+        print(f"  # Container logs (via Docker):")
+        print(f"  docker logs -f tt_studio_backend")
+        print(f"  docker logs -f tt_studio_frontend")
+        print(f"  docker logs -f tt_studio_chroma")
+        if not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):
+            print(f"  # Docker Control Service log:")
+            print(f"  tail -f {DOCKER_CONTROL_LOG_FILE}")
+        if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE):
+            fastapi_log = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "fastapi.log")
+            print(f"  # FastAPI Server log:")
+            print(f"  tail -f {fastapi_log}")
+        print()
+
         print(f"{C_YELLOW}🧹 To stop all services, run:{C_RESET}")
         print(f"  {C_MAGENTA}python run.py --cleanup{C_RESET}")
         print()
@@ -3134,7 +3276,19 @@ def main():
         print(f"  • Persistent Storage: {host_persistent_volume}")
         print(f"  • Development Mode: {'✅ Enabled' if args.dev else '❌ Disabled'}")
         print(f"  • TT Hardware Support: {'✅ Enabled' if detect_tt_hardware() else '❌ Disabled'}")
-        print(f"  • FastAPI Server: {'✅ Enabled' if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE) else '❌ Disabled'}")
+
+        # Show service status with log file locations
+        fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
+        docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
+
+        print(f"  • FastAPI Server: {'✅ Enabled' if fastapi_enabled else '❌ Disabled'}")
+        if fastapi_enabled:
+            fastapi_log = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "fastapi.log")
+            print(f"    {C_CYAN}   → Log: {fastapi_log}{C_RESET}")
+
+        print(f"  • Docker Control Service: {'✅ Enabled' if docker_control_enabled else '❌ Disabled'}")
+        if docker_control_enabled:
+            print(f"    {C_CYAN}   → Log: {DOCKER_CONTROL_LOG_FILE}{C_RESET}")
         
         if is_deployed_mode:
             print(f"\n{C_BLUE}🌐 Your TT Studio is running in AI Playground mode with cloud model integrations.{C_RESET}")
@@ -3145,7 +3299,7 @@ def main():
         
         # Wait for services if requested
         if args.wait_for_services:
-            wait_for_all_services(skip_fastapi=args.skip_fastapi, is_deployed_mode=is_deployed_mode)
+            wait_for_all_services(skip_fastapi=args.skip_fastapi, is_deployed_mode=is_deployed_mode, skip_docker_control=args.skip_docker_control)
         
         
         # Control browser open only if service is healthy
