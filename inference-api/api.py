@@ -18,39 +18,55 @@ from collections import deque
 from pathlib import Path
 from datetime import datetime
 
-# Add artifact path to sys.path to import from tt-inference-server artifact
-ARTIFACT_PATH = os.getenv("TT_INFERENCE_ARTIFACT_PATH", None)
-artifact_path = None
-if ARTIFACT_PATH:
-    artifact_path = Path(ARTIFACT_PATH).resolve()
-    if artifact_path.exists():
-        sys.path.insert(0, str(artifact_path))
-        logging.info(f"Added tt-inference-server artifact to path: {artifact_path}")
-        
-        # Patch get_repo_root_path to return artifact directory when running from artifact
-        # This MUST be done before importing any workflows modules that use it
-        import workflows.utils as workflows_utils
-        original_get_repo_root_path = workflows_utils.get_repo_root_path
-        
-        def patched_get_repo_root_path(marker: str = ".git") -> Path:
-            """Return artifact directory as repo root when running from artifact."""
-            # If VERSION file exists in artifact, use artifact as root
-            if artifact_path and (artifact_path / "VERSION").exists():
-                return artifact_path
-            # Otherwise fall back to original behavior
-            return original_get_repo_root_path(marker)
-        
-        workflows_utils.get_repo_root_path = patched_get_repo_root_path
+# Add tt-inference-server root to sys.path so we can import workflows, run, etc.
+# Prefer TT_INFERENCE_ARTIFACT_PATH (e.g. .artifacts/tt-inference-server) if it has workflows;
+# otherwise fall back to tt-inference-server directory next to inference-api (e.g. git submodule).
+_tt_studio_root = Path(__file__).resolve().parent.parent
+_candidates = []
+if os.getenv("TT_INFERENCE_ARTIFACT_PATH"):
+    _candidates.append(Path(os.getenv("TT_INFERENCE_ARTIFACT_PATH")).resolve())
+_candidates.append(_tt_studio_root / "tt-inference-server")
 
-# Import from artifact
+artifact_path = None
+for _path in _candidates:
+    if _path.exists() and (_path / "workflows" / "utils.py").exists():
+        if str(_path) not in sys.path:
+            sys.path.insert(0, str(_path))
+        logging.info(f"Using tt-inference-server root: {_path}")
+        artifact_path = _path
+        break
+
+if artifact_path is None:
+    raise ImportError(
+        "No tt-inference-server root with workflows found. "
+        "Set TT_INFERENCE_ARTIFACT_PATH to .artifacts/tt-inference-server (with full workflows/) "
+        "or ensure tt-inference-server/ exists at repo root with workflows/utils.py."
+    )
+
+# Patch get_repo_root_path to return artifact directory when running from artifact
+# This MUST be done before importing any workflows modules that use it
+import workflows.utils as workflows_utils  # noqa: E402
+original_get_repo_root_path = workflows_utils.get_repo_root_path
+
+
+def _patched_get_repo_root_path(marker: str = ".git") -> Path:
+    """Return artifact directory as repo root when running from artifact."""
+    if artifact_path and (artifact_path / "VERSION").exists():
+        return artifact_path
+    return original_get_repo_root_path(marker)
+
+
+workflows_utils.get_repo_root_path = _patched_get_repo_root_path
+
+# Import from tt-inference-server
 try:
-    from run import main as run_main, parse_arguments, WorkflowType, DeviceTypes
-    from workflows.model_spec import MODEL_SPECS
+    from run import main as run_main, parse_arguments, WorkflowType, DeviceTypes  # noqa: E402
+    from workflows.model_spec import MODEL_SPECS  # noqa: E402
 except ImportError as e:
     raise ImportError(
-        f"Failed to import from tt-inference-server artifact: {e}\n"
-        f"Make sure TT_INFERENCE_ARTIFACT_PATH points to the artifact directory"
-    )
+        f"Failed to import from tt-inference-server: {e}\n"
+        f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
+    ) from e
 
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
@@ -476,8 +492,8 @@ def sync_tokens_from_tt_studio():
     tt_studio_env = tt_studio_root / "app" / ".env"
     
     # Use artifact directory for inference server .env if available, otherwise use TT Studio root
-    if ARTIFACT_PATH:
-        inference_server_env = Path(ARTIFACT_PATH) / ".env"
+    if artifact_path:
+        inference_server_env = Path(artifact_path) / ".env"
     else:
         inference_server_env = tt_studio_root / ".env"
     
@@ -592,8 +608,8 @@ async def run_inference(request: RunRequest):
             # Continue anyway - tokens might be set via request or environment
         
         # Ensure we're in the correct working directory (use artifact directory if available)
-        if ARTIFACT_PATH and os.path.exists(ARTIFACT_PATH):
-            script_dir = Path(ARTIFACT_PATH).resolve()
+        if artifact_path and os.path.exists(artifact_path):
+            script_dir = Path(artifact_path).resolve()
         else:
             # Fallback: try to find artifact directory in standard location
             default_artifact_dir = Path(__file__).parent.parent / ".artifacts" / "tt-inference-server"

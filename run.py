@@ -1436,22 +1436,29 @@ def setup_tt_inference_server():
     print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server (Artifact){C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     
-    # Read from .env file or environment (prefer .env file)
-    artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION", "latest")
+    # Read version from .env file or environment (single source of truth for artifact version)
+    artifact_version = (get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION") or "latest").strip()
     artifact_url = get_env_var("TT_INFERENCE_ARTIFACT_URL") or os.getenv("TT_INFERENCE_ARTIFACT_URL", None)
-    
+
+    # Create artifacts directory early so we can check for local tarballs
+    artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
+    os.makedirs(artifacts_dir, exist_ok=True)
+
     # Check if artifact already exists
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
         version = get_inference_server_version()
         version_str = f" (v{version})" if version else ""
+        # If env requests a specific version, verify it matches the installed artifact
+        if artifact_version and artifact_version != "latest" and version:
+            req = artifact_version.lstrip("v").strip()
+            cur = version.lstrip("v").strip()
+            if req != cur:
+                print(f"{C_YELLOW}⚠️  TT_INFERENCE_ARTIFACT_VERSION={artifact_version} but artifact has VERSION={version}{C_RESET}")
+                print(f"   To use {artifact_version}, remove the artifact and run again: rm -rf {INFERENCE_ARTIFACT_DIR}")
         print(f"✅ TT Inference Server artifact already exists at {INFERENCE_ARTIFACT_DIR}{version_str}")
         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
         return True
-    
-    # Create artifacts directory
-    artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
-    os.makedirs(artifacts_dir, exist_ok=True)
-    
+
     # If artifact URL is provided, download it
     if artifact_url:
         print(f"📥 Downloading TT Inference Server artifact from {artifact_url}...")
@@ -1485,51 +1492,62 @@ def setup_tt_inference_server():
             print(f"{C_RED}⛔ Error downloading/extracting artifact: {e}{C_RESET}")
             return False
     else:
-        # Try to download from GitHub release if version is set
+        # Try to use version env var: first check for local tarball, then GitHub release
         if artifact_version and artifact_version != "latest":
-            print(f"📥 Downloading TT Inference Server from GitHub release: {artifact_version}")
-            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/tags/{artifact_version}.tar.gz"
-            artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz")
-            
-            try:
-                import urllib.request
-                print(f"   Downloading from: {github_url}")
-                urllib.request.urlretrieve(github_url, artifact_file)
-                print(f"✅ Artifact downloaded to {artifact_file}")
-                
-                # Extract artifact
-                import tarfile
-                with tarfile.open(artifact_file, "r:gz") as tar:
-                    tar.extractall(artifacts_dir)
-                
-                # GitHub releases extract to tt-inference-server-{version} (without 'v' prefix)
-                # Try both with and without 'v' prefix
-                version_without_v = artifact_version.lstrip('v')  # Remove 'v' prefix if present
-                possible_dirs = [
-                    os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}"),
-                    os.path.join(artifacts_dir, f"tt-inference-server-{version_without_v}"),
-                ]
-                
-                extracted_dir = None
-                for possible_dir in possible_dirs:
-                    if os.path.exists(possible_dir):
-                        extracted_dir = possible_dir
-                        break
-                
-                if extracted_dir and extracted_dir != INFERENCE_ARTIFACT_DIR:
-                    if os.path.exists(INFERENCE_ARTIFACT_DIR):
-                        shutil.rmtree(INFERENCE_ARTIFACT_DIR)
-                    os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
-                    print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
-                
-                _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                print(f"✅ Artifact extracted to {INFERENCE_ARTIFACT_DIR}")
-                return True
-                
-            except Exception as e:
-                print(f"{C_YELLOW}⚠️  Failed to download from GitHub release: {e}{C_RESET}")
-                print(f"   Falling back to manual setup...")
-        
+            # Prefer local tarball if present (e.g. .artifacts/tt-inference-server-v0.8.0.tar.gz)
+            version_without_v = artifact_version.lstrip("v").strip()
+            possible_tarballs = [
+                os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz"),
+                os.path.join(artifacts_dir, f"tt-inference-server-{version_without_v}.tar.gz"),
+            ]
+            artifact_file = None
+            for candidate in possible_tarballs:
+                if os.path.exists(candidate):
+                    artifact_file = candidate
+                    print(f"📦 Using existing artifact tarball: {artifact_file}")
+                    break
+
+            if not artifact_file:
+                # Download from GitHub release
+                print(f"📥 Downloading TT Inference Server from GitHub release: {artifact_version}")
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/tags/{artifact_version}.tar.gz"
+                artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz")
+                try:
+                    import urllib.request
+                    print(f"   Downloading from: {github_url}")
+                    urllib.request.urlretrieve(github_url, artifact_file)
+                    print(f"✅ Artifact downloaded to {artifact_file}")
+                except Exception as e:
+                    print(f"{C_YELLOW}⚠️  Failed to download from GitHub release: {e}{C_RESET}")
+                    print(f"   Falling back to manual setup...")
+                    artifact_file = None
+
+            if artifact_file and os.path.exists(artifact_file):
+                try:
+                    import tarfile
+                    with tarfile.open(artifact_file, "r:gz") as tar:
+                        tar.extractall(artifacts_dir)
+                    version_without_v = artifact_version.lstrip("v")
+                    possible_dirs = [
+                        os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}"),
+                        os.path.join(artifacts_dir, f"tt-inference-server-{version_without_v}"),
+                    ]
+                    extracted_dir = None
+                    for possible_dir in possible_dirs:
+                        if os.path.exists(possible_dir):
+                            extracted_dir = possible_dir
+                            break
+                    if extracted_dir and extracted_dir != INFERENCE_ARTIFACT_DIR:
+                        if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                            shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                        os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
+                        print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
+                    _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+                    print(f"✅ Artifact extracted to {INFERENCE_ARTIFACT_DIR}")
+                    return True
+                except Exception as e:
+                    print(f"{C_YELLOW}⚠️  Failed to extract artifact: {e}{C_RESET}")
+
         # Fallback: check if artifact directory exists
         if os.path.exists(INFERENCE_ARTIFACT_DIR):
             _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
@@ -1653,9 +1671,12 @@ def start_fastapi_server(no_sudo=False):
     if hf_token:
         env["HF_TOKEN"] = hf_token
     
-    # Set artifact path if available
+    # Set artifact path and version so inference-api uses the version-resolved artifact
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
         env["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
+        artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION", "latest")
+        if artifact_version:
+            env["TT_INFERENCE_ARTIFACT_VERSION"] = artifact_version
         # Also set OVERRIDE_BENCHMARK_TARGETS to point to the file in the artifact directory
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
