@@ -1,6 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
@@ -17,56 +14,8 @@ import json
 from collections import deque
 from pathlib import Path
 from datetime import datetime
-
-# Add tt-inference-server root to sys.path so we can import workflows, run, etc.
-# Prefer TT_INFERENCE_ARTIFACT_PATH (e.g. .artifacts/tt-inference-server) if it has workflows;
-# otherwise fall back to tt-inference-server directory next to inference-api (e.g. git submodule).
-_tt_studio_root = Path(__file__).resolve().parent.parent
-_candidates = []
-if os.getenv("TT_INFERENCE_ARTIFACT_PATH"):
-    _candidates.append(Path(os.getenv("TT_INFERENCE_ARTIFACT_PATH")).resolve())
-_candidates.append(_tt_studio_root / "tt-inference-server")
-
-artifact_path = None
-for _path in _candidates:
-    if _path.exists() and (_path / "workflows" / "utils.py").exists():
-        if str(_path) not in sys.path:
-            sys.path.insert(0, str(_path))
-        logging.info(f"Using tt-inference-server root: {_path}")
-        artifact_path = _path
-        break
-
-if artifact_path is None:
-    raise ImportError(
-        "No tt-inference-server root with workflows found. "
-        "Set TT_INFERENCE_ARTIFACT_PATH to .artifacts/tt-inference-server (with full workflows/) "
-        "or ensure tt-inference-server/ exists at repo root with workflows/utils.py."
-    )
-
-# Patch get_repo_root_path to return artifact directory when running from artifact
-# This MUST be done before importing any workflows modules that use it
-import workflows.utils as workflows_utils  # noqa: E402
-original_get_repo_root_path = workflows_utils.get_repo_root_path
-
-
-def _patched_get_repo_root_path(marker: str = ".git") -> Path:
-    """Return artifact directory as repo root when running from artifact."""
-    if artifact_path and (artifact_path / "VERSION").exists():
-        return artifact_path
-    return original_get_repo_root_path(marker)
-
-
-workflows_utils.get_repo_root_path = _patched_get_repo_root_path
-
-# Import from tt-inference-server
-try:
-    from run import main as run_main, parse_arguments, WorkflowType, DeviceTypes  # noqa: E402
-    from workflows.model_spec import MODEL_SPECS  # noqa: E402
-except ImportError as e:
-    raise ImportError(
-        f"Failed to import from tt-inference-server: {e}\n"
-        f"Ensure TT_INFERENCE_ARTIFACT_PATH or tt-inference-server/ provides run and workflows."
-    ) from e
+from run import main as run_main, parse_arguments, WorkflowType, DeviceTypes
+from workflows.model_spec import MODEL_SPECS
 
 # Set up logging
 # DO NOT use basicConfig() - it interferes with file handlers
@@ -76,12 +25,11 @@ logger.setLevel(logging.DEBUG)  # Set level on the logger itself
 
 # Configure FastAPI logger to also write to file
 def setup_fastapi_file_logging():
-    """Set up file logging for FastAPI - writes to fastapi.log at TT Studio root"""
+    """Set up file logging for FastAPI - writes to fastapi.log at repo root"""
     try:
-        # Put the log file at TT Studio root:
-        # <tt_studio_root>/fastapi.log
-        tt_studio_root = Path(__file__).parent.parent.resolve()
-        root_log_dir = tt_studio_root
+        # Put the log file at the repo root:
+        # <repo_root>/fastapi.log, assuming this file lives in <repo_root>/tt-inference-server/
+        root_log_dir = Path(__file__).parent.parent.resolve()
         root_log_dir.mkdir(parents=True, exist_ok=True)
         root_log_file = root_log_dir / "fastapi.log"
 
@@ -148,6 +96,9 @@ deployment_log_handlers: Dict[str, logging.FileHandler] = {}
 
 # Maximum number of log messages to keep per job
 MAX_LOG_MESSAGES = 100
+
+# Deployment timeout: 5 hours to allow for large model downloads
+DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
 # Regex pattern for structured progress signals
 PROG_RE = re.compile(r"TT_PROGRESS stage=(\w+) pct=(\d{1,3}) msg=(.*)$")
@@ -307,8 +258,8 @@ class RunRequest(BaseModel):
     is_retry: Optional[bool] = False
     skip_system_sw_validation: Optional[bool] = False
 
+
 def normalize_device_alias(device: str) -> str:
-    """Normalize device aliases to supported device names"""
     if not device:
         return device
     alias_map = {
@@ -317,9 +268,9 @@ def normalize_device_alias(device: str) -> str:
     return alias_map.get(device.strip().lower(), device)
 
 def get_fastapi_logs_dir():
-    """Get the FastAPI logs directory at TT Studio root"""
-    tt_studio_root = Path(__file__).parent.parent.resolve()
-    fastapi_logs_dir = tt_studio_root / "fastapi_logs"
+    """Get the FastAPI logs directory at repo root"""
+    root_log_dir = Path(__file__).parent.parent.resolve()
+    fastapi_logs_dir = root_log_dir / "fastapi_logs"
     fastapi_logs_dir.mkdir(parents=True, exist_ok=True)
     return fastapi_logs_dir
 
@@ -402,15 +353,16 @@ async def get_run_progress(job_id: str):
             "message": "Job not found",
             "last_updated": time.time()
         })
-        
-        # Add stalled detection (>120s no updates)
+
+        # Add stalled detection (>5 hours no updates)
+        # Changed from 120s to 5 hours to accommodate long model downloads
         if progress["status"] == "running" and "last_updated" in progress:
             time_since_update = time.time() - progress["last_updated"]
-            if time_since_update > 120:  # 2 minutes
+            if time_since_update > DEPLOYMENT_TIMEOUT_SECONDS:  # 5 hours
                 progress = progress.copy()  # Don't modify the stored version
                 progress["status"] = "stalled"
-                progress["message"] = f"No progress updates for {int(time_since_update)}s - deployment may be stalled"
-                
+                progress["message"] = f"No progress updates for {int(time_since_update/60)} minutes - deployment may be stalled"
+
     return progress
 
 @app.get("/run/logs/{job_id}")
@@ -450,7 +402,7 @@ async def stream_run_progress(job_id: str):
                         # Check if progress has changed
                         if not last_progress or current_progress != last_progress:
                             last_progress = current_progress.copy()
-                            
+
                             # Add stalled detection (>5 hours no updates)
                             # Changed from 120s to 5 hours to accommodate long model downloads
                             if current_progress["status"] == "running" and "last_updated" in current_progress:
@@ -458,9 +410,9 @@ async def stream_run_progress(job_id: str):
                                 if time_since_update > DEPLOYMENT_TIMEOUT_SECONDS:  # 5 hours
                                     last_progress["status"] = "stalled"
                                     last_progress["message"] = f"No progress updates for {int(time_since_update/60)} minutes - deployment may be stalled"
-                            
+
                             yield f"data: {json.dumps(last_progress)}\n\n"
-                            
+
                             # Stop streaming if deployment is complete or failed
                             if last_progress["status"] in ["completed", "error", "failed", "cancelled"]:
                                 break
@@ -503,13 +455,9 @@ def sync_tokens_from_tt_studio():
     if not tt_studio_root:
         logger.warning("TT_STUDIO_ROOT environment variable not set, cannot sync tokens")
         return
-    tt_studio_env = Path(tt_studio_root) / "app" / ".env"
     
-    # Use artifact directory for inference server .env if available, otherwise use TT Studio root
-    if artifact_path:
-        inference_server_env = Path(artifact_path) / ".env"
-    else:
-        inference_server_env = tt_studio_root / ".env"
+    tt_studio_env = Path(tt_studio_root) / "app" / ".env"
+    inference_server_env = Path(__file__).parent / ".env"
     
     # Read TT Studio .env values
     tt_studio_jwt = None
@@ -603,7 +551,7 @@ async def run_inference(request: RunRequest):
         
         # Create per-deployment log file
         deployment_log_handler, deployment_log_path = create_deployment_log_handler(
-            job_id, request.model, request.device
+            job_id, request.model, normalized_device
         )
         
         # Attach deployment log handler to relevant loggers
@@ -629,19 +577,8 @@ async def run_inference(request: RunRequest):
             logger.warning(f"Failed to sync tokens from TT Studio: {e}")
             # Continue anyway - tokens might be set via request or environment
         
-        # Ensure we're in the correct working directory (use artifact directory if available)
-        if artifact_path and os.path.exists(artifact_path):
-            script_dir = Path(artifact_path).resolve()
-        else:
-            # Fallback: try to find artifact directory in standard location
-            default_artifact_dir = Path(__file__).parent.parent / ".artifacts" / "tt-inference-server"
-            if default_artifact_dir.exists():
-                script_dir = default_artifact_dir.resolve()
-                logger.info(f"Using default artifact directory: {script_dir}")
-            else:
-                script_dir = Path(__file__).parent.absolute()
-                logger.warning(f"Artifact directory not found, using inference-api directory: {script_dir}")
-        
+        # Ensure we're in the correct working directory
+        script_dir = Path(__file__).parent.absolute()
         original_cwd = Path.cwd()
         
         logger.info(f"Current working directory: {original_cwd}")
@@ -694,7 +631,7 @@ async def run_inference(request: RunRequest):
         sys.argv.extend(["--workflow", request.workflow])
         sys.argv.extend(["--device", normalized_device])
         sys.argv.extend(["--docker-server"])
-         # Add dev-mode if requested (used for auto-retry on failure)
+        # Add dev-mode if requested (used for auto-retry on failure)
         if request.dev_mode:
             sys.argv.extend(["--dev-mode"])
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
@@ -750,14 +687,7 @@ async def run_inference(request: RunRequest):
             
             # Run the main function
             logger.info("Starting run_main()...")
-            run_result = run_main()
-            # Handle both tuple and int return values
-            if isinstance(run_result, tuple):
-                return_code, container_info = run_result
-            else:
-                # If run_main() returns just an integer, use it as return_code
-                return_code = run_result
-                container_info = None
+            return_code, container_info = run_main()
             logger.info(f"run_main() completed with return code: {return_code}")
             logger.info(f"container_info:= {container_info}")
             
@@ -781,7 +711,8 @@ async def run_inference(request: RunRequest):
                             "message": "Deployment completed successfully",
                             "last_updated": time.time()
                         })
-
+                
+                # Store container info in the registry
                 container_name = container_info["container_name"]
                 container_id = container_info.get("container_id")
                 docker_log_file_path = container_info.get("docker_log_file_path")
@@ -811,7 +742,7 @@ async def run_inference(request: RunRequest):
                     retry_interval = 3  # seconds
                     attempt = 0
                     
-                   # Extract relevant container information from run.py result
+                    # Extract relevant container information from run.py result
                     target_container_name = container_info.get("container_name")
                     target_container_id = container_info.get("container_id")
                     service_port = container_info.get("service_port")
