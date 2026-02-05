@@ -148,6 +148,8 @@ deployment_log_handlers: Dict[str, logging.FileHandler] = {}
 
 # Maximum number of log messages to keep per job
 MAX_LOG_MESSAGES = 100
+# Deployment timeout: 5 hours to allow for large model downloads
+DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
 # Regex pattern for structured progress signals
 PROG_RE = re.compile(r"TT_PROGRESS stage=(\w+) pct=(\d{1,3}) msg=(.*)$")
@@ -406,7 +408,7 @@ async def get_run_progress(job_id: str):
         # Add stalled detection (>120s no updates)
         if progress["status"] == "running" and "last_updated" in progress:
             time_since_update = time.time() - progress["last_updated"]
-            if time_since_update > 120:  # 2 minutes
+            if time_since_update > DEPLOYMENT_TIMEOUT_SECONDS:  # 2 minutes
                 progress = progress.copy()  # Don't modify the stored version
                 progress["status"] = "stalled"
                 progress["message"] = f"No progress updates for {int(time_since_update)}s - deployment may be stalled"
