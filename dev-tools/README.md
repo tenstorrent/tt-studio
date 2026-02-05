@@ -2,6 +2,16 @@
 
 This directory contains development tools and utilities for the TT-Studio project.
 
+## Quick Start
+
+To run TT-Studio with minimal setup from the project root:
+
+```bash
+python3 run.py --easy
+```
+
+Easy mode only prompts for your Hugging Face token and uses defaults for everything else. See the [main README](../README.md) and [run.py guide](../docs/run-py-guide.md) for details.
+
 ## SPDX Header Tool
 
 The `add_spdx_header.py` script automatically adds SPDX license headers to source code files throughout the project.
@@ -46,19 +56,19 @@ The tool automatically skips the following directories:
 
 ### Usage
 
-#### Quick Start
+#### Quick Start (SPDX tool)
 
 From the project root directory:
 
 ```bash
-python dev-tools/add_spdx_header.py
+python3 dev-tools/add_spdx_header.py
 ```
 
 Or from the dev-tools directory:
 
 ```bash
 cd dev-tools
-python add_spdx_header.py
+python3 add_spdx_header.py
 ```
 
 #### Example Output
@@ -105,7 +115,7 @@ repos:
     hooks:
       - id: spdx-headers
         name: Add SPDX headers
-        entry: python dev-tools/add_spdx_header.py
+        entry: python3 dev-tools/add_spdx_header.py
         language: system
         pass_filenames: false
         always_run: true

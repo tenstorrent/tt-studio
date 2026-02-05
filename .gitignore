@@ -8,6 +8,9 @@ __pycache__
 *.whl
 .venv/
 
+# submodules / artifacts
+.artifacts/
+
 # Virtual Environment
 env
 .testvenv
@@ -18,7 +21,6 @@ tt_studio_persistent_volume
 # Output Files
 *netlist.yaml
 *.dump
-*.log
 docs/build
 .hlkc_cache
 tt_build
@@ -32,6 +34,10 @@ generated_modules
 unzipped_tti/
 db.sqlite3
 
+# Runtime files
+*.pid
+*.log
+
 # secrets
 .env
 
@@ -42,8 +48,13 @@ db.sqlite3
 !requirements.txt
 !app/frontend/third-party-licenses.txt
 !requirements-dev.txt
+!docker-control-service/requirements-api.txt
 
 app/frontend/src/assets/*
 
-fastapi.pid
-fastapi.log
+# Agent working directory (temporary files only)
+.claude/**/*
+.cursor/agent/**/*
+CLAUDE.md
+docs/RAG_PRODUCTIONIZATION_PLAN.md
+docs/DOCKER_CONTROL_SERVICE_PLAN.md
