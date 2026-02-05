@@ -6,8 +6,7 @@ services:
   tt_studio_backend:
     #! hostnames must not contain underscores
     hostname: tt-studio-backend-api
-    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.0
-    user: root
+    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.1
     build: 
       context: ./backend
       args:
@@ -46,16 +45,15 @@ services:
       - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
       - CLOUD_STABLE_DIFFUSION_URL
       - CLOUD_STABLE_DIFFUSION_AUTH_TOKEN
-      - CLOUD_SPEECH_RECOGNITION_URL
-      - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
       - TEAM_ID
       - TOKEN_ID
       - GITHUB_USERNAME
       - GITHUB_PAT
       - VITE_ENABLE_DEPLOYED
+      # Docker Control Service (replaces direct socket mount)
+      - DOCKER_CONTROL_SERVICE_URL
+      - DOCKER_CONTROL_JWT_SECRET
     volumes:
-      # mounting docker unix socket allows for backend container to run docker cmds
-      - /var/run/docker.sock:/var/run/docker.sock
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # Mount the local api directory for live code changes
       - ./backend:/backend
@@ -71,6 +69,9 @@ services:
       interval: 10s
       retries: 5
       start_period: 60s
+    # Allow container to access host services (docker-control-service)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   tt_studio_frontend:
     hostname: tt-studio-frontend
