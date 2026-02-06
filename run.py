@@ -941,6 +941,10 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             write_env_var("FRONTEND_TIMEOUT", "60", quote_value=False)
         print("✅ Frontend configuration set to defaults (easy mode).")
     
+    # TT Inference Server Artifact Configuration
+    print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
+    configure_inference_server_artifact(dev_mode, easy_mode, force_reconfigure)
+    
     print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")
 
 def display_welcome_banner():
@@ -1402,6 +1406,78 @@ def is_valid_git_repo(path):
             return False
     return False  # Exists but not a git repo
 
+def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_reconfigure=False):
+    """Configure TT Inference Server artifact source (release version or branch)."""
+    current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
+    current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
+    
+    # This allows users to change their choice each time they run the script
+    if not force_reconfigure and (current_version or current_branch):
+        source_type = "release" if current_version else "branch"
+        value = current_version or current_branch
+        print(f"\n{C_CYAN}Current TT Inference Server configuration: {source_type} '{value}'{C_RESET}")
+        
+        # Ask if user wants to change (both in easy mode and normal mode)
+        while True:
+            change_choice = input(f"{C_CYAN}Would you like to change this? (y/n) [default: n]: {C_RESET}").strip().lower() or "n"
+            if change_choice in ["y", "yes", "n", "no"]:
+                break
+            print(f"{C_RED}⛔ Invalid input. Please enter 'y' or 'n'.{C_RESET}")
+        
+        if change_choice in ["n", "no"]:
+            print(f"✅ Keeping existing configuration: {source_type} '{value}'")
+            return
+    
+    # Ask user for artifact source type
+    print(f"\n{C_CYAN}Choose TT Inference Server artifact source:{C_RESET}")
+    print(f"  1. Release version (stable, recommended for production)")
+    print(f"  2. Branch (latest development code, may have new features)")
+    
+    if easy_mode:
+        # In easy mode, default to latest release but still allow choice
+        while True:
+            choice = input(f"{C_CYAN}Enter choice (1 or 2) [default: 1]: {C_RESET}").strip() or "1"
+            if choice in ["1", "2"]:
+                break
+            print(f"{C_RED}⛔ Invalid choice. Please enter 1 or 2.{C_RESET}")
+    else:
+        while True:
+            choice = input(f"{C_CYAN}Enter choice (1 or 2) [default: 1]: {C_RESET}").strip() or "1"
+            if choice in ["1", "2"]:
+                break
+            print(f"{C_RED}⛔ Invalid choice. Please enter 1 or 2.{C_RESET}")
+    
+    if choice == "1":
+        # Release version
+        if current_branch:
+            # Clear branch if switching to release
+            write_env_var("TT_INFERENCE_ARTIFACT_BRANCH", "", quote_value=False)
+        
+        # Always prompt for version when user chooses option 1
+        default_version = "latest"
+        if current_version and current_version != "latest":
+            default_version = current_version
+        
+        prompt_text = f"📦 Enter release version (e.g., 'v0.8.0') or 'latest' [default: {default_version}]: "
+        val = input(prompt_text).strip() or default_version
+        write_env_var("TT_INFERENCE_ARTIFACT_VERSION", val, quote_value=False)
+        print(f"✅ TT_INFERENCE_ARTIFACT_VERSION set to '{val}'")
+    else:
+        # Branch
+        if current_version:
+            # Clear version if switching to branch
+            write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "", quote_value=False)
+        
+        # Always prompt for branch when user chooses option 2
+        default_branch = "main"
+        if current_branch:
+            default_branch = current_branch
+        
+        prompt_text = f"🌿 Enter branch name (e.g., 'main', 'dev', 'feature/xyz') [default: {default_branch}]: "
+        val = input(prompt_text).strip() or default_branch
+        write_env_var("TT_INFERENCE_ARTIFACT_BRANCH", val, quote_value=False)
+        print(f"✅ TT_INFERENCE_ARTIFACT_BRANCH set to '{val}'")
+
 def _set_artifact_environment_variables(artifact_dir):
     """Set environment variables for artifact directory."""
     os.environ["TT_INFERENCE_ARTIFACT_PATH"] = artifact_dir
@@ -1409,6 +1485,17 @@ def _set_artifact_environment_variables(artifact_dir):
     benchmark_file = os.path.join(artifact_dir, "benchmarking", "benchmark_targets", "model_performance_reference.json")
     if os.path.exists(benchmark_file):
         os.environ["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
+
+def _write_artifact_info(artifacts_dir, artifact_type, artifact_value):
+    """Write artifact metadata file outside the inference-server directory."""
+    info_file = os.path.join(artifacts_dir, "artifact-info.txt")
+    try:
+        with open(info_file, 'w') as f:
+            f.write(f"artifact_type={artifact_type}\n")
+            f.write(f"artifact_value={artifact_value}\n")
+        print(f"📝 Artifact info written to {info_file}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Could not write artifact info file: {e}{C_RESET}")
 
 
 def get_inference_server_version():
@@ -1423,6 +1510,11 @@ def get_inference_server_version():
             pass
     
     # Fallback: try to get from environment variable
+    # Check for branch first (branches don't have VERSION files typically)
+    env_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH")
+    if env_branch:
+        return None  # Branches don't have version numbers
+    
     env_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION")
     if env_version and env_version != "latest":
         return env_version
@@ -1431,69 +1523,395 @@ def get_inference_server_version():
 
 
 def setup_tt_inference_server():
-    """Set up TT Inference Server by downloading/extracting artifact from GitHub release."""
+    """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
     print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server (Artifact){C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     
-    # Read version from .env file or environment (single source of truth for artifact version)
+    # Read artifact source from .env file or environment
+    # Priority: Branch > Version
+    artifact_branch = (get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", None))
     artifact_version = (get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION") or "latest").strip()
-    artifact_url = get_env_var("TT_INFERENCE_ARTIFACT_URL") or os.getenv("TT_INFERENCE_ARTIFACT_URL", None)
+    
+    # Debug: Show what we're looking for
+    if artifact_branch:
+        print(f"📋 Using branch: {artifact_branch}")
+    elif artifact_version:
+        print(f"📋 Using version: {artifact_version}")
+    else:
+        print(f"{C_YELLOW}⚠️  No branch or version specified. Using default: latest{C_RESET}")
+        artifact_version = "latest"
 
     # Create artifacts directory early so we can check for local tarballs
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
     os.makedirs(artifacts_dir, exist_ok=True)
+    print(f"📁 Artifacts directory: {artifacts_dir}")
 
-    # Check if artifact already exists
+    # Check if artifact already exists and is valid (has workflows directory)
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
-        version = get_inference_server_version()
-        version_str = f" (v{version})" if version else ""
-        # If env requests a specific version, verify it matches the installed artifact
-        if artifact_version and artifact_version != "latest" and version:
-            req = artifact_version.lstrip("v").strip()
-            cur = version.lstrip("v").strip()
-            if req != cur:
-                print(f"{C_YELLOW}⚠️  TT_INFERENCE_ARTIFACT_VERSION={artifact_version} but artifact has VERSION={version}{C_RESET}")
-                print(f"   To use {artifact_version}, remove the artifact and run again: rm -rf {INFERENCE_ARTIFACT_DIR}")
-        print(f"✅ TT Inference Server artifact already exists at {INFERENCE_ARTIFACT_DIR}{version_str}")
-        _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-        return True
+        workflows_dir = os.path.join(INFERENCE_ARTIFACT_DIR, "workflows")
+        workflows_utils = os.path.join(workflows_dir, "utils.py")
+        
+        # Only return early if the artifact is actually valid (has workflows)
+        if os.path.exists(workflows_utils):
+            version = get_inference_server_version()
+            version_str = f" (v{version})" if version else ""
+            branch_str = f" (branch: {artifact_branch})" if artifact_branch else ""
+            
+            # If env requests a specific version/branch, verify it matches (if possible)
+            version_mismatch = False
+            branch_mismatch = False
+            
+            if artifact_branch:
+                # For branches, check if we're switching from a version to a branch
+                # Read artifact-info.txt to see what we currently have
+                info_file = os.path.join(artifacts_dir, "artifact-info.txt")
+                if os.path.exists(info_file):
+                    try:
+                        with open(info_file, 'r') as f:
+                            info_content = f.read()
+                            if 'artifact_type=version' in info_content:
+                                branch_mismatch = True
+                                print(f"{C_YELLOW}⚠️  Switching from version artifact to branch '{artifact_branch}'{C_RESET}")
+                            elif 'artifact_type=branch' in info_content:
+                                # Check if branch name matches
+                                if f"artifact_value={artifact_branch}" not in info_content:
+                                    branch_mismatch = True
+                                    print(f"{C_YELLOW}⚠️  Branch mismatch: requested '{artifact_branch}' but artifact has different branch{C_RESET}")
+                    except Exception:
+                        pass
+                
+                if not branch_mismatch:
+                    # For branches, we can't easily verify without git, so just show what's configured
+                    print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{branch_str}")
+            elif artifact_version and artifact_version != "latest" and version:
+                req = artifact_version.lstrip("v").strip()
+                cur = version.lstrip("v").strip()
+                if req != cur:
+                    version_mismatch = True
+                    print(f"{C_YELLOW}⚠️  TT_INFERENCE_ARTIFACT_VERSION={artifact_version} but artifact has VERSION={version}{C_RESET}")
+                else:
+                    # Check if we're switching from a branch to a version
+                    info_file = os.path.join(artifacts_dir, "artifact-info.txt")
+                    if os.path.exists(info_file):
+                        try:
+                            with open(info_file, 'r') as f:
+                                info_content = f.read()
+                                if 'artifact_type=branch' in info_content:
+                                    version_mismatch = True
+                                    print(f"{C_YELLOW}⚠️  Switching from branch artifact to version '{artifact_version}'{C_RESET}")
+                        except Exception:
+                            pass
+            
+            if version_mismatch or branch_mismatch:
+                print(f"   Removing existing artifact and downloading {artifact_version or artifact_branch}...")
+                
+                try:
+                    # Remove the entire .artifacts directory to ensure complete cleanup
+                    # Use a more robust deletion method that handles permission errors
+                    if os.path.exists(artifacts_dir):
+                        def handle_remove_readonly(func, path, exc):
+                            """Handle permission errors during deletion by making files writable."""
+                            if func in (os.rmdir, os.remove, os.unlink) and exc[1].errno == 13:
+                                # Permission denied - try to make file writable and retry
+                                try:
+                                    os.chmod(path, 0o777)
+                                    if os.path.isdir(path):
+                                        os.rmdir(path)
+                                    else:
+                                        os.remove(path)
+                                except Exception:
+                                    # If we still can't delete it, just skip it
+                                    pass
+                            else:
+                                raise
+                        
+                        # Try to remove with error handling for permission issues
+                        try:
+                            shutil.rmtree(artifacts_dir, onerror=handle_remove_readonly)
+                            print(f"✅ Removed entire .artifacts directory")
+                        except PermissionError as pe:
+                            # If there are still permission issues, try using sudo or just remove what we can
+                            print(f"{C_YELLOW}⚠️  Some files could not be deleted due to permissions: {pe}{C_RESET}")
+                            print(f"   Attempting to remove with elevated permissions...")
+                            try:
+                                # Try to change permissions recursively first
+                                for root, dirs, files in os.walk(artifacts_dir):
+                                    for d in dirs:
+                                        os.chmod(os.path.join(root, d), 0o777)
+                                    for f in files:
+                                        os.chmod(os.path.join(root, f), 0o777)
+                                # Now try to remove again
+                                shutil.rmtree(artifacts_dir, onerror=handle_remove_readonly)
+                                print(f"✅ Removed entire .artifacts directory after fixing permissions")
+                            except Exception as e2:
+                                print(f"{C_YELLOW}⚠️  Could not fully remove directory: {e2}{C_RESET}")
+                                print(f"   Attempting to remove just the tt-inference-server subdirectory...")
+                                # Fallback: try to remove just the inference server directory
+                                if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                                    try:
+                                        for root, dirs, files in os.walk(INFERENCE_ARTIFACT_DIR):
+                                            for d in dirs:
+                                                os.chmod(os.path.join(root, d), 0o777)
+                                            for f in files:
+                                                os.chmod(os.path.join(root, f), 0o777)
+                                        shutil.rmtree(INFERENCE_ARTIFACT_DIR, onerror=handle_remove_readonly)
+                                        print(f"✅ Removed tt-inference-server directory")
+                                    except Exception as e3:
+                                        print(f"{C_RED}⛔ Could not remove directory even after fixing permissions: {e3}{C_RESET}")
+                                        print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
+                                        return False
+                    else:
+                        # Fallback: just remove the artifact directory if .artifacts doesn't exist
+                        if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                            shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                            print(f"✅ Removed artifact directory")
+                    
+                    # Recreate the artifacts directory for the new download
+                    os.makedirs(artifacts_dir, exist_ok=True)
+                    print(f"✅ Recreated .artifacts directory")
+                    print(f"📥 Proceeding to download {artifact_version or artifact_branch}...")
+                    # Continue to download logic below - don't return here
+                except Exception as e:
+                    print(f"{C_RED}⛔ Failed to remove artifact directory: {e}{C_RESET}")
+                    print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
+                    return False
+            else:
+                print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{version_str}{branch_str}")
+                
+                # If version matches or no version specified, use existing artifact
+                _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+                # Write artifact info if not already present
+                info_file = os.path.join(artifacts_dir, "artifact-info.txt")
+                if not os.path.exists(info_file):
+                    if artifact_branch:
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch)
+                    elif artifact_version:
+                        _write_artifact_info(artifacts_dir, "version", artifact_version)
+                return True
+            # If version mismatch, fall through to download the correct version below
+        else:
+            # Directory exists but is invalid (missing workflows), remove it and re-download
+            print(f"{C_YELLOW}⚠️  Artifact directory exists but is invalid (missing workflows/). Removing and re-downloading...{C_RESET}")
+            try:
+                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                print(f"✅ Removed invalid artifact directory")
+            except Exception as e:
+                print(f"{C_YELLOW}⚠️  Could not remove invalid directory: {e}{C_RESET}")
+                print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
+                return False
 
-    # If artifact URL is provided, download it
-    if artifact_url:
-        print(f"📥 Downloading TT Inference Server artifact from {artifact_url}...")
+    # Priority: Branch > Version
+    if artifact_branch:
+        # Download from GitHub branch
+        print(f"📥 Downloading TT Inference Server from GitHub branch: {artifact_branch}")
         
-        # Download artifact
-        artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}.tar.gz")
+        # Sanitize branch name for filename (replace slashes with dashes)
+        sanitized_branch = artifact_branch.replace("/", "-")
         
-        try:
-            import urllib.request
-            urllib.request.urlretrieve(artifact_url, artifact_file)
-            print(f"✅ Artifact downloaded to {artifact_file}")
+        # Prefer local tarball if present
+        artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{sanitized_branch}.tar.gz")
+        
+        if os.path.exists(artifact_file):
+            print(f"📦 Using existing artifact tarball: {artifact_file}")
+        else:
+            # Download from GitHub branch
+            github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
+            try:
+                import urllib.request
+                print(f"   Downloading from: {github_url}")
+                print(f"   This may take a few minutes...")
+                urllib.request.urlretrieve(github_url, artifact_file)
+                
+                # Verify download completed successfully
+                if not os.path.exists(artifact_file):
+                    print(f"{C_RED}⛔ Download failed: file not found after download{C_RESET}")
+                    return False
+                
+                file_size = os.path.getsize(artifact_file)
+                if file_size == 0:
+                    print(f"{C_RED}⛔ Download failed: file is empty{C_RESET}")
+                    os.remove(artifact_file)
+                    return False
+                
+                print(f"✅ Artifact downloaded to {artifact_file} ({file_size:,} bytes)")
+            except Exception as e:
+                print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
+                print(f"   Make sure the branch name '{artifact_branch}' exists in the repository")
+                if os.path.exists(artifact_file):
+                    try:
+                        os.remove(artifact_file)
+                    except Exception:
+                        pass
+                return False
+        
+        # Extract artifact
+        if artifact_file and os.path.exists(artifact_file):
+            try:
+                print(f"📦 Extracting artifact from {artifact_file}...")
+                import tarfile
+                with tarfile.open(artifact_file, "r:gz") as tar:
+                    # Verify tarball is valid and not empty
+                    members = tar.getmembers()
+                    if not members:
+                        print(f"{C_RED}⛔ Tarball appears to be empty{C_RESET}")
+                        return False
+                    print(f"   Extracting {len(members)} files...")
+                    tar.extractall(artifacts_dir)
+                
+                print(f"✅ Extraction complete. Searching for extracted directory...")
+                
+                # GitHub branch archives extract as tt-inference-server-{branch}
+                # But branch names with slashes (e.g., feature/xyz) become dashes in the directory name
+                # Try multiple possible directory names
+                possible_dirs = [
+                    os.path.join(artifacts_dir, f"tt-inference-server-{artifact_branch}"),
+                    os.path.join(artifacts_dir, f"tt-inference-server-{sanitized_branch}"),
+                ]
+                
+                # Also check what was actually extracted
+                extracted_dir = None
+                for possible_dir in possible_dirs:
+                    if os.path.exists(possible_dir):
+                        extracted_dir = possible_dir
+                        print(f"📁 Found extracted directory: {extracted_dir}")
+                        break
+                
+                # If not found, list directories in artifacts_dir to find the actual name
+                if not extracted_dir:
+                    try:
+                        print(f"   Searching for directories starting with 'tt-inference-server'...")
+                        for item in os.listdir(artifacts_dir):
+                            item_path = os.path.join(artifacts_dir, item)
+                            if os.path.isdir(item_path) and item.startswith("tt-inference-server"):
+                                extracted_dir = item_path
+                                print(f"📁 Found extracted directory: {extracted_dir}")
+                                break
+                    except Exception as e:
+                        print(f"{C_YELLOW}⚠️  Could not list artifacts directory: {e}{C_RESET}")
+                
+                if extracted_dir and os.path.exists(extracted_dir):
+                    # Verify the extracted directory has required files
+                    workflows_utils = os.path.join(extracted_dir, "workflows", "utils.py")
+                    if not os.path.exists(workflows_utils):
+                        print(f"{C_RED}⛔ Extracted directory is missing required workflows/utils.py{C_RESET}")
+                        print(f"   Directory contents: {os.listdir(extracted_dir)[:10]}...")
+                        return False
+                    
+                    # Rename to final location
+                    if extracted_dir != INFERENCE_ARTIFACT_DIR:
+                        if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                            print(f"🗑️  Removing existing {INFERENCE_ARTIFACT_DIR}...")
+                            shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                        print(f"📦 Moving {extracted_dir} to {INFERENCE_ARTIFACT_DIR}...")
+                        os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
+                        print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
+                    
+                    # Final verification that everything is in place
+                    if not os.path.exists(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
+                        print(f"{C_RED}⛔ Verification failed: workflows/utils.py not found after rename{C_RESET}")
+                        return False
+                    
+                    _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+                    _write_artifact_info(artifacts_dir, "branch", "main")
+                    print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
+                    return True
+                else:
+                    print(f"{C_RED}⛔ Extracted directory not found in {artifacts_dir}{C_RESET}")
+                    print(f"   Expected one of: {possible_dirs}")
+                    # List what's actually in artifacts_dir for debugging
+                    try:
+                        contents = os.listdir(artifacts_dir)
+                        print(f"   Actual contents: {contents}")
+                    except Exception:
+                        pass
+                    return False
+            except Exception as e:
+                print(f"{C_RED}⛔ Failed to extract artifact: {e}{C_RESET}")
+                import traceback
+                traceback.print_exc()
+                return False
+    elif artifact_version:
+        # Handle "latest" by using the main branch, or download a specific version
+        if artifact_version == "latest":
+            print(f"{C_YELLOW}⚠️  'latest' version specified. Using 'main' branch as fallback.{C_RESET}")
+            print(f"   To use a specific release version, set TT_INFERENCE_ARTIFACT_VERSION to a tag like 'v0.8.0'")
+            artifact_branch = "main"
+            artifact_version = None
+            # Re-run the branch download logic
+            artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-main.tar.gz")
+            if os.path.exists(artifact_file):
+                print(f"📦 Using existing artifact tarball: {artifact_file}")
+            else:
+                github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/main.tar.gz"
+                try:
+                    import urllib.request
+                    print(f"   Downloading from: {github_url}")
+                    print(f"   This may take a few minutes...")
+                    urllib.request.urlretrieve(github_url, artifact_file)
+                    file_size = os.path.getsize(artifact_file)
+                    if file_size == 0:
+                        print(f"{C_RED}⛔ Download failed: file is empty{C_RESET}")
+                        os.remove(artifact_file)
+                        return False
+                    print(f"✅ Artifact downloaded to {artifact_file} ({file_size:,} bytes)")
+                except Exception as e:
+                    print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
+                    return False
             
-            # Extract artifact
-            import tarfile
-            with tarfile.open(artifact_file, "r:gz") as tar:
-                tar.extractall(artifacts_dir)
-            
-            # Rename extracted directory if needed
-            extracted_dir = os.path.join(artifacts_dir, "tt-inference-server")
-            if os.path.exists(extracted_dir):
-                if extracted_dir != INFERENCE_ARTIFACT_DIR:
-                    if os.path.exists(INFERENCE_ARTIFACT_DIR):
-                        shutil.rmtree(INFERENCE_ARTIFACT_DIR)
-                    os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
-            
-            _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-            print(f"✅ Artifact extracted to {INFERENCE_ARTIFACT_DIR}")
-            return True
-            
-        except Exception as e:
-            print(f"{C_RED}⛔ Error downloading/extracting artifact: {e}{C_RESET}")
-            return False
-    else:
-        # Try to use version env var: first check for local tarball, then GitHub release
-        if artifact_version and artifact_version != "latest":
+            # Extract using the same logic as branch extraction
+            if artifact_file and os.path.exists(artifact_file):
+                try:
+                    print(f"📦 Extracting artifact from {artifact_file}...")
+                    import tarfile
+                    with tarfile.open(artifact_file, "r:gz") as tar:
+                        members = tar.getmembers()
+                        if not members:
+                            print(f"{C_RED}⛔ Tarball appears to be empty{C_RESET}")
+                            return False
+                        print(f"   Extracting {len(members)} files...")
+                        tar.extractall(artifacts_dir)
+                    
+                    print(f"✅ Extraction complete. Searching for extracted directory...")
+                    extracted_dir = os.path.join(artifacts_dir, "tt-inference-server-main")
+                    if not os.path.exists(extracted_dir):
+                        for item in os.listdir(artifacts_dir):
+                            item_path = os.path.join(artifacts_dir, item)
+                            if os.path.isdir(item_path) and item.startswith("tt-inference-server"):
+                                extracted_dir = item_path
+                                print(f"📁 Found extracted directory: {extracted_dir}")
+                                break
+                    
+                    if extracted_dir and os.path.exists(extracted_dir):
+                        workflows_utils = os.path.join(extracted_dir, "workflows", "utils.py")
+                        if not os.path.exists(workflows_utils):
+                            print(f"{C_RED}⛔ Extracted directory is missing required workflows/utils.py{C_RESET}")
+                            return False
+                        
+                        if extracted_dir != INFERENCE_ARTIFACT_DIR:
+                            if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                            os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
+                            print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
+                        
+                        if not os.path.exists(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
+                            print(f"{C_RED}⛔ Verification failed: workflows/utils.py not found after rename{C_RESET}")
+                            return False
+                        
+                        _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+                        _write_artifact_info(artifacts_dir, "version", artifact_version)
+                        print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
+                        return True
+                    else:
+                        print(f"{C_RED}⛔ Extracted directory not found{C_RESET}")
+                        return False
+                except Exception as e:
+                    print(f"{C_RED}⛔ Failed to extract artifact: {e}{C_RESET}")
+                    import traceback
+                    traceback.print_exc()
+                    return False
+        else:
+            # Download from GitHub release (existing logic)
             # Prefer local tarball if present (e.g. .artifacts/tt-inference-server-v0.8.0.tar.gz)
             version_without_v = artifact_version.lstrip("v").strip()
             possible_tarballs = [
@@ -1515,18 +1933,44 @@ def setup_tt_inference_server():
                 try:
                     import urllib.request
                     print(f"   Downloading from: {github_url}")
+                    print(f"   This may take a few minutes...")
                     urllib.request.urlretrieve(github_url, artifact_file)
-                    print(f"✅ Artifact downloaded to {artifact_file}")
+                    
+                    # Verify download completed successfully
+                    if not os.path.exists(artifact_file):
+                        print(f"{C_RED}⛔ Download failed: file not found after download{C_RESET}")
+                        return False
+                    
+                    file_size = os.path.getsize(artifact_file)
+                    if file_size == 0:
+                        print(f"{C_RED}⛔ Download failed: file is empty{C_RESET}")
+                        os.remove(artifact_file)
+                        return False
+                    
+                    print(f"✅ Artifact downloaded to {artifact_file} ({file_size:,} bytes)")
                 except Exception as e:
                     print(f"{C_YELLOW}⚠️  Failed to download from GitHub release: {e}{C_RESET}")
                     print(f"   Falling back to manual setup...")
+                    if os.path.exists(artifact_file):
+                        try:
+                            os.remove(artifact_file)
+                        except Exception:
+                            pass
                     artifact_file = None
 
             if artifact_file and os.path.exists(artifact_file):
                 try:
+                    print(f"📦 Extracting artifact from {artifact_file}...")
                     import tarfile
                     with tarfile.open(artifact_file, "r:gz") as tar:
+                        members = tar.getmembers()
+                        if not members:
+                            print(f"{C_RED}⛔ Tarball appears to be empty{C_RESET}")
+                            return False
+                        print(f"   Extracting {len(members)} files...")
                         tar.extractall(artifacts_dir)
+                    
+                    print(f"✅ Extraction complete. Searching for extracted directory...")
                     version_without_v = artifact_version.lstrip("v")
                     possible_dirs = [
                         os.path.join(artifacts_dir, f"tt-inference-server-{artifact_version}"),
@@ -1536,30 +1980,64 @@ def setup_tt_inference_server():
                     for possible_dir in possible_dirs:
                         if os.path.exists(possible_dir):
                             extracted_dir = possible_dir
+                            print(f"📁 Found extracted directory: {extracted_dir}")
                             break
-                    if extracted_dir and extracted_dir != INFERENCE_ARTIFACT_DIR:
-                        if os.path.exists(INFERENCE_ARTIFACT_DIR):
-                            shutil.rmtree(INFERENCE_ARTIFACT_DIR)
-                        os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
-                        print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
-                    _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    print(f"✅ Artifact extracted to {INFERENCE_ARTIFACT_DIR}")
-                    return True
+                    
+                    # If not found, search for any tt-inference-server directory
+                    if not extracted_dir:
+                        for item in os.listdir(artifacts_dir):
+                            item_path = os.path.join(artifacts_dir, item)
+                            if os.path.isdir(item_path) and item.startswith("tt-inference-server"):
+                                extracted_dir = item_path
+                                print(f"📁 Found extracted directory: {extracted_dir}")
+                                break
+                    
+                    if extracted_dir and os.path.exists(extracted_dir):
+                        # Verify the extracted directory has required files
+                        workflows_utils = os.path.join(extracted_dir, "workflows", "utils.py")
+                        if not os.path.exists(workflows_utils):
+                            print(f"{C_RED}⛔ Extracted directory is missing required workflows/utils.py{C_RESET}")
+                            return False
+                        
+                        # Rename to final location
+                        if extracted_dir != INFERENCE_ARTIFACT_DIR:
+                            if os.path.exists(INFERENCE_ARTIFACT_DIR):
+                                print(f"🗑️  Removing existing {INFERENCE_ARTIFACT_DIR}...")
+                                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+                            print(f"📦 Moving {extracted_dir} to {INFERENCE_ARTIFACT_DIR}...")
+                            os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
+                            print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
+                        
+                        # Final verification
+                        if not os.path.exists(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
+                            print(f"{C_RED}⛔ Verification failed: workflows/utils.py not found after rename{C_RESET}")
+                            return False
+                        
+                        _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+                        _write_artifact_info(artifacts_dir, "version", artifact_version)
+                        print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
+                        return True
+                    else:
+                        print(f"{C_RED}⛔ Extracted directory not found{C_RESET}")
+                        return False
                 except Exception as e:
-                    print(f"{C_YELLOW}⚠️  Failed to extract artifact: {e}{C_RESET}")
+                    print(f"{C_RED}⛔ Failed to extract artifact: {e}{C_RESET}")
+                    import traceback
+                    traceback.print_exc()
+                    return False
 
-        # Fallback: check if artifact directory exists
-        if os.path.exists(INFERENCE_ARTIFACT_DIR):
-            _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-            return True
-        else:
-            print(f"{C_RED}⛔ Error: Artifact directory not found{C_RESET}")
-            print(f"   Options:")
-            print(f"   1. Set TT_INFERENCE_ARTIFACT_VERSION to a release tag (e.g., 'v0.8.0')")
-            print(f"   2. Set TT_INFERENCE_ARTIFACT_URL to a direct download URL")
-            print(f"   3. Extract the artifact manually to: {INFERENCE_ARTIFACT_DIR}")
-            print(f"   See: https://github.com/tenstorrent/tt-inference-server/releases")
-            return False
+    # Fallback: check if artifact directory exists
+    if os.path.exists(INFERENCE_ARTIFACT_DIR):
+        _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
+        return True
+    else:
+        print(f"{C_RED}⛔ Error: Artifact directory not found{C_RESET}")
+        print(f"   Options:")
+        print(f"   1. Set TT_INFERENCE_ARTIFACT_VERSION to a release tag (e.g., 'v0.8.0')")
+        print(f"   2. Set TT_INFERENCE_ARTIFACT_BRANCH to a branch name (e.g., 'main', 'dev')")
+        print(f"   3. Extract the artifact manually to: {INFERENCE_ARTIFACT_DIR}")
+        print(f"   See: https://github.com/tenstorrent/tt-inference-server/releases")
+        return False
 
 def setup_fastapi_environment():
     """Set up the inference-api FastAPI environment."""
@@ -1671,12 +2149,15 @@ def start_fastapi_server(no_sudo=False):
     if hf_token:
         env["HF_TOKEN"] = hf_token
     
-    # Set artifact path and version so inference-api uses the version-resolved artifact
+    # Set artifact path and version/branch so inference-api uses the version-resolved artifact
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
         env["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
-        artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION", "latest")
+        artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION")
+        artifact_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH")
         if artifact_version:
             env["TT_INFERENCE_ARTIFACT_VERSION"] = artifact_version
+        if artifact_branch:
+            env["TT_INFERENCE_ARTIFACT_BRANCH"] = artifact_branch
         # Also set OVERRIDE_BENCHMARK_TARGETS to point to the file in the artifact directory
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
@@ -2983,7 +3464,7 @@ def main():
 
         # Ensure workflow_logs directory exists with correct permissions before Docker mounts it
         # This prevents Docker from creating it as root (which causes permission issues)
-        workflow_logs_dir = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "workflow_logs")
+        workflow_logs_dir = os.path.join(INFERENCE_ARTIFACT_DIR, "workflow_logs")
         if not os.path.exists(workflow_logs_dir):
             print(f"{C_BLUE}📁 Creating workflow_logs directory with correct permissions...{C_RESET}")
             try:
