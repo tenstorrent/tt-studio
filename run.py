@@ -1718,7 +1718,6 @@ def setup_tt_inference_server():
             # Download from GitHub branch
             github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
             try:
-                import urllib.request
                 print(f"   Downloading from: {github_url}")
                 print(f"   This may take a few minutes...")
                 urllib.request.urlretrieve(github_url, artifact_file)

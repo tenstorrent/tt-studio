@@ -60,7 +60,7 @@ workflows_utils.get_repo_root_path = _patched_get_repo_root_path
 
 # Import from tt-inference-server
 try:
-    from run import main as run_main, parse_arguments, WorkflowType, DeviceTypes  # noqa: E402
+    from run import main as run_main, WorkflowType, DeviceTypes  # noqa: E402
     from workflows.model_spec import MODEL_SPECS  # noqa: E402
 except ImportError as e:
     raise ImportError(
