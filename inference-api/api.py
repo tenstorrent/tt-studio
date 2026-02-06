@@ -381,6 +381,14 @@ async def root():
     logger.info("Root endpoint accessed")
     return {"message": "TT Inference Server API is running"}
 
+@app.get("/health")
+async def health():
+    """Lightweight health check endpoint"""
+    logger.info("Health endpoint accessed")
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+    }
 @app.get("/test-logging")
 async def test_logging():
     """Test endpoint to verify logging is working"""
