@@ -141,54 +141,9 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     //   isStreamFinished,
     // });
 
-    const hasThinking = thinkingBlocksRef.current.length > 0;
-
     return (
       <div className="relative">
         {/* Show "Thinking..." indicator while thinking is streaming */}
-        {isThinkingActive && (
-          <div className="mb-3 flex items-center gap-2 text-sm text-gray-400 italic">
-            <motion.span
-              animate={{ opacity: [1, 0.5, 1] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            >
-              💭
-            </motion.span>
-            <span>Thinking...</span>
-          </div>
-        )}
-
-        {/* Thinking blocks display - controlled externally */}
-        {showThinking && hasThinking && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mt-2 mb-3 p-3 bg-gray-800/50 border border-gray-700 rounded-md"
-          >
-            {thinkingBlocksRef.current.map((block, index) => (
-              <div
-                key={index}
-                className="text-sm text-gray-300 whitespace-pre-wrap font-mono"
-              >
-                {block}
-              </div>
-            ))}
-          </motion.div>
-        )}
-        {renderedContent.length === 0 &&
-        !isStreamFinished &&
-        !isThinkingActive &&
-        !isStopped ? (
-          <motion.span
-            className="text-gray-400"
-            animate={{ opacity: [1, 0.5, 1] }}
-            transition={{ duration: 1, repeat: Infinity }}
-          >
-            ...
-          </motion.span>
-        ) : (
-          {/* Show "Thinking..." indicator while thinking is streaming */}
         {isThinkingActive && (
           <div className="mb-3 flex items-center gap-2 text-sm text-gray-400 italic">
             <motion.span
@@ -231,6 +186,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
             )}
           </div>
         )}
+
         {renderedContent.length === 0 && !isStreamFinished && !isThinkingActive && !isStopped ? (
           <motion.span
             className="text-gray-400"
@@ -241,7 +197,6 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
           </motion.span>
         ) : (
           <MarkdownComponent>{renderedContent}</MarkdownComponent>
-        )}
         )}
         {!isStreamFinished && !isStopped && renderedContent.length > 0 && renderedContent.length > 0 && (
           <motion.span
