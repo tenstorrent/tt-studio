@@ -17,7 +17,7 @@ import {
 } from "@/src/components/ui/table";
 import CopyableText from "@/src/components/CopyableText";
 import { useTheme } from "@/src/hooks/useTheme";
-import CustomToaster, { customToast } from "@/src/components/CustomToaster";
+import { customToast } from "@/src/components/CustomToaster";
 import { Spinner } from "@/src/components/ui/spinner";
 import axios from "axios";
 import {
@@ -213,7 +213,6 @@ export default function RagAdmin() {
       <Card
         className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg p-6 max-w-md mx-auto`}
       >
-        <CustomToaster />
         <div className="flex items-center justify-center mb-6">
           <Lock className="w-8 h-8 mr-2 text-red-500" />
           <h2 className="text-2xl font-bold">RAG Admin Authentication</h2>
@@ -255,7 +254,6 @@ export default function RagAdmin() {
     <Card
       className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg p-6 w-full mx-auto`}
     >
-      <CustomToaster />
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center">
           <Unlock className="w-8 h-8 mr-2 text-green-500" />
