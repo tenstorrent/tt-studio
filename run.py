@@ -113,6 +113,264 @@ def run_command(command, check=False, cwd=None, capture_output=False, shell=Fals
         return e
 
 
+def run_command_with_error_reporting(command, cwd=None, error_context="Command", fatal=True):
+    """
+    Run a command and provide comprehensive error reporting.
+
+    Args:
+        command: Command list or string
+        cwd: Working directory
+        error_context: Description of what's being attempted (e.g., "Docker build", "Git checkout")
+        fatal: If True, exit on failure. If False, return None on failure
+
+    Returns:
+        CompletedProcess on success, None on failure (if fatal=False)
+    """
+    try:
+        cmd_str = ' '.join(command) if isinstance(command, list) else command
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode != 0:
+            print(f"\n{C_RED}⛔ Error: {error_context} failed{C_RESET}")
+            print(f"{C_RED}Command: {cmd_str}{C_RESET}")
+            print(f"{C_RED}Exit code: {result.returncode}{C_RESET}")
+
+            if result.stderr:
+                print(f"\n{C_RED}Error output:{C_RESET}")
+                print(result.stderr)
+
+            if result.stdout:
+                print(f"\n{C_YELLOW}Standard output:{C_RESET}")
+                print(result.stdout)
+
+            if fatal:
+                sys.exit(1)
+            return None
+
+        return result
+
+    except FileNotFoundError as e:
+        print(f"{C_RED}⛔ Error: Command not found: {e.filename}{C_RESET}")
+        print(f"   {error_context} requires {e.filename} to be installed")
+        if fatal:
+            sys.exit(1)
+        return None
+
+    except Exception as e:
+        print(f"{C_RED}⛔ Unexpected error during {error_context}: {e}{C_RESET}")
+        if fatal:
+            sys.exit(1)
+        return None
+
+
+def report_file_operation_error(operation, file_path, error, fatal=False):
+    """Report file operation errors with helpful context."""
+    print(f"{C_RED}⛔ Error: Failed to {operation} {file_path}{C_RESET}")
+    print(f"{C_RED}   {type(error).__name__}: {error}{C_RESET}")
+
+    # Provide helpful context based on error type
+    if isinstance(error, PermissionError):
+        print(f"{C_YELLOW}   Try running with sudo or fixing file permissions{C_RESET}")
+    elif isinstance(error, FileNotFoundError):
+        print(f"{C_YELLOW}   File or directory does not exist{C_RESET}")
+    elif isinstance(error, OSError) and "No space left" in str(error):
+        print(f"{C_YELLOW}   Disk is full - free up space and try again{C_RESET}")
+
+    if fatal:
+        sys.exit(1)
+
+
+def safe_file_operation(operation_func, operation_name, file_path, fatal=False):
+    """Safely execute a file operation with error reporting."""
+    try:
+        return operation_func()
+    except Exception as e:
+        report_file_operation_error(operation_name, file_path, e, fatal=fatal)
+        return None
+
+
+def suggest_docker_fixes(error_context):
+    """Provide helpful suggestions for Docker-related errors."""
+    print(f"\n{C_CYAN}💡 Common solutions:{C_RESET}")
+
+    if "build" in error_context.lower():
+        print(f"  • Check Dockerfile syntax")
+        print(f"  • Verify all COPY/ADD source files exist")
+        print(f"  • Check if package names in RUN commands are correct")
+        print(f"  • Try rebuilding without cache: docker compose build --no-cache")
+
+    if "permission" in error_context.lower() or "denied" in error_context.lower():
+        print(f"  • Check Docker daemon is running: docker info")
+        print(f"  • Add user to docker group: sudo usermod -aG docker $USER")
+        print(f"  • Try with sudo: sudo docker compose up")
+
+    if "port" in error_context.lower() or "address already in use" in error_context.lower():
+        print(f"  • Check if ports are in use: lsof -i :8000")
+        print(f"  • Stop conflicting services")
+        print(f"  • Use --cleanup to free ports: python run.py --cleanup")
+
+    if "network" in error_context.lower():
+        print(f"  • Check network connectivity: ping google.com")
+        print(f"  • Try creating network manually: docker network create tt_studio_network")
+        print(f"  • Check for network conflicts: docker network ls")
+
+    # for all 
+    print(f"  • Check if Docker is running: docker info")
+    print(f"  • Check if Docker daemon is running: service docker status")
+    print(f"  • Run Cleanup and Retry: python3 run.py --cleanup")
+
+
+def suggest_pip_fixes():
+    """Provide helpful suggestions for pip installation errors."""
+    print(f"\n{C_CYAN}💡 Common solutions:{C_RESET}")
+    print(f"  • Check internet connectivity: ping pypi.org")
+    print(f"  • Upgrade pip: pip3 install --upgrade pip")
+    print(f"  • Clear pip cache: pip3 cache purge")
+    print(f"  • Check Python version compatibility")
+    print(f"  • Look for package name typos in requirements file")
+
+
+def parse_docker_build_failure(output):
+    """
+    Parse Docker build output to identify which container failed.
+
+    Returns:
+        tuple: (container_name, friendly_name, error_section) or (None, None, None)
+    """
+    if not output:
+        return None, None, None
+
+    # Container name mapping
+    container_map = {
+        'tt_studio_backend': 'Backend',
+        'tt_studio_frontend': 'Frontend',
+        'tt_studio_agent': 'Agent',
+        'tt_studio_chroma': 'ChromaDB'
+    }
+
+    # Look for error patterns like "[tt_studio_backend 7/8] RUN ..."
+    import re
+
+    # Find the failing container
+    failed_container = None
+
+    # MOST RELIABLE: Look for "target tt_studio_<container>: failed to solve" pattern first
+    target_match = re.search(r'target (tt_studio_\w+): failed to solve', output, re.IGNORECASE)
+    if target_match:
+        failed_container = target_match.group(1)
+
+    # Fallback: Look for [container_name X/Y] followed by ERROR on same line
+    if not failed_container:
+        for container in container_map.keys():
+            # Pattern: [container_name ...] with error context
+            pattern = rf'\[{container}\s+\d+/\d+\].*?(?:ERROR|error|failed|FAILED)'
+            if re.search(pattern, output, re.IGNORECASE):
+                failed_container = container
+                break
+
+    # Last resort: Try to find any tt_studio container mentioned before "ERROR"
+    if not failed_container:
+        match = re.search(r'\[(tt_studio_\w+)\s+\d+/\d+\]', output)
+        if match:
+            failed_container = match.group(1)
+
+    if failed_container:
+        friendly_name = container_map.get(failed_container, failed_container)
+
+        # Extract the error section (lines containing the failed container)
+        error_lines = []
+        for line in output.split('\n'):
+            if failed_container in line or 'ERROR' in line or 'error' in line:
+                error_lines.append(line)
+
+        error_section = '\n'.join(error_lines[-20:]) if error_lines else None
+        return failed_container, friendly_name, error_section
+
+    return None, None, None
+
+
+def show_docker_build_progress_header():
+    """Display a header showing what containers will be built."""
+    print(f"\n{C_BLUE}{'='*60}{C_RESET}")
+    print(f"{C_BLUE}🔨 Building Docker Containers{C_RESET}")
+    print(f"{C_BLUE}{'='*60}{C_RESET}")
+    print(f"{C_GREEN}✓ Docker Control Service (port 8002) - Already started{C_RESET}")
+    print(f"\n{C_CYAN}Now building:{C_RESET}")
+    print(f"{C_CYAN}  • ChromaDB (port 8111){C_RESET}")
+    print(f"{C_CYAN}  • Backend FastAPI (port 8000){C_RESET}")
+    print(f"{C_CYAN}  • Frontend (port 3000){C_RESET}")
+    print(f"{C_CYAN}  • Agent (port 8080){C_RESET}")
+    print(f"\n{C_YELLOW}⏳ TT Inference Server FastAPI (port 8001) - Will start after{C_RESET}")
+    print(f"\n{C_CYAN}This may take 2-5 minutes depending on cache...{C_RESET}")
+    print(f"{C_BLUE}{'='*60}{C_RESET}\n")
+
+
+def run_docker_compose_with_progress(cmd, cwd):
+    """
+    Run docker compose command with real-time output streaming while capturing output.
+    Returns (returncode, stdout, stderr).
+    """
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # Merge stderr into stdout
+        text=True,
+        bufsize=1,  # Line buffered
+        universal_newlines=True
+    )
+
+    output_lines = []
+
+    # Stream output in real-time while capturing it
+    for line in process.stdout:
+        print(line, end='')  # Print to console in real-time
+        output_lines.append(line)
+
+    # Wait for process to complete
+    process.wait()
+
+    full_output = ''.join(output_lines)
+    return process.returncode, full_output
+
+
+def copy_to_clipboard(text):
+    """
+    Copy text to system clipboard.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        if OS_NAME == "Darwin":  # macOS
+            process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+            process.communicate(text.encode('utf-8'))
+            return process.returncode == 0
+        elif OS_NAME == "Linux":
+            # Try xclip first, then xsel
+            for cmd in [['xclip', '-selection', 'clipboard'], ['xsel', '--clipboard', '--input']]:
+                try:
+                    process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                    process.communicate(text.encode('utf-8'))
+                    if process.returncode == 0:
+                        return True
+                except FileNotFoundError:
+                    continue
+            return False
+        elif OS_NAME == "Windows":
+            process = subprocess.Popen(['clip'], stdin=subprocess.PIPE, shell=True)
+            process.communicate(text.encode('utf-16'))
+            return process.returncode == 0
+        else:
+            return False
+    except Exception as e:
+        return False
+
+
 def check_docker_installation():
     """Function to check Docker installation and daemon connectivity."""
     if not shutil.which("docker"):
@@ -1002,29 +1260,45 @@ def cleanup_resources(args):
     # Stop and remove containers
     try:
         print(f"{C_BLUE}🛑 Stopping Docker containers...{C_RESET}")
-        result = run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=False)
+        result = run_docker_command(docker_compose_cmd, use_sudo=not has_docker_access, capture_output=True)
         if result.returncode == 0:
             print(f"{C_GREEN}✅ Docker containers stopped successfully.{C_RESET}")
         else:
-            print(f"{C_GREEN}✅ Docker containers stopped successfully.{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Warning: Docker compose down reported issues{C_RESET}")
+            print(f"{C_YELLOW}   Exit code: {result.returncode}{C_RESET}")
+            if hasattr(result, 'stderr') and result.stderr:
+                print(f"{C_YELLOW}   {result.stderr}{C_RESET}")
     except subprocess.CalledProcessError as e:
         print(f"{C_YELLOW}⚠️  Error stopping containers{C_RESET}")
+        if hasattr(e, 'stderr') and e.stderr:
+            print(f"{C_YELLOW}   {e.stderr}{C_RESET}")
     except Exception as e:
-        print(f"{C_YELLOW}⚠️  No running containers to stop.{C_RESET}")
+        print(f"{C_YELLOW}⚠️  Error: {type(e).__name__}: {e}{C_RESET}")
 
     # Remove network if it exists
     try:
         print(f"{C_BLUE}🌐 Removing Docker network...{C_RESET}")
         result = run_docker_command(["docker", "network", "rm", "tt_studio_network"],
-                                    use_sudo=not has_docker_access, capture_output=False)
+                                    use_sudo=not has_docker_access, capture_output=True)
         if result.returncode == 0:
             print(f"{C_GREEN}✅ Removed network 'tt_studio_network'.{C_RESET}")
         else:
-            print(f"{C_YELLOW}⚠️  Network 'tt_studio_network' may not exist or couldn't be removed.{C_RESET}")
+            print(f"{C_YELLOW}⚠️  Could not remove network 'tt_studio_network'{C_RESET}")
+            if result.stderr:
+                stderr_lower = result.stderr.lower()
+                if "not found" in stderr_lower:
+                    print(f"{C_YELLOW}   Network does not exist (may already be removed){C_RESET}")
+                elif "has active endpoints" in stderr_lower:
+                    print(f"{C_YELLOW}   Network has active containers - stop containers first{C_RESET}")
+                    print(f"{C_CYAN}   Try: docker compose down{C_RESET}")
+                else:
+                    print(f"{C_YELLOW}   {result.stderr}{C_RESET}")
     except subprocess.CalledProcessError as e:
-        print(f"{C_YELLOW}⚠️  Network 'tt_studio_network' doesn't exist or couldn't be removed.{C_RESET}")
-    except Exception:
-        print(f"{C_YELLOW}⚠️  Network 'tt_studio_network' doesn't exist or couldn't be removed.{C_RESET}")
+        print(f"{C_YELLOW}⚠️  Error removing network: {e}{C_RESET}")
+        if hasattr(e, 'stderr') and e.stderr:
+            print(f"{C_YELLOW}   {e.stderr}{C_RESET}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Unexpected error removing network: {type(e).__name__}: {e}{C_RESET}")
 
     # Clean up FastAPI server
     print(f"{C_BLUE}🔧 Cleaning up FastAPI server...{C_RESET}")
@@ -1048,8 +1322,16 @@ def cleanup_resources(args):
                 return
             
             if confirm.lower() in ['y', 'yes']:
-                shutil.rmtree(host_persistent_volume)
-                print(f"{C_GREEN}✅ Removed persistent storage.{C_RESET}")
+                try:
+                    shutil.rmtree(host_persistent_volume)
+                    print(f"{C_GREEN}✅ Removed persistent storage.{C_RESET}")
+                except FileNotFoundError:
+                    print(f"{C_YELLOW}⚠️  {host_persistent_volume} does not exist (already removed){C_RESET}")
+                except PermissionError as e:
+                    print(f"{C_RED}⛔ Error: Permission denied removing {host_persistent_volume}{C_RESET}")
+                    print(f"{C_YELLOW}   Try: sudo rm -rf {host_persistent_volume}{C_RESET}")
+                except Exception as e:
+                    print(f"{C_RED}⛔ Error removing {host_persistent_volume}: {type(e).__name__}: {e}{C_RESET}")
             else:
                 print(f"{C_CYAN}📁 Keeping persistent storage.{C_RESET}")
         
@@ -1063,8 +1345,16 @@ def cleanup_resources(args):
                 return
             
             if confirm.lower() in ['y', 'yes']:
-                os.remove(ENV_FILE_PATH)
-                print(f"{C_GREEN}✅ Removed .env file.{C_RESET}")
+                try:
+                    os.remove(ENV_FILE_PATH)
+                    print(f"{C_GREEN}✅ Removed .env file.{C_RESET}")
+                except FileNotFoundError:
+                    print(f"{C_YELLOW}⚠️  {ENV_FILE_PATH} does not exist (already removed){C_RESET}")
+                except PermissionError as e:
+                    print(f"{C_RED}⛔ Error: Permission denied removing {ENV_FILE_PATH}{C_RESET}")
+                    print(f"{C_YELLOW}   Try: sudo rm {ENV_FILE_PATH}{C_RESET}")
+                except Exception as e:
+                    print(f"{C_RED}⛔ Error removing {ENV_FILE_PATH}: {type(e).__name__}: {e}{C_RESET}")
             else:
                 print(f"{C_CYAN}⚙️  Keeping .env file.{C_RESET}")
         
@@ -1078,8 +1368,16 @@ def cleanup_resources(args):
                 return
             
             if confirm.lower() in ['y', 'yes']:
-                shutil.rmtree(INFERENCE_SERVER_DIR)
-                print(f"{C_GREEN}✅ Removed TT Inference Server directory.{C_RESET}")
+                try:
+                    shutil.rmtree(INFERENCE_SERVER_DIR)
+                    print(f"{C_GREEN}✅ Removed TT Inference Server directory.{C_RESET}")
+                except FileNotFoundError:
+                    print(f"{C_YELLOW}⚠️  {INFERENCE_SERVER_DIR} does not exist (already removed){C_RESET}")
+                except PermissionError as e:
+                    print(f"{C_RED}⛔ Error: Permission denied removing {INFERENCE_SERVER_DIR}{C_RESET}")
+                    print(f"{C_YELLOW}   Try: sudo rm -rf {INFERENCE_SERVER_DIR}{C_RESET}")
+                except Exception as e:
+                    print(f"{C_RED}⛔ Error removing {INFERENCE_SERVER_DIR}: {type(e).__name__}: {e}{C_RESET}")
             else:
                 print(f"{C_CYAN}🔧 Keeping TT Inference Server directory.{C_RESET}")
     
@@ -1213,7 +1511,88 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
     return False
 
 
-def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
+def verify_docker_containers():
+    """
+    Verify that Docker containers started successfully.
+    Returns dict with container names as keys and status info as values.
+    Returns empty dict on error (caller should handle this).
+    """
+    try:
+        # Run docker ps to check running containers
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=tt_studio", "--format", "{{.Names}}\t{{.Status}}"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode != 0:
+            print(f"{C_RED}⛔ Error: Failed to list Docker containers{C_RESET}")
+            print(f"{C_RED}   Command: docker ps -a --filter name=tt_studio{C_RESET}")
+            print(f"{C_RED}   Exit code: {result.returncode}{C_RESET}")
+            if result.stderr:
+                print(f"{C_RED}   Error: {result.stderr}{C_RESET}")
+            return {}
+
+        containers = {}
+        lines = result.stdout.strip().split('\n')
+        for line in lines:
+            if line and '\t' in line:
+                name, status = line.split('\t', 1)
+                # Check if container is running
+                is_running = status.startswith('Up')
+                containers[name] = {
+                    'status': status,
+                    'running': is_running
+                }
+
+        # Warn if no containers found
+        if not containers:
+            print(f"{C_YELLOW}⚠️  Warning: No tt_studio containers found{C_RESET}")
+            print(f"{C_YELLOW}   This may indicate that docker compose did not create containers{C_RESET}")
+
+        return containers
+
+    except FileNotFoundError:
+        print(f"{C_RED}⛔ Error: docker command not found{C_RESET}")
+        print(f"{C_YELLOW}   Please ensure Docker is installed and in PATH{C_RESET}")
+        return {}
+    except Exception as e:
+        print(f"{C_RED}⛔ Error: Could not verify container status{C_RESET}")
+        print(f"{C_RED}   {type(e).__name__}: {e}{C_RESET}")
+        return {}
+
+
+def print_container_diagnostics(containers):
+    """
+    Print helpful diagnostic information for failed containers.
+    """
+    failed_containers = {name: info for name, info in containers.items() if not info['running']}
+
+    if not failed_containers:
+        return
+
+    print(f"\n{C_RED}⚠️  Some containers failed to start properly:{C_RESET}")
+    for name, info in failed_containers.items():
+        print(f"  • {C_YELLOW}{name}{C_RESET}: {info['status']}")
+
+    print(f"\n{C_CYAN}📋 To diagnose issues, run these commands:{C_RESET}")
+    print(f"  # View logs for failed containers:")
+    for name in failed_containers.keys():
+        print(f"  docker logs -f {name}")
+
+    print(f"\n  # View all container logs:")
+    print(f"  docker logs -f tt_studio_backend")
+    print(f"  docker logs -f tt_studio_frontend")
+    print(f"  docker logs -f tt_studio_chroma")
+
+    print(f"\n  # Check container status:")
+    print(f"  docker ps -a | grep tt_studio")
+    print(f"\n  # Container logs are also stored at:")
+    print(f"  /var/lib/docker/containers/<container-id>/<container-id>-json.log")
+
+
+def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docker_control=False):
     """
     Wait for all core services to become healthy before continuing.
     Returns True if all are healthy.
@@ -1225,19 +1604,55 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
         ("Backend API", "http://localhost:8000/up/"),
         ("Frontend", "http://localhost:3000/"),
     ]
+    # Optionally add Docker Control Service
+    if not skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):
+        services_to_check.append(("Docker Control Service", "http://localhost:8002/api/v1/health"))
     # Optionally add FastAPI
     if not skip_fastapi and not is_deployed_mode:
         services_to_check.append(("FastAPI Server", "http://localhost:8001/"))
     
     all_healthy = True
+    failed_services = []
+
     for service_name, health_url in services_to_check:
         if not wait_for_service_health(service_name, health_url, timeout=120, interval=3):
             all_healthy = False
-    
+            failed_services.append(service_name)
+
     if all_healthy:
-        print("\n✅ All services are healthy and ready!")
+        print(f"\n{C_GREEN}✅ All services are healthy and ready!{C_RESET}")
     else:
-        print("\n⚠️  Some services may not be fully ready, but main app may still be accessible.")
+        print(f"\n{C_RED}⛔ Error: The following services failed to become healthy:{C_RESET}")
+        for service in failed_services:
+            print(f"  • {C_RED}{service}{C_RESET}")
+
+        print(f"\n{C_CYAN}📋 To diagnose issues, check the logs:{C_RESET}")
+
+        # Map service names to container names or log files
+        service_to_container = {
+            "ChromaDB": "tt_studio_chroma",
+            "Backend API": "tt_studio_backend",
+            "Frontend": "tt_studio_frontend",
+            "FastAPI Server": "FastAPI logs (not containerized)",
+            "Docker Control Service": "Docker Control Service logs (not containerized)"
+        }
+
+        for service in failed_services:
+            container = service_to_container.get(service, "unknown")
+            if container == "FastAPI logs (not containerized)":
+                fastapi_log = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "fastapi.log")
+                print(f"  # {service}:")
+                print(f"  tail -f {fastapi_log}")
+            elif container == "Docker Control Service logs (not containerized)":
+                print(f"  # {service}:")
+                print(f"  tail -f {DOCKER_CONTROL_LOG_FILE}")
+            else:
+                print(f"  # {service}:")
+                print(f"  docker logs -f {container}")
+
+        print(f"\n{C_RED}⚠️  Services must be healthy for the application to work correctly.{C_RESET}")
+        print(f"{C_YELLOW}   The workflow will be stopped to prevent issues.{C_RESET}")
+
     return all_healthy
 
 def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None):
@@ -1354,20 +1769,37 @@ def kill_process_on_port(port, no_sudo=False):
         check_alive_cmd.insert(0, "sudo")
 
     try:
+        # Try graceful kill
         run_command(kill_cmd_graceful, check=False)
         time.sleep(2)
-        
+
+        # Check if still alive
         result = run_command(check_alive_cmd, check=False, capture_output=True)
         if result.returncode == 0:
             print(f"⚠️  Process {pid} still alive. Forcing termination...")
-            run_command(kill_cmd_force, check=True)
-            print(f"{C_GREEN}✅ Process {pid} terminated by force.{C_RESET}")
+            try:
+                run_command(kill_cmd_force, check=True)
+                print(f"{C_GREEN}✅ Process {pid} terminated by force.{C_RESET}")
+            except subprocess.CalledProcessError as e:
+                print(f"{C_RED}⛔ Failed to force-kill process {pid}{C_RESET}")
+                print(f"{C_RED}   Error: {e}{C_RESET}")
+                if hasattr(e, 'stderr') and e.stderr:
+                    print(f"{C_RED}   {e.stderr}{C_RESET}")
+                print(f"{C_YELLOW}   Try manually: sudo kill -9 {pid}{C_RESET}")
+                return False
         else:
             print(f"{C_GREEN}✅ Process {pid} terminated gracefully.{C_RESET}")
 
+    except PermissionError:
+        print(f"{C_RED}⛔ Permission denied killing process {pid}{C_RESET}")
+        print(f"{C_YELLOW}   Try with sudo: sudo kill {pid}{C_RESET}")
+        return False
+    except ProcessLookupError:
+        print(f"{C_YELLOW}⚠️  Process {pid} no longer exists (already stopped){C_RESET}")
+        return True
     except Exception as e:
-        print(f"{C_RED}⛔ Failed to kill process {pid}: {e}{C_RESET}")
-        print(f"{C_YELLOW}   You may need to stop it manually. Try: {' '.join(kill_cmd_force)}{C_RESET}")
+        print(f"{C_RED}⛔ Unexpected error killing process {pid}{C_RESET}")
+        print(f"{C_RED}   {type(e).__name__}: {e}{C_RESET}")
         return False
         
     return True
@@ -1612,17 +2044,35 @@ def setup_fastapi_environment():
         # Install requirements (like startup.sh)
         print(f"📦 Installing Python requirements from requirements-api.txt...")
         try:
-            run_command([venv_pip, "install", "-r", "requirements-api.txt"], check=True)
+            result = subprocess.run(
+                [venv_pip, "install", "-r", "requirements-api.txt"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
             print(f"✅ Requirements installed successfully")
         except (subprocess.CalledProcessError, SystemExit) as e:
-            print(f"{C_RED}⛔ Error: Failed to install requirements: {e}{C_RESET}")
-            print(f"📜 Contents of requirements-api.txt:")
+            print(f"{C_RED}⛔ Error: Failed to install requirements{C_RESET}")
+
+            # Show the actual pip error
+            if hasattr(e, 'stderr') and e.stderr:
+                print(f"\n{C_RED}pip error output:{C_RESET}")
+                print(e.stderr)
+
+            if hasattr(e, 'stdout') and e.stdout:
+                print(f"\n{C_YELLOW}pip output:{C_RESET}")
+                print(e.stdout)
+
+            # Also show requirements file for reference
+            print(f"\n{C_YELLOW}📜 Contents of requirements file:{C_RESET}")
             try:
                 with open("requirements-api.txt", "r") as f:
                     for line_num, line in enumerate(f, 1):
                         print(f"   {line_num}: {line.rstrip()}")
             except Exception as read_e:
                 print(f"   Could not read requirements file: {read_e}")
+
+            suggest_pip_fixes()
             return False
         
         # Verify uvicorn was installed
@@ -1741,8 +2191,12 @@ fi
                         lines = f.readlines()
                         for line in lines[-15:]:
                             print(f"   {line.rstrip()}")
-                except:
+                except FileNotFoundError:
                     print("   No log file found")
+                except PermissionError:
+                    print(f"   Permission denied reading {FASTAPI_LOG_FILE}")
+                except Exception as e:
+                    print(f"   Error reading log: {type(e).__name__}: {e}")
                 
                 # Check for common errors in the log (exactly like startup.sh)
                 try:
@@ -1753,21 +2207,23 @@ fi
                             print(f"   Please manually stop any process using port 8001:")
                             print(f"   1. Run: sudo lsof -i :8001")
                             print(f"   2. Run: sudo kill -9 <PID>")
-                except:
-                    pass
+                except FileNotFoundError:
+                    pass  # Log file doesn't exist yet
+                except Exception as e:
+                    print(f"   Warning: Could not check log for port conflicts: {e}")
                 return False
             
             # Check if server is responding to HTTP requests (exactly like startup.sh)
             try:
-                result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/"], 
+                result = subprocess.run(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:8001/"],
                                        capture_output=True, text=True, timeout=5, check=False)
                 if result.stdout.strip() in ["200", "404"]:
                     print(f"✅ FastAPI server started successfully (PID: {process.pid})")
                     print(f"🌐 FastAPI server accessible at: http://localhost:8001")
                     print(f"🔐 FastAPI server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/)")
                     return True
-            except:
-                # Fallback to urllib if curl is not available
+            except FileNotFoundError:
+                # curl not available, fallback to urllib
                 try:
                     import urllib.request
                     response = urllib.request.urlopen("http://localhost:8001/", timeout=5)
@@ -1776,8 +2232,12 @@ fi
                         print(f"🌐 FastAPI server accessible at: http://localhost:8001")
                         print(f"🔐 FastAPI server: {C_CYAN}http://localhost:8001{C_RESET} (check: curl http://localhost:8001/)")
                         return True
-                except:
-                    pass
+                except Exception:
+                    pass  # Server not ready yet, will retry
+            except subprocess.TimeoutExpired:
+                pass  # Timeout, will retry
+            except Exception:
+                pass  # Other error, will retry
             
             if i == health_check_retries:
                 print(f"{C_RED}⛔ Error: FastAPI server failed health check after {health_check_retries} attempts{C_RESET}")
@@ -1787,8 +2247,12 @@ fi
                         lines = f.readlines()
                         for line in lines[-10:]:
                             print(f"   {line.rstrip()}")
-                except:
+                except FileNotFoundError:
                     print("   No log file found")
+                except PermissionError:
+                    print(f"   Permission denied reading {FASTAPI_LOG_FILE}")
+                except Exception as e:
+                    print(f"   Error reading log: {type(e).__name__}: {e}")
                 print(f"💡 Try running: curl -v http://localhost:8001/ to debug connection issues")
                 return False
             
@@ -1802,9 +2266,11 @@ fi
         # Clean up the temporary script
         try:
             os.unlink(temp_script_path)
-        except:
-            pass
-    
+        except FileNotFoundError:
+            pass  # Already deleted
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Warning: Could not remove temp script {temp_script_path}: {e}{C_RESET}")
+
     return True
 
 def cleanup_fastapi_server(no_sudo=False):
@@ -2069,8 +2535,12 @@ fi
                         lines = f.readlines()
                         for line in lines[-15:]:
                             print(f"   {line.rstrip()}")
-                except:
+                except FileNotFoundError:
                     print("   No log file found")
+                except PermissionError:
+                    print(f"   Permission denied reading {DOCKER_CONTROL_LOG_FILE}")
+                except Exception as e:
+                    print(f"   Error reading log: {type(e).__name__}: {e}")
                 return False
 
             # Check if service is responding
@@ -2082,8 +2552,8 @@ fi
                         print(f"🌐 Docker Control Service accessible at: http://localhost:8002")
                         print(f"🔐 API documentation: {C_CYAN}http://localhost:8002/api/v1/docs{C_RESET}")
                         return True
-                except:
-                    pass
+                except Exception:
+                    pass  # Service not ready yet, will retry
             else:
                 # Fallback to urllib if requests not available
                 try:
@@ -2094,8 +2564,8 @@ fi
                         print(f"🌐 Docker Control Service accessible at: http://localhost:8002")
                         print(f"🔐 API documentation: {C_CYAN}http://localhost:8002/api/v1/docs{C_RESET}")
                         return True
-                except:
-                    pass
+                except Exception:
+                    pass  # Service not ready yet, will retry
 
             if i == health_check_retries:
                 print(f"{C_RED}⛔ Error: Docker Control Service failed health check after {health_check_retries} attempts{C_RESET}")
@@ -2105,8 +2575,12 @@ fi
                         lines = f.readlines()
                         for line in lines[-10:]:
                             print(f"   {line.rstrip()}")
-                except:
+                except FileNotFoundError:
                     print("   No log file found")
+                except PermissionError:
+                    print(f"   Permission denied reading {DOCKER_CONTROL_LOG_FILE}")
+                except Exception as e:
+                    print(f"   Error reading log: {type(e).__name__}: {e}")
                 return False
 
             print(f"⏳ Health check attempt {i}/{health_check_retries} - waiting {health_check_delay}s...")
@@ -2119,8 +2593,10 @@ fi
         # Clean up the temporary script
         try:
             os.unlink(temp_script_path)
-        except:
-            pass
+        except FileNotFoundError:
+            pass  # Already deleted
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Warning: Could not remove temp script {temp_script_path}: {e}{C_RESET}")
 
     return True
 
@@ -2334,11 +2810,17 @@ def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
 
         else: # No local npm found
             print(f"\n{C_YELLOW}⚠️ 'npm' command not found on your local machine.{C_RESET}")
-            
+
+            # In easy mode, automatically skip npm installation
+            if easy_mode:
+                print(f"{C_YELLOW}Skipping local dependency installation (easy mode). IDE features may be limited.{C_RESET}")
+                save_preference("npm_install_via_docker", 'n')
+                return True
+
             # Check for saved preference
             docker_pref = get_preference("npm_install_via_docker")
             choice = None
-            
+
             if not force_prompt and docker_pref:
                 if docker_pref in ['n', 'no', 'false']:
                     print(f"{C_YELLOW}Skipping local dependency installation (using saved preference). IDE features may be limited.{C_RESET}")
@@ -2684,6 +3166,72 @@ def fix_docker_issues():
     print(f"{C_YELLOW}{'=' * 60}{C_RESET}")
     return True
 
+
+def run_build_tests():
+    """Run Docker build tests with automatic virtual environment setup."""
+    print(f"\n{C_TT_PURPLE}{C_BOLD}🧪 Docker Build Tests{C_RESET}")
+    print(f"{C_YELLOW}{'=' * 60}{C_RESET}\n")
+
+    venv_dir = os.path.join(TT_STUDIO_ROOT, ".venv")
+    venv_python = os.path.join(venv_dir, "bin", "python3")
+    venv_pip = os.path.join(venv_dir, "bin", "pip")
+    requirements_file = os.path.join(TT_STUDIO_ROOT, "dev-tools", "requirements-dev.txt")
+
+    # Check if virtual environment exists
+    if not os.path.exists(venv_dir):
+        print(f"{C_CYAN}📦 Creating virtual environment...{C_RESET}")
+        try:
+            subprocess.run([sys.executable, "-m", "venv", venv_dir], check=True, capture_output=True)
+            print(f"{C_GREEN}✅ Virtual environment created{C_RESET}\n")
+        except subprocess.CalledProcessError as e:
+            print(f"{C_RED}❌ Failed to create virtual environment{C_RESET}")
+            print(f"{C_YELLOW}Error: {e.stderr.decode() if e.stderr else 'Unknown error'}{C_RESET}")
+            sys.exit(1)
+
+    # Check if pytest is installed in venv
+    pytest_check = subprocess.run(
+        [venv_python, "-c", "import pytest"],
+        capture_output=True,
+        check=False
+    )
+
+    if pytest_check.returncode != 0:
+        print(f"{C_CYAN}📥 Installing test dependencies...{C_RESET}")
+        try:
+            subprocess.run(
+                [venv_pip, "install", "-r", requirements_file],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print(f"{C_GREEN}✅ Test dependencies installed{C_RESET}\n")
+        except subprocess.CalledProcessError as e:
+            print(f"{C_RED}❌ Failed to install test dependencies{C_RESET}")
+            print(f"{C_YELLOW}Error: {e.stderr if e.stderr else 'Unknown error'}{C_RESET}")
+            sys.exit(1)
+
+    # Run pytest using the venv's Python
+    print(f"{C_CYAN}Running tests...{C_RESET}\n")
+
+    result = subprocess.run(
+        [venv_python, "-m", "pytest", "-v", "--tb=short", "--color=yes", "tests/"],
+        cwd=TT_STUDIO_ROOT
+    )
+
+    print(f"\n{C_YELLOW}{'=' * 60}{C_RESET}")
+
+    if result.returncode == 0:
+        print(f"{C_GREEN}✅ All tests passed!{C_RESET}")
+    else:
+        print(f"{C_RED}❌ Some tests failed{C_RESET}")
+        print(f"\n{C_CYAN}Tip: To run tests manually with more options:{C_RESET}")
+        print(f"  {C_WHITE}source .venv/bin/activate{C_RESET}")
+        print(f"  {C_WHITE}pytest -m 'not docker'  # Skip Docker tests{C_RESET}")
+        print(f"  {C_WHITE}pytest tests/test_docker_builds.py::test_name  # Run specific test{C_RESET}")
+
+    sys.exit(result.returncode)
+
+
 def main():
     """Main function to orchestrate the script."""
     try:
@@ -2715,6 +3263,7 @@ def main():
   {C_CYAN}python run.py --check-headers{C_RESET} 🔍 Check for missing SPDX license headers
   {C_CYAN}python run.py --add-headers{C_RESET} 📝 Add missing SPDX license headers (excludes frontend)
   {C_CYAN}python run.py --fix-docker{C_RESET}   🔧 Automatically fix Docker service and permission issues
+  {C_CYAN}python run.py tests build{C_RESET}    🧪 Run Docker build tests
   {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
@@ -2752,7 +3301,15 @@ def main():
                    help="🔧 Automatically fix Docker service and permission issues")
         parser.add_argument("--easy", action="store_true",
                    help="🚀 Easy setup mode - only prompts for HF_TOKEN, uses defaults for everything else")
-        
+
+        # Add subparsers for commands like 'tests'
+        subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+        # Tests command with subcommands
+        tests_parser = subparsers.add_parser('tests', help='🧪 Run test suites')
+        tests_subparsers = tests_parser.add_subparsers(dest='test_suite', help='Test suite to run')
+        tests_subparsers.add_parser('build', help='Run Docker build tests')
+
         args = parser.parse_args()
         
         if args.help_env:
@@ -2827,7 +3384,22 @@ def main():
         if args.add_headers:
             add_spdx_headers()
             return
-        
+
+        # Handle 'tests' command
+        if args.command == 'tests':
+            if args.test_suite == 'build':
+                run_build_tests()
+            else:
+                # No test suite specified, show available test suites
+                print(f"\n{C_TT_PURPLE}{C_BOLD}🧪 TT Studio Test Suites{C_RESET}")
+                print(f"{C_YELLOW}{'=' * 60}{C_RESET}\n")
+                print(f"{C_CYAN}Available test suites:{C_RESET}")
+                print(f"  {C_GREEN}build{C_RESET}  - Docker build failure detection tests")
+                print(f"\n{C_CYAN}Usage:{C_RESET}")
+                print(f"  {C_WHITE}python run.py tests build{C_RESET}")
+                print(f"\n{C_YELLOW}{'=' * 60}{C_RESET}")
+            return
+
         display_welcome_banner()
         check_docker_installation()
         configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=args.easy)
@@ -3010,7 +3582,7 @@ def main():
         # This ensures the backend can connect to it when it starts
         if not args.skip_docker_control:
             print(f"\n{C_BLUE}{'='*60}{C_RESET}")
-            print(f"{C_BLUE}Step 7: Starting Docker Control Service{C_RESET}")
+            print(f"{C_BLUE}🔧 Starting Docker Control Service{C_RESET}")
             print(f"{C_BLUE}{'='*60}{C_RESET}")
 
             if not start_docker_control_service(no_sudo=args.no_sudo):
@@ -3034,13 +3606,451 @@ def main():
         docker_compose_cmd.extend(["up", "--build", "-d"])
 
         # Run the Docker Compose command with sudo if needed
-        if has_docker_access:
-            run_command(docker_compose_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"))
-        else:
-            # Need sudo for docker-compose
-            sudo_cmd = ["sudo"] + docker_compose_cmd
-            subprocess.run(sudo_cmd, cwd=os.path.join(TT_STUDIO_ROOT, "app"), check=True)
-        
+        try:
+            if has_docker_access:
+                # Show progress header before building
+                show_docker_build_progress_header()
+
+                # Run docker compose with streaming output while capturing
+                returncode, output = run_docker_compose_with_progress(
+                    docker_compose_cmd,
+                    cwd=os.path.join(TT_STUDIO_ROOT, "app")
+                )
+
+                if returncode != 0:
+                    # Parse to identify which container failed
+                    container_name, friendly_name, error_section = parse_docker_build_failure(output)
+
+                    print(f"\n{C_RED}{'='*60}{C_RESET}")
+                    if friendly_name:
+                        print(f"{C_RED}⛔ ERROR: {friendly_name} Container ({container_name}) Failed to Build{C_RESET}")
+                    else:
+                        print(f"{C_RED}⛔ ERROR: Docker Compose Build/Start Failed{C_RESET}")
+                    print(f"{C_RED}{'='*60}{C_RESET}")
+
+                    # Show relevant error section if identified
+                    if error_section:
+                        print(f"\n{C_RED}Error Details:{C_RESET}")
+                        print(error_section)
+
+                    # Get container status to identify which failed
+                    print(f"\n{C_CYAN}📋 Checking container status...{C_RESET}")
+                    status_result = subprocess.run(
+                        ["docker", "ps", "-a", "--filter", "name=tt_studio", "--format", "{{.Names}}\t{{.Status}}"],
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
+
+                    failed_containers = []
+                    successful_containers = []
+                    if status_result.returncode == 0 and status_result.stdout:
+                        print(f"\n{C_YELLOW}Container Status:{C_RESET}")
+                        for line in status_result.stdout.strip().split('\n'):
+                            if line:
+                                name, status = line.split('\t', 1) if '\t' in line else (line, 'Unknown')
+                                if 'Exited' in status or 'Created' in status:
+                                    print(f"  {C_RED}❌ {name}: {status}{C_RESET}")
+                                    failed_containers.append(name)
+                                else:
+                                    print(f"  {C_GREEN}✓ {name}: {status}{C_RESET}")
+                                    successful_containers.append(name)
+
+                    # Show prominent failure summary at the bottom
+                    print(f"\n{C_RED}{'='*60}{C_RESET}")
+                    print(f"{C_RED}{C_BOLD}BUILD FAILURE SUMMARY:{C_RESET}")
+                    print(f"{C_RED}{'='*60}{C_RESET}")
+
+                    if failed_containers:
+                        for container in failed_containers:
+                            # Map to friendly names
+                            friendly_map = {
+                                'tt_studio_backend': 'BACKEND',
+                                'tt_studio_frontend': 'FRONTEND',
+                                'tt_studio_agent': 'AGENT',
+                                'tt_studio_chroma': 'CHROMADB'
+                            }
+                            friendly = friendly_map.get(container, container.upper())
+                            print(f"{C_RED}❌ THE {friendly} CONTAINER FAILED{C_RESET}")
+                    elif friendly_name:
+                        print(f"{C_RED}❌ THE {friendly_name.upper()} CONTAINER FAILED{C_RESET}")
+                    else:
+                        print(f"{C_RED}❌ DOCKER BUILD FAILED{C_RESET}")
+
+                    print(f"{C_RED}{'='*60}{C_RESET}")
+
+                    print(f"\n{C_CYAN}📋 To see detailed logs, run:{C_RESET}")
+                    print(f"  cd app && docker compose build --no-cache")
+                    if container_name:
+                        print(f"  docker logs {container_name}")
+                    print(f"  docker logs tt_studio_backend")
+                    print(f"  docker logs tt_studio_frontend")
+                    print(f"  docker logs tt_studio_agent")
+                    print(f"  docker logs tt_studio_chroma")
+
+                    suggest_docker_fixes("Docker build")
+
+                    # Build error log for clipboard (without color codes)
+                    error_log_lines = []
+                    error_log_lines.append("=" * 60)
+                    error_log_lines.append("TT STUDIO DOCKER BUILD FAILURE LOG")
+                    error_log_lines.append("=" * 60)
+                    error_log_lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    error_log_lines.append("")
+
+                    if friendly_name:
+                        error_log_lines.append(f"FAILED CONTAINER: {friendly_name} ({container_name})")
+                    else:
+                        error_log_lines.append("FAILED: Docker Compose Build/Start")
+                    error_log_lines.append("")
+
+                    if error_section:
+                        error_log_lines.append("ERROR DETAILS:")
+                        error_log_lines.append(error_section)
+                        error_log_lines.append("")
+
+                    if failed_containers:
+                        error_log_lines.append("CONTAINER STATUS:")
+                        for container in failed_containers:
+                            friendly_map = {
+                                'tt_studio_backend': 'Backend',
+                                'tt_studio_frontend': 'Frontend',
+                                'tt_studio_agent': 'Agent',
+                                'tt_studio_chroma': 'ChromaDB'
+                            }
+                            friendly = friendly_map.get(container, container)
+                            error_log_lines.append(f"  ❌ {friendly} ({container}) - FAILED")
+                        for container in successful_containers:
+                            friendly_map = {
+                                'tt_studio_backend': 'Backend',
+                                'tt_studio_frontend': 'Frontend',
+                                'tt_studio_agent': 'Agent',
+                                'tt_studio_chroma': 'ChromaDB'
+                            }
+                            friendly = friendly_map.get(container, container)
+                            error_log_lines.append(f"  ✓ {friendly} ({container}) - Running")
+                        error_log_lines.append("")
+
+                    error_log_lines.append("=" * 60)
+                    error_log = "\n".join(error_log_lines)
+
+                    # Copy to clipboard
+                    if copy_to_clipboard(error_log):
+                        print(f"\n{C_GREEN}📋 Error log copied to clipboard!{C_RESET}")
+                        print(f"{C_CYAN}You can now paste it (Ctrl+V / Cmd+V) to share the error{C_RESET}")
+                    else:
+                        print(f"\n{C_YELLOW}⚠️  Could not copy to clipboard (clipboard tool not available){C_RESET}")
+
+                    sys.exit(1)
+                else:
+                    # Success!
+                    print(f"\n{C_GREEN}{'='*60}{C_RESET}")
+                    print(f"{C_GREEN}✅ All Docker containers built and started successfully!{C_RESET}")
+                    print(f"{C_GREEN}{'='*60}{C_RESET}\n")
+            else:
+                # Need sudo for docker-compose
+                # Show progress header before building
+                show_docker_build_progress_header()
+
+                sudo_cmd = ["sudo"] + docker_compose_cmd
+                # Run docker compose with streaming output while capturing
+                returncode, output = run_docker_compose_with_progress(
+                    sudo_cmd,
+                    cwd=os.path.join(TT_STUDIO_ROOT, "app")
+                )
+
+                if returncode != 0:
+                    # Parse to identify which container failed
+                    container_name, friendly_name, error_section = parse_docker_build_failure(output)
+
+                    print(f"\n{C_RED}{'='*60}{C_RESET}")
+                    if friendly_name:
+                        print(f"{C_RED}⛔ ERROR: {friendly_name} Container ({container_name}) Failed to Build{C_RESET}")
+                    else:
+                        print(f"{C_RED}⛔ ERROR: Docker Compose Build/Start Failed{C_RESET}")
+                    print(f"{C_RED}{'='*60}{C_RESET}")
+
+                    # Show relevant error section if identified
+                    if error_section:
+                        print(f"\n{C_RED}Error Details:{C_RESET}")
+                        print(error_section)
+
+                    # Get container status to identify which failed
+                    print(f"\n{C_CYAN}📋 Checking container status...{C_RESET}")
+                    status_result = subprocess.run(
+                        ["sudo", "docker", "ps", "-a", "--filter", "name=tt_studio", "--format", "{{.Names}}\t{{.Status}}"],
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
+
+                    failed_containers = []
+                    successful_containers = []
+                    if status_result.returncode == 0 and status_result.stdout:
+                        print(f"\n{C_YELLOW}Container Status:{C_RESET}")
+                        for line in status_result.stdout.strip().split('\n'):
+                            if line:
+                                name, status = line.split('\t', 1) if '\t' in line else (line, 'Unknown')
+                                if 'Exited' in status or 'Created' in status:
+                                    print(f"  {C_RED}❌ {name}: {status}{C_RESET}")
+                                    failed_containers.append(name)
+                                else:
+                                    print(f"  {C_GREEN}✓ {name}: {status}{C_RESET}")
+                                    successful_containers.append(name)
+
+                    # Show prominent failure summary at the bottom
+                    print(f"\n{C_RED}{'='*60}{C_RESET}")
+                    print(f"{C_RED}{C_BOLD}BUILD FAILURE SUMMARY:{C_RESET}")
+                    print(f"{C_RED}{'='*60}{C_RESET}")
+
+                    if failed_containers:
+                        for container in failed_containers:
+                            # Map to friendly names
+                            friendly_map = {
+                                'tt_studio_backend': 'BACKEND',
+                                'tt_studio_frontend': 'FRONTEND',
+                                'tt_studio_agent': 'AGENT',
+                                'tt_studio_chroma': 'CHROMADB'
+                            }
+                            friendly = friendly_map.get(container, container.upper())
+                            print(f"{C_RED}❌ THE {friendly} CONTAINER FAILED{C_RESET}")
+                    elif friendly_name:
+                        print(f"{C_RED}❌ THE {friendly_name.upper()} CONTAINER FAILED{C_RESET}")
+                    else:
+                        print(f"{C_RED}❌ DOCKER BUILD FAILED{C_RESET}")
+
+                    print(f"{C_RED}{'='*60}{C_RESET}")
+
+                    print(f"\n{C_CYAN}📋 To see detailed logs, run:{C_RESET}")
+                    print(f"  cd app && sudo docker compose build --no-cache")
+                    if container_name:
+                        print(f"  sudo docker logs {container_name}")
+                    print(f"  sudo docker logs tt_studio_backend")
+                    print(f"  sudo docker logs tt_studio_frontend")
+                    print(f"  sudo docker logs tt_studio_agent")
+                    print(f"  sudo docker logs tt_studio_chroma")
+
+                    suggest_docker_fixes("Docker build")
+
+                    # Build error log for clipboard (without color codes)
+                    error_log_lines = []
+                    error_log_lines.append("=" * 60)
+                    error_log_lines.append("TT STUDIO DOCKER BUILD FAILURE LOG")
+                    error_log_lines.append("=" * 60)
+                    error_log_lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    error_log_lines.append("")
+
+                    if friendly_name:
+                        error_log_lines.append(f"FAILED CONTAINER: {friendly_name} ({container_name})")
+                    else:
+                        error_log_lines.append("FAILED: Docker Compose Build/Start")
+                    error_log_lines.append("")
+
+                    if error_section:
+                        error_log_lines.append("ERROR DETAILS:")
+                        error_log_lines.append(error_section)
+                        error_log_lines.append("")
+
+                    if failed_containers:
+                        error_log_lines.append("CONTAINER STATUS:")
+                        for container in failed_containers:
+                            friendly_map = {
+                                'tt_studio_backend': 'Backend',
+                                'tt_studio_frontend': 'Frontend',
+                                'tt_studio_agent': 'Agent',
+                                'tt_studio_chroma': 'ChromaDB'
+                            }
+                            friendly = friendly_map.get(container, container)
+                            error_log_lines.append(f"  ❌ {friendly} ({container}) - FAILED")
+                        for container in successful_containers:
+                            friendly_map = {
+                                'tt_studio_backend': 'Backend',
+                                'tt_studio_frontend': 'Frontend',
+                                'tt_studio_agent': 'Agent',
+                                'tt_studio_chroma': 'ChromaDB'
+                            }
+                            friendly = friendly_map.get(container, container)
+                            error_log_lines.append(f"  ✓ {friendly} ({container}) - Running")
+                        error_log_lines.append("")
+
+                    error_log_lines.append("=" * 60)
+                    error_log = "\n".join(error_log_lines)
+
+                    # Copy to clipboard
+                    if copy_to_clipboard(error_log):
+                        print(f"\n{C_GREEN}📋 Error log copied to clipboard!{C_RESET}")
+                        print(f"{C_CYAN}You can now paste it (Ctrl+V / Cmd+V) to share the error{C_RESET}")
+                    else:
+                        print(f"\n{C_YELLOW}⚠️  Could not copy to clipboard (clipboard tool not available){C_RESET}")
+
+                    sys.exit(1)
+                else:
+                    # Success!
+                    print(f"\n{C_GREEN}{'='*60}{C_RESET}")
+                    print(f"{C_GREEN}✅ All Docker containers built and started successfully!{C_RESET}")
+                    print(f"{C_GREEN}{'='*60}{C_RESET}\n")
+
+            # Give containers a moment to start
+            print(f"{C_BLUE}⏳ Waiting for containers to initialize...{C_RESET}")
+            time.sleep(3)
+
+            # Verify containers started successfully
+            containers = verify_docker_containers()
+
+            if not containers:
+                print(f"\n{C_RED}⛔ Error: Could not verify container status{C_RESET}")
+                print(f"{C_YELLOW}   Unable to list Docker containers{C_RESET}")
+                suggest_docker_fixes("Docker container verification")
+                sys.exit(1)
+
+            failed_any = any(not info['running'] for info in containers.values())
+
+            if failed_any:
+                print(f"\n{C_RED}{'='*60}{C_RESET}")
+                print(f"{C_RED}⛔ ERROR: Container Startup Failed{C_RESET}")
+                print(f"{C_RED}{'='*60}{C_RESET}")
+
+                # Show which specific containers failed
+                failed_containers = [name for name, info in containers.items() if not info['running']]
+                print(f"\n{C_RED}Failed containers:{C_RESET}")
+                for container_name in failed_containers:
+                    # Extract friendly name
+                    friendly_map = {
+                        'tt_studio_backend': 'Backend',
+                        'tt_studio_frontend': 'Frontend',
+                        'tt_studio_agent': 'Agent',
+                        'tt_studio_chroma': 'ChromaDB'
+                    }
+                    friendly = friendly_map.get(container_name, container_name)
+                    print(f"  {C_RED}❌ {friendly} ({container_name}){C_RESET}")
+
+                print_container_diagnostics(containers)
+
+                # Show logs for failed containers and collect them for clipboard
+                container_logs = {}
+                print(f"\n{C_CYAN}📋 Fetching logs for failed containers...{C_RESET}")
+                for container_name, info in containers.items():
+                    if not info['running']:
+                        print(f"\n{C_RED}{'='*60}{C_RESET}")
+                        print(f"{C_RED}Logs for {container_name}:{C_RESET}")
+                        print(f"{C_RED}{'='*60}{C_RESET}")
+                        log_cmd = ["docker", "logs", "--tail", "50", container_name]
+                        if not has_docker_access:
+                            log_cmd = ["sudo"] + log_cmd
+                        log_result = subprocess.run(log_cmd, capture_output=True, text=True, check=False)
+
+                        if log_result.returncode != 0:
+                            print(f"{C_YELLOW}⚠️  Could not fetch logs for {container_name}{C_RESET}")
+                            if log_result.stderr:
+                                print(f"{C_YELLOW}   Error: {log_result.stderr}{C_RESET}")
+                            container_logs[container_name] = f"Could not fetch logs: {log_result.stderr}"
+                        else:
+                            if log_result.stdout:
+                                print(log_result.stdout)
+                                container_logs[container_name] = log_result.stdout
+                            if log_result.stderr:
+                                print(f"\n{C_YELLOW}Stderr:{C_RESET}")
+                                print(log_result.stderr)
+                            if not log_result.stdout and not log_result.stderr:
+                                print(f"{C_YELLOW}   (No logs available yet){C_RESET}")
+                                container_logs[container_name] = "(No logs available yet)"
+
+                print(f"\n{C_RED}{'='*60}{C_RESET}")
+                print(f"{C_RED}⛔ CONTAINER STARTUP FAILED{C_RESET}")
+                print(f"{C_RED}{'='*60}{C_RESET}")
+                print(f"{C_RED}One or more containers failed to start. Review the logs above.{C_RESET}")
+
+                # Show prominent failure summary at the bottom
+                print(f"\n{C_RED}{'='*60}{C_RESET}")
+                print(f"{C_RED}{C_BOLD}STARTUP FAILURE SUMMARY:{C_RESET}")
+                print(f"{C_RED}{'='*60}{C_RESET}")
+
+                for container_name in failed_containers:
+                    # Map to friendly names
+                    friendly_map = {
+                        'tt_studio_backend': 'BACKEND',
+                        'tt_studio_frontend': 'FRONTEND',
+                        'tt_studio_agent': 'AGENT',
+                        'tt_studio_chroma': 'CHROMADB'
+                    }
+                    friendly = friendly_map.get(container_name, container_name.upper())
+                    print(f"{C_RED}❌ THE {friendly} CONTAINER FAILED TO START{C_RESET}")
+
+                print(f"{C_RED}{'='*60}{C_RESET}")
+
+                # Provide specific suggestions based on common errors
+                suggest_docker_fixes("Container startup")
+
+                print(f"\n{C_CYAN}📋 Additional debugging commands:{C_RESET}")
+                print(f"  • Check container status: docker ps -a | grep tt_studio")
+                print(f"  • View full logs: docker logs -f <container_name>")
+                print(f"  • Inspect container: docker inspect <container_name>")
+                print(f"  • Rebuild without cache: cd app && docker compose build --no-cache")
+                print(f"  • Clean up and retry: python run.py --cleanup && python run.py")
+
+                # Build error log for clipboard (without color codes)
+                error_log_lines = []
+                error_log_lines.append("=" * 60)
+                error_log_lines.append("TT STUDIO CONTAINER STARTUP FAILURE LOG")
+                error_log_lines.append("=" * 60)
+                error_log_lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                error_log_lines.append("")
+
+                error_log_lines.append("FAILED CONTAINERS:")
+                for container_name in failed_containers:
+                    friendly_map = {
+                        'tt_studio_backend': 'Backend',
+                        'tt_studio_frontend': 'Frontend',
+                        'tt_studio_agent': 'Agent',
+                        'tt_studio_chroma': 'ChromaDB'
+                    }
+                    friendly = friendly_map.get(container_name, container_name)
+                    error_log_lines.append(f"  ❌ {friendly} ({container_name})")
+                error_log_lines.append("")
+
+                # Add container logs
+                if container_logs:
+                    error_log_lines.append("CONTAINER LOGS:")
+                    for container_name, logs in container_logs.items():
+                        friendly_map = {
+                            'tt_studio_backend': 'Backend',
+                            'tt_studio_frontend': 'Frontend',
+                            'tt_studio_agent': 'Agent',
+                            'tt_studio_chroma': 'ChromaDB'
+                        }
+                        friendly = friendly_map.get(container_name, container_name)
+                        error_log_lines.append(f"\n--- {friendly} ({container_name}) ---")
+                        error_log_lines.append(logs)
+                    error_log_lines.append("")
+
+                error_log_lines.append("=" * 60)
+                error_log = "\n".join(error_log_lines)
+
+                # Copy to clipboard
+                if copy_to_clipboard(error_log):
+                    print(f"\n{C_GREEN}📋 Error log copied to clipboard!{C_RESET}")
+                    print(f"{C_CYAN}You can now paste it (Ctrl+V / Cmd+V) to share the error{C_RESET}")
+                else:
+                    print(f"\n{C_YELLOW}⚠️  Could not copy to clipboard (clipboard tool not available){C_RESET}")
+
+                sys.exit(1)
+            else:
+                print(f"{C_GREEN}✅ All containers started successfully{C_RESET}")
+
+        except subprocess.CalledProcessError as e:
+            print(f"\n{C_RED}⛔ Error: Docker compose failed with unexpected error{C_RESET}")
+            print(f"{C_RED}   {e}{C_RESET}")
+            print(f"\n{C_CYAN}📋 To diagnose the issue, run:{C_RESET}")
+            print(f"  docker logs -f tt_studio_backend")
+            print(f"  docker logs -f tt_studio_frontend")
+            print(f"  docker logs -f tt_studio_agent")
+            print(f"  docker logs -f tt_studio_chroma")
+            raise
+        except Exception as e:
+            print(f"\n{C_RED}⛔ Unexpected error during Docker startup:{C_RESET}")
+            print(f"{C_RED}   {e}{C_RESET}")
+            raise
+
         # Check if AI Playground mode is enabled
         is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
         
@@ -3115,6 +4125,20 @@ def main():
                 print(f"  {mode}")
             print()
         
+        print(f"{C_CYAN}📋 To view logs:{C_RESET}")
+        print(f"  # Container logs (via Docker):")
+        print(f"  docker logs -f tt_studio_backend")
+        print(f"  docker logs -f tt_studio_frontend")
+        print(f"  docker logs -f tt_studio_chroma")
+        if not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):
+            print(f"  # Docker Control Service log:")
+            print(f"  tail -f {DOCKER_CONTROL_LOG_FILE}")
+        if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE):
+            fastapi_log = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "fastapi.log")
+            print(f"  # FastAPI Server log:")
+            print(f"  tail -f {fastapi_log}")
+        print()
+
         print(f"{C_YELLOW}🧹 To stop all services, run:{C_RESET}")
         print(f"  {C_MAGENTA}python run.py --cleanup{C_RESET}")
         print()
@@ -3134,7 +4158,19 @@ def main():
         print(f"  • Persistent Storage: {host_persistent_volume}")
         print(f"  • Development Mode: {'✅ Enabled' if args.dev else '❌ Disabled'}")
         print(f"  • TT Hardware Support: {'✅ Enabled' if detect_tt_hardware() else '❌ Disabled'}")
-        print(f"  • FastAPI Server: {'✅ Enabled' if not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE) else '❌ Disabled'}")
+
+        # Show service status with log file locations
+        fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
+        docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
+
+        print(f"  • FastAPI Server: {'✅ Enabled' if fastapi_enabled else '❌ Disabled'}")
+        if fastapi_enabled:
+            fastapi_log = os.path.join(TT_STUDIO_ROOT, "tt-inference-server", "fastapi.log")
+            print(f"    {C_CYAN}   → Log: {fastapi_log}{C_RESET}")
+
+        print(f"  • Docker Control Service: {'✅ Enabled' if docker_control_enabled else '❌ Disabled'}")
+        if docker_control_enabled:
+            print(f"    {C_CYAN}   → Log: {DOCKER_CONTROL_LOG_FILE}{C_RESET}")
         
         if is_deployed_mode:
             print(f"\n{C_BLUE}🌐 Your TT Studio is running in AI Playground mode with cloud model integrations.{C_RESET}")
@@ -3145,7 +4181,20 @@ def main():
         
         # Wait for services if requested
         if args.wait_for_services:
-            wait_for_all_services(skip_fastapi=args.skip_fastapi, is_deployed_mode=is_deployed_mode)
+            all_services_healthy = wait_for_all_services(
+                skip_fastapi=args.skip_fastapi,
+                is_deployed_mode=is_deployed_mode,
+                skip_docker_control=args.skip_docker_control
+            )
+            if not all_services_healthy:
+                print(f"\n{C_RED}⛔ Error: Not all services became healthy{C_RESET}")
+                print(f"{C_RED}   Cannot continue with unhealthy services{C_RESET}")
+                print(f"\n{C_CYAN}📋 Next steps:{C_RESET}")
+                print(f"  • Review the error messages and logs above")
+                print(f"  • Check container logs: docker logs -f <container_name>")
+                print(f"  • Try restarting: python run.py --cleanup && python run.py")
+                print(f"  • For help: python run.py --help")
+                sys.exit(1)
         
         
         # Control browser open only if service is healthy
@@ -3196,7 +4245,7 @@ def main():
 
     except KeyboardInterrupt:
         print(f"\n\n{C_YELLOW}🛑 Setup interrupted by user (Ctrl+C){C_RESET}")
-        
+
         # Build the original command with flags for resume suggestion
         original_cmd = "python run.py"
         if 'args' in locals():
@@ -3206,15 +4255,26 @@ def main():
                 original_cmd += " --skip-fastapi"
             if args.no_sudo:
                 original_cmd += " --no-sudo"
-        
+
         print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
         print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
         print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")
-        sys.exit(0)
+        sys.exit(130)  # Standard exit code for SIGINT (128 + 2)
     except Exception as e:
-        print(f"\n{C_RED}❌ An unexpected error occurred: {e}{C_RESET}")
-        print(f"{C_CYAN}💡 For help: {C_WHITE}python run.py --help{C_RESET}")
-        print(f"{C_CYAN}💡 To clean up: {C_WHITE}python run.py --cleanup{C_RESET}")
+        print(f"\n{C_RED}❌ An unexpected error occurred: {type(e).__name__}{C_RESET}")
+        print(f"{C_RED}   {e}{C_RESET}")
+
+        # Show stack trace for debugging
+        import traceback
+        print(f"\n{C_YELLOW}Full error details:{C_RESET}")
+        traceback.print_exc()
+
+        print(f"\n{C_CYAN}💡 Next steps:{C_RESET}")
+        print(f"  • Check the error details above")
+        print(f"  • For help: python run.py --help")
+        print(f"  • To clean up: python run.py --cleanup")
+        print(f"  • Report bugs: https://github.com/tenstorrent/tt-studio/issues")
+
         sys.exit(1)
 
 if __name__ == "__main__":
