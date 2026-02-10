@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useLogo } from "../../utils/logo";
 import { fetchModels } from "../../api/modelsDeployedApis";
 import { useQuery } from "@tanstack/react-query";
@@ -39,6 +39,7 @@ export default function ChatComponent() {
   const [isLoading, setIsLoading] = useState(true);
   const [files, setFiles] = useState<FileData[]>([]);
   const location = useLocation();
+  const navigate = useNavigate();
   const [textInput, setTextInput] = useState<string>("");
   const [ragDatasource, setRagDatasource] = useState<
     RagDataSource | undefined
@@ -77,6 +78,7 @@ export default function ChatComponent() {
   >(null);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(true);
+  const [shouldCreateNewTab, setShouldCreateNewTab] = useState<boolean>(false);
   const [isAgentSelected, setIsAgentSelected] = usePersistentState<boolean>(
     "isAgentSelected",
     false
@@ -97,6 +99,7 @@ export default function ChatComponent() {
   const [leftSwipeX, setLeftSwipeX] = useState<number | null>(null);
   const swipeAreaRef = useRef<HTMLDivElement>(null);
   const historyPanelRef = useRef<HTMLDivElement>(null);
+  const hasHandledNavigationRef = useRef<string | null>(null);
   const [isHandleTouched, setIsHandleTouched] = useState(false);
 
   // Add settings state
@@ -181,8 +184,29 @@ export default function ChatComponent() {
   // Load model information from location state and fetch deployed models
   useEffect(() => {
     if (location.state) {
+      console.log("Location state detected:", location.state);
       setModelID(location.state.containerID);
       setModelName(location.state.modelName);
+
+      // Check if we should auto-create new chat tab when navigating from model deployment page
+      if (location.state.containerID && location.state.modelName) {
+        const navigationKey = `${location.state.containerID}-${location.state.modelName}`;
+        console.log("Navigation key:", navigationKey, "Current ref:", hasHandledNavigationRef.current);
+
+        // Only flag for new conversation if we haven't handled this exact navigation yet
+        if (hasHandledNavigationRef.current !== navigationKey) {
+          console.log("Setting shouldCreateNewTab to true");
+          hasHandledNavigationRef.current = navigationKey;
+          setShouldCreateNewTab(true);
+
+          // Clear location state to prevent interference with chat history navigation
+          navigate(location.pathname, { replace: true, state: null });
+        }
+      }
+    } else {
+      console.log("No location state, resetting navigation ref");
+      // Reset when no navigation state (allows future navigations to work)
+      hasHandledNavigationRef.current = null;
     }
 
     const loadModels = async () => {
@@ -195,7 +219,7 @@ export default function ChatComponent() {
     };
 
     loadModels();
-  }, [location.state]);
+  }, [location.state, location.pathname, navigate]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -909,6 +933,15 @@ export default function ChatComponent() {
     screenSize.isMobileView,
     defaultThread,
   ]);
+
+  // Handle auto-creation of new tab when navigating from model deployment
+  useEffect(() => {
+    if (shouldCreateNewTab) {
+      console.log("Auto-creating new conversation from model deployment navigation");
+      createNewConversation();
+      setShouldCreateNewTab(false);
+    }
+  }, [shouldCreateNewTab, createNewConversation]);
 
   // Function to toggle history panel with smooth transition
   const toggleHistoryPanel = () => {
