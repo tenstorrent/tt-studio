@@ -26,6 +26,7 @@ import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
 import Settings from "./Settings";
+import { useModelConnection } from "../../hooks/useModelConnection";
 
 // Define a type for conversation with title
 interface ChatThread {
@@ -68,8 +69,6 @@ export default function ChatComponent() {
 
   const [currentThreadIndex, setCurrentThreadIndex] =
     usePersistentState<number>("current_thread_index", 0);
-  const [modelID, setModelID] = useState<string | null>(null);
-  const [modelName, setModelName] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [modelsDeployed, setModelsDeployed] = useState<Model[]>([]);
   const [reRenderingMessageId, setReRenderingMessageId] = useState<
@@ -178,13 +177,12 @@ export default function ChatComponent() {
     defaultThread,
   ]);
 
-  // Load model information from location state and fetch deployed models
-  useEffect(() => {
-    if (location.state) {
-      setModelID(location.state.containerID);
-      setModelName(location.state.modelName);
-    }
+  // Use custom hook for model connection with auto-selection
+  const { modelID, modelName, setModelID, setModelName, setModelConnection } =
+    useModelConnection("chat", modelsDeployed);
 
+  // Fetch deployed models
+  useEffect(() => {
     const loadModels = async () => {
       try {
         const models = await fetchModels();
@@ -195,7 +193,7 @@ export default function ChatComponent() {
     };
 
     loadModels();
-  }, [location.state]);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {

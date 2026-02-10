@@ -12,6 +12,8 @@ import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
+import { useModelConnection } from "../../hooks/useModelConnection";
+import { useModels } from "../../hooks/useModels";
 
 interface Transcription {
   id: string;
@@ -41,20 +43,17 @@ export default function SpeechToTextApp() {
   const { theme } = useTheme();
 
   const location = useLocation();
-  const [modelID, setModelID] = useState<string | null>(null);
+  const { models: deployedModels } = useModels();
+  const { modelID } = useModelConnection("speechToText", deployedModels);
 
+  // Show error only if truly no model available
   useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
-        customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
-        );
-        return;
-      }
-      setModelID(location.state.containerID);
-      console.log(location.state.containerID);
+    if (!modelID && deployedModels.length === 0) {
+      customToast.error(
+        "No models available. Please deploy a model from the Models Deployed tab."
+      );
     }
-  }, [location.state, modelID]);
+  }, [modelID, deployedModels]);
 
   // Function to create a new conversation
   const handleNewConversation = () => {
