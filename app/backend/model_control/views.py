@@ -10,8 +10,6 @@ from PIL import Image
 import io
 import time
 import datetime
-import docker
-from docker.errors import NotFound
 import json
 import jwt
 
@@ -687,109 +685,43 @@ class ContainerLogsView(View):
         return "log"
     
     def get(self, request, container_id, *args, **kwargs):
-        """Stream logs, events, and metrics from a Docker container using Server-Sent Events"""
+        """Stream logs from a Docker container using Server-Sent Events via docker-control-service"""
         logger.info(f"ContainerLogsView received request for container_id: {container_id}")
-        
+
         try:
-            logger.info("Initializing Docker client")
-            client = docker.from_env()
-            
-            logger.info(f"Attempting to get container: {container_id}")
-            container = client.containers.get(container_id)
-            logger.info(f"Found container: {container.name} (ID: {container.id})")
-            
+            logger.info("Getting docker-control-service client")
+            from docker_control.docker_control_client import get_docker_client
+            client = get_docker_client()
+
+            logger.info(f"Setting up log stream for container: {container_id}")
+
             def generate_container_data():
                 try:
-                    # Set SSE headers in initial response
-                    yield "retry: 1000\n\n"  # Reconnection time in ms
-                    
-                    # Stream logs in real-time with better formatting
-                    for log in container.logs(stream=True, follow=True, tail=100):
-                        try:
-                            # Decode and handle potential multi-line logs
-                            log_text = log.decode('utf-8', errors='replace')
-                            
-                            # Split into individual lines and process each
-                            for line in log_text.split('\n'):
-                                line = line.rstrip('\r')  # Remove carriage returns
-                                if line:  # Only send non-empty lines
-                                    # Add timestamp if not present
-                                    import datetime
-                                    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                    
-                                    # Determine message type using refactored logic
-                                    message_type = ContainerLogsView._determine_message_type(line)
-                                    
-                                    # Format the message
-                                    log_data = {
-                                        "type": message_type,
-                                        "message": line,
-                                        "timestamp": timestamp,
-                                        "raw": True  # Indicates this preserves original formatting
-                                    }
-                                    yield f"data: {json.dumps(log_data)}\n\n"
-                        except Exception as decode_error:
-                            # Fallback for problematic log lines
-                            error_msg = f"[LOG DECODE ERROR] {str(decode_error)}"
-                            log_data = {
-                                "type": "log", 
-                                "message": error_msg,
-                                "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                "raw": True
-                            }
-                            yield f"data: {json.dumps(log_data)}\n\n"
-                    
-                    # Get container stats for metrics
-                    stats = container.stats(stream=True, decode=True)
-                    for stat in stats:
-                        # Format metrics data
-                        metrics_data = {
-                            "type": "metric",
-                            "name": "cpu_usage",
-                            "value": stat.get("cpu_stats", {}).get("cpu_usage", {}).get("total_usage", 0)
-                        }
-                        yield f"data: {json.dumps(metrics_data)}\n\n"
-                        
-                        metrics_data = {
-                            "type": "metric",
-                            "name": "memory_usage",
-                            "value": stat.get("memory_stats", {}).get("usage", 0)
-                        }
-                        yield f"data: {json.dumps(metrics_data)}\n\n"
-                        
-                        # Format as an event when significant changes occur
-                        if stat.get("precpu_stats"):
-                            event_data = {
-                                "type": "event",
-                                "message": f"Container stats updated at {time.strftime('%Y-%m-%d %H:%M:%S')}"
-                            }
-                            yield f"data: {json.dumps(event_data)}\n\n"
-                            
+                    # Stream logs from docker-control-service
+                    # The docker-control-service already formats logs as SSE, so we just proxy them
+                    for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
+                        yield log_line
+
                 except Exception as e:
                     logger.error(f"Error in data stream: {str(e)}")
                     error_data = {
-                        "type": "log",
-                        "message": f"Error streaming data: {str(e)}"
+                        "type": "error",
+                        "message": f"Error streaming data: {str(e)}",
+                        "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     }
-                    yield f"data: {json.dumps(error_data)}\n\n"
-            
+                    yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+
             response = StreamingHttpResponse(
                 generate_container_data(),
                 content_type='text/event-stream'
             )
-            
+
             # Set required headers for SSE
             response['Cache-Control'] = 'no-cache, no-transform'
             response['X-Accel-Buffering'] = 'no'
-            
+
             return response
-            
-        except NotFound:
-            logger.error(f"Container not found: {container_id}")
-            return HttpResponse(
-                status=404,
-                content=f"Container {container_id} not found"
-            )
+
         except Exception as e:
             logger.error(f"Error streaming container data: {str(e)}")
             return HttpResponse(
