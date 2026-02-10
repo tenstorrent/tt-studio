@@ -1709,31 +1709,25 @@ def setup_tt_inference_server():
         # Sanitize branch name for filename (replace slashes with dashes)
         sanitized_branch = artifact_branch.replace("/", "-")
         
-        # Prefer local tarball if present
         artifact_file = os.path.join(artifacts_dir, f"tt-inference-server-{sanitized_branch}.tar.gz")
         
-        if os.path.exists(artifact_file):
+        # Use cached tarball only if artifact dir also exists (same snapshot).
+        # If user deleted the extracted dir, re-download so we get current branch HEAD (overwrites old tarball).
+        use_cached_tarball = (
+            os.path.exists(artifact_file) and os.path.exists(INFERENCE_ARTIFACT_DIR)
+        )
+        if use_cached_tarball:
             print(f"📦 Using existing artifact tarball: {artifact_file}")
         else:
-            # Download from GitHub branch
+            if os.path.exists(artifact_file) and not os.path.exists(INFERENCE_ARTIFACT_DIR):
+                print(f"📦 Artifact directory missing; re-downloading branch to get latest commit...")
+            # Download (overwrites existing tarball if present; always gets current HEAD of branch)
             github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
             try:
+                import urllib.request
                 print(f"   Downloading from: {github_url}")
                 print(f"   This may take a few minutes...")
                 urllib.request.urlretrieve(github_url, artifact_file)
-                
-                # Verify download completed successfully
-                if not os.path.exists(artifact_file):
-                    print(f"{C_RED}⛔ Download failed: file not found after download{C_RESET}")
-                    return False
-                
-                file_size = os.path.getsize(artifact_file)
-                if file_size == 0:
-                    print(f"{C_RED}⛔ Download failed: file is empty{C_RESET}")
-                    os.remove(artifact_file)
-                    return False
-                
-                print(f"✅ Artifact downloaded to {artifact_file} ({file_size:,} bytes)")
             except Exception as e:
                 print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
                 print(f"   Make sure the branch name '{artifact_branch}' exists in the repository")
@@ -1743,6 +1737,18 @@ def setup_tt_inference_server():
                     except Exception:
                         pass
                 return False
+            if not os.path.exists(artifact_file):
+                print(f"{C_RED}⛔ Download failed: file not found after download{C_RESET}")
+                return False
+            file_size = os.path.getsize(artifact_file)
+            if file_size == 0:
+                print(f"{C_RED}⛔ Download failed: file is empty{C_RESET}")
+                try:
+                    os.remove(artifact_file)
+                except Exception:
+                    pass
+                return False
+            print(f"✅ Artifact downloaded to {artifact_file} ({file_size:,} bytes)")
         
         # Extract artifact
         if artifact_file and os.path.exists(artifact_file):
@@ -1812,7 +1818,7 @@ def setup_tt_inference_server():
                         return False
                     
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    _write_artifact_info(artifacts_dir, "branch", "main")
+                    _write_artifact_info(artifacts_dir, "branch", artifact_branch)
                     print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
                     return True
                 else:
@@ -1898,7 +1904,8 @@ def setup_tt_inference_server():
                             return False
                         
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                        _write_artifact_info(artifacts_dir, "version", artifact_version)
+                        # "latest" used main branch, so record branch not version
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch)
                         print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
                         return True
                     else:

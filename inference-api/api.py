@@ -154,6 +154,38 @@ DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 # Regex pattern for structured progress signals
 PROG_RE = re.compile(r"TT_PROGRESS stage=(\w+) pct=(\d{1,3}) msg=(.*)$")
 
+_DOCKER_RUN_NAME_RE = re.compile(r"--name\s+(?P<name>[^\s]+)")
+_RUN_LOG_PATH_RE = re.compile(r"This log file is saved on local machine at:\s*(?P<path>\S+)")
+_DOCKER_WORKFLOW_LOG_PATH_RE = re.compile(r"Running docker container with log file:\s*(?P<path>\S+)")
+
+
+def _extract_from_job_logs(job_id: str) -> Dict[str, Optional[str]]:
+    """Best-effort extraction of run outputs from captured run.py logs."""
+    entries = list(log_store.get(job_id, []))
+    text = "\n".join([str(e.get("message", "")) for e in entries])
+
+    container_name = None
+    m = _DOCKER_RUN_NAME_RE.search(text)
+    if m:
+        container_name = m.group("name")
+
+    run_log_file_path = None
+    m = _RUN_LOG_PATH_RE.search(text)
+    if m:
+        run_log_file_path = m.group("path")
+
+    docker_log_file_path = None
+    m = _DOCKER_WORKFLOW_LOG_PATH_RE.search(text)
+    if m:
+        docker_log_file_path = m.group("path")
+
+    return {
+        "container_name": container_name,
+        "run_log_file_path": run_log_file_path,
+        "docker_log_file_path": docker_log_file_path,
+    }
+
+
 class ProgressHandler(logging.Handler):
     """Custom logging handler to capture progress from run.py execution"""
     
@@ -781,6 +813,51 @@ async def run_inference(request: RunRequest):
             run_logger.removeHandler(progress_handler)
 
             if return_code == 0:
+                # Some tt-inference-server artifacts return only an int return_code (no container_info dict).
+                # Avoid crashing on container_info["container_name"]. Try to infer container name from logs first.
+                if not isinstance(container_info, dict) or not container_info.get("container_name"):
+                    extracted = _extract_from_job_logs(job_id)
+                    inferred_name = extracted.get("container_name")
+                    if inferred_name:
+                        container_info = {
+                            "container_name": inferred_name,
+                            "container_id": None,
+                            "service_port": str(request.service_port or os.getenv("SERVICE_PORT") or ""),
+                            "docker_log_file_path": extracted.get("docker_log_file_path"),
+                            "run_log_file_path": extracted.get("run_log_file_path"),
+                        }
+                        logger.info(
+                            "run_main() returned 0 without container_info; "
+                            f"inferred container_name='{inferred_name}' from logs."
+                        )
+                    else:
+                        msg = (
+                            "Deployment returned success (0) but did not provide container info (container name/id) "
+                            "and it could not be inferred from logs. "
+                            "Check /run/logs/<job_id> for details."
+                        )
+                        with progress_lock:
+                            if job_id in progress_store:
+                                progress_store[job_id].update({
+                                    "status": "error",
+                                    "stage": "error",
+                                    "progress": 0,
+                                    "message": msg[:200],
+                                    "last_updated": time.time(),
+                                })
+                        return JSONResponse(
+                            status_code=500,
+                            content={
+                                "status": "error",
+                                "job_id": job_id,
+                                "message": msg,
+                                "progress_url": f"/run/progress/{job_id}",
+                                "logs_url": f"/run/logs/{job_id}",
+                                "docker_log_file_path": extracted.get("docker_log_file_path"),
+                                "run_log_file_path": extracted.get("run_log_file_path"),
+                            },
+                        )
+
                 # Update final progress status
                 with progress_lock:
                     if job_id in progress_store:
