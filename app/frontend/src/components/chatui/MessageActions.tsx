@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
 import type React from "react";
 import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
-import { Clipboard, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Clipboard, ThumbsUp, ThumbsDown, Brain } from "lucide-react";
 import CustomToaster, { customToast } from "../CustomToaster";
 import InferenceStats from "./InferenceStats";
 import type { InferenceStats as InferenceStatsType } from "./types";
@@ -20,6 +21,9 @@ interface MessageActionsProps {
   toggleableInlineStats?: boolean;
   statsOpen?: boolean;
   onToggleStats?: () => void;
+  hasThinking?: boolean;
+  showThinking?: boolean;
+  onToggleThinking?: () => void;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -34,6 +38,9 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   statsOpen: _statsOpen = false, // Marked as intentionally unused for now
   onToggleStats: _onToggleStats, // Marked as intentionally unused for now
   toggleableInlineStats = true,
+  hasThinking = false,
+  showThinking = false,
+  onToggleThinking,
 }) => {
   const [completeMessage, setCompleteMessage] = useState<string>(
     messageContent || ""
@@ -144,6 +151,29 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             />
             <span className="sr-only">Thumbs down</span>
           </Button>
+
+          {/* Thinking process toggle button */}
+          {hasThinking && onToggleThinking && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onToggleThinking}
+              className={`h-8 w-8 p-0 transition-colors ${
+                showThinking
+                  ? "bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800"
+                  : "hover:bg-gray-100 dark:hover:bg-gray-800"
+              }`}
+              style={{ outline: "none" }}
+              title={
+                showThinking ? "Hide thinking process" : "Show thinking process"
+              }
+            >
+              <Brain className="h-4 w-4" />
+              <span className="sr-only">
+                {showThinking ? "Hide" : "Show"} thinking process
+              </span>
+            </Button>
+          )}
 
           {/* Always show inline stats when toggleableInlineStats is enabled */}
           {inferenceStats && toggleableInlineStats && (
