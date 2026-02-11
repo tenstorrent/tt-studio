@@ -390,7 +390,7 @@ Add any other context about the problem here.
     };
 
     const MAX_URL_LENGTH = 7000; // conservative safety limit for GitHub new-issue URL
-    let fullUrl = buildIssueUrl(titleRaw, fullBody);
+    const fullUrl = buildIssueUrl(titleRaw, fullBody);
     if (fullUrl.length > MAX_URL_LENGTH) {
       // Build shortened body
       const truncatedFastapi = truncate(fastapiLogs, 800);
@@ -694,7 +694,10 @@ Add any other context about the problem here.
                     "Hardware status - Click to learn more"
                   }
                   onClick={() => {
-                    window.open("https://www.tenstorrent.com/hardware", "_blank");
+                    window.open(
+                      "https://www.tenstorrent.com/hardware",
+                      "_blank"
+                    );
                   }}
                 >
                   {systemStatus.boardName}
@@ -906,6 +909,8 @@ Add any other context about the problem here.
                   viewBox="0 0 96 96"
                   xmlns="http://www.w3.org/2000/svg"
                   className="flex-shrink-0"
+                  aria-hidden="true"
+                  focusable="false"
                 >
                   <path
                     fillRule="evenodd"
