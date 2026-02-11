@@ -171,41 +171,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const isInCooldown = remainingCooldownMs > 0;
   const cooldownSeconds = Math.ceil(remainingCooldownMs / 1000);
 
-  if (!showFooter) {
-    return (
-      <AnimatePresence>
-        <motion.div
-          className="fixed -bottom-1 left-1/2 -translate-x-1/2 z-40"
-          initial={{ y: 100 }}
-          animate={{ y: 0 }}
-          exit={{ y: 100 }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        >
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setShowFooter(true)}
-                  className="hover:scale-110 transition-transform duration-200"
-                  aria-label="Show footer"
-                >
-                  <ChevronUp
-                    className="w-7 h-7"
-                    strokeWidth={3}
-                    style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
-                  />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Show footer</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </motion.div>
-      </AnimatePresence>
-    );
-  }
-
   // Handle click on deployed models section
   const handleDeployedModelsClick = () => {
     navigate("/models-deployed");
@@ -610,69 +575,97 @@ Add any other context about the problem here.
     }
   };
 
-  // Show loading state
-  if (loading) {
-    return (
-      <motion.footer
-        className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
-        initial={{ y: 100 }}
-        animate={{ y: 0 }}
-        exit={{ y: 100 }}
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      >
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setShowFooter(false)}
-                  className="hover:scale-110 transition-transform duration-200"
-                  aria-label="Hide footer"
-                >
-                  <ChevronDown
-                    className="w-7 h-7"
-                    strokeWidth={3}
-                    style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
-                  />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Hide footer</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center space-x-4">
-            <span className={`text-sm ${textColor}`}>
-              TT Studio {releaseInfo?.currentVersion || "0.3.11"}
-            </span>
-            <Badge variant="default" className="text-xs">
-              Loading...
-            </Badge>
-          </div>
-
-          <div className="flex items-center space-x-6">
-            <span className={`text-sm ${mutedTextColor}`}>
-              LOADING SYSTEM RESOURCES...
-            </span>
-          </div>
-        </div>
-      </motion.footer>
-    );
-  }
-
   return (
     <>
-      <AnimatePresence>
-        <motion.footer
-          className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
-          initial={{ y: 100 }}
-          animate={{ y: 0 }}
-          exit={{ y: 100 }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        >
+      <AnimatePresence mode="wait">
+        {!showFooter ? (
+          <motion.div
+            key="toggle-button"
+            className="fixed -bottom-1 left-1/2 -translate-x-1/2 z-40"
+            initial={{ y: 100 }}
+            animate={{ y: 0 }}
+            exit={{ y: 100 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          >
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowFooter(true)}
+                    className="hover:scale-110 transition-transform duration-200"
+                    aria-label="Show footer"
+                  >
+                    <ChevronUp
+                      className="w-7 h-7"
+                      strokeWidth={3}
+                      style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Show footer</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </motion.div>
+        ) : loading ? (
+          <motion.footer
+            key="footer-loading"
+            className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+            initial={{ y: 100 }}
+            animate={{ y: 0 }}
+            exit={{ y: 100 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          >
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setShowFooter(false)}
+                      className="hover:scale-110 transition-transform duration-200"
+                      aria-label="Hide footer"
+                    >
+                      <ChevronDown
+                        className="w-7 h-7"
+                        strokeWidth={3}
+                        style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
+                      />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Hide footer</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center space-x-4">
+                <span className={`text-sm ${textColor}`}>
+                  TT Studio {releaseInfo?.currentVersion || "0.3.11"}
+                </span>
+                <Badge variant="default" className="text-xs">
+                  Loading...
+                </Badge>
+              </div>
+
+              <div className="flex items-center space-x-6">
+                <span className={`text-sm ${mutedTextColor}`}>
+                  LOADING SYSTEM RESOURCES...
+                </span>
+              </div>
+            </div>
+          </motion.footer>
+        ) : (
+          <motion.footer
+            key="footer-content"
+            className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+            initial={{ y: 100 }}
+            animate={{ y: 0 }}
+            exit={{ y: 100 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          >
           {/* Toggle button - absolutely positioned at bottom center */}
           <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-10">
             <TooltipProvider>
@@ -909,6 +902,7 @@ Add any other context about the problem here.
             </div>
           </div>
         </motion.footer>
+        )}
       </AnimatePresence>
 
       {/* TT Studio Information Modal */}
