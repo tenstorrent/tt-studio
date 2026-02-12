@@ -571,15 +571,16 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
             print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
             print()
 
-def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=False):
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=False, reconfigure_inference=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
-    
+
     Args:
         dev_mode (bool): If True, show dev mode banner but still prompt for all values
         force_reconfigure (bool): If True, force reconfiguration and clear preferences
         easy_mode (bool): If True, use minimal prompts and defaults for quick setup
+        reconfigure_inference (bool): If True, force reconfiguration of inference server artifact only
     """
     global FORCE_OVERWRITE
     
@@ -943,7 +944,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     
     # TT Inference Server Artifact Configuration
     print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
-    configure_inference_server_artifact(dev_mode, easy_mode, force_reconfigure)
+    configure_inference_server_artifact(dev_mode, easy_mode, force_reconfigure, reconfigure_inference)
     
     print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")
 
@@ -1406,24 +1407,40 @@ def is_valid_git_repo(path):
             return False
     return False  # Exists but not a git repo
 
-def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_reconfigure=False):
-    """Configure TT Inference Server artifact source (release version or branch)."""
+def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_reconfigure=False, reconfigure_inference=False):
+    """
+    Configure TT Inference Server artifact source (release version or branch).
+
+    Args:
+        dev_mode: Development mode flag
+        easy_mode: Easy mode flag
+        force_reconfigure: Force reconfiguration of all options
+        reconfigure_inference: Force reconfiguration of inference server artifact only
+    """
     current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
-    
-    # This allows users to change their choice each time they run the script
-    if not force_reconfigure and (current_version or current_branch):
+
+    # If configuration exists and user didn't request reconfiguration, use it silently
+    if (current_version or current_branch) and not (force_reconfigure or reconfigure_inference):
+        source_type = "release" if current_version else "branch"
+        value = current_version or current_branch
+        print(f"\n{C_CYAN}Using existing TT Inference Server configuration: {source_type} '{value}'{C_RESET}")
+        print(f"{C_YELLOW}   (Use --reconfigure-inference-server to change){C_RESET}")
+        return
+
+    # If reconfiguring, show current config and ask if they want to change
+    if (current_version or current_branch) and (force_reconfigure or reconfigure_inference):
         source_type = "release" if current_version else "branch"
         value = current_version or current_branch
         print(f"\n{C_CYAN}Current TT Inference Server configuration: {source_type} '{value}'{C_RESET}")
-        
-        # Ask if user wants to change (both in easy mode and normal mode)
+
+        # Ask if user wants to change
         while True:
             change_choice = input(f"{C_CYAN}Would you like to change this? (y/n) [default: n]: {C_RESET}").strip().lower() or "n"
             if change_choice in ["y", "yes", "n", "no"]:
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'y' or 'n'.{C_RESET}")
-        
+
         if change_choice in ["n", "no"]:
             print(f"✅ Keeping existing configuration: {source_type} '{value}'")
             return
@@ -1452,31 +1469,63 @@ def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_r
         if current_branch:
             # Clear branch if switching to release
             write_env_var("TT_INFERENCE_ARTIFACT_BRANCH", "", quote_value=False)
-        
+
         # Always prompt for version when user chooses option 1
         default_version = "latest"
         if current_version and current_version != "latest":
             default_version = current_version
-        
+
         prompt_text = f"📦 Enter release version (e.g., 'v0.8.0') or 'latest' [default: {default_version}]: "
         val = input(prompt_text).strip() or default_version
         write_env_var("TT_INFERENCE_ARTIFACT_VERSION", val, quote_value=False)
         print(f"✅ TT_INFERENCE_ARTIFACT_VERSION set to '{val}'")
+
+        # If version changed (or switching from branch to version), force re-download
+        if current_branch or (current_version != val):
+            artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
+            if os.path.exists(artifacts_dir):
+                try:
+                    print(f"{C_CYAN}🗑️  Removing existing artifacts directory...{C_RESET}")
+                    shutil.rmtree(artifacts_dir)
+                    print(f"{C_GREEN}✅ Removed .artifacts directory{C_RESET}")
+                except Exception as e:
+                    print(f"{C_YELLOW}⚠️  Could not remove .artifacts directory: {e}{C_RESET}")
+                    # Try using sudo to remove the directory
+                    print(f"{C_CYAN}   Attempting to remove with sudo...{C_RESET}")
+                    if not remove_artifact_with_sudo(artifacts_dir, ".artifacts directory"):
+                        print(f"{C_YELLOW}⚠️  Could not remove with sudo either. Will attempt to continue anyway...{C_RESET}")
+                print(f"{C_CYAN}📝 Configuration changed - will re-download artifact{C_RESET}")
     else:
         # Branch
         if current_version:
             # Clear version if switching to branch
             write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "", quote_value=False)
-        
+
         # Always prompt for branch when user chooses option 2
         default_branch = "main"
         if current_branch:
             default_branch = current_branch
-        
+
         prompt_text = f"🌿 Enter branch name (e.g., 'main', 'dev', 'feature/xyz') [default: {default_branch}]: "
         val = input(prompt_text).strip() or default_branch
         write_env_var("TT_INFERENCE_ARTIFACT_BRANCH", val, quote_value=False)
         print(f"✅ TT_INFERENCE_ARTIFACT_BRANCH set to '{val}'")
+
+        # If branch changed (or switching from version to branch), force re-download
+        if current_version or (current_branch != val):
+            artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
+            if os.path.exists(artifacts_dir):
+                try:
+                    print(f"{C_CYAN}🗑️  Removing existing artifacts directory...{C_RESET}")
+                    shutil.rmtree(artifacts_dir)
+                    print(f"{C_GREEN}✅ Removed .artifacts directory{C_RESET}")
+                except Exception as e:
+                    print(f"{C_YELLOW}⚠️  Could not remove .artifacts directory: {e}{C_RESET}")
+                    # Try using sudo to remove the directory
+                    print(f"{C_CYAN}   Attempting to remove with sudo...{C_RESET}")
+                    if not remove_artifact_with_sudo(artifacts_dir, ".artifacts directory"):
+                        print(f"{C_YELLOW}⚠️  Could not remove with sudo either. Will attempt to continue anyway...{C_RESET}")
+                print(f"{C_CYAN}📝 Configuration changed - will re-download artifact{C_RESET}")
 
 def _set_artifact_environment_variables(artifact_dir):
     """Set environment variables for artifact directory."""
@@ -1486,13 +1535,56 @@ def _set_artifact_environment_variables(artifact_dir):
     if os.path.exists(benchmark_file):
         os.environ["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
 
-def _write_artifact_info(artifacts_dir, artifact_type, artifact_value):
-    """Write artifact metadata file outside the inference-server directory."""
+def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False):
+    """
+    Write artifact metadata file outside the inference-server directory.
+
+    Args:
+        artifacts_dir: Directory containing artifacts
+        artifact_type: "branch" or "version"
+        artifact_value: Branch name or version number
+        validation_passed: Whether artifact validation succeeded
+        sudo_used: Whether sudo was needed during download/cleanup
+    """
     info_file = os.path.join(artifacts_dir, "artifact-info.txt")
     try:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         with open(info_file, 'w') as f:
-            f.write(f"artifact_type={artifact_type}\n")
-            f.write(f"artifact_value={artifact_value}\n")
+            # Write user-friendly header with clear current configuration
+            f.write("=" * 80 + "\n")
+            f.write("  TT INFERENCE SERVER - ARTIFACT INFORMATION\n")
+            f.write("=" * 80 + "\n\n")
+
+            # Highlight the current configuration prominently
+            f.write(f"  📌 CURRENT CONFIGURATION:\n")
+            if artifact_type == "branch":
+                f.write(f"     ✓ BRANCH      : {artifact_value} (ACTIVE)\n")
+                f.write(f"     ✗ VERSION     : Not configured (using branch instead)\n")
+            else:
+                f.write(f"     ✗ BRANCH      : Not configured (using version instead)\n")
+                f.write(f"     ✓ VERSION     : {artifact_value} (ACTIVE)\n")
+
+            f.write(f"\n     Last updated: {timestamp}\n")
+            f.write("\n" + "-" * 80 + "\n\n")
+
+            # Instructions for changing
+            f.write("  💡 To switch to a different artifact:\n")
+            f.write("     • Run: python run.py --reconfigure-inference-server\n")
+            f.write("     • Or manually edit: app/.env (TT_INFERENCE_ARTIFACT_BRANCH/VERSION)\n")
+            f.write("\n" + "-" * 80 + "\n\n")
+
+            # Technical details section
+            f.write("  🔍 Technical Details:\n")
+            f.write(f"     Artifact Type     : {artifact_type}\n")
+            f.write(f"     Artifact Value    : {artifact_value}\n")
+            f.write(f"     Download Time     : {timestamp}\n")
+            f.write(f"     Validation Status : {'✓ PASSED' if validation_passed else '✗ FAILED'}\n")
+            f.write(f"     Validation Checks : workflows_dir, workflows/utils.py\n")
+            f.write(f"     Sudo Used         : {'Yes' if sudo_used else 'No'}\n")
+            f.write("\n" + "=" * 80 + "\n")
+
         print(f"📝 Artifact info written to {info_file}")
     except Exception as e:
         print(f"{C_YELLOW}⚠️  Could not write artifact info file: {e}{C_RESET}")
@@ -1522,17 +1614,57 @@ def get_inference_server_version():
     return None
 
 
+def validate_artifact_structure(artifact_dir):
+    """
+    Validate that the downloaded artifact has the required structure.
+
+    Args:
+        artifact_dir (str): Path to the artifact directory to validate
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not os.path.exists(artifact_dir):
+        print(f"{C_RED}⛔ Validation failed: Artifact directory does not exist: {artifact_dir}{C_RESET}")
+        return False
+
+    # Check for required workflows directory and utils.py
+    workflows_dir = os.path.join(artifact_dir, "workflows")
+    if not os.path.exists(workflows_dir):
+        print(f"{C_RED}⛔ Validation failed: Missing 'workflows' directory in {artifact_dir}{C_RESET}")
+        return False
+
+    workflows_utils = os.path.join(workflows_dir, "utils.py")
+    if not os.path.exists(workflows_utils):
+        print(f"{C_RED}⛔ Validation failed: Missing 'workflows/utils.py' in {artifact_dir}{C_RESET}")
+        print(f"   Directory contents: {os.listdir(artifact_dir)[:10]}...")
+        return False
+
+    # Basic check that it's not an empty file
+    try:
+        file_size = os.path.getsize(workflows_utils)
+        if file_size == 0:
+            print(f"{C_RED}⛔ Validation failed: workflows/utils.py is empty{C_RESET}")
+            return False
+    except Exception as e:
+        print(f"{C_RED}⛔ Validation failed: Cannot read workflows/utils.py: {e}{C_RESET}")
+        return False
+
+    print(f"{C_GREEN}✅ Artifact structure validated successfully{C_RESET}")
+    return True
+
+
 def setup_tt_inference_server():
     """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
     print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server (Artifact){C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
-    
+
     # Read artifact source from .env file or environment
     # Priority: Branch > Version
     artifact_branch = (get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", None))
     artifact_version = (get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION") or "latest").strip()
-    
+
     # Debug: Show what we're looking for
     if artifact_branch:
         print(f"📋 Using branch: {artifact_branch}")
@@ -1546,6 +1678,17 @@ def setup_tt_inference_server():
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
     os.makedirs(artifacts_dir, exist_ok=True)
     print(f"📁 Artifacts directory: {artifacts_dir}")
+
+    # Proactively request sudo authentication early (before any container builds)
+    # This helps avoid permission issues when cleaning up artifacts
+    print(f"\n{C_CYAN}🔐 Requesting sudo authentication upfront for artifact management...{C_RESET}")
+    print(f"{C_CYAN}   (This helps avoid permission errors when cleaning up artifacts){C_RESET}")
+    sudo_available = request_sudo_authentication()
+    if not sudo_available:
+        print(f"{C_YELLOW}   Note: sudo authentication unavailable. May encounter permission errors during cleanup.{C_RESET}")
+
+    # Track if sudo was used during cleanup (for artifact info file)
+    sudo_used_for_cleanup = False
 
     # Check if artifact already exists and is valid (has workflows directory)
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -1580,6 +1723,10 @@ def setup_tt_inference_server():
                                     print(f"{C_YELLOW}⚠️  Branch mismatch: requested '{artifact_branch}' but artifact has different branch{C_RESET}")
                     except Exception:
                         pass
+                else:
+                    # artifact-info.txt is missing - force re-download
+                    branch_mismatch = True
+                    print(f"{C_YELLOW}⚠️  Artifact metadata missing - will re-download branch '{artifact_branch}'{C_RESET}")
                 
                 if not branch_mismatch:
                     # For branches, we can't easily verify without git, so just show what's configured
@@ -1602,10 +1749,20 @@ def setup_tt_inference_server():
                                     print(f"{C_YELLOW}⚠️  Switching from branch artifact to version '{artifact_version}'{C_RESET}")
                         except Exception:
                             pass
+                    else:
+                        # artifact-info.txt is missing - force re-download
+                        version_mismatch = True
+                        print(f"{C_YELLOW}⚠️  Artifact metadata missing - will re-download version '{artifact_version}'{C_RESET}")
             
             if version_mismatch or branch_mismatch:
                 print(f"   Removing existing artifact and downloading {artifact_version or artifact_branch}...")
-                
+
+                # Proactively request sudo authentication since we may need it for cleanup
+                print(f"{C_CYAN}   Requesting sudo authentication in case elevated permissions are needed for cleanup...{C_RESET}")
+                sudo_available = request_sudo_authentication()
+                if not sudo_available:
+                    print(f"{C_YELLOW}   Note: sudo authentication failed or unavailable. Will attempt cleanup without it.{C_RESET}")
+
                 try:
                     # Remove the entire .artifacts directory to ensure complete cleanup
                     # Use a more robust deletion method that handles permission errors
@@ -1658,9 +1815,18 @@ def setup_tt_inference_server():
                                         shutil.rmtree(INFERENCE_ARTIFACT_DIR, onerror=handle_remove_readonly)
                                         print(f"✅ Removed tt-inference-server directory")
                                     except Exception as e3:
-                                        print(f"{C_RED}⛔ Could not remove directory even after fixing permissions: {e3}{C_RESET}")
-                                        print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
-                                        return False
+                                        print(f"{C_YELLOW}⚠️  Could not remove directory even after fixing permissions: {e3}{C_RESET}")
+                                        print(f"{C_CYAN}   Attempting removal with sudo as final fallback...{C_RESET}")
+
+                                        # Final fallback: try sudo removal
+                                        if remove_artifact_with_sudo(INFERENCE_ARTIFACT_DIR, "tt-inference-server artifact"):
+                                            print(f"{C_GREEN}✅ Successfully removed artifact directory using sudo{C_RESET}")
+                                            sudo_used_for_cleanup = True
+                                            # Continue with setup - don't return False
+                                        else:
+                                            print(f"{C_RED}⛔ Could not remove directory with sudo{C_RESET}")
+                                            print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
+                                            return False
                     else:
                         # Fallback: just remove the artifact directory if .artifacts doesn't exist
                         if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -1673,9 +1839,22 @@ def setup_tt_inference_server():
                     print(f"📥 Proceeding to download {artifact_version or artifact_branch}...")
                     # Continue to download logic below - don't return here
                 except Exception as e:
-                    print(f"{C_RED}⛔ Failed to remove artifact directory: {e}{C_RESET}")
-                    print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
-                    return False
+                    print(f"{C_YELLOW}⚠️  Failed to remove artifact directory: {e}{C_RESET}")
+                    print(f"{C_CYAN}   Attempting removal with sudo as final fallback...{C_RESET}")
+
+                    # Final fallback: try sudo removal
+                    if remove_artifact_with_sudo(artifacts_dir, "artifacts directory"):
+                        print(f"{C_GREEN}✅ Successfully removed artifacts directory using sudo{C_RESET}")
+                        sudo_used_for_cleanup = True
+                        # Recreate the directory and continue
+                        os.makedirs(artifacts_dir, exist_ok=True)
+                        print(f"✅ Recreated .artifacts directory")
+                        print(f"📥 Proceeding to download {artifact_version or artifact_branch}...")
+                        # Continue to download logic - don't return here
+                    else:
+                        print(f"{C_RED}⛔ Could not remove directory with sudo{C_RESET}")
+                        print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
+                        return False
             else:
                 print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{version_str}{branch_str}")
                 
@@ -1685,9 +1864,9 @@ def setup_tt_inference_server():
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
                     elif artifact_version:
-                        _write_artifact_info(artifacts_dir, "version", artifact_version)
+                        _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
                 return True
             # If version mismatch, fall through to download the correct version below
         else:
@@ -1698,8 +1877,15 @@ def setup_tt_inference_server():
                 print(f"✅ Removed invalid artifact directory")
             except Exception as e:
                 print(f"{C_YELLOW}⚠️  Could not remove invalid directory: {e}{C_RESET}")
-                print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
-                return False
+                # Try using sudo to remove the directory
+                print(f"{C_CYAN}   Attempting to remove with sudo...{C_RESET}")
+                if remove_artifact_with_sudo(INFERENCE_ARTIFACT_DIR, "invalid artifact directory"):
+                    print(f"✅ Successfully removed invalid artifact directory with sudo")
+                    sudo_used_for_cleanup = True
+                else:
+                    print(f"{C_RED}⛔ Failed to remove invalid artifact directory even with sudo{C_RESET}")
+                    print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
+                    return False
 
     # Priority: Branch > Version
     if artifact_branch:
@@ -1796,13 +1982,10 @@ def setup_tt_inference_server():
                         print(f"{C_YELLOW}⚠️  Could not list artifacts directory: {e}{C_RESET}")
                 
                 if extracted_dir and os.path.exists(extracted_dir):
-                    # Verify the extracted directory has required files
-                    workflows_utils = os.path.join(extracted_dir, "workflows", "utils.py")
-                    if not os.path.exists(workflows_utils):
-                        print(f"{C_RED}⛔ Extracted directory is missing required workflows/utils.py{C_RESET}")
-                        print(f"   Directory contents: {os.listdir(extracted_dir)[:10]}...")
+                    # Validate the extracted directory has required structure
+                    if not validate_artifact_structure(extracted_dir):
                         return False
-                    
+
                     # Rename to final location
                     if extracted_dir != INFERENCE_ARTIFACT_DIR:
                         if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -1813,13 +1996,11 @@ def setup_tt_inference_server():
                         print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
                     
                     # Final verification that everything is in place
-                    if not os.path.exists(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
-                        print(f"{C_RED}⛔ Verification failed: workflows/utils.py not found after rename{C_RESET}")
+                    if not validate_artifact_structure(INFERENCE_ARTIFACT_DIR):
                         return False
-                    
+
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    _write_artifact_info(artifacts_dir, "branch", artifact_branch)
-                    print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
+                    _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
                     return True
                 else:
                     print(f"{C_RED}⛔ Extracted directory not found in {artifacts_dir}{C_RESET}")
@@ -1888,25 +2069,23 @@ def setup_tt_inference_server():
                                 break
                     
                     if extracted_dir and os.path.exists(extracted_dir):
-                        workflows_utils = os.path.join(extracted_dir, "workflows", "utils.py")
-                        if not os.path.exists(workflows_utils):
-                            print(f"{C_RED}⛔ Extracted directory is missing required workflows/utils.py{C_RESET}")
+                        # Validate the extracted directory has required structure
+                        if not validate_artifact_structure(extracted_dir):
                             return False
-                        
+
                         if extracted_dir != INFERENCE_ARTIFACT_DIR:
                             if os.path.exists(INFERENCE_ARTIFACT_DIR):
                                 shutil.rmtree(INFERENCE_ARTIFACT_DIR)
                             os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
                             print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
-                        
-                        if not os.path.exists(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
-                            print(f"{C_RED}⛔ Verification failed: workflows/utils.py not found after rename{C_RESET}")
+
+                        # Final verification after rename
+                        if not validate_artifact_structure(INFERENCE_ARTIFACT_DIR):
                             return False
-                        
+
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
                         # "latest" used main branch, so record branch not version
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch)
-                        print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
                         return True
                     else:
                         print(f"{C_RED}⛔ Extracted directory not found{C_RESET}")
@@ -1999,12 +2178,10 @@ def setup_tt_inference_server():
                                 break
                     
                     if extracted_dir and os.path.exists(extracted_dir):
-                        # Verify the extracted directory has required files
-                        workflows_utils = os.path.join(extracted_dir, "workflows", "utils.py")
-                        if not os.path.exists(workflows_utils):
-                            print(f"{C_RED}⛔ Extracted directory is missing required workflows/utils.py{C_RESET}")
+                        # Validate the extracted directory has required structure
+                        if not validate_artifact_structure(extracted_dir):
                             return False
-                        
+
                         # Rename to final location
                         if extracted_dir != INFERENCE_ARTIFACT_DIR:
                             if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -2013,15 +2190,13 @@ def setup_tt_inference_server():
                             print(f"📦 Moving {extracted_dir} to {INFERENCE_ARTIFACT_DIR}...")
                             os.rename(extracted_dir, INFERENCE_ARTIFACT_DIR)
                             print(f"✅ Renamed {extracted_dir} to {INFERENCE_ARTIFACT_DIR}")
-                        
-                        # Final verification
-                        if not os.path.exists(os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")):
-                            print(f"{C_RED}⛔ Verification failed: workflows/utils.py not found after rename{C_RESET}")
+
+                        # Final verification after rename
+                        if not validate_artifact_structure(INFERENCE_ARTIFACT_DIR):
                             return False
-                        
+
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                        _write_artifact_info(artifacts_dir, "version", artifact_version)
-                        print(f"✅ Artifact successfully extracted and verified at {INFERENCE_ARTIFACT_DIR}")
+                        _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
                         return True
                     else:
                         print(f"{C_RED}⛔ Extracted directory not found{C_RESET}")
@@ -2758,6 +2933,76 @@ def request_sudo_authentication(force_prompt=False):
         print(f"{C_RED}⛔ Error: sudo command not found{C_RESET}")
         return False
 
+def remove_artifact_with_sudo(directory_path, description="artifact directory"):
+    """
+    Attempt to remove a directory using sudo after user confirmation.
+
+    Args:
+        directory_path (str): Absolute path to directory to remove
+        description (str): Human-readable description for user prompt
+
+    Returns:
+        bool: True if successfully removed, False if user declined or removal failed
+    """
+    # Check if directory exists
+    if not os.path.exists(directory_path):
+        return True
+
+    # Check if sudo is available
+    if not shutil.which("sudo"):
+        print(f"{C_RED}⛔ Error: sudo is not available on this system.{C_RESET}")
+        return False
+
+    # Explain to user why sudo is needed
+    print()
+    print(f"{C_YELLOW}🔐 Permission issues prevent normal removal of {description}{C_RESET}")
+    print(f"   Directory: {directory_path}")
+    print(f"   Sudo access is required to remove files with restricted permissions.")
+
+    # Prompt for confirmation
+    try:
+        user_input = input(f"   Use sudo to remove {description}? (y/N): ").strip().lower()
+        if user_input not in ['y', 'yes']:
+            print(f"{C_YELLOW}   Sudo removal declined by user.{C_RESET}")
+            return False
+    except KeyboardInterrupt:
+        print(f"\n{C_YELLOW}   Sudo removal cancelled by user.{C_RESET}")
+        return False
+
+    # Request sudo authentication first
+    print(f"   Requesting sudo authentication...")
+    if not request_sudo_authentication():
+        return False
+
+    # Attempt sudo removal
+    print(f"   Removing {description} with sudo...")
+    try:
+        result = subprocess.run(
+            ["sudo", "rm", "-rf", directory_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        # Verify directory was removed
+        if not os.path.exists(directory_path):
+            return True
+        else:
+            print(f"{C_RED}⛔ Directory still exists after sudo removal{C_RESET}")
+            return False
+
+    except subprocess.CalledProcessError as e:
+        print(f"{C_RED}⛔ Error: Sudo removal failed: {e}{C_RESET}")
+        if e.stderr:
+            print(f"   {e.stderr}")
+        return False
+    except FileNotFoundError:
+        print(f"{C_RED}⛔ Error: sudo or rm command not found{C_RESET}")
+        return False
+    except KeyboardInterrupt:
+        print(f"\n{C_YELLOW}   Sudo removal cancelled by user.{C_RESET}")
+        return False
+
 def ensure_frontend_dependencies(force_prompt=False, easy_mode=False):
     """
     Ensures frontend dependencies are available locally for IDE support.
@@ -3196,6 +3441,7 @@ def main():
   {C_CYAN}python run.py --easy{C_RESET}            ⚡ Easy setup - minimal prompts, only HF_TOKEN required
   {C_CYAN}python run.py --dev{C_RESET}             🛠️  Development mode with suggested defaults
   {C_CYAN}python run.py --reconfigure{C_RESET}      🔄 Reset preferences and reconfigure all options
+  {C_CYAN}python run.py --reconfigure-inference-server{C_RESET} 🔄 Change TT Inference Server artifact (branch/version)
   {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
@@ -3219,6 +3465,8 @@ def main():
                            help="📚 Show detailed help for environment variables")
         parser.add_argument("--reconfigure", action="store_true",
                            help="🔄 Reset preferences and reconfigure all options")
+        parser.add_argument("--reconfigure-inference-server", action="store_true",
+                           help="🔄 Reconfigure TT Inference Server artifact (branch/version)")
         parser.add_argument("--skip-fastapi", action="store_true",
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--skip-docker-control", action="store_true",
@@ -3319,7 +3567,7 @@ def main():
         
         display_welcome_banner()
         check_docker_installation()
-        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=args.easy)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=args.easy, reconfigure_inference=args.reconfigure_inference_server)
 
         # Save easy mode configuration to JSON if --easy flag was used
         if args.easy:
