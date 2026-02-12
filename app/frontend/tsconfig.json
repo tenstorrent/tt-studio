@@ -6,6 +6,7 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "baseUrl": ".",
+    "types": ["vite/client", "react", "react-dom"],
     "paths": {
       // "@/*": ["./src/*"],
       "@/*": ["./*"]
