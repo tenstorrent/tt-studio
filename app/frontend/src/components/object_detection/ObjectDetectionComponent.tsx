@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
+import { useModelConnection } from "../../hooks/useModelConnection";
+import { useModels } from "../../hooks/useModels";
 import React, {
   useState,
   useCallback,
@@ -63,7 +65,11 @@ const ModifiedAnimatedTabs = React.forwardRef<
 
 export const ObjectDetectionComponent: React.FC = () => {
   const location = useLocation();
-  const [modelID, setModelID] = useState<string | null>(null);
+  const { models: deployedModels } = useModels();
+  const { modelID, modelName } = useModelConnection(
+    "objectDetection",
+    deployedModels
+  );
   const [selectedTab, setSelectedTab] = useState("webcam");
   const [isDesktopView, setIsDesktopView] = useState(false);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -99,18 +105,14 @@ export const ObjectDetectionComponent: React.FC = () => {
   // State for expandable rows in detection table
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
-  // Get model ID from location state
+  // Show error only if truly no model available after all fallbacks
   useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
-        customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
-        );
-        return;
-      }
-      setModelID(location.state.containerID);
+    if (!modelID && deployedModels.length === 0) {
+      customToast.error(
+        "No models available. Please deploy a model from the Models Deployed tab."
+      );
     }
-  }, [location.state]);
+  }, [modelID, deployedModels]);
 
   // Handle responsive layout
   useEffect(() => {

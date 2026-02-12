@@ -7,6 +7,8 @@ import { customToast } from "../CustomToaster";
 import { Card } from "../ui/card";
 import ShowcaseGallery from "./ShowcaseGallery";
 import StableDiffusionChat from "./StableDiffusionChat";
+import { useModelConnection } from "../../hooks/useModelConnection";
+import { useModels } from "../../hooks/useModels";
 
 const ImageGenParentComponent: React.FC = () => {
   const [showChat, setShowChat] = useState(false);
@@ -14,21 +16,20 @@ const ImageGenParentComponent: React.FC = () => {
 
   // model handling state
   const location = useLocation();
-  const [modelID, setModelID] = useState<string>("");
-  const [modelName, setModelName] = useState<string | null>(null);
+  const { models: deployedModels } = useModels();
+  const { modelID, modelName } = useModelConnection(
+    "imageGen",
+    deployedModels
+  );
 
+  // Show error only if truly no model available
   useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
-        customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
-        );
-        return;
-      }
-      setModelID(location.state.containerID);
-      setModelName(location.state.modelName);
+    if (!modelID && deployedModels.length === 0) {
+      customToast.error(
+        "No models available. Please deploy a model from the Models Deployed tab."
+      );
     }
-  }, [location.state, modelID, modelName]);
+  }, [modelID, deployedModels]);
 
   const handleImageClick = (prompt: string) => {
     setInitialPrompt(prompt);
