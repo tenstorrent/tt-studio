@@ -7,6 +7,7 @@ import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSetTitle } from "./api/utlis.ts";
 import { HeroSectionProvider } from "./providers/HeroSectionContext.tsx";
+import { FooterVisibilityProvider } from "./providers/FooterVisibilityContext.tsx";
 // Development toolbar imports commented out - remove if not needed
 // import { StagewiseToolbar } from "@stagewise/toolbar-react";
 // import ReactPlugin from "@stagewise-plugins/react";
@@ -23,7 +24,9 @@ function App() {
       <ThemeProvider>
         <QueryClientProvider client={client}>
           <HeroSectionProvider>
-            <AppRouter />
+            <FooterVisibilityProvider>
+              <AppRouter />
+            </FooterVisibilityProvider>
           </HeroSectionProvider>
         </QueryClientProvider>
       </ThemeProvider>
