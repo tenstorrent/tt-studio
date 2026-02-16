@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+
+# Core FastAPI dependencies
+fastapi>=0.68.0,<0.69.0
+uvicorn>=0.15.0,<0.16.0
+httpx>=0.24.0
+
+# Dependencies required by api.py
+docker
+pydantic>=1.8.0,<2.0.0
+python-multipart>=0.0.5,<0.1.0
+PyYAML
+
+# Note: tt-inference-server code is provided as an artifact (tarball/zip)
+# and extracted to a path specified by TT_INFERENCE_ARTIFACT_PATH
+# The artifact contains run.py and workflows/ which are imported by api.py
