@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useRef, useEffect, forwardRef } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -37,7 +37,6 @@ import {
 } from "./ui/tooltip";
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
-import CustomToaster from "./CustomToaster";
 
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
@@ -594,7 +593,6 @@ export default function NavBar() {
     return (
       <TooltipProvider>
         <div className="h-screen w-16 fixed left-0 top-0 dark:border-r-4 dark:border-TT-dark border-r-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
-          <CustomToaster />
           <div className="font-tt_a_mono flex flex-col items-center justify-between h-full py-4">
             {/* Logo */}
             <div className="flex flex-col items-center">
@@ -678,7 +676,6 @@ export default function NavBar() {
     return (
       <TooltipProvider>
         <div className="fixed top-0 w-full dark:border-b-4 dark:border-TT-dark border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
-          <CustomToaster />
           <div className="font-tt_a_mono flex items-center justify-between w-full px-2 py-2">
             {/* Logo */}
             <a
@@ -834,7 +831,6 @@ export default function NavBar() {
   return (
     <TooltipProvider>
       <div className="relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
-        <CustomToaster />
         <div className="font-tt_a_mono flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3">
           {/* Logo */}
           <a

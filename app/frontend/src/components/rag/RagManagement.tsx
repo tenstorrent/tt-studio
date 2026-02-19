@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import { Button } from "@/src/components/ui/button";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/src/components/ui/card";
@@ -7,7 +7,7 @@ import { ScrollArea, ScrollBar } from "@/src/components/ui/scroll-area";
 
 import CopyableText from "@/src/components/CopyableText";
 import { useTheme } from "@/src/hooks/useTheme";
-import CustomToaster, { customToast } from "@/src/components/CustomToaster";
+import { customToast } from "@/src/components/CustomToaster";
 import React, { useRef, useState, useEffect } from "react";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import {
@@ -985,7 +985,6 @@ export default function RagManagement() {
         <Card
           className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg overflow-hidden`}
         >
-          <CustomToaster />
           {/* Fixed Header */}
           <div
             className={`sticky top-0 z-20 ${theme === "dark" ? "bg-zinc-900" : "bg-white"} border-b border-gray-200 dark:border-gray-700`}
