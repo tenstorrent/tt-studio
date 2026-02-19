@@ -6,7 +6,7 @@ import json
 import os
 import pickle
 import time
-import traceback 
+import traceback
 
 import requests
 import jwt
@@ -17,6 +17,7 @@ from django.core.cache import caches
 from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 from docker_control.docker_utils import update_deploy_cache
+from model_control.metrics_tracker import InferenceMetricsTracker
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -186,14 +187,9 @@ def stream_to_cloud_model(url, json_data):
         logger.info(f"stream_to_cloud_model headers:={headers}")
         logger.info(f"Received request data:={json_data}")
 
-        ttft = 0
-        tpot = 0
-        num_token_gen = 0
-        prompt_tokens = 0
-        ttft_start = time.time()
-        # Initialize tpot_start to avoid the UnboundLocalError
-        tpot_start = ttft_start  
-        logger.info(f"Starting stream request at time: {ttft_start}")
+        # Initialize metrics tracker
+        tracker = InferenceMetricsTracker()
+        logger.info(f"Starting stream request at time: {tracker.start_time}")
 
         with requests.post(url, json=json_data, headers=headers, stream=True, timeout=None) as response:
             logger.info(f"stream_to_cloud_model response status:={response.status_code}")
@@ -234,31 +230,19 @@ def stream_to_cloud_model(url, json_data):
                                 try:
                                     chunk_dict = json.loads(sub_chunk)
                                     logger.info(f"Successfully parsed JSON: {chunk_dict}")
-                                    
+
                                     usage = chunk_dict.get("usage", {})
                                     completion_tokens = usage.get("completion_tokens", 0)
+                                    prompt_tokens = usage.get("prompt_tokens", 0)
                                     logger.info(f"Usage info: {usage}, completion tokens: {completion_tokens}")
-                                    
-                                    if completion_tokens == 1:
-                                        ttft = time.time() - ttft_start
-                                        logger.info(f"First token received. TTFT: {ttft}s")
-                                        num_token_gen = 1
-                                        tpot_start = time.time()
-                                        logger.info(f"TPOT timer started at: {tpot_start}")
-                                        prompt_tokens = usage["prompt_tokens"]
-                                        logger.info(f"Prompt tokens: {prompt_tokens}")
-                                    elif completion_tokens > num_token_gen:
-                                        old_token_gen = num_token_gen
-                                        num_token_gen = completion_tokens  # Use the token count from the response
-                                        logger.info(f"Token count increased: {old_token_gen} -> {num_token_gen}")
-                                        current_time = time.time()
-                                        time_since_last = current_time - tpot_start
-                                        logger.info(f"Time since last token: {time_since_last}s")
-                                        old_tpot = tpot
-                                        tpot += (1 / num_token_gen) * (time_since_last - tpot)
-                                        logger.info(f"TPOT updated: {old_tpot} -> {tpot}")
-                                        tpot_start = current_time
-                                        logger.info(f"TPOT timer reset to: {tpot_start}")
+
+                                    # Record token arrival using metrics tracker
+                                    if completion_tokens > 0:
+                                        tracker.record_token(
+                                            completion_tokens=completion_tokens,
+                                            prompt_tokens=prompt_tokens
+                                        )
+                                        logger.info(f"Recorded token: completion={completion_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
                                 except json.JSONDecodeError as e:
                                     logger.error(f"JSON decode error in sub-chunk: {str(e)}")
                                     logger.error(f"Problematic sub-chunk: {repr(sub_chunk)}")
@@ -272,13 +256,7 @@ def stream_to_cloud_model(url, json_data):
                     
                     # If we found [DONE], also send stats
                     if found_done:
-                        stats = {
-                            "ttft": ttft, 
-                            "tpot": tpot, 
-                            "tokens_decoded": num_token_gen, 
-                            "tokens_prefilled": prompt_tokens, 
-                            "context_length": prompt_tokens + num_token_gen
-                        }
+                        stats = tracker.get_stats()
                         logger.info(f"Final stats: {stats}")
                         stats_json = json.dumps(stats)
                         logger.info(f"Yielding stats JSON: {stats_json}")
@@ -293,13 +271,7 @@ def stream_to_cloud_model(url, json_data):
             # If we somehow didn't find [DONE] but finished streaming, still send stats
             if not found_done:
                 logger.info("Stream ended without [DONE] marker, sending stats anyway")
-                stats = {
-                    "ttft": ttft, 
-                    "tpot": tpot, 
-                    "tokens_decoded": num_token_gen, 
-                    "tokens_prefilled": prompt_tokens, 
-                    "context_length": prompt_tokens + num_token_gen
-                }
+                stats = tracker.get_stats()
                 logger.info(f"Final stats: {stats}")
                 stats_json = json.dumps(stats)
                 logger.info(f"Yielding stats JSON: {stats_json}")
@@ -358,11 +330,9 @@ def stream_response_from_external_api(url, json_data):
         # logger.info(f"stream_response_from_external_api headers:={headers}")
         logger.info(f"Received request data:={json_data}")
 
-        ttft = 0
-        tpot = 0
-        num_token_gen = 0
-        prompt_tokens = 0
-        ttft_start = time.time()
+        # Initialize metrics tracker
+        tracker = InferenceMetricsTracker()
+        logger.info(f"Starting stream request at time: {tracker.start_time}")
 
         with requests.post(
             url, json=json_data, headers=headers, stream=True, timeout=None
@@ -386,13 +356,7 @@ def stream_response_from_external_api(url, json_data):
                         yield chunk
 
                         # Now calculate and yield stats after [DONE]
-                        stats = {
-                            "ttft": ttft,
-                            "tpot": tpot,
-                            "tokens_decoded": num_token_gen,
-                            "tokens_prefilled": prompt_tokens,
-                            "context_length": prompt_tokens + num_token_gen
-                        }
+                        stats = tracker.get_stats()
                         logger.info(f"ttft and tpot stats: {stats}")
                         yield "data: " + json.dumps(stats) + "\n\n"
 
@@ -402,15 +366,17 @@ def stream_response_from_external_api(url, json_data):
 
                     elif new_chunk != "":
                         chunk_dict = json.loads(new_chunk)
-                        if chunk_dict.get("usage", {}).get("completion_tokens", 0) == 1:
-                            ttft = time.time() - ttft_start  # if first token is created
-                            num_token_gen = 1
-                            tpot_start = time.time()
-                            prompt_tokens = chunk_dict["usage"]["prompt_tokens"]
-                        elif chunk_dict.get("usage", {}).get("completion_tokens", 0) > num_token_gen:
-                            num_token_gen += 1
-                            tpot += (1 / num_token_gen) * (time.time() - tpot_start - tpot)  # update average
-                            tpot_start = time.time()
+                        usage = chunk_dict.get("usage", {})
+                        completion_tokens = usage.get("completion_tokens", 0)
+                        prompt_tokens = usage.get("prompt_tokens", 0)
+
+                        # Record token arrival using metrics tracker
+                        if completion_tokens > 0:
+                            tracker.record_token(
+                                completion_tokens=completion_tokens,
+                                prompt_tokens=prompt_tokens
+                            )
+                            logger.info(f"Recorded token: completion={completion_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
 
                     # Yield the current chunk
                     yield chunk

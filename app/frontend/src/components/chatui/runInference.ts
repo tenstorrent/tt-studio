@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import type React from "react";
 import type {
   InferenceRequest,
@@ -12,6 +12,7 @@ import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
 import { processUploadedFiles } from "./processUploadedFiles";
+import { InferenceMetricsTracker } from "./metricsTracker";
 
 export const runInference = async (
   request: InferenceRequest,
@@ -245,6 +246,11 @@ export const runInference = async (
     });
 
     console.log("payload", JSON.stringify(requestBody));
+
+    // Initialize metrics tracker for this inference request
+    const metricsTracker = new InferenceMetricsTracker();
+    console.log("[Metrics] Starting new inference request");
+
     const response = await fetch(API_URL, {
       method: "POST",
       headers: headers,
@@ -302,26 +308,35 @@ export const runInference = async (
               try {
                 const jsonData = JSON.parse(trimmedLine.slice(5));
 
-                if (!isAgentSelected) {
-                  // Handle statistics separately after [DONE]
-                  if (jsonData.ttft && jsonData.tpot) {
-                    inferenceStats = {
-                      user_ttft_s: jsonData.ttft,
-                      user_tpot: jsonData.tpot,
-                      tokens_decoded: jsonData.tokens_decoded,
-                      tokens_prefilled: jsonData.tokens_prefilled,
-                      context_length: jsonData.context_length,
-                    };
-                    console.log(
-                      "Final Inference Stats received:",
-                      inferenceStats
-                    );
-                    continue; // Skip processing this chunk as part of the generated text
-                  }
+                // Handle final statistics from backend (after [DONE])
+                if (!isAgentSelected && jsonData.ttft && jsonData.tpot) {
+                  const backendStats: InferenceStats = {
+                    user_ttft_s: jsonData.ttft,
+                    user_tpot: jsonData.tpot,
+                    tokens_decoded: jsonData.tokens_decoded,
+                    tokens_prefilled: jsonData.tokens_prefilled,
+                    context_length: jsonData.context_length,
+                  };
+
+                  // Finalize metrics with client-side measurements
+                  inferenceStats = metricsTracker.finalizeStats(backendStats);
+                  console.log("[Metrics] Final stats:", inferenceStats);
+                  continue;
                 }
-                // Handle the generated text
+
+                // Track usage data from streaming chunks
+                const usage = jsonData.usage;
+                if (usage?.completion_tokens) {
+                  console.log("[Metrics] Usage data:", usage);
+                  metricsTracker.recordUsage(usage);
+                }
+
+                // Handle generated text content
                 const content = jsonData.choices[0]?.delta?.content || "";
                 if (content) {
+                  // Record first token arrival
+                  metricsTracker.recordFirstToken();
+
                   accumulatedText += content;
                   setChatHistory((prevHistory) => {
                     const updatedHistory = [...prevHistory];
@@ -334,7 +349,7 @@ export const runInference = async (
                   });
                 }
               } catch (error) {
-                console.error("Failed to parse JSON:", error);
+                console.error("[Metrics] Failed to parse JSON:", error);
                 console.error("Problematic JSON string:", trimmedLine.slice(5));
               }
             }
@@ -366,11 +381,9 @@ export const runInference = async (
     console.log("Inference stream ended.");
     setIsStreaming(false);
 
+    // Attach final stats to the message
     if (inferenceStats) {
-      console.log(
-        "Updating chat history with inference stats:",
-        inferenceStats
-      );
+      console.log("[Metrics] Attaching stats to message:", inferenceStats);
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];
