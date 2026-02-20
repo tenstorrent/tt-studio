@@ -46,6 +46,7 @@ import {
   getDestinationFromModelType,
   ModelType,
   getModelTypeFromName,
+  getModelTypeFromBackendType,
 } from "../api/modelsDeployedApis";
 import { useHeroSection } from "../hooks/useHeroSection";
 
@@ -386,7 +387,12 @@ export default function NavBar() {
     if (models.length > 0) {
       const firstModel = models[0];
       if (firstModel.id && firstModel.name) {
-        handleModelNavigationClick(firstModel.id, firstModel.name, navigate);
+        handleModelNavigationClick(
+          firstModel.id,
+          firstModel.name,
+          navigate,
+          firstModel.model_type
+        );
       } else {
         console.error("Model ID or name is undefined");
       }
@@ -484,7 +490,9 @@ export default function NavBar() {
       if (models.length > 0) {
         // Show navigation items for each deployed model
         return models.map((model) => {
-          const modelType = getModelTypeFromName(model.name);
+          const modelType = model.model_type
+            ? getModelTypeFromBackendType(model.model_type)
+            : getModelTypeFromName(model.name);
           console.log(`Model: ${model.name}, Type: ${modelType}`);
           return {
             type: "button",
@@ -545,7 +553,9 @@ export default function NavBar() {
       // In TT-Studio mode, show only deployed models
       console.log("TT-Studio mode - creating navigation for deployed models");
       return models.map((model) => {
-        const modelType = getModelTypeFromName(model.name);
+        const modelType = model.model_type
+          ? getModelTypeFromBackendType(model.model_type)
+          : getModelTypeFromName(model.name);
         console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",

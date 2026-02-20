@@ -8,15 +8,10 @@ import axios from "axios";
 import { useEffect, useState } from "react";
 import {
   Bot,
-  // Cpu,
-  // CheckCircle,
   XCircle,
-  MessageSquare,
-  // Image,
-  Eye,
-  Mic,
-  Palette,
-  // Camera,
+  CheckCircle2,
+  Zap,
+  FlaskConical,
 } from "lucide-react";
 import {
   Tooltip,
@@ -48,42 +43,28 @@ import BoardBadge from "./BoardBadge";
 import { DeployedModelsWarning } from "./DeployedModelsWarning";
 import { useModels } from "../hooks/useModels";
 
-// Model type configuration with icons and labels
-const MODEL_TYPE_CONFIG = {
-  chat: {
-    label: "Chat & Language Models",
-    icon: MessageSquare,
+// Status configuration with icons and labels
+const STATUS_CONFIG = {
+  COMPLETE: {
+    label: "Complete",
+    icon: CheckCircle2,
+    color: "text-green-600",
+    bgColor: "bg-green-50 dark:bg-green-900/20",
+    borderColor: "border-green-200 dark:border-green-800",
+  },
+  FUNCTIONAL: {
+    label: "Functional",
+    icon: Zap,
     color: "text-blue-500",
     bgColor: "bg-blue-50 dark:bg-blue-900/20",
     borderColor: "border-blue-200 dark:border-blue-800",
   },
-  image_generation: {
-    label: "Image Generation",
-    icon: Palette,
-    color: "text-purple-500",
-    bgColor: "bg-purple-50 dark:bg-purple-900/20",
-    borderColor: "border-purple-200 dark:border-purple-800",
-  },
-  object_detection: {
-    label: "Object Detection",
-    icon: Eye,
-    color: "text-emerald-500",
-    bgColor: "bg-emerald-50 dark:bg-emerald-900/20",
-    borderColor: "border-emerald-200 dark:border-emerald-800",
-  },
-  speech_recognition: {
-    label: "Speech Recognition",
-    icon: Mic,
-    color: "text-orange-500",
-    bgColor: "bg-orange-50 dark:bg-orange-900/20",
-    borderColor: "border-orange-200 dark:border-orange-800",
-  },
-  mock: {
-    label: "Test Models",
-    icon: Bot,
-    color: "text-gray-500",
-    bgColor: "bg-gray-50 dark:bg-gray-900/20",
-    borderColor: "border-gray-200 dark:border-gray-800",
+  EXPERIMENTAL: {
+    label: "Experimental",
+    icon: FlaskConical,
+    color: "text-amber-500",
+    bgColor: "bg-amber-50 dark:bg-amber-900/20",
+    borderColor: "border-amber-200 dark:border-amber-800",
   },
 };
 
@@ -235,11 +216,18 @@ export function FirstStepForm({
     }
   }, [autoDeployModel, models, isAutoDeploying, form, onSubmit]);
 
-  // Get current board info and group models by type and compatibility
+  // Get current board info and group models by status and compatibility
   const currentBoard = models[0]?.current_board || "unknown";
 
-  // Group models by type and compatibility
-  const groupModelsByType = () => {
+  // Status priority order for sorting
+  const STATUS_ORDER: Record<string, number> = {
+    COMPLETE: 3,
+    FUNCTIONAL: 2,
+    EXPERIMENTAL: 1,
+  };
+
+  // Group models by release status, then by hardware compatibility within each group
+  const groupModelsByStatus = () => {
     const grouped: Record<
       string,
       {
@@ -250,25 +238,25 @@ export function FirstStepForm({
     > = {};
 
     models.forEach((model) => {
-      const modelType = model.model_type || "unknown";
+      const modelStatus = model.status || "EXPERIMENTAL";
 
-      if (!grouped[modelType]) {
-        grouped[modelType] = { compatible: [], incompatible: [], unknown: [] };
+      if (!grouped[modelStatus]) {
+        grouped[modelStatus] = { compatible: [], incompatible: [], unknown: [] };
       }
 
       if (model.is_compatible === true) {
-        grouped[modelType].compatible.push(model);
+        grouped[modelStatus].compatible.push(model);
       } else if (model.is_compatible === false) {
-        grouped[modelType].incompatible.push(model);
+        grouped[modelStatus].incompatible.push(model);
       } else {
-        grouped[modelType].unknown.push(model);
+        grouped[modelStatus].unknown.push(model);
       }
     });
 
     return grouped;
   };
 
-  const groupedModels = groupModelsByType();
+  const groupedModels = groupModelsByStatus();
   const allModelsUnknown =
     models.length > 0 && models.every((model) => model.is_compatible === null);
 
@@ -340,12 +328,16 @@ export function FirstStepForm({
                     </div>
                   )}
 
-                  {/* Render models grouped by type */}
-                  {Object.entries(groupedModels).map(
-                    ([modelType, modelsByCompatibility], typeIndex) => {
-                      const typeConfig =
-                        MODEL_TYPE_CONFIG[
-                          modelType as keyof typeof MODEL_TYPE_CONFIG
+                  {/* Render models grouped by release status */}
+                  {Object.entries(groupedModels)
+                    .sort(
+                      ([a], [b]) =>
+                        (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
+                    )
+                    .map(([modelStatus, modelsByCompatibility], statusIndex) => {
+                      const statusConfig =
+                        STATUS_CONFIG[
+                          modelStatus as keyof typeof STATUS_CONFIG
                         ];
                       const hasModels =
                         modelsByCompatibility.compatible.length +
@@ -355,19 +347,19 @@ export function FirstStepForm({
 
                       if (!hasModels) return null;
 
-                      const IconComponent = typeConfig?.icon || Bot;
+                      const IconComponent = statusConfig?.icon || Bot;
 
                       return (
-                        <div key={modelType}>
-                          {/* Model Type Header */}
-                          {typeIndex > 0 && (
+                        <div key={modelStatus}>
+                          {/* Status Group Header */}
+                          {statusIndex > 0 && (
                             <div className="h-px bg-gray-200 dark:bg-gray-700 my-2" />
                           )}
                           <div
-                            className={`flex items-center gap-2 px-2 py-2 text-xs font-semibold ${typeConfig?.color || "text-gray-600"} ${typeConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
+                            className={`flex items-center gap-2 px-2 py-2 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
                           >
                             <IconComponent className="w-4 h-4" />
-                            <span>{typeConfig?.label || modelType}</span>
+                            <span>{statusConfig?.label || modelStatus}</span>
                           </div>
 
                           {/* Compatible Models */}

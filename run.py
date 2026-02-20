@@ -2220,6 +2220,33 @@ def setup_tt_inference_server():
         print(f"   See: https://github.com/tenstorrent/tt-inference-server/releases")
         return False
 
+def _sync_model_catalog():
+    """Regenerate models_from_inference_server.json from the downloaded artifact."""
+    sync_script = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "sync_models_from_inference_server.py")
+    if not os.path.exists(sync_script):
+        print(f"{C_YELLOW}⚠️  Model catalog sync script not found at {sync_script}, skipping.{C_RESET}")
+        return
+    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
+    try:
+        result = subprocess.run(
+            [sys.executable, sync_script],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            print(f"{C_GREEN}✅ Model catalog synced.{C_RESET}")
+            if result.stdout.strip():
+                for line in result.stdout.strip().splitlines():
+                    print(f"   {line}")
+            print(f"{C_YELLOW}💡 Reminder: commit app/backend/shared_config/models_from_inference_server.json")
+            print(f"   so CI/CD Docker image builds use the updated catalog.{C_RESET}")
+        else:
+            print(f"{C_YELLOW}⚠️  Model catalog sync exited with code {result.returncode}:{C_RESET}")
+            if result.stderr.strip():
+                print(result.stderr.strip()[:500])
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Model catalog sync failed: {e}{C_RESET}")
+
+
 def setup_fastapi_environment():
     """Set up the inference-api FastAPI environment."""
     print(f"🔧 Setting up inference-api environment...")
@@ -3796,6 +3823,8 @@ def main():
                 if not setup_tt_inference_server():
                     print(f"{C_RED}⛔ Failed to setup TT Inference Server. Continuing without FastAPI server.{C_RESET}")
                 else:
+                    # Sync model catalog from the newly downloaded artifact
+                    _sync_model_catalog()
                     # Setup FastAPI environment
                     if not setup_fastapi_environment():
                         print(f"{C_RED}⛔ Failed to setup FastAPI environment. Continuing without FastAPI server.{C_RESET}")

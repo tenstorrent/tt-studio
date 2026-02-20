@@ -48,11 +48,13 @@ interface DeployedModelInfo {
   id: string;
   modelName: string;
   status: string;
+  model_type?: string;
   internal_url?: string;
   health_url?: string;
   model_impl?: {
     model_name?: string;
     hf_model_id?: string;
+    model_type?: string;
   };
 }
 
@@ -61,6 +63,25 @@ export const ModelType = {
   ImageGeneration: "ImageGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
+};
+
+/**
+ * Map backend model_type strings (from catalog/API) to frontend ModelType constants.
+ * Falls back to ChatModel for unknown types.
+ */
+export const getModelTypeFromBackendType = (backendType: string): string => {
+  switch (backendType) {
+    case "chat":
+      return ModelType.ChatModel;
+    case "image_generation":
+      return ModelType.ImageGeneration;
+    case "object_detection":
+      return ModelType.ObjectDetectionModel;
+    case "speech_recognition":
+      return ModelType.SpeechRecognitionModel;
+    default:
+      return ModelType.ChatModel;
+  }
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -214,12 +235,13 @@ export const handleRedeploy = (modelName: string): void => {
 export const handleModelNavigationClick = (
   modelID: string,
   modelName: string,
-  navigate: NavigateFunction
+  navigate: NavigateFunction,
+  modelType?: string
 ): void => {
-  const modelType = getModelTypeFromName(modelName);
-  const destination = getDestinationFromModelType(modelType);
-  console.log(`${modelType} button clicked for model: ${modelID}`);
-  console.log(`Opening ${modelType} for model: ${modelName}`);
+  const resolvedModelType = modelType ?? getModelTypeFromName(modelName);
+  const destination = getDestinationFromModelType(resolvedModelType);
+  console.log(`${resolvedModelType} button clicked for model: ${modelID}`);
+  console.log(`Opening ${resolvedModelType} for model: ${modelName}`);
   customToast.success(`${destination.slice(1)} page opened!`);
 
   navigate(destination, {
@@ -298,6 +320,7 @@ export const fetchDeployedModelsInfo = async (): Promise<
           modelData.model_impl?.hf_model_id ||
           "Unknown Model",
         status: "deployed",
+        model_type: modelData.model_impl?.model_type,
         internal_url: modelData.internal_url,
         health_url: modelData.health_url,
         model_impl: modelData.model_impl,

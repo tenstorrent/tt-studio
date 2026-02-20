@@ -11,10 +11,11 @@ from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-import json  
+import json
 import shutil
 import subprocess
 import os
+from pathlib import Path
 
 import re
 import os
@@ -42,6 +43,15 @@ from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+# Build model_name → status lookup from catalog JSON
+_CATALOG_PATH = Path(__file__).parent.parent / "shared_config/models_from_inference_server.json"
+try:
+    _catalog = json.loads(_CATALOG_PATH.read_text())
+    _status_lookup: dict[str, str | None] = {m["model_name"]: m.get("status") for m in _catalog["models"]}
+except Exception:
+    logger.warning(f"Could not load model catalog from {_CATALOG_PATH}; status will be null for all models")
+    _status_lookup = {}
 
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
@@ -188,7 +198,8 @@ class ContainersView(APIView):
                 "is_compatible": is_compatible,
                 "compatible_boards": compatible_boards,
                 "model_type": impl.model_type.value,
-                "current_board": current_board
+                "current_board": current_board,
+                "status": _status_lookup.get(impl.model_name),
             })
         
         return Response(data, status=status.HTTP_200_OK)
@@ -706,14 +717,7 @@ class ImageStatusView(APIView):
             logger.info(f"Checking status for image: {image_name}:{image_tag}")
             image_status = check_image_exists(image_name, image_tag)
             logger.info(f"Image status result: {image_status}")
-            
-            # Add pull progress if available
-            if model_id in pull_progress:
-                image_status['pull_in_progress'] = True
-                image_status['progress'] = pull_progress[model_id]
-            else:
-                image_status['pull_in_progress'] = False
-            
+            image_status['pull_in_progress'] = False
             return Response(image_status, status=status.HTTP_200_OK)
         except KeyError:
             logger.warning(f"Model {model_id} not found in model_implementations")
