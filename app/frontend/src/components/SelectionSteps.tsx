@@ -23,6 +23,7 @@ export interface Model {
   model_type: string; // Type of model (e.g., CHAT, IMAGE_GENERATION, etc.)
   current_board: string; // The detected board type
   status?: "EXPERIMENTAL" | "FUNCTIONAL" | "COMPLETE" | null;
+  display_model_type?: string;
 }
 
 export default function StepperDemo() {

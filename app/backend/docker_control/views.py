@@ -198,6 +198,7 @@ class ContainersView(APIView):
                 "is_compatible": is_compatible,
                 "compatible_boards": compatible_boards,
                 "model_type": impl.model_type.value,
+                "display_model_type": impl.display_model_type,
                 "current_board": current_board,
                 "status": _status_lookup.get(impl.model_name),
             })

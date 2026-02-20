@@ -62,6 +62,7 @@ class ModelImpl:
     service_port: int = 7000
     env_file: str = ""
     health_route: str = "/health"
+    display_model_type: str = "LLM"
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -280,6 +281,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             model_type=model_type,
             version=entry.get("version", "0.0.1"),
             shm_size=entry.get("shm_size", "32G"),
+            display_model_type=entry.get("display_model_type", "LLM"),
         )
         impls.append(impl)
     return impls
@@ -312,6 +314,7 @@ _hardcoded_impls = [
         service_route="/objdetection_v2",
         setup_type=SetupTypes.NO_SETUP,
         model_type=ModelTypes.OBJECT_DETECTION,
+        display_model_type="CNN",
     ),
     # Legacy Stable-Diffusion-1.4 (not in tt-inference-server catalog)
     ModelImpl(
@@ -327,6 +330,7 @@ _hardcoded_impls = [
         health_route="/",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.IMAGE_GENERATION,
+        display_model_type="IMAGE",
     ),
 ]
 

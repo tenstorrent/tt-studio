@@ -162,6 +162,7 @@ def normalize(source_path: Path) -> list[dict]:
         models.append({
             "model_name": model_name,
             "model_type": map_model_type(raw_model_type, inference_engine),
+            "display_model_type": raw_model_type,
             "device_configurations": device_configurations,
             "hf_model_id": first.get("hf_model_repo"),
             "inference_engine": inference_engine,
@@ -195,9 +196,21 @@ def main():
 
     models = normalize(source_path)
 
+    # Resolve artifact version from VERSION file or env vars (avoid leaking absolute paths)
+    artifact_version = None
+    version_file = source_path.parent / "VERSION"
+    if version_file.exists():
+        artifact_version = version_file.read_text().strip()
+    if not artifact_version:
+        artifact_version = (
+            os.environ.get("TT_INFERENCE_ARTIFACT_VERSION")
+            or os.environ.get("TT_INFERENCE_ARTIFACT_BRANCH")
+            or "unknown"
+        )
+
     catalog = {
         "source": {
-            "file": str(source_path),
+            "artifact_version": artifact_version,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         },
         "total_models": len(models),
@@ -215,8 +228,10 @@ def main():
     from collections import Counter
     status_counts = Counter(m["status"] for m in models)
     type_counts = Counter(m["model_type"] for m in models)
-    print(f"  Status distribution: {dict(status_counts)}")
-    print(f"  Type distribution:   {dict(type_counts)}")
+    display_type_counts = Counter(m["display_model_type"] for m in models)
+    print(f"  Status distribution:       {dict(status_counts)}")
+    print(f"  Type distribution:         {dict(type_counts)}")
+    print(f"  Display type distribution: {dict(display_type_counts)}")
 
 
 if __name__ == "__main__":

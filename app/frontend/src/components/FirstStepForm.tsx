@@ -68,6 +68,18 @@ const STATUS_CONFIG = {
   },
 };
 
+// Model type configuration for grouping by inference server type
+const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
+  LLM:            { label: "LLM Models",       order: 1 },
+  VLM:            { label: "VLM Models",        order: 2 },
+  VIDEO:          { label: "Video Models",      order: 3 },
+  IMAGE:          { label: "Image Models",      order: 4 },
+  AUDIO:          { label: "Audio Models",      order: 5 },
+  TEXT_TO_SPEECH: { label: "TTS Models",        order: 6 },
+  EMBEDDING:      { label: "Embedding Models",  order: 7 },
+  CNN:            { label: "CNN Models",         order: 8 },
+};
+
 const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
 });
@@ -226,37 +238,32 @@ export function FirstStepForm({
     EXPERIMENTAL: 1,
   };
 
-  // Group models by release status, then by hardware compatibility within each group
-  const groupModelsByStatus = () => {
-    const grouped: Record<
-      string,
-      {
-        compatible: Model[];
-        incompatible: Model[];
-        unknown: Model[];
-      }
-    > = {};
+  // Group models by display type, then by status, then by hardware compatibility
+  type CompatibilityGroup = { compatible: Model[]; incompatible: Model[]; unknown: Model[] };
+  const groupModelsByType = () => {
+    const grouped: Record<string, Record<string, CompatibilityGroup>> = {};
 
     models.forEach((model) => {
+      const displayType = model.display_model_type || "LLM";
       const modelStatus = model.status || "EXPERIMENTAL";
 
-      if (!grouped[modelStatus]) {
-        grouped[modelStatus] = { compatible: [], incompatible: [], unknown: [] };
-      }
+      if (!grouped[displayType]) grouped[displayType] = {};
+      if (!grouped[displayType][modelStatus])
+        grouped[displayType][modelStatus] = { compatible: [], incompatible: [], unknown: [] };
 
       if (model.is_compatible === true) {
-        grouped[modelStatus].compatible.push(model);
+        grouped[displayType][modelStatus].compatible.push(model);
       } else if (model.is_compatible === false) {
-        grouped[modelStatus].incompatible.push(model);
+        grouped[displayType][modelStatus].incompatible.push(model);
       } else {
-        grouped[modelStatus].unknown.push(model);
+        grouped[displayType][modelStatus].unknown.push(model);
       }
     });
 
     return grouped;
   };
 
-  const groupedModels = groupModelsByStatus();
+  const groupedModels = groupModelsByType();
   const allModelsUnknown =
     models.length > 0 && models.every((model) => model.is_compatible === null);
 
@@ -328,103 +335,106 @@ export function FirstStepForm({
                     </div>
                   )}
 
-                  {/* Render models grouped by release status */}
+                  {/* Render models grouped by type, then by status */}
                   {Object.entries(groupedModels)
-                    .sort(
-                      ([a], [b]) =>
-                        (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
-                    )
-                    .map(([modelStatus, modelsByCompatibility], statusIndex) => {
-                      const statusConfig =
-                        STATUS_CONFIG[
-                          modelStatus as keyof typeof STATUS_CONFIG
-                        ];
-                      const hasModels =
-                        modelsByCompatibility.compatible.length +
-                          modelsByCompatibility.incompatible.length +
-                          modelsByCompatibility.unknown.length >
-                        0;
-
-                      if (!hasModels) return null;
-
-                      const IconComponent = statusConfig?.icon || Bot;
+                    .sort(([a], [b]) => {
+                      const orderA = TYPE_CONFIG[a]?.order ?? 99;
+                      const orderB = TYPE_CONFIG[b]?.order ?? 99;
+                      return orderA - orderB;
+                    })
+                    .map(([displayType, statusGroups], typeIndex) => {
+                      const typeConfig = TYPE_CONFIG[displayType];
+                      const typeLabel = typeConfig?.label || `${displayType} Models`;
 
                       return (
-                        <div key={modelStatus}>
-                          {/* Status Group Header */}
-                          {statusIndex > 0 && (
-                            <div className="h-px bg-gray-200 dark:bg-gray-700 my-2" />
+                        <div key={displayType}>
+                          {/* Type Group Header */}
+                          {typeIndex > 0 && (
+                            <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
                           )}
-                          <div
-                            className={`flex items-center gap-2 px-2 py-2 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
-                          >
-                            <IconComponent className="w-4 h-4" />
-                            <span>{statusConfig?.label || modelStatus}</span>
+                          <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
+                            <span>{typeLabel}</span>
                           </div>
 
-                          {/* Compatible Models */}
-                          {modelsByCompatibility.compatible.map((model) => (
-                            <SelectItem
-                              key={model.id}
-                              value={model.name}
-                              className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                            >
-                              <div className="flex items-center w-full">
-                                <span className="text-green-500 mr-2 text-xs">
-                                  ●
-                                </span>
-                                <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-green-600 ml-2">
-                                  Compatible
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
+                          {/* Status sub-groups within this type */}
+                          {Object.entries(statusGroups)
+                            .sort(
+                              ([a], [b]) =>
+                                (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
+                            )
+                            .map(([modelStatus, modelsByCompatibility]) => {
+                              const statusConfig =
+                                STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
+                              const hasModels =
+                                modelsByCompatibility.compatible.length +
+                                modelsByCompatibility.incompatible.length +
+                                modelsByCompatibility.unknown.length > 0;
 
-                          {/* Incompatible Models */}
-                          {modelsByCompatibility.incompatible.map((model) => (
-                            <SelectItem
-                              key={model.id}
-                              value={model.name}
-                              disabled={true}
-                              className="pl-6 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                            >
-                              <div className="flex items-center w-full">
-                                <span className="text-red-500 mr-2 text-xs">
-                                  ●
-                                </span>
-                                <span className="text-gray-500 flex-1">
-                                  {model.name}
-                                </span>
-                                <span className="text-xs text-red-500 ml-2">
-                                  Incompatible
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
+                              if (!hasModels) return null;
 
-                          {/* Unknown Compatibility Models */}
-                          {modelsByCompatibility.unknown.map((model) => (
-                            <SelectItem
-                              key={model.id}
-                              value={model.name}
-                              className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                            >
-                              <div className="flex items-center w-full">
-                                <span className="text-yellow-500 mr-2 text-xs">
-                                  ●
-                                </span>
-                                <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-yellow-600 ml-2">
-                                  Unknown
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
+                              const IconComponent = statusConfig?.icon || Bot;
+
+                              return (
+                                <div key={`${displayType}-${modelStatus}`}>
+                                  {/* Status Sub-Header */}
+                                  <div
+                                    className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
+                                  >
+                                    <IconComponent className="w-3 h-3" />
+                                    <span>{statusConfig?.label || modelStatus}</span>
+                                  </div>
+
+                                  {/* Compatible Models */}
+                                  {modelsByCompatibility.compatible.map((model: Model) => (
+                                    <SelectItem
+                                      key={model.id}
+                                      value={model.name}
+                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                                    >
+                                      <div className="flex items-center w-full">
+                                        <span className="text-green-500 mr-2 text-xs">●</span>
+                                        <span className="flex-1">{model.name}</span>
+                                        <span className="text-xs text-green-600 ml-2">Compatible</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+
+                                  {/* Incompatible Models */}
+                                  {modelsByCompatibility.incompatible.map((model: Model) => (
+                                    <SelectItem
+                                      key={model.id}
+                                      value={model.name}
+                                      disabled={true}
+                                      className="pl-8 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                                    >
+                                      <div className="flex items-center w-full">
+                                        <span className="text-red-500 mr-2 text-xs">●</span>
+                                        <span className="text-gray-500 flex-1">{model.name}</span>
+                                        <span className="text-xs text-red-500 ml-2">Incompatible</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+
+                                  {/* Unknown Compatibility Models */}
+                                  {modelsByCompatibility.unknown.map((model: Model) => (
+                                    <SelectItem
+                                      key={model.id}
+                                      value={model.name}
+                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                                    >
+                                      <div className="flex items-center w-full">
+                                        <span className="text-yellow-500 mr-2 text-xs">●</span>
+                                        <span className="flex-1">{model.name}</span>
+                                        <span className="text-xs text-yellow-600 ml-2">Unknown</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </div>
+                              );
+                            })}
                         </div>
                       );
-                    }
-                  )}
+                    })}
 
                   {/* If no models loaded yet */}
                   {models.length === 0 && !isLoading && (
