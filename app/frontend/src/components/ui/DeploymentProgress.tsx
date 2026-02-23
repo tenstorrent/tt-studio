@@ -11,6 +11,11 @@ interface DeploymentProgressProps {
     progress: number;
     message: string;
     last_updated?: number;
+    weights_repo?: string;
+    downloaded_bytes?: number;
+    total_bytes?: number | null;
+    eta_seconds?: number | null;
+    speed_bps?: number | null;
   } | null;
   className?: string;
   onRetry?: () => void;
@@ -74,6 +79,51 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const isCancelled = status === 'cancelled';
   const isRunning = status === 'running' || status === 'starting';
 
+  const formatBytes = (bytes?: number | null) => {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    let value = bytes;
+    let u = 0;
+    while (value >= 1024 && u < units.length - 1) {
+      value /= 1024;
+      u += 1;
+    }
+    const decimals = value >= 100 || u === 0 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(decimals)} ${units[u]}`;
+  };
+
+  const formatEta = (etaSeconds?: number | null) => {
+    if (etaSeconds === null || etaSeconds === undefined || etaSeconds < 0) return null;
+    const s = Math.floor(etaSeconds);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `ETA ${h}h ${String(m).padStart(2, '0')}m`;
+    if (m > 0) return `ETA ${m}m ${String(sec).padStart(2, '0')}s`;
+    return `ETA ${sec}s`;
+  };
+
+  const weightsDetails =
+    stage === 'model_preparation' &&
+    (progress.downloaded_bytes !== undefined ||
+      progress.total_bytes !== undefined ||
+      progress.speed_bps !== undefined ||
+      progress.eta_seconds !== undefined);
+
+  const etaText = formatEta(progress.eta_seconds);
+  const speedText =
+    progress.speed_bps !== null && progress.speed_bps !== undefined
+      ? `${formatBytes(progress.speed_bps)}/s`
+      : null;
+
+  const weightsPct =
+    progress.total_bytes && progress.downloaded_bytes !== undefined && progress.total_bytes > 0
+      ? Math.max(
+          0,
+          Math.min(100, (progress.downloaded_bytes / progress.total_bytes) * 100)
+        )
+      : null;
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -127,6 +177,51 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
         {message}
       </p>
+
+      {/* Weights download details (when available) */}
+      {weightsDetails && (
+        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+          {/* Dedicated weights progress bar */}
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-xs font-medium text-foreground/80">
+                Model weights download
+              </span>
+              <div className="flex items-center gap-3">
+                {etaText ? (
+                  <span className="text-xs text-muted-foreground font-mono tabular-nums">
+                    Time left: {etaText.replace(/^ETA\s+/, '')}
+                  </span>
+                ) : null}
+                <span className="font-mono tabular-nums">
+                  {weightsPct !== null ? `${Math.floor(weightsPct)}%` : '—'}
+                </span>
+              </div>
+            </div>
+            <Progress
+              value={weightsPct ?? 0}
+              className="h-2"
+              indicatorClassName="bg-TT-purple-accent"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono tabular-nums">
+            {progress.downloaded_bytes !== undefined && (
+              <span>{formatBytes(progress.downloaded_bytes)}</span>
+            )}
+            {progress.total_bytes ? (
+              <span>/ {formatBytes(progress.total_bytes)}</span>
+            ) : null}
+            {speedText ? <span>• {speedText}</span> : null}
+            {etaText ? <span>• {etaText}</span> : null}
+          </div>
+          {progress.weights_repo ? (
+            <div className="truncate" title={progress.weights_repo}>
+              Repo: {progress.weights_repo}
+            </div>
+          ) : null}
+        </div>
+      )}
       
       {/* Status indicators */}
       {isError && (
