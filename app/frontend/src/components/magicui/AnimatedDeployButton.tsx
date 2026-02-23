@@ -8,6 +8,7 @@ import { Rocket, CheckCircle, XCircle } from "lucide-react";
 import { useDeploymentProgress } from "../../hooks/useDeploymentProgress";
 import { DeploymentProgress } from "../ui/DeploymentProgress";
 import { SimpleDeploymentProgress } from "../ui/SimpleDeploymentProgress";
+import { safeGetItem, safeRemoveItem, safeSetItem } from "../../lib/storage";
 
 interface AnimatedDeployButtonProps {
   initialText: React.ReactElement | string;
@@ -24,6 +25,8 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   disabled = false,
   onDeploymentComplete,
 }) => {
+  const ACTIVE_DEPLOYMENT_KEY = "tt_studio_active_deployment_job";
+
   const [isDeployed, setIsDeployed] = useState<boolean>(false);
   const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [isRocketFlying, setIsRocketFlying] = useState<boolean>(false);
@@ -43,16 +46,34 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         setIsDeploying(false);
         setIsRocketFlying(false);
         setDisplayText(<span>Model Deployed!</span>);
+        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
         stopPolling();
       } else if (progress.status === 'error' || progress.status === 'failed') {
         setDeploymentFailed(true);
         setIsDeploying(false);
         setIsRocketFlying(false);
         setDisplayText(<span>Deployment Failed</span>);
+        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
         stopPolling();
       }
     }
   }, [progress, stopPolling]);
+
+  // Resume any in-flight deployment after navigation/reload.
+  useEffect(() => {
+    if (disabled || isDeployed || isDeploying || deploymentFailed) return;
+    const stored = safeGetItem<{ jobId?: string; startedAt?: number } | null>(
+      ACTIVE_DEPLOYMENT_KEY,
+      null
+    );
+    if (!stored?.jobId) return;
+
+    setIsDeploying(true);
+    setDeploymentFailed(false);
+    setIsRocketFlying(true);
+    setDisplayText(changeText);
+    startPolling(stored.jobId);
+  }, [ACTIVE_DEPLOYMENT_KEY, changeText, deploymentFailed, disabled, isDeployed, isDeploying, startPolling]);
 
   useEffect(() => {
     if (isDeployed) {
@@ -79,6 +100,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         if (result.job_id) {
           console.log('[Deploy] Starting progress polling for job:', result.job_id);
           // Start polling for progress updates
+          safeSetItem(ACTIVE_DEPLOYMENT_KEY, { jobId: result.job_id, startedAt: Date.now() });
           startPolling(result.job_id);
         } else {
           console.log('[Deploy] No job_id received - deployment succeeded but progress tracking unavailable');
@@ -96,6 +118,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         setDisplayText(<span>Deployment Failed</span>);
         setIsDeploying(false);
         setIsRocketFlying(false);
+        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
       }
     } catch (error) {
       console.error("Deployment failed:", error);
@@ -103,6 +126,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
       setDisplayText(<span>Deployment Failed</span>);
       setIsDeploying(false);
       setIsRocketFlying(false);
+      safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
     }
   };
 

@@ -313,7 +313,6 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
     ema_speed_bps: Optional[float] = None
     repo_id: Optional[str] = None
     hf_home: Optional[Path] = None
-    total_bytes: Optional[int] = None
     exclude_prefixes = ("original/",)
 
     # Poll at 1s cadence; keep it lightweight (single dir scan).
@@ -341,14 +340,6 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
         if hf_home is None:
             hf_home = _default_hf_home()
 
-        # If we know the repo, fetch total bytes once (best-effort).
-        if repo_id and total_bytes is None:
-            total_bytes = _fetch_hf_total_bytes(
-                repo_id=repo_id,
-                hf_token=os.getenv("HF_TOKEN", ""),
-                exclude_prefixes=exclude_prefixes,
-            )
-
         if repo_id:
             downloaded = _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
             now = time.time()
@@ -365,13 +356,6 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                 last_bytes = downloaded
                 last_t = now
 
-            download_pct: Optional[float] = None
-            eta_s: Optional[float] = None
-            if total_bytes and total_bytes > 0:
-                download_pct = max(0.0, min(100.0, (downloaded / total_bytes) * 100.0))
-                if ema_speed_bps and ema_speed_bps > 1:
-                    eta_s = max(0.0, (total_bytes - downloaded) / ema_speed_bps)
-
             # Map weights download into the pre-40% portion of model_preparation.
             # tt-inference-server emits pct=40 when host setup completes; stay below that.
             with progress_lock:
@@ -386,21 +370,12 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                     base = 15  # env+setup emits 15%
                     max_before_host_setup_done = 39
                     progress_val = cur.get("progress", 0) or 0
-                    if download_pct is not None:
-                        mapped = base + int((download_pct / 100.0) * (max_before_host_setup_done - base))
-                        progress_val = max(progress_val, min(max_before_host_setup_done, mapped))
-                    else:
-                        # No total: still advance a little based on observed bytes (cap early).
-                        progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
+                    # Without a known total size, we can't compute % completion. Still advance
+                    # slightly so users can tell we're alive (cap below host-setup completion).
+                    progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
 
                     speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
-                    if total_bytes:
-                        msg = (
-                            f"Downloading weights: {_format_bytes(downloaded)}/{_format_bytes(total_bytes)} "
-                            f"({int(download_pct or 0)}%) • {speed_txt} • {_format_eta(eta_s)}"
-                        )
-                    else:
-                        msg = f"Downloading weights: {_format_bytes(downloaded)} • {speed_txt}"
+                    msg = f"Downloading weights: {_format_bytes(downloaded)} • {speed_txt}"
 
                     cur.update(
                         {
@@ -411,8 +386,6 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                             "last_updated": time.time(),
                             "weights_repo": repo_id,
                             "downloaded_bytes": int(downloaded),
-                            "total_bytes": int(total_bytes) if total_bytes else None,
-                            "eta_seconds": float(eta_s) if eta_s is not None else None,
                             "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
                         }
                     )

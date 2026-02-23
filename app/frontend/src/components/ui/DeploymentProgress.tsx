@@ -13,7 +13,6 @@ interface DeploymentProgressProps {
     last_updated?: number;
     weights_repo?: string;
     downloaded_bytes?: number;
-    total_bytes?: number | null;
     eta_seconds?: number | null;
     speed_bps?: number | null;
   } | null;
@@ -92,36 +91,15 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     return `${value.toFixed(decimals)} ${units[u]}`;
   };
 
-  const formatEta = (etaSeconds?: number | null) => {
-    if (etaSeconds === null || etaSeconds === undefined || etaSeconds < 0) return null;
-    const s = Math.floor(etaSeconds);
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return `ETA ${h}h ${String(m).padStart(2, '0')}m`;
-    if (m > 0) return `ETA ${m}m ${String(sec).padStart(2, '0')}s`;
-    return `ETA ${sec}s`;
-  };
-
   const weightsDetails =
     stage === 'model_preparation' &&
     (progress.downloaded_bytes !== undefined ||
-      progress.total_bytes !== undefined ||
       progress.speed_bps !== undefined ||
       progress.eta_seconds !== undefined);
 
-  const etaText = formatEta(progress.eta_seconds);
   const speedText =
     progress.speed_bps !== null && progress.speed_bps !== undefined
       ? `${formatBytes(progress.speed_bps)}/s`
-      : null;
-
-  const weightsPct =
-    progress.total_bytes && progress.downloaded_bytes !== undefined && progress.total_bytes > 0
-      ? Math.max(
-          0,
-          Math.min(100, (progress.downloaded_bytes / progress.total_bytes) * 100)
-        )
       : null;
 
   const formatTime = (seconds: number) => {
@@ -163,16 +141,16 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
           </span>
         </div>
       </div>
-      
+
       {/* Progress bar */}
       <div className="mb-3">
-        <Progress 
-          value={isError ? 100 : isComplete ? 100 : progressPercent} 
+        <Progress
+          value={isError ? 100 : isComplete ? 100 : progressPercent}
           className="h-2"
           indicatorClassName={getProgressBarColor()}
         />
       </div>
-      
+
       {/* Message */}
       <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
         {message}
@@ -181,48 +159,43 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       {/* Weights download details (when available) */}
       {weightsDetails && (
         <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-          {/* Dedicated weights progress bar */}
           <div>
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-1 flex items-center justify-between gap-3">
               <span className="text-xs font-medium text-foreground/80">
                 Model weights download
               </span>
-              <div className="flex items-center gap-3">
-                {etaText ? (
-                  <span className="text-xs text-muted-foreground font-mono tabular-nums">
-                    Time left: {etaText.replace(/^ETA\s+/, '')}
-                  </span>
-                ) : null}
-                <span className="font-mono tabular-nums">
-                  {weightsPct !== null ? `${Math.floor(weightsPct)}%` : '—'}
-                </span>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground/80" />
+                <span className="text-xs">Downloading…</span>
               </div>
             </div>
             <Progress
-              value={weightsPct ?? 0}
+              value={100}
               className="h-2"
-              indicatorClassName="bg-TT-purple-accent"
+              indicatorClassName="bg-TT-purple-accent/80 animate-pulse"
             />
           </div>
 
           <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono tabular-nums">
-            {progress.downloaded_bytes !== undefined && (
+            {progress.downloaded_bytes !== undefined ? (
               <span>{formatBytes(progress.downloaded_bytes)}</span>
-            )}
-            {progress.total_bytes ? (
-              <span>/ {formatBytes(progress.total_bytes)}</span>
             ) : null}
             {speedText ? <span>• {speedText}</span> : null}
-            {etaText ? <span>• {etaText}</span> : null}
           </div>
           {progress.weights_repo ? (
             <div className="truncate" title={progress.weights_repo}>
               Repo: {progress.weights_repo}
             </div>
           ) : null}
+
+          <div className="rounded-md border bg-muted/30 p-2 text-muted-foreground">
+            <span className="font-medium text-foreground/80">Note:</span> You can leave this page
+            while the model downloads. The download continues in the background, and future
+            deploys will reuse the cached weights.
+          </div>
         </div>
       )}
-      
+
       {/* Status indicators */}
       {isError && (
         <div className="flex items-center justify-between mt-3">
@@ -250,7 +223,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
           </div>
         </div>
       )}
-      
+
       {isComplete && (
         <div className="flex items-center mt-2">
           <div className="w-3 h-3 bg-green-500 dark:bg-green-600 rounded-full mr-2"></div>

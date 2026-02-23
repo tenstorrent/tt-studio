@@ -11,7 +11,6 @@ interface DeploymentProgress {
   last_updated?: number;
   weights_repo?: string;
   downloaded_bytes?: number;
-  total_bytes?: number | null;
   eta_seconds?: number | null;
   speed_bps?: number | null;
 }
@@ -70,7 +69,9 @@ export const useDeploymentProgress = (
       if (progressData.status === 'completed' ||
           progressData.status === 'failed' ||
           progressData.status === 'error' ||
-          progressData.status === 'timeout') {
+          progressData.status === 'timeout' ||
+          progressData.status === 'cancelled' ||
+          progressData.status === 'not_found') {
         console.log(`[Progress] Stopping polling - final status: ${progressData.status}`);
         stopPolling();
       }
@@ -106,7 +107,8 @@ export const useDeploymentProgress = (
               progressData.status === 'failed' ||
               progressData.status === 'error' ||
               progressData.status === 'timeout' ||
-              progressData.status === 'cancelled') {
+              progressData.status === 'cancelled' ||
+              progressData.status === 'not_found') {
             console.log(`[Progress] Stopping SSE - final status: ${progressData.status}`);
             stopPolling();
           }

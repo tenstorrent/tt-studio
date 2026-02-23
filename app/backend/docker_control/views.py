@@ -287,6 +287,13 @@ class DeploymentProgressView(APIView):
                     progress_data = response.json()
                     logger.info(f"Got progress from FastAPI: {progress_data}")
 
+                    # FastAPI explicitly reports job_id doesn't exist (common after cleanup/restart).
+                    # In that case, do not fall back to container heuristics which can be misleading.
+                    if progress_data.get("status") == "not_found":
+                        if job_id in deployment_start_times:
+                            del deployment_start_times[job_id]
+                        return Response(progress_data, status=status.HTTP_200_OK)
+
                     # Normalize 'stalled' status to 'running' with appropriate message
                     # 'stalled' typically means downloading weights, which can take hours
                     if progress_data.get("status") == "stalled":
@@ -317,7 +324,7 @@ class DeploymentProgressView(APIView):
                             del deployment_start_times[job_id]
 
                     # Add support for new status types
-                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying"]:
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying", "not_found"]:
                         return Response(progress_data, status=status.HTTP_200_OK)
 
                 logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
