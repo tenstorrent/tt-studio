@@ -4,6 +4,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { RefreshProvider } from "../providers/RefreshContext";
 import { ModelsProvider } from "../providers/ModelsContext";
+import { DeviceStateProvider } from "../providers/DeviceStateContext";
 import { getRoutes } from "./route-config";
 import { MainLayout } from "../layouts/MainLayout";
 
@@ -18,23 +19,25 @@ const AppRouter = () => {
   );
 
   return (
-    <RefreshProvider>
-      <ModelsProvider>
-        <Router>
-          <Routes>
-            {routes
-              .filter((route) => route.condition !== false)
-              .map((route) => (
-                <Route
-                  key={route.path}
-                  path={route.path}
-                  element={<MainLayout>{route.element}</MainLayout>}
-                />
-              ))}
-          </Routes>
-        </Router>
-      </ModelsProvider>
-    </RefreshProvider>
+    <DeviceStateProvider>
+      <RefreshProvider>
+        <ModelsProvider>
+          <Router>
+            <Routes>
+              {routes
+                .filter((route) => route.condition !== false)
+                .map((route) => (
+                  <Route
+                    key={route.path}
+                    path={route.path}
+                    element={<MainLayout>{route.element}</MainLayout>}
+                  />
+                ))}
+            </Routes>
+          </Router>
+        </ModelsProvider>
+      </RefreshProvider>
+    </DeviceStateProvider>
   );
 };
 

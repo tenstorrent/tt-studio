@@ -715,195 +715,92 @@ def get_model_weights_path(weights_dir_path, weights_id):
 
 
 def perform_reset():
+    """
+    Reset the TT board using tt-smi -r (up to 2 attempts, 30-second timeout each).
+
+    The tt-smi -s pre-check has been intentionally removed: when the board is in
+    a bad state tt-smi -s itself hangs, which makes recovery worse.  We go
+    straight to tt-smi -r and let the result speak for itself.
+    """
     try:
-        logger.info("Running initial tt-smi -s command to check device detection.")
+        logger.info("Starting board reset — running tt-smi -r directly (no pre-check)")
 
-        # Initial check to see if Tenstorrent devices are detected
-        def check_device_detection():
-            process = subprocess.Popen(
-                ["tt-smi", "-s"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,  # Prevents interactive command-line interface
-                text=True,
-            )
-            output = []
-            detected_chips = 0
-            warnings = []
-            for line in iter(process.stdout.readline, ""):
-                logger.info(f"tt-smi output: {line.strip()}")
-                output.append(line)
-                lower_line = line.lower()
-                if "detected chips" in lower_line:
-                    # Expect format like: "Detected Chips: 2"
-                    try:
-                        parts = line.strip().split(":")
-                        if len(parts) == 2:
-                            detected_chips = int(parts[1].strip().split()[0])
-                    except (ValueError, IndexError) as e:
-                        warnings.append(f"Unable to parse detected chips from line: {line.strip()}")
-                        logger.warning(f"Unable to parse detected chips from line '{line.strip()}': {e}")
-                if "response_q out of sync" in lower_line or "rd_ptr" in lower_line:
-                    warnings.append(line.strip())
-                if "No Tenstorrent devices detected" in line:
-                    return {
-                        "status": "error",
-                        "message": "No Tenstorrent devices detected! Please check your hardware and try again.",
-                        "output": "".join(output),
-                        "http_status": 503,  # Service Unavailable
-                    }
-            process.stdout.close()
-            return_code = process.wait()
-            
-            # Parse JSON output if text parsing didn't find chips
-            if detected_chips == 0:
-                full_output = "".join(output)
-                try:
-                    json_data = json.loads(full_output)
-                    if "device_info" in json_data and isinstance(json_data["device_info"], list):
-                        detected_chips = len(json_data["device_info"])
-                        logger.info(f"Detected {detected_chips} chips from JSON output")
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Could not parse tt-smi output as JSON: {e}")
-            
-            # If chips are detected, allow reset but surface warnings/return code
-            if detected_chips > 0:
-                if return_code != 0:
-                    warnings.append(f"tt-smi -s exited with code {return_code}")
-                status_val = "success" if not warnings and return_code == 0 else "warning"
-                return {
-                    "status": status_val,
-                    "output": "".join(output),
-                    "warnings": warnings,
-                    "detected_chips": detected_chips,
-                    "return_code": return_code,
-                }
-            if return_code != 0:
-                return {
-                    "status": "error",
-                    "message": f"tt-smi -s command failed with return code {return_code}. Please check if tt-smi is properly installed.",
-                    "output": "".join(output),
-                    "http_status": 500,  # Internal Server Error
-                }
-            return {
-                "status": "success",
-                "message": "No Tenstorrent devices detected. tt-smi executed successfully.",
-                "output": "".join(output),
-                "detected_chips": 0,
-                "return_code": return_code,
-            }
+        # Signal that a reset is in progress so the device-state endpoint reports RESETTING
+        SystemResourceService.set_resetting_state()
 
-        # Run the device detection check
-        detection_result = check_device_detection()
-        detection_warnings = detection_result.get("warnings", [])
-        detection_output = detection_result.get("output", "")
-        if detection_result.get("status") == "error":
-            return detection_result
-        if detection_output:
-            cumulative_output = [detection_output]
-        else:
-            cumulative_output = []
-        if detection_warnings:
-            cumulative_output.append("Warnings during device detection:\n")
-            cumulative_output.extend([w + "\n" for w in detection_warnings])
+        MAX_ATTEMPTS = 2
+        last_output = ""
 
-        logger.info("Running tt-smi reset command.")
-
-        def stream_command_output(command):
-            logger.info(f"Executing command: {' '.join(command)}")
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,  # Prevents interactive command-line interface
-                text=True,
-            )
-            output = []
-            for line in iter(process.stdout.readline, ""):
-                logger.info(f"Command output: {line.strip()}")
-                output.append(line)
-            process.stdout.close()
-            return_code = process.wait()
-            if return_code != 0:
-                logger.info(f"Command failed with return code {return_code}")
-                output.append(f"Command failed with return code {return_code}")
-                error_message = "tt-smi reset failed. Please check if:\n"
-                error_message += "1. The Tenstorrent device is properly connected\n"
-                error_message += "2. You have the correct permissions to access the device\n"
-                error_message += "3. The tt-smi utility is properly installed\n"
-                error_message += "4. The device firmware is up to date"
-                return {
-                    "status": "error",
-                    "message": error_message,
-                    "output": "".join(output),
-                    "http_status": 500,  # Internal Server Error
-                }
-            else:
-                logger.info(
-                    f"Command completed successfully with return code {return_code}"
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.info(f"Reset attempt {attempt} of {MAX_ATTEMPTS}")
+            try:
+                process = subprocess.Popen(
+                    ["tt-smi", "-r"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    preexec_fn=os.setsid,
                 )
-                return {"status": "success", "output": "".join(output)}
 
-        # Attempt software resets first (up to MAX_RESET_ATTEMPTS)
-        MAX_RESET_ATTEMPTS = 3
-        reset_attempts = 0
-        reset_success = False
+                try:
+                    stdout, _ = process.communicate(timeout=30)
+                    last_output = stdout
+                    logger.info(f"tt-smi -r attempt {attempt} output: {stdout.strip()!r:.200}")
 
-        # Try tt-smi reset with retries (no reset config file; use default tt-smi behavior)
-        while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
-            reset_attempts += 1
-            logger.info(f"Reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
-            cumulative_output.append(f"Attempting reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
+                    if process.returncode == 0:
+                        logger.info(f"Reset succeeded on attempt {attempt}")
+                        SystemResourceService.clear_device_state_cache()
+                        return {
+                            "status": "success",
+                            "message": f"Board reset successfully after {attempt} attempt(s)",
+                            "attempts_used": attempt,
+                            "output": stdout,
+                            "http_status": 200,
+                        }
 
-            # Perform reset using tt-smi default behavior (no reset_config.json)
-            cumulative_output.append("Executing tt-smi -r with default reset configuration.\n")
-            reset_result = stream_command_output(["tt-smi", "-r"])
-            cumulative_output.append(reset_result.get('output', '') + "\n")
+                    logger.warning(
+                        f"Reset attempt {attempt} failed: exit code {process.returncode}"
+                    )
 
-            if reset_result.get("status") == "success":
-                logger.info(f"Reset attempt {reset_attempts} succeeded")
-                reset_success = True
-                break
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Reset attempt {attempt} timed out after 30s")
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except Exception:
+                            pass
+                    last_output = "(timeout)"
 
-            logger.warning(f"Reset attempt {reset_attempts} failed")
-            # Small delay between attempts
-            time.sleep(2)
+            except Exception as exc:
+                logger.error(f"Reset attempt {attempt} raised exception: {exc}")
+                last_output = str(exc)
 
-        # If all reset attempts failed
-        if not reset_success:
-            all_output = "".join(cumulative_output)
-            logger.error(f"All {MAX_RESET_ATTEMPTS} reset attempts failed")
-            return {
-                "status": "error", 
-                "message": f"All {MAX_RESET_ATTEMPTS} reset attempts failed using tt-smi --reset command.",
-                "output": all_output,
-                "http_status": 500
-            }
-
-        all_output = "".join(cumulative_output)
-        if reset_success:
-            return {
-                "status": "success",
-                "message": f"Reset successful after {reset_attempts} attempt(s)",
-                "output": all_output,
-                "warnings": detection_warnings,
-                "http_status": 200
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "All reset attempts failed with no specific error",
-                "output": all_output,
-                "warnings": detection_warnings,
-                "http_status": 500
-            }
+        # All attempts failed
+        logger.error(f"All {MAX_ATTEMPTS} reset attempts failed")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": (
+                f"Board did not recover after {MAX_ATTEMPTS} reset attempts. "
+                "Manual intervention may be required."
+            ),
+            "attempts_used": MAX_ATTEMPTS,
+            "output": last_output,
+            "http_status": 500,
+        }
 
     except Exception as e:
-        logger.exception("Exception occurred during reset operation.")
+        logger.exception("Unexpected error during reset operation")
+        SystemResourceService.clear_device_state_cache()
         return {
             "status": "error",
             "message": str(e),
-            "output": "An exception occurred during the reset operation.",
+            "attempts_used": 0,
+            "output": "",
             "http_status": 500,
         }
 

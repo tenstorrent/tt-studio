@@ -7,6 +7,7 @@ import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useModels } from "../hooks/useModels";
+import { useDeviceState } from "../hooks/useDeviceState";
 import {
   Tooltip,
   TooltipContent,
@@ -31,34 +32,19 @@ interface FooterProps {
   className?: string;
 }
 
-interface SystemStatus {
+interface SystemResources {
   cpuUsage: number;
   memoryUsage: number;
   memoryTotal: string;
-  boardName: string;
-  temperature: number;
-  devices: Array<{
-    index: number;
-    board_type: string;
-    temperature: number;
-    power: number;
-    voltage: number;
-  }>;
-  hardware_status?: "healthy" | "error" | "unknown";
-  hardware_error?: string;
-  error?: string;
 }
 
 const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown between manual refreshes
 
 const Footer: React.FC<FooterProps> = ({ className }) => {
-  const [systemStatus, setSystemStatus] = useState<SystemStatus>({
+  const [systemResources, setSystemResources] = useState<SystemResources>({
     cpuUsage: 0,
     memoryUsage: 0,
     memoryTotal: "0 GB",
-    boardName: "Unknown",
-    temperature: 0,
-    devices: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +53,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const [showTTStudioModal, setShowTTStudioModal] = useState(false);
   const [bugReportLoading, setBugReportLoading] = useState(false);
   const { models } = useModels();
+  const { deviceState, refresh: refreshDeviceState } = useDeviceState();
   const navigate = useNavigate();
   const location = useLocation();
   const { theme } = useTheme();
@@ -82,8 +69,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   // Check if we should hide the footer
   const shouldHideFooter = location.pathname === "/chat";
 
-  // Fetch system status from API
-  const fetchSystemStatus = async () => {
+  // Fetch only CPU/memory resources (board info comes from DeviceStateContext)
+  const fetchSystemResources = async () => {
     try {
       const response = await fetch("/board-api/footer-data/");
       if (!response.ok) {
@@ -96,18 +83,15 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
       }
 
       const data = await response.json();
-      setSystemStatus(data);
+      setSystemResources({
+        cpuUsage: data.cpuUsage ?? 0,
+        memoryUsage: data.memoryUsage ?? 0,
+        memoryTotal: data.memoryTotal ?? "0 GB",
+      });
       setError(null);
     } catch (err) {
-      console.error("Failed to fetch system status:", err);
+      console.error("Failed to fetch system resources:", err);
       setError(err instanceof Error ? err.message : "Unknown error");
-      // Keep previous data or use fallback
-      setSystemStatus((prev) => ({
-        ...prev,
-        boardName: prev.hardware_status === "error" ? prev.boardName : "Error",
-        hardware_status: prev.hardware_status === "error" ? "error" : "unknown",
-        error: err instanceof Error ? err.message : "Unknown error",
-      }));
     } finally {
       setLoading(false);
     }
@@ -129,18 +113,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
     try {
       setRefreshing(true);
-      const response = await fetch("/board-api/refresh-cache/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      await fetchSystemStatus();
+      // Trigger an immediate re-poll of device state via context
+      refreshDeviceState();
     } catch (err) {
       console.error("Failed to refresh board detection:", err);
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -151,25 +125,56 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   };
 
   useEffect(() => {
-    // Initial fetch on mount only
-    fetchSystemStatus();
-
-    // No more timer-based polling - will refresh on model deployment events
+    // Fetch CPU/memory once on mount (board info is handled by DeviceStateContext)
+    fetchSystemResources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const textColor = theme === "dark" ? "text-zinc-300" : "text-gray-700";
   const borderColor = theme === "dark" ? "border-zinc-700" : "border-gray-200";
   const bgColor = theme === "dark" ? "bg-zinc-900/95" : "bg-white/95";
   const mutedTextColor = theme === "dark" ? "text-zinc-400" : "text-gray-500";
-  const normalizedBoardName = systemStatus.boardName?.toLowerCase();
+
+  // Derive board info from DeviceStateContext
+  const boardName = deviceState?.board_name ?? "Unknown";
+  const deviceStateName = deviceState?.state ?? "UNKNOWN";
+  const devices = deviceState?.devices ?? [];
+  const avgTemperature =
+    devices.length > 0
+      ? Math.round(
+          (devices.reduce((sum, d) => sum + (d.temperature ?? 0), 0) /
+            devices.length) *
+            10
+        ) / 10
+      : 0;
+  const isHardwareHealthy = deviceStateName === "HEALTHY";
+  const isHardwareError =
+    deviceStateName === "BAD_STATE" || deviceStateName === "NOT_PRESENT";
+  const normalizedBoardName = boardName.toLowerCase();
   const isBoardDetectionIssue =
-    systemStatus.hardware_status === "error" ||
+    isHardwareError ||
     !!error ||
     normalizedBoardName === "error" ||
-    normalizedBoardName === "unknown";
+    normalizedBoardName === "unknown" ||
+    normalizedBoardName === "not present" ||
+    normalizedBoardName === "bad state";
   const remainingCooldownMs = getRemainingCooldownMs();
   const isInCooldown = remainingCooldownMs > 0;
   const cooldownSeconds = Math.ceil(remainingCooldownMs / 1000);
+
+  // Legacy-compatible derived values used by bug-report and render
+  const hardwareStatus: "healthy" | "error" | "unknown" =
+    deviceStateName === "HEALTHY"
+      ? "healthy"
+      : deviceStateName === "BAD_STATE" || deviceStateName === "NOT_PRESENT"
+        ? "error"
+        : "unknown";
+  const hardwareError =
+    deviceStateName === "BAD_STATE"
+      ? "Board is in a bad state (unresponsive). Reset recommended."
+      : deviceStateName === "NOT_PRESENT"
+        ? "No Tenstorrent device detected. Check hardware connection."
+        : null;
 
   // Handle click on deployed models section
   const handleDeployedModelsClick = () => {
@@ -302,19 +307,19 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 **Time:** ${new Date().toLocaleTimeString()}
 
 ### System Information
-- **Board:** ${systemStatus.boardName}
-- **Hardware Status:** ${systemStatus.hardware_status || "unknown"}
-- **CPU Usage:** ${systemStatus.cpuUsage.toFixed(2)}%
-- **Memory Usage:** ${systemStatus.memoryUsage.toFixed(1)}% (${systemStatus.memoryTotal})
-- **Temperature:** ${systemStatus.temperature.toFixed(1)}°C
-- **Devices:** ${systemStatus.devices.length} device(s)
+- **Board:** ${boardName}
+- **Hardware Status:** ${hardwareStatus || "unknown"}
+- **CPU Usage:** ${systemResources.cpuUsage.toFixed(2)}%
+- **Memory Usage:** ${systemResources.memoryUsage.toFixed(1)}% (${systemResources.memoryTotal})
+- **Temperature:** ${avgTemperature.toFixed(1)}°C
+- **Devices:** ${devices.length} device(s)
 - **Current URL:** ${currentUrl}
 - **User Agent:** ${userAgent}
 
 ### Hardware Details
 ${
-  systemStatus.devices.length > 0
-    ? systemStatus.devices
+  devices.length > 0
+    ? devices
         .map(
           (device, index) =>
             `**Device ${index + 1}:**
@@ -332,7 +337,7 @@ ${models.length > 0 ? models.map((model) => `- ${model.name} (${model.status})`)
 
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
-${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
+${hardwareError ? `**Hardware Error:** ${hardwareError}` : "No hardware errors detected"}
 
 ### FastAPI Logs
 ${fastapiLogs}
@@ -379,15 +384,15 @@ Add any other context about the problem here.
         : text;
     };
     const limitDevicesList = (maxDevices: number) => {
-      if (systemStatus.devices.length <= maxDevices) return undefined;
-      const blocks = systemStatus.devices
+      if (devices.length <= maxDevices) return undefined;
+      const blocks = devices
         .map(
           (device, index) =>
             `**Device ${index + 1}:**\n- Board Type: ${device.board_type}\n- Temperature: ${device.temperature.toFixed(1)}°C\n- Power: ${device.power.toFixed(2)}W\n- Voltage: ${device.voltage.toFixed(2)}V`
         )
         .slice(0, maxDevices)
         .join("\n\n");
-      return `${blocks}\n\n... (${systemStatus.devices.length - maxDevices} more device entries truncated)`;
+      return `${blocks}\n\n... (${devices.length - maxDevices} more device entries truncated)`;
     };
 
     const MAX_URL_LENGTH = 7000; // conservative safety limit for GitHub new-issue URL
@@ -406,15 +411,15 @@ Add any other context about the problem here.
 **Time:** ${new Date().toLocaleTimeString()}
 
 ### System Information
-- **Board:** ${systemStatus.boardName}
-- **Hardware Status:** ${systemStatus.hardware_status || "unknown"}
-- **CPU Usage:** ${systemStatus.cpuUsage.toFixed(2)}%
-- **Memory Usage:** ${systemStatus.memoryUsage.toFixed(1)}% (${systemStatus.memoryTotal})
-- **Temperature:** ${systemStatus.temperature.toFixed(1)}°C
-- **Devices:** ${systemStatus.devices.length} device(s)
+- **Board:** ${boardName}
+- **Hardware Status:** ${hardwareStatus || "unknown"}
+- **CPU Usage:** ${systemResources.cpuUsage.toFixed(2)}%
+- **Memory Usage:** ${systemResources.memoryUsage.toFixed(1)}% (${systemResources.memoryTotal})
+- **Temperature:** ${avgTemperature.toFixed(1)}°C
+- **Devices:** ${devices.length} device(s)
 
 ### Hardware Details (truncated)
-${devicesLimited ?? (systemStatus.devices.length ? "(within limit)" : "No hardware devices detected")}
+${devicesLimited ?? (devices.length ? "(within limit)" : "No hardware devices detected")}
 
 ### Deployed Models
 ${
@@ -428,7 +433,7 @@ ${
 
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
-${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
+${hardwareError ? `**Hardware Error:** ${hardwareError}` : "No hardware errors detected"}
 
 ### FastAPI Logs (truncated)
 ${truncatedFastapi}
@@ -530,16 +535,16 @@ Full logs have been copied to your clipboard and downloaded as a file. Please pa
 **Time:** ${new Date().toLocaleTimeString()}
 
 ### System Information
-- **Board:** ${systemStatus.boardName}
-- **Hardware Status:** ${systemStatus.hardware_status || "unknown"}
-- **CPU Usage:** ${systemStatus.cpuUsage.toFixed(2)}%
-- **Memory Usage:** ${systemStatus.memoryUsage.toFixed(1)}% (${systemStatus.memoryTotal})
-- **Temperature:** ${systemStatus.temperature.toFixed(1)}°C
-- **Devices:** ${systemStatus.devices.length} device(s)
+- **Board:** ${boardName}
+- **Hardware Status:** ${hardwareStatus || "unknown"}
+- **CPU Usage:** ${systemResources.cpuUsage.toFixed(2)}%
+- **Memory Usage:** ${systemResources.memoryUsage.toFixed(1)}% (${systemResources.memoryTotal})
+- **Temperature:** ${avgTemperature.toFixed(1)}°C
+- **Devices:** ${devices.length} device(s)
 
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
-${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
+${hardwareError ? `**Hardware Error:** ${hardwareError}` : "No hardware errors detected"}
 
 ### FastAPI Logs
 ${fallbackFastapiLogs}
@@ -622,7 +627,7 @@ Add any other context about the problem here.
               <span>TT Studio 2.0.1</span>
               <Github className="h-3.5 w-3.5" />
             </div>
-            {systemStatus.boardName?.toLowerCase().includes("t3k") ? (
+            {boardName?.toLowerCase().includes("t3k") ? (
               <div
                 className="flex items-center gap-2 px-3 py-1.5 bg-TT-purple-accent/10 dark:bg-TT-purple-accent/30 rounded-full cursor-pointer transition-all duration-200 hover:bg-TT-purple-accent/20 dark:hover:bg-TT-purple-accent/40 hover:scale-105"
                 title="Hardware status - Click to learn more"
@@ -635,10 +640,10 @@ Add any other context about the problem here.
               >
                 <HardwareIcon type="loudbox" className="h-4 w-4" />
                 <span className="text-sm font-medium text-TT-purple-accent">
-                  {systemStatus.boardName}
+                  {boardName}
                 </span>
               </div>
-            ) : systemStatus.boardName?.toLowerCase().includes("n300") ? (
+            ) : boardName?.toLowerCase().includes("n300") ? (
               <div
                 className="flex items-center gap-2 px-3 py-1.5 bg-TT-purple-accent/10 dark:bg-TT-purple-accent/30 rounded-full cursor-pointer transition-all duration-200 hover:bg-TT-purple-accent/20 dark:hover:bg-TT-purple-accent/40 hover:scale-105"
                 title="Hardware status - Click to learn more"
@@ -662,14 +667,14 @@ Add any other context about the problem here.
                   />
                 </svg>
                 <span className="text-sm font-medium text-TT-purple-accent">
-                  {systemStatus.boardName}
+                  {boardName}
                 </span>
               </div>
             ) : (
               <div className="flex items-center gap-1.5">
                 <Badge
                   variant={
-                    systemStatus.hardware_status === "error"
+                    hardwareStatus === "error"
                       ? "destructive"
                       : error
                         ? "destructive"
@@ -677,7 +682,7 @@ Add any other context about the problem here.
                   }
                   className={`text-xs ${textColor} cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-opacity-80`}
                   title={
-                    systemStatus.hardware_error ||
+                    hardwareError ||
                     error ||
                     "Hardware status - Click to learn more"
                   }
@@ -685,8 +690,8 @@ Add any other context about the problem here.
                     window.open("https://www.tenstorrent.com/hardware", "_blank");
                   }}
                 >
-                  {systemStatus.boardName}
-                  {systemStatus.hardware_status === "error" && " ⚠️"}
+                  {boardName}
+                  {hardwareStatus === "error" && " ⚠️"}
                 </Badge>
                 {isBoardDetectionIssue && (
                   <TooltipProvider>
@@ -724,10 +729,10 @@ Add any other context about the problem here.
                 )}
               </div>
             )}
-            {(error || systemStatus.hardware_error) && (
+            {(error || hardwareError) && (
               <span
                 className={`text-xs text-red-500`}
-                title={systemStatus.hardware_error || error || "System error"}
+                title={hardwareError || error || "System error"}
               >
                 ⚠️
               </span>
@@ -794,23 +799,23 @@ Add any other context about the problem here.
               SYSTEM RESOURCES USAGE:
             </span>
             <span className={`text-sm ${textColor}`}>
-              RAM: {systemStatus.memoryUsage.toFixed(1)}% (
-              {systemStatus.memoryTotal}) | CPU:{" "}
-              {systemStatus.cpuUsage.toFixed(2)}%
-              {systemStatus.hardware_status === "healthy" && (
-                <> | TEMP: {systemStatus.temperature.toFixed(1)}°C</>
+              RAM: {systemResources.memoryUsage.toFixed(1)}% (
+              {systemResources.memoryTotal}) | CPU:{" "}
+              {systemResources.cpuUsage.toFixed(2)}%
+              {hardwareStatus === "healthy" && (
+                <> | TEMP: {avgTemperature.toFixed(1)}°C</>
               )}
-              {systemStatus.hardware_status === "error" && (
+              {hardwareStatus === "error" && (
                 <> | TT HARDWARE: UNAVAILABLE</>
               )}
-              {systemStatus.hardware_status === "unknown" && (
+              {hardwareStatus === "unknown" && (
                 <> | TT HARDWARE: CHECKING...</>
               )}
             </span>
-            {systemStatus.devices.length > 1 &&
-              systemStatus.hardware_status === "healthy" && (
+            {devices.length > 1 &&
+              hardwareStatus === "healthy" && (
                 <span className={`text-xs ${mutedTextColor}`}>
-                  ({systemStatus.devices.length} devices)
+                  ({devices.length} devices)
                 </span>
               )}
           </div>

@@ -30,7 +30,7 @@ import type {
 } from "../../types/models";
 import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
-import DeleteModelDialog from "./DeleteModelDialog.tsx";
+import DeleteModelDialog, { type DeleteStep } from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
@@ -131,6 +131,7 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isProcessingDelete, setIsProcessingDelete] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<DeleteStep>(null);
 
   useEffect(() => {
     loadModels();
@@ -150,30 +151,28 @@ export default function ModelsDeployedCard(): JSX.Element {
     setIsProcessingDelete(true);
     const truncatedModelId = deleteTargetId.substring(0, 4);
     try {
+      // Step 1: stop & remove the model (backend also runs tt-smi -r internally)
+      setDeleteStep("deleting");
       await customToast.promise(deleteModel(deleteTargetId), {
-        loading: `Attempting to delete Model ID: ${truncatedModelId}...`,
-        success: `Model ID: ${truncatedModelId} has been deleted.`,
-        error: `Failed to delete Model ID: ${truncatedModelId}.`,
+        loading: `Stopping model ${truncatedModelId}…`,
+        success: `Model ${truncatedModelId} stopped.`,
+        error: `Failed to stop model ${truncatedModelId}.`,
       });
-      // Simulate resetCard same as original placeholder
-      await customToast.promise(
-        new Promise((resolve) => window.setTimeout(resolve, 2000)),
-        {
-          loading: "Resetting card (tt-smi reset)...",
-          success: "Card reset successfully!",
-          error: "Failed to reset card.",
-        }
-      );
+
+      // Step 2: board reset is handled by the stop API, show progress while cleanup settles
+      setDeleteStep("resetting");
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+
       await refreshModels();
       triggerHardwareRefresh();
       setShowDeleteModal(false);
       setDeleteTargetId(null);
-      // Slight delay then refresh health
       window.setTimeout(() => {
         refreshAllHealth();
       }, 1000);
     } finally {
       setIsProcessingDelete(false);
+      setDeleteStep(null);
     }
   }, [deleteTargetId, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
 
@@ -353,8 +352,9 @@ export default function ModelsDeployedCard(): JSX.Element {
         open={showDeleteModal}
         modelId={deleteTargetId || ""}
         isLoading={isProcessingDelete}
+        deleteStep={deleteStep}
         onConfirm={handleConfirmDelete}
-        onCancel={() => setShowDeleteModal(false)}
+        onCancel={() => !isProcessingDelete && setShowDeleteModal(false)}
       />
     </ElevatedCard>
   );
