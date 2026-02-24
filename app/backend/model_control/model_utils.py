@@ -26,6 +26,53 @@ json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
 AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 
+def messages_to_prompt(messages: list) -> str:
+    """Convert chat messages list to a plain text prompt for base/completion models."""
+    parts = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            parts.append(content)
+        elif role == "user":
+            parts.append(f"User: {content}")
+        elif role == "assistant":
+            parts.append(f"Assistant: {content}")
+    parts.append("Assistant:")
+    return "\n\n".join(parts)
+
+
+def get_model_name_from_container(internal_url: str, fallback: str) -> str:
+    """Query vLLM /v1/models to get the exact model name loaded in the container.
+
+    Args:
+        internal_url: Raw internal URL from deploy cache (e.g. "container:7000/v1/chat/completions")
+        fallback: Value to return if the query fails (typically hf_model_id)
+
+    Returns:
+        The actual model name reported by vLLM, or fallback on any error.
+    """
+    try:
+        # Strip the route path to get just host:port
+        # e.g. "container:7000/v1/chat/completions" -> "container:7000"
+        base = internal_url.split("/")[0]
+        models_url = f"http://{base}/v1/models"
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        response = requests.get(models_url, headers=headers, timeout=3)
+        if response.status_code == 200:
+            model_id = response.json()["data"][0]["id"]
+            logger.info(f"Resolved actual model name from /v1/models: {model_id}")
+            return model_id
+        else:
+            logger.warning(
+                f"GET {models_url} returned {response.status_code}, using fallback: {fallback}"
+            )
+            return fallback
+    except Exception as e:
+        logger.warning(f"Failed to query /v1/models ({e}), using fallback: {fallback}")
+        return fallback
+
+
 def get_deploy_cache():
     # the cache is initialized when by docker_control is imported
     def get_all_records():
@@ -173,7 +220,7 @@ def stream_to_cloud_model(url, json_data):
         json_data["top_k"] = int(top_k) if top_k is not None else 20
         json_data["top_p"] = float(top_p) if top_p is not None else 0.9
         json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
-        json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
+        json_data["stream_options"] = {"include_usage": True}
 
         # Log final parameters being used
         logger.info("=== Final Model Parameters ===")
@@ -231,7 +278,7 @@ def stream_to_cloud_model(url, json_data):
                                     chunk_dict = json.loads(sub_chunk)
                                     logger.info(f"Successfully parsed JSON: {chunk_dict}")
 
-                                    usage = chunk_dict.get("usage", {})
+                                    usage = chunk_dict.get("usage") or {}
                                     completion_tokens = usage.get("completion_tokens", 0)
                                     prompt_tokens = usage.get("prompt_tokens", 0)
                                     logger.info(f"Usage info: {usage}, completion tokens: {completion_tokens}")
@@ -314,7 +361,7 @@ def stream_response_from_external_api(url, json_data):
     json_data["top_k"] = int(top_k) if top_k is not None else 20
     json_data["top_p"] = float(top_p) if top_p is not None else 0.9
     json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
-    json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
+    json_data["stream_options"] = {"include_usage": True}
 
     # Log final parameters being used
     logger.info("=== Final Model Parameters ===")
@@ -366,7 +413,7 @@ def stream_response_from_external_api(url, json_data):
 
                     elif new_chunk != "":
                         chunk_dict = json.loads(new_chunk)
-                        usage = chunk_dict.get("usage", {})
+                        usage = chunk_dict.get("usage") or {}
                         completion_tokens = usage.get("completion_tokens", 0)
                         prompt_tokens = usage.get("prompt_tokens", 0)
 
@@ -383,6 +430,10 @@ def stream_response_from_external_api(url, json_data):
 
             logger.info("stream_response_from_external done")
 
+    except requests.exceptions.HTTPError as e:
+        body = e.response.text if e.response is not None else "(no body)"
+        logger.error(f"HTTPError {e.response.status_code}: {body}")
+        yield f"error: {str(e)}"
     except requests.RequestException as e:
         logger.error(f"RequestException: {str(e)}")
         yield f"error: {str(e)}"

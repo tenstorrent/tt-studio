@@ -106,10 +106,22 @@ def map_model_type(raw_model_type: str, inference_engine: str) -> str:
     return "CHAT"
 
 
-def map_service_route(inference_engine: str) -> str:
-    """Derive service_route from inference_engine."""
+CHAT_CAPABLE_PATTERNS = [
+    "instruct", "-chat", "chat-", "-it-", "-it", "assistant",
+    # Reasoning / thinking models that do have chat templates
+    "deepseek-r1", "qwq", "qwen3", "gpt-oss",
+]
+
+
+def is_chat_capable(hf_model_id: str) -> bool:
+    lower = hf_model_id.lower()
+    return any(p in lower for p in CHAT_CAPABLE_PATTERNS)
+
+
+def map_service_route(inference_engine: str, hf_model_id: str = "") -> str:
+    """Derive service_route from inference_engine (and model id for vLLM)."""
     if inference_engine == "vLLM":
-        return "/v1/chat/completions"
+        return "/v1/chat/completions" if is_chat_capable(hf_model_id) else "/v1/completions"
     if inference_engine == "media":
         return "/enqueue"
     if inference_engine == "forge":
@@ -177,7 +189,7 @@ def normalize(source_path: Path) -> list[dict]:
             "status": status,
             "version": first.get("version", "0.0.1"),
             "docker_image": first.get("docker_image"),
-            "service_route": map_service_route(inference_engine),
+            "service_route": map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", "")),
             "shm_size": "32G",
             "setup_type": "TT_INFERENCE_SERVER",
             "env_vars": env_vars,

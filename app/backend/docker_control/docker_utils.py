@@ -630,13 +630,25 @@ def update_deploy_cache():
                 if not deployment_found:
                     logger.info(f"Using fallback logic to match container {con['name']}")
                     # Try to match by container name
+                    # First try exact match
                     model_impl = None
                     for k, v in model_implmentations.items():
-                        if v.model_name in con["name"]:
+                        if v.model_name == con["name"]:
                             model_impl = v
-                            logger.info(f"Matched container by name to model_impl: {model_impl.model_name}")
+                            logger.info(f"Matched container by exact name to model_impl: {model_impl.model_name}")
                             break
-                    
+
+                    # Fall back to longest-substring match (prevents short names like "Llama-3.1-8B"
+                    # from beating "Llama-3.1-8B-Instruct" on container name "Llama-3.1-8B-Instruct")
+                    if not model_impl:
+                        best_match_len = 0
+                        for k, v in model_implmentations.items():
+                            if v.model_name in con["name"] and len(v.model_name) > best_match_len:
+                                model_impl = v
+                                best_match_len = len(v.model_name)
+                        if model_impl:
+                            logger.info(f"Matched container by name substring to model_impl: {model_impl.model_name}")
+
                     if not model_impl:
                         logger.warning(f"Could not match TT Inference Server container {con['name']} to any model_impl. Skipping.")
                         continue

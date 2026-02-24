@@ -331,8 +331,8 @@ export const runInference = async (
                   metricsTracker.recordUsage(usage);
                 }
 
-                // Handle generated text content
-                const content = jsonData.choices[0]?.delta?.content || "";
+                // Handle generated text content (chat completions use delta.content, text completions use text)
+                const content = jsonData.choices[0]?.delta?.content ?? jsonData.choices[0]?.text ?? "";
                 if (content) {
                   // Record first token arrival
                   metricsTracker.recordFirstToken();

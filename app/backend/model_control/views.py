@@ -42,6 +42,8 @@ from .serializers import InferenceSerializer, ModelWeightsSerializer
 from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
+    get_model_name_from_container,
+    messages_to_prompt,
     stream_response_from_external_api,
     stream_response_from_agent_api,
     health_check,
@@ -85,8 +87,18 @@ class InferenceView(APIView):
             internal_url = "http://" + deploy["internal_url"]
             logger.info(f"internal_url:= {internal_url}")
             logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
-            data["model"] = deploy["model_impl"].hf_model_id
-            
+            data["model"] = get_model_name_from_container(
+                deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+            )
+
+            # Route base/completion models to /v1/completions with a plain prompt
+            service_route = deploy["model_impl"].service_route
+            logger.info(f"service_route:= {service_route}")
+            if service_route == "/v1/completions":
+                messages = data.pop("messages", [])
+                data["prompt"] = messages_to_prompt(messages)
+                data.pop("stream_options", None)
+
             # Create a generator that can be cancelled
             def generate_response():
                 try:
@@ -116,7 +128,9 @@ class AgentView(APIView):
         if deploy_id and deploy_id in deploy_cache:
             deploy = deploy_cache[deploy_id]
             logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
-            data["model"] = deploy["model_impl"].hf_model_id
+            data["model"] = get_model_name_from_container(
+                deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+            )
         else:
             logger.info("No valid deployment found, proceeding with agent-only mode (cloud LLM)")
             # Remove deploy_id from data since it's not needed for agent
