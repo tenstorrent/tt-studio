@@ -86,7 +86,7 @@ def map_board_type_to_device_name(board_type):
     logger.info(f"Mapped board type '{board_type}' to device name '{device_name}'")
     return device_name
 
-def run_container(impl, weights_id):
+def run_container(impl, weights_id, device_id=0):
     """Run a docker container via TT Inference Server API"""
     if (impl.model_type == ModelTypes.CHAT):
         # For chat models, we use the TT Inference Server API to run the container
@@ -103,10 +103,28 @@ def run_container(impl, weights_id):
                 "workflow": "server",  # Default workflow for container runs
                 "device": device,  # Use mapped device name
                 "docker_server": True,
-                "dev_mode": True
+                "dev_mode": True,
+                "chip_id": device_id,  # Pin to specific chip; requires inference server support
             }
 
             logger.info(f"API payload: {payload}")
+
+            # Write a "starting" record immediately so history shows the deployment in-progress
+            pending_record = None
+            try:
+                pending_record = ModelDeployment.objects.create(
+                    container_id=f"pending_{impl.model_name}",
+                    container_name=f"pending_{impl.model_name}",
+                    model_name=impl.model_name,
+                    device=device,
+                    device_id=device_id,
+                    status="starting",
+                    stopped_by_user=False,
+                    port=7000,
+                )
+                logger.info(f"Created pending deployment record for {impl.model_name}")
+            except Exception as e:
+                logger.warning(f"Could not create pending deployment record: {e}")
 
             # Make POST request to TT Inference Server API
             api_url = "http://172.18.0.1:8001/run"
@@ -128,17 +146,17 @@ def run_container(impl, weights_id):
 
                 # Update deploy cache on success
                 update_deploy_cache()
-                
+
                 # Notify agent about new container deployment
                 notify_agent_of_new_container(api_result["container_name"])
-                
-                # Save deployment record to database
+
+                # Update the pending record (or create one if pending write failed)
                 container_id = None
                 container_name = "unknown"
                 try:
                     container_id = api_result.get("container_id")
                     container_name = api_result.get("container_name", "unknown")
-                    
+
                     # If container_id is not in response, try to get it from Docker by name
                     if not container_id and container_name:
                         try:
@@ -148,30 +166,33 @@ def run_container(impl, weights_id):
                             logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
                         except Exception as docker_error:
                             logger.warning(f"Could not get container_id from Docker: {docker_error}")
-                            # Use container_name as fallback ID if we can't get the actual ID
                             container_id = container_name
-                    
+
                     if container_id:
-                        # Extract workflow log path from API response
                         workflow_log_path = api_result.get("docker_log_file_path")
                         logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
-                        logger.info(f"workflow_log_path type: {type(workflow_log_path)}, is None: {workflow_log_path is None}")
-                        
-                        ModelDeployment.objects.create(
-                            container_id=container_id,
-                            container_name=container_name,
-                            model_name=impl.model_name,
-                            device=device,
-                            status="running",
-                            stopped_by_user=False,
-                            port=7000,  # TT Inference Server default port
-                            workflow_log_path=workflow_log_path
-                        )
-                        logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
-                        if workflow_log_path:
-                            logger.info(f"Workflow log path saved: {workflow_log_path}")
+
+                        if pending_record:
+                            # Update the pending record with real container info
+                            pending_record.container_id = container_id
+                            pending_record.container_name = container_name
+                            pending_record.status = "running"
+                            pending_record.workflow_log_path = workflow_log_path
+                            pending_record.save()
+                            logger.info(f"Updated pending record to running for {container_name} (ID: {container_id})")
                         else:
-                            logger.warning(f"Workflow log path is None/empty for {container_name}")
+                            ModelDeployment.objects.create(
+                                container_id=container_id,
+                                container_name=container_name,
+                                model_name=impl.model_name,
+                                device=device,
+                                device_id=device_id,
+                                status="running",
+                                stopped_by_user=False,
+                                port=7000,
+                                workflow_log_path=workflow_log_path
+                            )
+                            logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
                     else:
                         logger.warning(f"Could not save deployment record: no container_id or container_name")
                 except Exception as e:
@@ -229,7 +250,7 @@ def run_container(impl, weights_id):
 
             run_kwargs = copy.deepcopy(impl.docker_config)
             # handle runtime configuration changes to docker kwargs
-            device_mounts = get_devices_mounts(impl)
+            device_mounts = get_devices_mounts(impl, device_id)
             if device_mounts:
                 run_kwargs.update({"devices": device_mounts})
             run_kwargs.update({"ports": get_port_mounts(impl)})
@@ -292,6 +313,7 @@ def run_container(impl, weights_id):
                     container_name=container_name,
                     model_name=impl.model_name,
                     device=device_name,
+                    device_id=device_id,
                     status="running",
                     stopped_by_user=False,
                     port=host_port
@@ -355,22 +377,47 @@ def get_runtime_device_configuration(device_configurations):
     return next(iter(device_configurations))
 
 
-def get_devices_mounts(impl):
+def get_devices_mounts(impl, device_id=0):
     device_config = get_runtime_device_configuration(impl.device_configurations)
     assert isinstance(device_config, DeviceConfigurations)
-    # TODO: add logic to handle multiple devices and multiple containers
-    single_device_mounts = ["/dev/tenstorrent/0:/dev/tenstorrent/0"]
-    all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
-    device_map = {
-        DeviceConfigurations.E150: single_device_mounts,
-        DeviceConfigurations.N150: single_device_mounts,
-        DeviceConfigurations.N150_WH_ARCH_YAML: single_device_mounts,
-        DeviceConfigurations.N300: single_device_mounts,
-        DeviceConfigurations.N300x4_WH_ARCH_YAML: all_device_mounts,
-        DeviceConfigurations.N300x4: all_device_mounts,
+
+    # Single-chip device configurations: pin to the requested chip slot
+    single_chip_configs = {
+        DeviceConfigurations.E150,
+        DeviceConfigurations.N150,
+        DeviceConfigurations.N150_WH_ARCH_YAML,
+        DeviceConfigurations.N300,
+        DeviceConfigurations.N300_WH_ARCH_YAML,
+        DeviceConfigurations.P100,
+        DeviceConfigurations.P150,
+        DeviceConfigurations.P300c,
     }
-    device_mounts = device_map.get(device_config)
-    return device_mounts
+
+    # Multi-chip configurations manage their own chip allocation; expose full directory
+    all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
+
+    if device_config in single_chip_configs:
+        return [f"/dev/tenstorrent/{device_id}:/dev/tenstorrent/{device_id}"]
+
+    # Multi-chip (T3K, Galaxy, N300x4, P150X4, P150X8, etc.)
+    multi_chip_configs = {
+        DeviceConfigurations.N150X4,
+        DeviceConfigurations.N300x4,
+        DeviceConfigurations.N300x4_WH_ARCH_YAML,
+        DeviceConfigurations.T3K,
+        DeviceConfigurations.T3K_RING,
+        DeviceConfigurations.T3K_LINE,
+        DeviceConfigurations.P150X4,
+        DeviceConfigurations.P150X8,
+        DeviceConfigurations.P300Cx2,
+        DeviceConfigurations.P300Cx4,
+        DeviceConfigurations.GALAXY,
+        DeviceConfigurations.GALAXY_T3K,
+    }
+    if device_config in multi_chip_configs:
+        return all_device_mounts
+
+    return None
 
 
 def get_port_mounts(impl):
@@ -550,12 +597,12 @@ def update_deploy_cache():
             if is_tt_inference_container:
                 logger.info(f"Detected TT Inference Server container: {con['name']} (ID: {con_id})")
                 
-                # Try to find the model implementation from the database
+                # Try to find the model implementation from the deployment store
                 deployment_found = False
                 try:
                     from docker_control.models import ModelDeployment
                     deployment = ModelDeployment.objects.filter(container_id=con_id).first()
-                    
+
                     if deployment:
                         # Find the model implementation by model name
                         model_impl = None
@@ -565,11 +612,12 @@ def update_deploy_cache():
                                 logger.info(f"Matched TT Inference Server container to model_impl: {model_impl.model_name}")
                                 deployment_found = True
                                 break
-                        
+
                         if not model_impl:
                             logger.warning(f"Could not find model_impl for {deployment.model_name} in container {con['name']}")
                     else:
-                        logger.warning(f"No deployment record found for TT Inference Server container {con_id}")
+                        # No record by container_id — could be a pre-existing container or still starting up
+                        logger.debug(f"No deployment record found for TT Inference Server container {con_id}")
                 except Exception as e:
                     # Check if this is a migration/database issue
                     error_str = str(e).lower()

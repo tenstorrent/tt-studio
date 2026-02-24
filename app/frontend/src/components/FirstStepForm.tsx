@@ -84,14 +84,32 @@ const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
 });
 
+// Multi-chip boards where the user needs to pick a chip slot.
+// Single-chip boards (N150, N300 standalone, E150, P100, P150, P300c) always have
+// only one chip so no picker is needed there.
+const MULTI_CHIP_BOARD_SLOTS: Record<string, number> = {
+  T3K:      4,   // 4x N300
+  T3000:    4,
+  N150X4:   4,
+  N300x4:   4,
+  P150X4:   4,
+  P150X8:   8,
+  P300Cx2:  4,   // 2 cards × 2 chips
+  P300Cx4:  8,   // 4 cards × 2 chips
+  GALAXY:   32,
+  GALAXY_T3K: 32,
+};
+
 export function FirstStepForm({
   setSelectedModel,
   setFormError,
+  setSelectedDeviceId,
   autoDeployModel,
   isAutoDeploying,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
+  setSelectedDeviceId?: (deviceId: number) => void;
   autoDeployModel?: string | null;
   isAutoDeploying?: boolean;
 }) {
@@ -105,6 +123,7 @@ export function FirstStepForm({
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isWarningDismissed, setIsWarningDismissed] = useState(false);
+  const [deviceId, setDeviceId] = useState<number>(0);
 
   // Refresh models context when component mounts
   useEffect(() => {
@@ -178,9 +197,12 @@ export function FirstStepForm({
 
         console.log(
           "📝 FirstStepForm: Setting selectedModel to:",
-          selectedModel.id
+          selectedModel.id,
+          "device_id:",
+          deviceId,
         );
         setSelectedModel(selectedModel.id);
+        if (setSelectedDeviceId) setSelectedDeviceId(deviceId);
         console.log(
           "📝 FirstStepForm: selectedModel set, waiting for status check..."
         );
@@ -444,6 +466,36 @@ export function FirstStepForm({
                   )}
                 </SelectContent>
               </Select>
+
+              {/* Device ID picker — only for multi-chip boards (T3K=4 slots, Galaxy=32, etc.) */}
+              {(() => {
+                const selected = models.find((m) => m.name === form.watch("model"));
+                const board = selected?.current_board ?? currentBoard;
+                const maxSlots = MULTI_CHIP_BOARD_SLOTS[board];
+                if (!maxSlots) return null; // single-chip board — no choice needed
+                const maxId = maxSlots - 1;
+                return (
+                  <div className="mt-4 flex items-center gap-4">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      Chip slot (0–{maxId}):
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={maxId}
+                      value={deviceId}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        setDeviceId(isNaN(v) ? 0 : Math.max(0, Math.min(maxId, v)));
+                      }}
+                      className="w-20 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-TT-purple-accent"
+                    />
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      /dev/tenstorrent/{deviceId} &nbsp;·&nbsp; {maxSlots} chips available
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* Summary info */}
               {models.length > 0 && !isLoading && (

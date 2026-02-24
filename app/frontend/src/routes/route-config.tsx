@@ -52,6 +52,7 @@ import ImageGenPage from "../pages/ImageGenPage";
 import AudioDetectionPage from "../pages/AudioDetectionPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
+import VoicePipelinePage from "../pages/VoicePipelinePage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -121,6 +122,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/deployment-history",
       element: <DeploymentHistoryPage />,
+      condition: true,
+    },
+    {
+      path: "/voice-pipeline",
+      element: <VoicePipelinePage />,
       condition: true,
     },
     {

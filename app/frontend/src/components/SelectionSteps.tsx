@@ -42,6 +42,7 @@ export default function StepperDemo() {
   };
 
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
   const [isAutoDeploying, setIsAutoDeploying] = useState(false);
@@ -74,9 +75,11 @@ export default function StepperDemo() {
       console.log("Found model for auto-deploy:", model);
 
       // Deploy with default weights
+      const deviceIdParam = parseInt(searchParams.get("device-id") ?? "0", 10);
       const deployPayload = {
         model_id: model.id,
         weights_id: "", // Empty string for default weights
+        device_id: isNaN(deviceIdParam) ? 0 : deviceIdParam,
       };
 
       console.log("Auto-deploy payload:", deployPayload);
@@ -139,6 +142,7 @@ export default function StepperDemo() {
     const payload = JSON.stringify({
       model_id,
       weights_id,
+      device_id: selectedDeviceId,
     });
 
     console.log("📦 Deploying with default weights:", { model_id, weights_id });
@@ -215,6 +219,7 @@ export default function StepperDemo() {
                     console.log("🔄 setSelectedModel called with:", modelId);
                     setSelectedModel(modelId);
                   }}
+                  setSelectedDeviceId={setSelectedDeviceId}
                   setFormError={setFormError}
                   autoDeployModel={autoDeployModel}
                   isAutoDeploying={isAutoDeploying}

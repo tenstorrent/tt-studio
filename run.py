@@ -1248,27 +1248,28 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False):
         print("\n⚠️  Some services may not be fully ready, but main app may still be accessible.")
     return all_healthy
 
-def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None):
+def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None, device_id=0):
     """
     Wait for frontend service to be healthy before opening browser.
-    
+
     Args:
         host: Frontend host
         port: Frontend port
         timeout: Timeout in seconds
         auto_deploy_model: Model name to auto-deploy (optional)
-    
+        device_id: Chip slot index for auto-deploy (default 0)
+
     Returns:
         bool: True if browser opened successfully, False otherwise
     """
     base_url = f"http://{host}:{port}/"
-    
+
     # Add auto-deploy parameter if specified
     if auto_deploy_model:
         from urllib.parse import urlencode
-        params = urlencode({"auto-deploy": auto_deploy_model})
+        params = urlencode({"auto-deploy": auto_deploy_model, "device-id": device_id})
         frontend_url = f"{base_url}?{params}"
-        print(f"\n🤖 Auto-deploying model: {auto_deploy_model}")
+        print(f"\n🤖 Auto-deploying model: {auto_deploy_model} on chip {device_id}")
     else:
         frontend_url = base_url
     
@@ -3512,6 +3513,8 @@ def main():
                    help="🔍 Check for missing SPDX license headers without adding them")
         parser.add_argument("--auto-deploy", type=str, metavar="MODEL_NAME",
                    help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
+        parser.add_argument("--device-id", type=int, default=0, metavar="CHIP_ID",
+                   help="🔌 Chip slot index (0-7) to use when auto-deploying a model (default: 0)")
         parser.add_argument("--fix-docker", action="store_true",
                    help="🔧 Automatically fix Docker service and permission issues")
         parser.add_argument("--easy", action="store_true",
@@ -3928,12 +3931,14 @@ def main():
             host, port, timeout = get_frontend_config()
             
             # Use the new function that reuses existing infrastructure
-            if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy):
-                auto_deploy_param = f"?auto-deploy={args.auto_deploy}" if args.auto_deploy else ""
+            device_id_val = getattr(args, "device_id", 0)
+            if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy, device_id=device_id_val):
+                auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
                 print(f"{C_YELLOW}⚠️  Browser opening failed. Please manually navigate to http://{host}:{port}{auto_deploy_param}{C_RESET}")
         else:
             host, port, _ = get_frontend_config()
-            auto_deploy_param = f"?auto-deploy={args.auto_deploy}" if args.auto_deploy else ""
+            device_id_val = getattr(args, "device_id", 0)
+            auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
         
         # If in dev mode, show logs similar to startup.sh

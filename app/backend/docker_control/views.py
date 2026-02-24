@@ -221,8 +221,9 @@ class DeployView(APIView):
         if serializer.is_valid():
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
+            device_id = int(request.data.get("device_id", 0))
             impl = model_implmentations[impl_id]
-            response = run_container(impl, weights_id)
+            response = run_container(impl, weights_id, device_id=device_id)
             
             # Ensure job_id is set for progress tracking
             # Use job_id from API response, or fallback to container_id or container_name
@@ -1177,6 +1178,7 @@ class DeploymentHistoryView(APIView):
                     'container_name': deployment.container_name,
                     'model_name': deployment.model_name,
                     'device': deployment.device,
+                    'device_id': deployment.device_id,
                     'deployed_at': deployment.deployed_at.isoformat() if deployment.deployed_at else None,
                     'stopped_at': deployment.stopped_at.isoformat() if deployment.stopped_at else None,
                     'status': deployment.status,

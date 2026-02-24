@@ -615,6 +615,57 @@ class SpeechRecognitionInferenceCloudView(APIView):
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
+class TtsInferenceView(APIView):
+    """Text-to-speech inference: POST text → /enqueue → poll → return audio blob."""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            text = data.get("text") or data.get("prompt")
+            if not text:
+                return Response({"error": "text is required"}, status=status.HTTP_400_BAD_REQUEST)
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            try:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                inference_data = requests.post(internal_url, json={"text": text}, headers=headers, timeout=30)
+                inference_data.raise_for_status()
+
+                # Poll status until completed
+                task_id = inference_data.json().get("task_id")
+                get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
+                ready = False
+                for _ in range(120):  # up to ~2 minutes
+                    status_resp = requests.get(get_status_url, headers=headers, timeout=10)
+                    if status_resp.status_code != status.HTTP_404_NOT_FOUND:
+                        status_resp.raise_for_status()
+                        if status_resp.json().get("status") == "Completed":
+                            ready = True
+                            break
+                    time.sleep(1)
+
+                if not ready:
+                    return Response({"error": "TTS task timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+
+                # Fetch audio result
+                get_audio_url = internal_url.replace("/enqueue", f"/fetch_audio/{task_id}")
+                audio_resp = requests.get(get_audio_url, headers=headers, stream=True, timeout=30)
+                audio_resp.raise_for_status()
+
+                content_type = audio_resp.headers.get("Content-Type", "audio/wav")
+                django_response = HttpResponse(audio_resp.content, content_type=content_type)
+                django_response["Content-Disposition"] = "attachment; filename=tts_output.wav"
+                return django_response
+
+            except requests.exceptions.HTTPError as http_err:
+                logger.error(f"TTS HTTP error: {http_err}")
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class ContainerLogsView(View):
     # Define event detection configuration before the get method
     SIMPLE_EVENT_KEYWORDS = [

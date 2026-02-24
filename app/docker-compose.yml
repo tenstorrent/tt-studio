@@ -20,7 +20,8 @@ services:
       - tt_studio_network
     ports:
       - "8000:8000"
-    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
+    command: >
+      gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
     depends_on:
       tt_studio_chroma:
         condition: service_healthy

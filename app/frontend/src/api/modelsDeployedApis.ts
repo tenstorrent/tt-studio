@@ -60,9 +60,14 @@ interface DeployedModelInfo {
 
 export const ModelType = {
   ChatModel: "ChatModel",
+  VLM: "VLM",
   ImageGeneration: "ImageGeneration",
+  VideoGeneration: "VideoGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
+  TTS: "TTS",
+  Embedding: "Embedding",
+  CNN: "CNN",
 };
 
 /**
@@ -73,12 +78,22 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
   switch (backendType) {
     case "chat":
       return ModelType.ChatModel;
+    case "vlm":
+      return ModelType.VLM;
     case "image_generation":
       return ModelType.ImageGeneration;
+    case "video_generation":
+      return ModelType.VideoGeneration;
     case "object_detection":
       return ModelType.ObjectDetectionModel;
     case "speech_recognition":
       return ModelType.SpeechRecognitionModel;
+    case "tts":
+      return ModelType.TTS;
+    case "embedding":
+      return ModelType.Embedding;
+    case "cnn":
+      return ModelType.CNN;
     default:
       return ModelType.ChatModel;
   }
@@ -255,14 +270,109 @@ export const getDestinationFromModelType = (modelType: string): string => {
   switch (modelType) {
     case ModelType.ChatModel:
       return "/chat";
+    case ModelType.VLM:
+      return "/chat"; // VLM reuses the chat UI (supports image content)
     case ModelType.ImageGeneration:
       return "/image-generation";
+    case ModelType.VideoGeneration:
+      return "/chat"; // placeholder until video UI exists
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
       return "/speech-to-text";
+    case ModelType.TTS:
+      return "/speech-to-text"; // TTS shares the audio page for now
+    case ModelType.Embedding:
+      return "/chat"; // placeholder
+    case ModelType.CNN:
+      return "/object-detection"; // CNN reuses object detection UI
     default:
-      return "/chat"; // /chat is the default
+      return "/chat";
+  }
+};
+
+// ----- deployModel with device_id support -----
+export const deployModel = async (
+  modelId: string,
+  weightsId: string,
+  deviceId: number = 0,
+): Promise<{ job_id?: string; status?: string; message?: string }> => {
+  const payload = JSON.stringify({
+    model_id: modelId,
+    weights_id: weightsId,
+    device_id: deviceId,
+  });
+  const response = await fetch("/docker-api/deploy/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload,
+  });
+  return response.json();
+};
+
+// ----- Voice Pipeline -----
+export interface VoicePipelineRequest {
+  audioFile: File;
+  whisperDeployId: string;
+  llmDeployId: string;
+  ttsDeployId?: string;
+  systemPrompt?: string;
+}
+
+/**
+ * Calls the voice pipeline endpoint and returns an SSE EventSource.
+ * The caller is responsible for closing the EventSource when done.
+ */
+export const runVoicePipeline = async (
+  req: VoicePipelineRequest,
+  onTranscript: (text: string) => void,
+  onLlmChunk: (text: string) => void,
+  onAudio: (dataUrl: string) => void,
+  onError: (stage: string, message: string) => void,
+  onDone: () => void,
+): Promise<void> => {
+  const form = new FormData();
+  form.append("audio_file", req.audioFile);
+  form.append("whisper_deploy_id", req.whisperDeployId);
+  form.append("llm_deploy_id", req.llmDeployId);
+  if (req.ttsDeployId) form.append("tts_deploy_id", req.ttsDeployId);
+  if (req.systemPrompt) form.append("system_prompt", req.systemPrompt);
+
+  const response = await fetch("/models-api/pipeline/voice/", {
+    method: "POST",
+    body: form,
+  });
+
+  if (!response.ok || !response.body) {
+    onError("pipeline", `HTTP ${response.status}`);
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === "transcript") onTranscript(evt.text);
+        else if (evt.type === "llm_chunk") onLlmChunk(evt.text);
+        else if (evt.type === "audio_url") onAudio(evt.url);
+        else if (evt.type === "error") onError(evt.stage ?? "unknown", evt.message);
+        else if (evt.type === "done") onDone();
+      } catch {
+        // skip malformed lines
+      }
+    }
   }
 };
 

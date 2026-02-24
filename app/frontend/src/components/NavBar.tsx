@@ -13,6 +13,7 @@ import {
   Image,
   Eye,
   AudioLines,
+  Mic,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
@@ -472,6 +473,13 @@ export default function NavBar() {
       icon: FileText,
       label: "Logs",
       tooltip: "View system logs",
+    },
+    {
+      type: "link",
+      to: "/voice-pipeline",
+      icon: Mic,
+      label: "Voice Pipeline",
+      tooltip: "End-to-end voice demo (Whisper → LLM → TTS)",
     },
   ];
 

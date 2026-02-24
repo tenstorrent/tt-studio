@@ -85,17 +85,24 @@ def map_model_type(raw_model_type: str, inference_engine: str) -> str:
     """Map tt-inference-server model_type + inference_engine to tt-studio ModelTypes."""
     if raw_model_type == "LLM" and inference_engine == "vLLM":
         return "CHAT"
+    if raw_model_type == "VLM":
+        return "VLM"
     if raw_model_type == "IMAGE":
         return "IMAGE_GENERATION"
     if raw_model_type == "AUDIO":
         return "SPEECH_RECOGNITION"
+    if raw_model_type == "TEXT_TO_SPEECH" or raw_model_type == "TTS":
+        return "TTS"
+    if raw_model_type == "VIDEO":
+        return "VIDEO"
+    if raw_model_type == "EMBEDDING":
+        return "EMBEDDING"
     # CNN + media engine = image generation (FLUX, Motif, etc.)
     if raw_model_type == "CNN" and inference_engine == "media":
         return "IMAGE_GENERATION"
     # CNN + forge = computer vision / object detection (resnet, vit, etc.)
     if raw_model_type == "CNN" and inference_engine == "forge":
-        return "OBJECT_DETECTION"
-    # EMBEDDING, fallback
+        return "CNN"
     return "CHAT"
 
 
