@@ -1,0 +1,1740 @@
+{
+  "source": {
+    "artifact_version": "0.9.0",
+    "generated_at": "2026-02-24T23:09:31.324226+00:00"
+  },
+  "total_models": 60,
+  "models": [
+    {
+      "model_name": "DeepSeek-R1-Distill-Llama-70B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X4",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 70
+    },
+    {
+      "model_name": "distil-large-v3",
+      "model_type": "SPEECH_RECOGNITION",
+      "display_model_type": "AUDIO",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "T3K"
+      ],
+      "hf_model_id": "distil-whisper/distil-large-v3",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "FLUX.1-dev",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "black-forest-labs/FLUX.1-dev",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "FLUX.1-schnell",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "black-forest-labs/FLUX.1-schnell",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "Llama-3.1-70B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X4",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.1-70B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 70
+    },
+    {
+      "model_name": "Llama-3.1-70B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X4",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.1-70B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 70
+    },
+    {
+      "model_name": "Llama-3.1-8B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "N150",
+        "N300",
+        "P100",
+        "P150",
+        "P150X4",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.1-8B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-25305db-6e67d2d",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 8
+    },
+    {
+      "model_name": "Llama-3.1-8B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "N150",
+        "N300",
+        "P100",
+        "P150",
+        "P150X4",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-25305db-6e67d2d",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 8
+    },
+    {
+      "model_name": "Llama-3.3-70B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X4",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.3-70B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 70
+    },
+    {
+      "model_name": "Mistral-7B-Instruct-v0.3",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "mistralai/Mistral-7B-Instruct-v0.3",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 7
+    },
+    {
+      "model_name": "mochi-1-preview",
+      "model_type": "VIDEO",
+      "display_model_type": "VIDEO",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "genmo/mochi-1-preview",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "Motif-Image-6B-Preview",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "Motif-Technologies/Motif-Image-6B-Preview",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 6
+    },
+    {
+      "model_name": "Qwen3-32B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "P150X8",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen3-32B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 32
+    },
+    {
+      "model_name": "speecht5_tts",
+      "model_type": "TTS",
+      "display_model_type": "TEXT_TO_SPEECH",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "microsoft/speecht5_tts",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-a9b09e0",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "stable-diffusion-3.5-large",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "stabilityai/stable-diffusion-3.5-large",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "stable-diffusion-xl-1.0-inpainting-0.1",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.5.0-fbbbd2da8cfab49ddf43d28dd9c0813a3c3ee2bd",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "stable-diffusion-xl-base-1.0",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "stable-diffusion-xl-base-1.0-img-2-img",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0-img-2-img",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "Wan2.2-T2V-A14B-Diffusers",
+      "model_type": "VIDEO",
+      "display_model_type": "VIDEO",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 14
+    },
+    {
+      "model_name": "whisper-large-v3",
+      "model_type": "SPEECH_RECOGNITION",
+      "display_model_type": "AUDIO",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "T3K"
+      ],
+      "hf_model_id": "openai/whisper-large-v3",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "COMPLETE",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "Llama-3.2-11B-Vision",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-11B-Vision",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 11
+    },
+    {
+      "model_name": "Llama-3.2-11B-Vision-Instruct",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 11
+    },
+    {
+      "model_name": "Llama-3.2-1B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-1B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 1
+    },
+    {
+      "model_name": "Llama-3.2-1B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-1B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 1
+    },
+    {
+      "model_name": "Llama-3.2-3B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-3B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-20edc39-03cb300",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 3
+    },
+    {
+      "model_name": "Llama-3.2-3B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-3B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-20edc39-03cb300",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 3
+    },
+    {
+      "model_name": "Llama-3.2-90B-Vision",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-90B-Vision",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "MAX_PREFILL_CHUNK_SIZE": 16
+      },
+      "param_count": 90
+    },
+    {
+      "model_name": "Llama-3.2-90B-Vision-Instruct",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "T3K"
+      ],
+      "hf_model_id": "meta-llama/Llama-3.2-90B-Vision-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "MAX_PREFILL_CHUNK_SIZE": 16
+      },
+      "param_count": 90
+    },
+    {
+      "model_name": "Qwen-Image",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen-Image",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "TT_DIT_CACHE_DIR": "/tmp/TT_DIT_CACHE"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "Qwen-Image-2512",
+      "model_type": "IMAGE_GENERATION",
+      "display_model_type": "IMAGE",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen-Image-2512",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "TT_DIT_CACHE_DIR": "/tmp/TT_DIT_CACHE"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "Qwen2.5-72B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-72B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1,
+        "MAX_PREFILL_CHUNK_SIZE": "16"
+      },
+      "param_count": 72
+    },
+    {
+      "model_name": "Qwen2.5-72B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-72B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1,
+        "MAX_PREFILL_CHUNK_SIZE": "16"
+      },
+      "param_count": 72
+    },
+    {
+      "model_name": "Qwen2.5-VL-72B-Instruct",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-VL-72B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 72
+    },
+    {
+      "model_name": "Qwen3-8B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen3-8B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e95ffa5-48eba14",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 8
+    },
+    {
+      "model_name": "QwQ-32B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/QwQ-32B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "FUNCTIONAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e95ffa5-48eba14",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 32
+    },
+    {
+      "model_name": "AFM-4.5B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "arcee-ai/AFM-4.5B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-ae65ee5-35f023f",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": 4
+    },
+    {
+      "model_name": "bge-large-en-v1.5",
+      "model_type": "EMBEDDING",
+      "display_model_type": "EMBEDDING",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "BAAI/bge-large-en-v1.5",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM__MAX_NUM_BATCHED_TOKENS": "3072",
+        "VLLM__MAX_MODEL_LENGTH": "384",
+        "VLLM__MIN_CONTEXT_LENGTH": "32",
+        "VLLM__MAX_NUM_SEQS": "8",
+        "MAX_BATCH_SIZE": "8",
+        "DEFAULT_THROTTLE_LEVEL": "0"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "DeepSeek-R1-0528",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY"
+      ],
+      "hf_model_id": "deepseek-ai/DeepSeek-R1-0528",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e3d97e5-a186bf4",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "efficientnet",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "efficientnet",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "gemma-3-1b-it",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150"
+      ],
+      "hf_model_id": "google/gemma-3-1b-it",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": 1
+    },
+    {
+      "model_name": "gemma-3-27b-it",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "T3K"
+      ],
+      "hf_model_id": "google/gemma-3-27b-it",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-0b10c51-3499ffa",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": 27
+    },
+    {
+      "model_name": "gemma-3-4b-it",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "google/gemma-3-4b-it",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": 4
+    },
+    {
+      "model_name": "gpt-oss-120b",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "T3K"
+      ],
+      "hf_model_id": "openai/gpt-oss-120b",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": 120
+    },
+    {
+      "model_name": "gpt-oss-20b",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "T3K"
+      ],
+      "hf_model_id": "openai/gpt-oss-20b",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-60ffb199-3499ffa1",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": 20
+    },
+    {
+      "model_name": "medgemma-27b-it",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "GALAXY",
+        "GALAXY_T3K",
+        "T3K"
+      ],
+      "hf_model_id": "google/medgemma-27b-it",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-0b10c51-3499ffa",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": 27
+    },
+    {
+      "model_name": "medgemma-4b-it",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "google/medgemma-4b-it",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_USE_V1": "1"
+      },
+      "param_count": 4
+    },
+    {
+      "model_name": "mobilenetv2",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "mobilenetv2",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "Qwen2.5-7B",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150X4",
+        "N300"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-7B",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
+      "service_route": "/v1/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 7
+    },
+    {
+      "model_name": "Qwen2.5-7B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "N150X4",
+        "N300"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-7B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 7
+    },
+    {
+      "model_name": "Qwen2.5-Coder-32B-Instruct",
+      "model_type": "CHAT",
+      "display_model_type": "LLM",
+      "device_configurations": [
+        "GALAXY_T3K",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-17a5973-aa4ae1e",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 32
+    },
+    {
+      "model_name": "Qwen2.5-VL-32B-Instruct",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-VL-32B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 32
+    },
+    {
+      "model_name": "Qwen2.5-VL-3B-Instruct",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-VL-3B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 3
+    },
+    {
+      "model_name": "Qwen2.5-VL-7B-Instruct",
+      "model_type": "VLM",
+      "display_model_type": "VLM",
+      "device_configurations": [
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "inference_engine": "vLLM",
+      "supported_modalities": [
+        "text",
+        "image"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
+      },
+      "param_count": 7
+    },
+    {
+      "model_name": "Qwen3-Embedding-4B",
+      "model_type": "EMBEDDING",
+      "display_model_type": "EMBEDDING",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen3-Embedding-4B",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
+        "VLLM__MAX_MODEL_LENGTH": "1024",
+        "VLLM__MIN_CONTEXT_LENGTH": "32",
+        "VLLM__MAX_NUM_SEQS": "1",
+        "MAX_BATCH_SIZE": "1",
+        "DEFAULT_THROTTLE_LEVEL": "0"
+      },
+      "param_count": 4
+    },
+    {
+      "model_name": "Qwen3-Embedding-8B",
+      "model_type": "EMBEDDING",
+      "display_model_type": "EMBEDDING",
+      "device_configurations": [
+        "GALAXY",
+        "N150",
+        "N300",
+        "T3K"
+      ],
+      "hf_model_id": "Qwen/Qwen3-Embedding-8B",
+      "inference_engine": "media",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
+      "service_route": "/enqueue",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1",
+        "VLLM__MAX_NUM_BATCHED_TOKENS": "1024",
+        "VLLM__MAX_MODEL_LENGTH": "1024",
+        "VLLM__MIN_CONTEXT_LENGTH": "32",
+        "VLLM__MAX_NUM_SEQS": "1"
+      },
+      "param_count": 8
+    },
+    {
+      "model_name": "resnet-50",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "resnet-50",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "segformer",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "segformer",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "unet",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "unet",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "vit",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "vit",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    },
+    {
+      "model_name": "vovnet",
+      "model_type": "CNN",
+      "display_model_type": "CNN",
+      "device_configurations": [
+        "N150",
+        "N300"
+      ],
+      "hf_model_id": "vovnet",
+      "inference_engine": "forge",
+      "supported_modalities": [
+        "text"
+      ],
+      "status": "EXPERIMENTAL",
+      "version": "0.9.0",
+      "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
+      "service_route": "/v1/chat/completions",
+      "shm_size": "32G",
+      "setup_type": "TT_INFERENCE_SERVER",
+      "env_vars": {
+        "VLLM_CONFIGURE_LOGGING": "1",
+        "VLLM_RPC_TIMEOUT": "900000",
+        "VLLM_TARGET_DEVICE": "tt",
+        "TORCHDYNAMO_DISABLE": "1"
+      },
+      "param_count": null
+    }
+  ]
+}
