@@ -350,3 +350,76 @@ model_implmentations = {}
 for impl in _json_impls + _hardcoded_impls:
     validate_model_implemenation_config(impl)
     model_implmentations[impl.model_id] = impl
+
+
+# ---------------------------------------------------------------------------
+# Chip Requirement Inference
+# ---------------------------------------------------------------------------
+
+# Board type classifications for chip allocation
+SINGLE_CHIP_BOARDS_STR = {"N150", "N300", "E150", "P100", "P150", "P300c"}
+MULTI_CHIP_ONLY_BOARDS_STR = {
+    "T3K", "GALAXY", "GALAXY_T3K", "P150X4", "P150X8",
+    "N150X4", "N300x4", "P300Cx2", "P300Cx4"
+}
+
+
+def infer_chips_required(device_configurations: Set[DeviceConfigurations]) -> int:
+    """
+    Infer chip requirements from device_configurations set.
+
+    Logic:
+    - If model supports ANY single-chip board → requires 1 chip
+    - If model ONLY supports multi-chip boards → requires 4 chips
+    - Default to 1 chip for unknown configurations
+
+    Args:
+        device_configurations: Set of DeviceConfigurations enum values
+
+    Returns:
+        Number of chips required (1 or 4)
+
+    Examples:
+        Single-chip model (supports N150, N300, etc.):
+            infer_chips_required({DeviceConfigurations.N150, DeviceConfigurations.T3K}) → 1
+
+        Multi-chip only model (only T3K, Galaxy, P150X4):
+            infer_chips_required({DeviceConfigurations.T3K, DeviceConfigurations.GALAXY}) → 4
+    """
+    if not device_configurations:
+        return 1  # Default to single chip
+
+    # Convert DeviceConfigurations to string names for comparison
+    config_names = {cfg.name for cfg in device_configurations}
+
+    # If ANY single-chip board is supported → 1 chip
+    if config_names.intersection(SINGLE_CHIP_BOARDS_STR):
+        return 1
+
+    # If ONLY multi-chip boards supported → 4 chips
+    if config_names.intersection(MULTI_CHIP_ONLY_BOARDS_STR):
+        return 4
+
+    return 1  # Default to single chip for unknown boards
+
+
+def get_model_chip_requirement(model_name: str) -> int:
+    """
+    Get chip requirement for a specific model by name.
+
+    Searches through model_implmentations and infers chip requirement
+    based on device_configurations.
+
+    Args:
+        model_name: Name of the model (e.g., "Llama-3.1-70B-Instruct")
+
+    Returns:
+        Number of chips required (1 or 4)
+    """
+    for impl in model_implmentations.values():
+        if impl.model_name == model_name:
+            return infer_chips_required(impl.device_configurations)
+
+    # Model not found, default to 1 chip
+    logger.warning(f"Model {model_name} not found in model_implmentations, defaulting to 1 chip")
+    return 1

@@ -191,7 +191,11 @@ class ContainersView(APIView):
                     compatible_boards.append(board)
             
             logger.info(f"Model {impl.model_name}: compatible={is_compatible}, boards={compatible_boards}")
-            
+
+            # Infer chip requirements for this model
+            from shared_config.model_config import infer_chips_required
+            chips_required = infer_chips_required(impl.device_configurations)
+
             data.append({
                 "id": impl_id,
                 "name": impl.model_name,
@@ -201,6 +205,7 @@ class ContainersView(APIView):
                 "display_model_type": impl.display_model_type,
                 "current_board": current_board,
                 "status": _status_lookup.get(impl.model_name),
+                "chips_required": chips_required,
             })
         
         return Response(data, status=status.HTTP_200_OK)
@@ -212,6 +217,32 @@ class StatusView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
+class ChipStatusView(APIView):
+    """API endpoint for chip slot occupancy status"""
+
+    def get(self, request, *args, **kwargs):
+        """
+        Get current chip slot status.
+
+        Returns JSON with board type, total slots, and per-slot occupancy info.
+        """
+        try:
+            from docker_control.chip_allocator import ChipSlotAllocator
+
+            allocator = ChipSlotAllocator()
+            status_info = allocator.get_chip_status()
+
+            return Response(status_info, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error getting chip status: {str(e)}")
+            return Response(
+                {
+                    "error": "Failed to get chip status",
+                    "message": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 
@@ -219,17 +250,55 @@ class DeployView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = DeploymentSerializer(data=request.data)
         if serializer.is_valid():
+            from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
+
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
-            device_id = int(request.data.get("device_id", 0))
+
+            # Get manual override if in advanced mode (optional)
+            manual_device_id = request.data.get("device_id")
+            if manual_device_id is not None:
+                manual_device_id = int(manual_device_id)
+
             impl = model_implmentations[impl_id]
+
+            # Auto-allocate chip slot
+            try:
+                allocator = ChipSlotAllocator()
+                device_id = allocator.allocate_chip_slot(
+                    impl.model_name,
+                    manual_override=manual_device_id
+                )
+                logger.info(f"Allocated device_id={device_id} for {impl.model_name}")
+
+            except MultiChipConflictError as e:
+                logger.warning(f"Multi-chip conflict for {impl.model_name}: {str(e)}")
+                return Response({
+                    "status": "error",
+                    "error_type": "multi_chip_conflict",
+                    "message": str(e),
+                    "conflicts": e.conflicts  # List of conflicting deployments
+                }, status=status.HTTP_409_CONFLICT)
+
+            except AllocationError as e:
+                logger.warning(f"Allocation failed for {impl.model_name}: {str(e)}")
+                return Response({
+                    "status": "error",
+                    "error_type": "allocation_failed",
+                    "message": str(e)
+                }, status=status.HTTP_409_CONFLICT)
+
+            # Continue with deployment using allocated device_id
             response = run_container(impl, weights_id, device_id=device_id)
-            
+
+            # Add allocated_device_id to response
+            response["allocated_device_id"] = device_id
+
             # Ensure job_id is set for progress tracking
             # Use job_id from API response, or fallback to container_id or container_name
             if not response.get("job_id"):
                 response["job_id"] = response.get("container_id") or response.get("container_name")
-            
+
             # Check if deployment failed
             if response.get("status") == "error":
                 logger.error(f"Deployment failed: {response.get('message', 'Unknown error')}")
@@ -237,14 +306,14 @@ class DeployView(APIView):
                     response,
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-            
+
             # Refresh tt-smi cache after successful deployment
             if response.get("status") == "success":
                 try:
                     SystemResourceService.force_refresh_tt_smi_cache()
                 except Exception as e:
                     logger.warning(f"Failed to refresh tt-smi cache after deployment: {e}")
-            
+
             return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

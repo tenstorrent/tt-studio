@@ -757,9 +757,8 @@ async def run_inference(request: RunRequest):
             sys.argv.append("--disable-trace-capture")
         if request.override_docker_image:
             sys.argv.extend(["--override-docker-image", request.override_docker_image])
-        # TODO: Uncomment this for dev branch
-        # if request.device_id:
-        #     sys.argv.extend(["--device-id", request.device_id])
+        if request.device_id:
+            sys.argv.extend(["--device-id", request.device_id])
         if request.override_tt_config:
             sys.argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:

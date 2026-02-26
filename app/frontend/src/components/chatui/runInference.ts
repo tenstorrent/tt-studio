@@ -309,7 +309,7 @@ export const runInference = async (
                 const jsonData = JSON.parse(trimmedLine.slice(5));
 
                 // Handle final statistics from backend (after [DONE])
-                if (!isAgentSelected && jsonData.ttft && jsonData.tpot) {
+                if (!isAgentSelected && jsonData.tokens_decoded !== undefined) {
                   const backendStats: InferenceStats = {
                     user_ttft_s: jsonData.ttft,
                     user_tpot: jsonData.tpot,

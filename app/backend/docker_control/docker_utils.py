@@ -50,6 +50,33 @@ def _ensure_network():
 # Initialize network on module load
 _ensure_network()
 
+# When deploying a single-chip model on a multi-chip board, the inference
+# server needs the constituent single-chip device name (e.g. "n300" for one
+# chip of a T3K board), not the board-level name ("t3k").
+_BOARD_TO_SINGLE_CHIP_DEVICE = {
+    # Multi-chip Wormhole boards → constituent N300 chip
+    "T3K":    "n300",
+    "T3000":  "n300",
+    "N300x4": "n300",
+    "N150X4": "n150",
+    # Multi-chip Blackhole boards → constituent single-chip device
+    "P150X4":  "p150",
+    "P150X8":  "p150",
+    "P300Cx2": "p300c",
+    "P300Cx4": "p300c",
+    # Galaxy (N300-based)
+    "GALAXY":     "n300",
+    "GALAXY_T3K": "n300",
+    # True single-chip boards are unchanged
+    "N150":  "n150",
+    "N300":  "n300",
+    "E150":  "e150",
+    "P100":  "p100",
+    "P150":  "p150",
+    "P300c": "p300c",
+    "unknown": "cpu",
+}
+
 
 def map_board_type_to_device_name(board_type):
     """Map our internal board type names to TT Inference Server device names"""
@@ -94,9 +121,22 @@ def run_container(impl, weights_id, device_id=0):
             logger.info(f"Calling TT Inference Server API")
             logger.info(f"run_container called for {impl.model_name}")
 
+            # Determine the correct inference-server device name.
+            # A single-chip model on a multi-chip board (e.g. Llama-8B on T3K)
+            # must use the constituent chip device ("n300"), not the board device
+            # ("t3k"). We use chips_required + board_type to pick the right name.
+            from shared_config.model_config import infer_chips_required
             board_type = detect_board_type()
-            device = map_board_type_to_device_name(board_type)
-            
+            chips_required = infer_chips_required(impl.device_configurations)
+            if chips_required == 1:
+                device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+            else:
+                device = map_board_type_to_device_name(board_type)
+            logger.info(
+                f"Device name '{device}' for {impl.model_name} "
+                f"(board={board_type}, chips_required={chips_required})"
+            )
+
             # Create payload for the API call
             payload = {
                 "model": impl.model_name,
@@ -104,7 +144,7 @@ def run_container(impl, weights_id, device_id=0):
                 "device": device,  # Use mapped device name
                 "docker_server": True,
                 "dev_mode": True,
-                "chip_id": device_id,  # Pin to specific chip; requires inference server support
+                "device_id": str(device_id),  # Pin to specific chip slot
             }
 
             logger.info(f"API payload: {payload}")

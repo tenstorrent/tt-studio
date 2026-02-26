@@ -84,21 +84,6 @@ const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
 });
 
-// Multi-chip boards where the user needs to pick a chip slot.
-// Single-chip boards (N150, N300 standalone, E150, P100, P150, P300c) always have
-// only one chip so no picker is needed there.
-const MULTI_CHIP_BOARD_SLOTS: Record<string, number> = {
-  T3K:      4,   // 4x N300
-  T3000:    4,
-  N150X4:   4,
-  N300x4:   4,
-  P150X4:   4,
-  P150X8:   8,
-  P300Cx2:  4,   // 2 cards × 2 chips
-  P300Cx4:  8,   // 4 cards × 2 chips
-  GALAXY:   32,
-  GALAXY_T3K: 32,
-};
 
 export function FirstStepForm({
   setSelectedModel,
@@ -106,12 +91,14 @@ export function FirstStepForm({
   setSelectedDeviceId,
   autoDeployModel,
   isAutoDeploying,
+  chipMode,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
   setSelectedDeviceId?: (deviceId: number) => void;
   autoDeployModel?: string | null;
   isAutoDeploying?: boolean;
+  chipMode?: "single" | "multi";
 }) {
   const { nextStep } = useStepper();
   const {
@@ -123,7 +110,6 @@ export function FirstStepForm({
   const [models, setModels] = useState<Model[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isWarningDismissed, setIsWarningDismissed] = useState(false);
-  const [deviceId, setDeviceId] = useState<number>(0);
 
   // Refresh models context when component mounts
   useEffect(() => {
@@ -198,11 +184,8 @@ export function FirstStepForm({
         console.log(
           "📝 FirstStepForm: Setting selectedModel to:",
           selectedModel.id,
-          "device_id:",
-          deviceId,
         );
         setSelectedModel(selectedModel.id);
-        if (setSelectedDeviceId) setSelectedDeviceId(deviceId);
         console.log(
           "📝 FirstStepForm: selectedModel set, waiting for status check..."
         );
@@ -260,12 +243,21 @@ export function FirstStepForm({
     EXPERIMENTAL: 1,
   };
 
+  // Filter models by chip mode
+  const filteredModels = chipMode
+    ? models.filter((m) =>
+        chipMode === "single"
+          ? (m.chips_required ?? 1) === 1
+          : (m.chips_required ?? 1) > 1
+      )
+    : models;
+
   // Group models by display type, then by status, then by hardware compatibility
   type CompatibilityGroup = { compatible: Model[]; incompatible: Model[]; unknown: Model[] };
   const groupModelsByType = () => {
     const grouped: Record<string, Record<string, CompatibilityGroup>> = {};
 
-    models.forEach((model) => {
+    filteredModels.forEach((model) => {
       const displayType = model.display_model_type || "LLM";
       const modelStatus = model.status || "EXPERIMENTAL";
 
@@ -287,7 +279,7 @@ export function FirstStepForm({
 
   const groupedModels = groupModelsByType();
   const allModelsUnknown =
-    models.length > 0 && models.every((model) => model.is_compatible === null);
+    filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
   return (
     <Form {...form}>
@@ -459,46 +451,16 @@ export function FirstStepForm({
                     })}
 
                   {/* If no models loaded yet */}
-                  {models.length === 0 && !isLoading && (
+                  {filteredModels.length === 0 && !isLoading && (
                     <div className="px-2 py-4 text-center text-gray-500">
-                      No models available
+                      {models.length === 0 ? "No models available" : "No models available for selected chip mode"}
                     </div>
                   )}
                 </SelectContent>
               </Select>
 
-              {/* Device ID picker — only for multi-chip boards (T3K=4 slots, Galaxy=32, etc.) */}
-              {(() => {
-                const selected = models.find((m) => m.name === form.watch("model"));
-                const board = selected?.current_board ?? currentBoard;
-                const maxSlots = MULTI_CHIP_BOARD_SLOTS[board];
-                if (!maxSlots) return null; // single-chip board — no choice needed
-                const maxId = maxSlots - 1;
-                return (
-                  <div className="mt-4 flex items-center gap-4">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      Chip slot (0–{maxId}):
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={maxId}
-                      value={deviceId}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        setDeviceId(isNaN(v) ? 0 : Math.max(0, Math.min(maxId, v)));
-                      }}
-                      className="w-20 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-TT-purple-accent"
-                    />
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      /dev/tenstorrent/{deviceId} &nbsp;·&nbsp; {maxSlots} chips available
-                    </span>
-                  </div>
-                );
-              })()}
-
               {/* Summary info */}
-              {models.length > 0 && !isLoading && (
+              {filteredModels.length > 0 && !isLoading && (
                 <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
@@ -550,7 +512,7 @@ export function FirstStepForm({
                               <span className="text-green-500 text-xs">●</span>
                               <span className="text-gray-700 dark:text-gray-200">
                                 {
-                                  models.filter(
+                                  filteredModels.filter(
                                     (model) => model.is_compatible === true
                                   ).length
                                 }{" "}
@@ -561,7 +523,7 @@ export function FirstStepForm({
                               <span className="text-red-500 text-xs">●</span>
                               <span className="text-gray-700 dark:text-gray-200">
                                 {
-                                  models.filter(
+                                  filteredModels.filter(
                                     (model) => model.is_compatible === false
                                   ).length
                                 }{" "}
@@ -572,7 +534,7 @@ export function FirstStepForm({
                               <span className="text-yellow-500 text-xs">●</span>
                               <span className="text-gray-700 dark:text-gray-200">
                                 {
-                                  models.filter(
+                                  filteredModels.filter(
                                     (model) => model.is_compatible === null
                                   ).length
                                 }{" "}

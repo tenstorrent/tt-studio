@@ -413,17 +413,20 @@ def stream_response_from_external_api(url, json_data):
 
                     elif new_chunk != "":
                         chunk_dict = json.loads(new_chunk)
-                        usage = chunk_dict.get("usage") or {}
-                        completion_tokens = usage.get("completion_tokens", 0)
-                        prompt_tokens = usage.get("prompt_tokens", 0)
 
-                        # Record token arrival using metrics tracker
-                        if completion_tokens > 0:
-                            tracker.record_token(
-                                completion_tokens=completion_tokens,
-                                prompt_tokens=prompt_tokens
-                            )
-                            logger.info(f"Recorded token: completion={completion_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+                        # Track TTFT/TPOT from content delta chunks (accurate per-token timing)
+                        choices = chunk_dict.get("choices") or []
+                        if choices:
+                            delta_content = choices[0].get("delta", {}).get("content", "")
+                            if delta_content:
+                                tracker.record_content_token()
+                                logger.info(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+
+                        # Capture prompt_tokens from usage chunk at the end
+                        usage = chunk_dict.get("usage") or {}
+                        prompt_tokens = usage.get("prompt_tokens", 0)
+                        if prompt_tokens > 0:
+                            tracker.set_prompt_tokens(prompt_tokens)
 
                     # Yield the current chunk
                     yield chunk

@@ -10,6 +10,7 @@ import { customToast } from "./CustomToaster";
 import StepperFooter from "./StepperFooter";
 import { DeployModelStep } from "./DeployModelStep";
 import { FirstStepForm } from "./FirstStepForm";
+import { ChipConfigStep } from "./ChipConfigStep";
 
 const dockerAPIURL = "/docker-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
@@ -24,6 +25,7 @@ export interface Model {
   current_board: string; // The detected board type
   status?: "EXPERIMENTAL" | "FUNCTIONAL" | "COMPLETE" | null;
   display_model_type?: string;
+  chips_required?: number; // Number of chips required (1 or 4)
 }
 
 export default function StepperDemo() {
@@ -31,16 +33,34 @@ export default function StepperDemo() {
   const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
 
-  const steps = [
-    { label: "Step 1", description: "Model Selection" },
-    { label: "Final Step", description: "Deploy Model" },
-  ];
+  const [totalSlots, setTotalSlots] = useState<number | null>(null);
+  const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
+
+  // Fetch total_slots on mount to determine step count
+  useEffect(() => {
+    axios
+      .get("/docker-api/chip-status/")
+      .then((res) => setTotalSlots(res.data.total_slots ?? 1))
+      .catch(() => setTotalSlots(1)); // safe fallback to single-chip
+  }, []);
+
+  const steps = isMultiChipBoard
+    ? [
+        { label: "Step 1", description: "Hardware Configuration" },
+        { label: "Step 2", description: "Model Selection" },
+        { label: "Final Step", description: "Deploy Model" },
+      ]
+    : [
+        { label: "Step 1", description: "Model Selection" },
+        { label: "Final Step", description: "Deploy Model" },
+      ];
 
   // No-op function for removing dynamic steps (no dynamic steps in this component)
   const removeDynamicSteps = () => {
     // This component uses static steps, so no action needed
   };
 
+  const [chipMode, setChipMode] = useState<"single" | "multi" | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<number>(0);
   const [loading, setLoading] = useState(false);
@@ -177,6 +197,48 @@ export default function StepperDemo() {
       };
     } catch (error) {
       console.error("Error during deployment:", error);
+
+      // Check if this is a chip allocation conflict error
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        const errorData = error.response.data;
+        const errorType = errorData?.error_type;
+
+        if (errorType === 'multi_chip_conflict') {
+          // Multi-chip conflict with detailed information
+          const conflicts = errorData?.conflicts || [];
+          const message = errorData?.message || 'Multi-chip model requires all slots to be free';
+
+          customToast.error(
+            <div className="max-w-md">
+              <p className="font-bold mb-2">Multi-chip Deployment Conflict</p>
+              <p className="text-sm mb-2">{message}</p>
+
+              {conflicts.length > 0 && (
+                <div className="mt-3 p-2 bg-red-100 dark:bg-red-900/30 rounded">
+                  <p className="text-xs font-semibold mb-1">Stop these models first:</p>
+                  <ul className="text-xs space-y-1">
+                    {conflicts.map((c: any, i: number) => (
+                      <li key={i} className="flex items-center justify-between">
+                        <span>• {c.model} (slot {c.slot})</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs mt-2 italic">Go to Models Deployed page to stop models.</p>
+                </div>
+              )}
+            </div>,
+            { duration: 15000 }
+          );
+
+          return { success: false };
+        } else if (errorType === 'allocation_failed') {
+          // General allocation failure (all slots occupied)
+          const message = errorData?.message || 'All chip slots are occupied';
+          customToast.error(`Chip Allocation Failed: ${message}`, { duration: 10000 });
+          return { success: false };
+        }
+      }
+
       // Extract error message and job_id from response if available
       const errorMessage =
         axios.isAxiosError(error) && error.response?.data?.message
@@ -191,6 +253,17 @@ export default function StepperDemo() {
       return { success: false, job_id: jobId };
     }
   };
+
+  // Wait until we know total_slots to avoid re-mounting Stepper mid-render
+  if (totalSlots === null) {
+    return (
+      <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
+        <div className="p-8 text-sm text-gray-500 font-mono animate-pulse">
+          Detecting hardware...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
@@ -213,7 +286,31 @@ export default function StepperDemo() {
               description={step.description}
               className="mb-4"
             >
-              {step.label === "Step 1" && (
+              {/* Multi-chip flow: Step 1 = Hardware Config */}
+              {isMultiChipBoard && step.label === "Step 1" && (
+                <ChipConfigStep
+                  onConfirm={(mode, slotId) => {
+                    setChipMode(mode);
+                    setSelectedDeviceId(slotId);
+                  }}
+                />
+              )}
+              {/* Multi-chip flow: Step 2 = Model Selection (with chipMode filter) */}
+              {isMultiChipBoard && step.label === "Step 2" && (
+                <FirstStepForm
+                  setSelectedModel={(modelId: string) => {
+                    console.log("🔄 setSelectedModel called with:", modelId);
+                    setSelectedModel(modelId);
+                  }}
+                  setSelectedDeviceId={setSelectedDeviceId}
+                  setFormError={setFormError}
+                  autoDeployModel={autoDeployModel}
+                  isAutoDeploying={isAutoDeploying}
+                  chipMode={chipMode ?? undefined}
+                />
+              )}
+              {/* Single-chip flow: Step 1 = Model Selection (no chipMode filter) */}
+              {!isMultiChipBoard && step.label === "Step 1" && (
                 <FirstStepForm
                   setSelectedModel={(modelId: string) => {
                     console.log("🔄 setSelectedModel called with:", modelId);
@@ -225,6 +322,7 @@ export default function StepperDemo() {
                   isAutoDeploying={isAutoDeploying}
                 />
               )}
+              {/* Both flows: Final Step = Deploy */}
               {step.label === "Final Step" && (
                 <DeployModelStep
                   selectedModel={selectedModel}
