@@ -580,6 +580,15 @@ def parse_env_var_str(env_var_list):
 
 def get_container_status():
     containers = get_managed_containers()
+
+    # Build container_id → device_id lookup from deployment database
+    device_id_lookup: dict = {}
+    try:
+        for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+            device_id_lookup[dep.container_id] = dep.device_id
+    except Exception as e:
+        logger.warning(f"Could not load device_id lookup: {e}")
+
     data = {}
     for con in containers:
         data[con.id] = {
@@ -595,6 +604,7 @@ def get_container_status():
                 for k, v in con.attrs.get("NetworkSettings").get("Networks").items()
             },
             "env_vars": parse_env_var_str(con.attrs.get("Config").get("Env")),
+            "device_id": device_id_lookup.get(con.id),
         }
     return data
 

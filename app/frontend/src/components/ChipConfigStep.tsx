@@ -34,7 +34,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
   const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
 
-  // Fetch chip status on mount and poll every 5s
+  // Fetch chip status on mount and poll every 7 minutes
   useEffect(() => {
     const fetchChipStatus = async () => {
       try {
@@ -46,7 +46,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
     };
 
     fetchChipStatus();
-    const interval = setInterval(fetchChipStatus, 5000);
+    const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -239,9 +239,9 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
           </div>
           {selectedSlot !== null && (
             <p className="mt-2 text-xs font-mono text-TT-purple-accent">
-              ✓ Slot {selectedSlot} selected — model will run with{" "}
+              ✓ Slot {selectedSlot} selected — model will run on{" "}
               <code className="bg-gray-800 px-1 rounded">
-                --device-id {selectedSlot}
+                /dev/tenstorrent/{selectedSlot}
               </code>
             </p>
           )}

@@ -12,6 +12,7 @@ import {
 } from "../ui/table";
 import {
   Activity,
+  Cpu,
   Heart,
   Network,
   // Settings,
@@ -129,6 +130,13 @@ export default function ModelsTable({
             />
             Model Name
           </TableHead>
+          <TableHead className="text-right font-semibold">
+            <Cpu
+              className="inline-block mr-2 text-TT-purple-accent"
+              size={16}
+            />
+            Chip
+          </TableHead>
           {image && (
             <TableHead className="text-right font-semibold">
               <div className="flex items-center">
@@ -178,6 +186,7 @@ export default function ModelsTable({
           const isExpanded = !!expanded[row.id];
           const colCount =
             1 /* name */ +
+            1 /* chip */ +
             1 /* status */ +
             1 /* health */ +
             1 /* manage */ +
@@ -205,6 +214,16 @@ export default function ModelsTable({
                     />
                     <ModelNameCell name={row.name} />
                   </button>
+                </TableCell>
+                <TableCell className="text-right">
+                  {row.device_id != null ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-full bg-TT-purple-shade/40 text-TT-purple border border-TT-purple-accent/30">
+                      <Cpu className="w-3 h-3" />
+                      Slot {String(row.device_id).padStart(2, "0")}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-500">—</span>
+                  )}
                 </TableCell>
                 {image ? (
                   <TableCell className="text-right">
@@ -258,6 +277,10 @@ export default function ModelsTable({
                           Docker Image
                         </div>
                         <CopyableText text={row.image ?? ""} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-stone-500 mb-1">Chip Slot</div>
+                        <CopyableText text={row.device_id != null ? `Slot ${row.device_id}` : "N/A"} />
                       </div>
                       <div className="min-w-0">
                         <div className="text-xs text-stone-500 mb-1">Ports</div>

@@ -11,6 +11,7 @@ export interface ModelRow {
   image?: string;
   status?: string;
   ports?: string;
+  device_id?: number | null;
 }
 
 export interface ColumnVisibilityMap {

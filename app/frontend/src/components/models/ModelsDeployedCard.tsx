@@ -34,6 +34,8 @@ import DeleteModelDialog, { type DeleteStep } from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
+import axios from "axios";
+import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
 export default function ModelsDeployedCard(): JSX.Element {
   const { models, setModels, refreshModels } = useModels();
@@ -42,6 +44,27 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Chip slot status for multi-chip boards
+  const [chipStatus, setChipStatus] = useState<{
+    board_type: string;
+    total_slots: number;
+    slots: { slot_id: number; status: string; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
+  } | null>(null);
+
+  useEffect(() => {
+    const fetchChipStatus = () => {
+      axios
+        .get("/docker-api/chip-status/")
+        .then((res) => setChipStatus(res.data))
+        .catch(() => setChipStatus(null));
+    };
+    fetchChipStatus();
+    const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refreshTrigger]);
+
+  const isMultiChipBoard = chipStatus !== null && chipStatus.total_slots > 1;
 
   const { isRefreshing, refreshAllHealth, register } = useHealthRefresh();
   const {
@@ -300,6 +323,18 @@ export default function ModelsDeployedCard(): JSX.Element {
           />
         </div>
       </CardHeader>
+
+      {/* Chip slot visualization for multi-chip boards */}
+      {isMultiChipBoard && chipStatus && (
+        <div className="px-6 pb-4">
+          <ChipStatusDisplay
+            boardType={chipStatus.board_type}
+            totalSlots={chipStatus.total_slots}
+            slots={chipStatus.slots as any}
+          />
+        </div>
+      )}
+
       <div
         className={`${selectedContainerId ? "blur-sm backdrop-blur-sm" : ""} transition-all duration-200`}
       >

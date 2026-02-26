@@ -30,6 +30,7 @@ interface ContainerData {
   image_name: string;
   port_bindings: { [key: string]: PortBinding[] };
   networks: { [key: string]: Network };
+  device_id?: number | null;
 }
 
 interface StopResponse {
@@ -150,6 +151,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         health: container.health || "unknown",
         ports: portMapping,
         name: container.name || "Unnamed container",
+        device_id: container.device_id ?? null,
       };
     });
 

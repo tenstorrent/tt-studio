@@ -12,6 +12,7 @@ export interface Model {
   health: string;
   ports: string;
   model_type?: string;
+  device_id?: number | null;
 }
 
 export interface ModelsContextType {

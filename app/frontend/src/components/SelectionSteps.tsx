@@ -33,15 +33,31 @@ export default function StepperDemo() {
   const navigate = useNavigate();
   const autoDeployModel = searchParams.get("auto-deploy");
 
+  const [chipStatus, setChipStatus] = useState<{
+    board_type: string;
+    total_slots: number;
+    slots: { slot_id: number; status: string; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
+  } | null>(null);
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
   const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
 
-  // Fetch total_slots on mount to determine step count
+  // Fetch chip status on mount and poll every 7 minutes
   useEffect(() => {
-    axios
-      .get("/docker-api/chip-status/")
-      .then((res) => setTotalSlots(res.data.total_slots ?? 1))
-      .catch(() => setTotalSlots(1)); // safe fallback to single-chip
+    const fetchChipStatus = () => {
+      axios
+        .get("/docker-api/chip-status/")
+        .then((res) => {
+          setChipStatus(res.data);
+          setTotalSlots(res.data.total_slots ?? 1);
+        })
+        .catch(() => {
+          setChipStatus(null);
+          setTotalSlots(1); // safe fallback to single-chip
+        });
+    };
+    fetchChipStatus();
+    const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   const steps = isMultiChipBoard
