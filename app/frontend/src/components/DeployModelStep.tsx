@@ -8,8 +8,7 @@ import { useStepper } from "./ui/stepper";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
-import { Cpu, AlertTriangle, ExternalLink } from "lucide-react";
-import { checkCurrentlyDeployedModels } from "../api/modelsDeployedApis";
+import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
 import { Button } from "./ui/button";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -17,23 +16,25 @@ import axios from "axios";
 export function DeployModelStep({
   handleDeploy,
   selectedModel,
+  selectedDeviceId,
 }: {
   selectedModel: string | null;
   handleDeploy: () => Promise<{ success: boolean; job_id?: string }>;
+  selectedDeviceId?: number;
 }) {
   const { nextStep, isLastStep } = useStepper();
   const { refreshModels } = useModels();
   const { triggerRefresh, triggerHardwareRefresh } = useRefresh();
   const navigate = useNavigate();
   const [modelName, setModelName] = useState<string | null>(null);
-  const [deployedInfo, setDeployedInfo] = useState<{
-    hasDeployedModels: boolean;
-    count: number;
-    modelNames: string[];
+  const [slotInfo, setSlotInfo] = useState<{
+    totalSlots: number;
+    availableSlots: number;
+    occupiedDetails: { slot_id: number; model_name: string; port?: number }[];
   }>({
-    hasDeployedModels: false,
-    count: 0,
-    modelNames: [],
+    totalSlots: 0,
+    availableSlots: 0,
+    occupiedDetails: [],
   });
 
   // Track deployment error state that persists even after deployment stops
@@ -157,38 +158,53 @@ export function DeployModelStep({
   }, [selectedModel]);
 
   useEffect(() => {
-    // Don't check for deployed models while deployment is in progress
+    // Don't check slot status while deployment is in progress
     // This prevents the blocking UI from showing immediately after a successful deployment
     if (isDeploymentInProgress) {
       return;
     }
 
-    const checkDeployedModels = async () => {
+    const fetchSlotStatus = async () => {
       try {
-        const info = await checkCurrentlyDeployedModels();
-        setDeployedInfo(info);
+        const response = await axios.get("/docker-api/chip-status/");
+        const data = response.data as {
+          total_slots: number;
+          slots: { slot_id: number; status: string; model_name?: string; port?: number }[];
+        };
+        const occupied = data.slots.filter((s) => s.status === "occupied");
+        setSlotInfo({
+          totalSlots: data.total_slots,
+          availableSlots: data.total_slots - occupied.length,
+          occupiedDetails: occupied.map((s) => ({
+            slot_id: s.slot_id,
+            model_name: s.model_name || "Unknown",
+            port: s.port,
+          })),
+        });
       } catch (error) {
-        console.error("Error checking deployed models:", error);
+        console.error("Error fetching chip status:", error);
       }
     };
 
-    checkDeployedModels();
+    fetchSlotStatus();
   }, [isDeploymentInProgress]);
 
+  const allSlotsOccupied = slotInfo.totalSlots > 0 && slotInfo.availableSlots === 0;
+
   const deployButtonText = useMemo(() => {
-    if (deployedInfo.hasDeployedModels) {
-      return "Delete Existing Models First";
+    if (allSlotsOccupied) {
+      return "All Slots Occupied";
     }
     if (!selectedModel) return "Select a Model";
     return "Deploy Model";
   }, [
     selectedModel,
-    deployedInfo.hasDeployedModels,
+    allSlotsOccupied,
   ]);
 
   const isDeployDisabled =
     !selectedModel ||
-    deployedInfo.hasDeployedModels;
+    allSlotsOccupied;
 
   const onDeploy = useCallback(async () => {
     if (isDeployDisabled) return { success: false };
@@ -196,13 +212,11 @@ export function DeployModelStep({
     // Mark deployment as in progress to prevent blocking UI
     setIsDeploymentInProgress(true);
     
-    // Clear deployed info to prevent blocking UI from showing during deployment
-    // This ensures users see the "working" state instead of the error message
-    setDeployedInfo({
-      hasDeployedModels: false,
-      count: 0,
-      modelNames: [],
-    });
+    // Optimistically mark a slot as taken to prevent blocking UI during deployment
+    setSlotInfo((prev) => ({
+      ...prev,
+      availableSlots: Math.max(0, prev.availableSlots - 1),
+    }));
 
     // Reset error state and polling flag when starting a new deployment
     setDeploymentError({
@@ -263,9 +277,10 @@ export function DeployModelStep({
     // Note: The AnimatedDeployButton will reset its state when onDeploy is called again
   };
 
-  // Show a warning banner if models are deployed, but don't block the entire UI
-  // The deploy button will be disabled, providing a better UX than the blocking error
-  const showDeployedWarning = deployedInfo.hasDeployedModels && !isDeploymentInProgress;
+  // Show blocking warning only when ALL slots are occupied
+  const showSlotsFullWarning = allSlotsOccupied && !isDeploymentInProgress;
+  // Show informational status when some slots are in use but others are available
+  const showSlotInfo = !allSlotsOccupied && slotInfo.occupiedDetails.length > 0 && !isDeploymentInProgress;
 
   return (
     <>
@@ -273,21 +288,24 @@ export function DeployModelStep({
         className="flex flex-col items-center justify-center p-6 overflow-hidden"
         style={{ minHeight: "200px" }}
       >
-        {/* Show warning banner when models are already deployed */}
-        {showDeployedWarning && (
+        {/* Show blocking warning when ALL chip slots are occupied */}
+        {showSlotsFullWarning && (
           <div className="w-full max-w-2xl mb-6">
             <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
                   <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
-                    Model Already Deployed
+                    All Chip Slots Occupied
                   </h4>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    {deployedInfo.count} model{deployedInfo.count > 1 ? "s are" : " is"} currently deployed: {deployedInfo.modelNames.join(", ")}
+                    All {slotInfo.totalSlots} slots are in use:{" "}
+                    {slotInfo.occupiedDetails
+                      .map((s) => `${s.model_name} (slot ${s.slot_id}${s.port ? ` :${s.port}` : ""})`)
+                      .join(", ")}
                   </p>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Delete existing model{deployedInfo.count > 1 ? "s" : ""} before deploying a new one.
+                    Free up a slot before deploying a new model.
                   </p>
                   <Button
                     onClick={handleGoToDeployedModels}
@@ -299,6 +317,22 @@ export function DeployModelStep({
                     Manage Deployed Models
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Informational slot status when some slots are in use but more are available */}
+        {showSlotInfo && (
+          <div className="w-full max-w-2xl mb-4">
+            <div className="bg-blue-50 dark:bg-blue-900/15 border border-blue-200 dark:border-blue-800/50 rounded-lg px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
+                <span className="text-sm text-blue-700 dark:text-blue-300">
+                  {slotInfo.occupiedDetails.length}/{slotInfo.totalSlots} slot{slotInfo.occupiedDetails.length > 1 ? "s" : ""} in use
+                  {" \u2014 "}
+                  {slotInfo.availableSlots} available
+                </span>
               </div>
             </div>
           </div>
@@ -362,7 +396,7 @@ export function DeployModelStep({
           disabled={isDeployDisabled}
           onDeploymentComplete={onDeploymentComplete}
         />
-        <div className="mt-6 flex flex-col items-start justify-center space-y-4">
+        <div className="mt-6 flex flex-col items-start justify-center space-y-2">
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
@@ -371,6 +405,17 @@ export function DeployModelStep({
               </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {modelName}
+              </span>
+            </div>
+          )}
+          {selectedDeviceId !== undefined && (
+            <div className="flex items-center space-x-2">
+              <Cpu className="text-TT-purple-accent" />
+              <span className="text-sm text-gray-800 dark:text-gray-400">
+                Slot:
+              </span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                {selectedDeviceId}
               </span>
             </div>
           )}

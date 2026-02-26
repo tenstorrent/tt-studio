@@ -137,6 +137,11 @@ def run_container(impl, weights_id, device_id=0):
                 f"(board={board_type}, chips_required={chips_required})"
             )
 
+            # Assign a unique service port per chip slot to avoid port conflicts
+            # when deploying multiple models on a multi-chip board.
+            BASE_SERVICE_PORT = 7000
+            service_port = BASE_SERVICE_PORT + device_id
+
             # Create payload for the API call
             payload = {
                 "model": impl.model_name,
@@ -145,26 +150,10 @@ def run_container(impl, weights_id, device_id=0):
                 "docker_server": True,
                 "dev_mode": True,
                 "device_id": str(device_id),  # Pin to specific chip slot
+                "service_port": str(service_port),  # Unique port per slot
             }
 
             logger.info(f"API payload: {payload}")
-
-            # Write a "starting" record immediately so history shows the deployment in-progress
-            pending_record = None
-            try:
-                pending_record = ModelDeployment.objects.create(
-                    container_id=f"pending_{impl.model_name}",
-                    container_name=f"pending_{impl.model_name}",
-                    model_name=impl.model_name,
-                    device=device,
-                    device_id=device_id,
-                    status="starting",
-                    stopped_by_user=False,
-                    port=7000,
-                )
-                logger.info(f"Created pending deployment record for {impl.model_name}")
-            except Exception as e:
-                logger.warning(f"Could not create pending deployment record: {e}")
 
             # Make POST request to TT Inference Server API
             api_url = "http://172.18.0.1:8001/run"
@@ -190,7 +179,8 @@ def run_container(impl, weights_id, device_id=0):
                 # Notify agent about new container deployment
                 notify_agent_of_new_container(api_result["container_name"])
 
-                # Update the pending record (or create one if pending write failed)
+                # Create the deployment record only after successful API response
+                # (never before — avoids stale "starting" records blocking slots on failure)
                 container_id = None
                 container_name = "unknown"
                 try:
@@ -212,27 +202,18 @@ def run_container(impl, weights_id, device_id=0):
                         workflow_log_path = api_result.get("docker_log_file_path")
                         logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
 
-                        if pending_record:
-                            # Update the pending record with real container info
-                            pending_record.container_id = container_id
-                            pending_record.container_name = container_name
-                            pending_record.status = "running"
-                            pending_record.workflow_log_path = workflow_log_path
-                            pending_record.save()
-                            logger.info(f"Updated pending record to running for {container_name} (ID: {container_id})")
-                        else:
-                            ModelDeployment.objects.create(
-                                container_id=container_id,
-                                container_name=container_name,
-                                model_name=impl.model_name,
-                                device=device,
-                                device_id=device_id,
-                                status="running",
-                                stopped_by_user=False,
-                                port=7000,
-                                workflow_log_path=workflow_log_path
-                            )
-                            logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                        ModelDeployment.objects.create(
+                            container_id=container_id,
+                            container_name=container_name,
+                            model_name=impl.model_name,
+                            device=device,
+                            device_id=device_id,
+                            status="running",
+                            stopped_by_user=False,
+                            port=service_port,
+                            workflow_log_path=workflow_log_path
+                        )
+                        logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
                     else:
                         logger.warning(f"Could not save deployment record: no container_id or container_name")
                 except Exception as e:
@@ -253,7 +234,7 @@ def run_container(impl, weights_id, device_id=0):
             else:
                 error_msg = f"API call failed with status {response.status_code}: {response.text}"
                 logger.error(error_msg)
-                
+
                 # Try to extract job_id and error details from response
                 job_id = None
                 error_detail = error_msg
@@ -267,7 +248,7 @@ def run_container(impl, weights_id, device_id=0):
                         logger.info(f"Extracted job_id from error response: {job_id}")
                 except Exception as parse_error:
                     logger.warning(f"Could not parse error response: {parse_error}")
-                
+
                 return {
                     "status": "error",
                     "message": error_detail,
@@ -735,11 +716,23 @@ def update_deploy_cache():
             hostname = con["networks"][backend_config.docker_bridge_network_name][
                 "DNSNames"
             ][0]
+            # Use the actual container port from port bindings instead of the
+            # static model_impl.service_port (which is always 7000).  Multi-slot
+            # deployments bind to 7000+device_id, so we must resolve the real port.
+            actual_port = model_impl.service_port  # default fallback
+            port_bindings = con.get("port_bindings", {})
+            if port_bindings:
+                container_port_key = next(iter(port_bindings.keys()), None)
+                if container_port_key:
+                    try:
+                        actual_port = int(container_port_key.split("/")[0])
+                    except (ValueError, IndexError):
+                        pass
             con["internal_url"] = (
-                f"{hostname}:{model_impl.service_port}{model_impl.service_route}"
+                f"{hostname}:{actual_port}{model_impl.service_route}"
             )
             con["health_url"] = (
-                f"{hostname}:{model_impl.service_port}{model_impl.health_route}"
+                f"{hostname}:{actual_port}{model_impl.health_route}"
             )
             cache.set(con_id, con, timeout=None)
             logger.info(f"Added container {con['name']} (ID: {con_id[:12]}) to deploy cache")

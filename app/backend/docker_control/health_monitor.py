@@ -16,15 +16,45 @@ _monitoring_thread = None
 _stop_monitoring = False
 
 
-def check_container_health():
-    """Check for containers that died unexpectedly"""
+def _cleanup_stale_starting_records():
+    """Remove pending 'starting' records older than 10 minutes.
+
+    These are left behind when a deployment API call fails after the
+    pending record was already created.  They permanently block their
+    chip slot if not cleaned up.
+    """
     try:
+        stale_cutoff = timezone.now() - timezone.timedelta(minutes=10)
+        starting_deployments = ModelDeployment.objects.filter(status="starting")
+        for dep in starting_deployments:
+            if (
+                dep.container_id.startswith("pending_")
+                and dep.deployed_at is not None
+                and dep.deployed_at < stale_cutoff
+            ):
+                logger.info(
+                    f"Cleaning up stale 'starting' record: {dep.model_name} "
+                    f"(id={dep.id}, deployed_at={dep.deployed_at})"
+                )
+                dep.status = "failed"
+                dep.stopped_at = timezone.now()
+                dep.save()
+    except Exception as e:
+        logger.error(f"Error cleaning up stale starting records: {e}")
+
+
+def check_container_health():
+    """Check for containers that died unexpectedly and clean up stale records"""
+    try:
+        # Clean up stale pending records that block chip slots
+        _cleanup_stale_starting_records()
+
         # Get all running deployments from database
         running_deployments = ModelDeployment.objects.filter(status="running")
-        
+
         if not running_deployments.exists():
             return
-        
+
         logger.debug(f"Checking health of {running_deployments.count()} running deployments")
 
         # Check actual Docker container status via docker-control-service

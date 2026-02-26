@@ -121,7 +121,8 @@ class ChipSlotAllocator:
                     occupied_map[slot_id] = {
                         "model_name": deployment.model_name,
                         "deployment_id": deployment.id,
-                        "is_multi_chip": True
+                        "is_multi_chip": True,
+                        "port": deployment.port,
                     }
             else:
                 # Single-chip: mark specific slot
@@ -129,7 +130,8 @@ class ChipSlotAllocator:
                     occupied_map[deployment.device_id] = {
                         "model_name": deployment.model_name,
                         "deployment_id": deployment.id,
-                        "is_multi_chip": False
+                        "is_multi_chip": False,
+                        "port": deployment.port,
                     }
 
         # Build slot status list

@@ -703,7 +703,7 @@ async def run_inference(request: RunRequest):
             "AUTOMATIC_HOST_SETUP": "True",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": "7000"      # Set SERVICE_PORT to match --service-port argument
+            "SERVICE_PORT": request.service_port or "7000"  # Use requested port (per-slot)
         }
         
         # Handle secrets - use from request if provided and not already in environment
@@ -742,7 +742,7 @@ async def run_inference(request: RunRequest):
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
         if request.skip_system_sw_validation:
             sys.argv.extend(["--skip-system-sw-validation"])
-        sys.argv.extend(["--service-port", "7000"])
+        sys.argv.extend(["--service-port", request.service_port or "7000"])
         
         # Add optional arguments if they are set
         if request.impl:

@@ -343,6 +343,7 @@ export default function StepperDemo() {
                 <DeployModelStep
                   selectedModel={selectedModel}
                   handleDeploy={handleDeploy}
+                  selectedDeviceId={selectedDeviceId}
                 />
               )}
             </Step>
