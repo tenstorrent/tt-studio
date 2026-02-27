@@ -1,0 +1,142 @@
+# Model Catalog
+
+TT-Studio ships with 60 pre-configured models across 8 inference types. Models are sourced from [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) v0.9.0 and are automatically filtered by hardware compatibility at deployment time.
+
+## Status Definitions
+
+| Status | Description |
+|--------|-------------|
+| COMPLETE | Fully validated and production-ready |
+| FUNCTIONAL | Operational with known limitations |
+| EXPERIMENTAL | Under active development |
+
+## Summary
+
+| Type | Count | Inference Engine | Modalities |
+|------|-------|-----------------|------------|
+| LLM (CHAT) | 24 | vLLM | Text |
+| VLM | 12 | vLLM | Text, Image |
+| Image Generation | 9 | Media | Text |
+| CNN | 7 | Forge | Image |
+| Embedding | 3 | Forge, Media | Text |
+| Speech Recognition | 2 | Media | Audio |
+| Video | 2 | Media | Text |
+| TTS | 1 | Media | Text |
+
+## LLM (Chat / Text Completion) — 24 Models
+
+| Model | Parameters | Status | Supported Devices |
+|-------|-----------|--------|-------------------|
+| DeepSeek-R1-Distill-Llama-70B | 70B | COMPLETE | GALAXY, GALAXY_T3K, P150X4, P150X8, T3K |
+| Llama-3.1-70B | 70B | COMPLETE | GALAXY, GALAXY_T3K, P150X4, P150X8, T3K |
+| Llama-3.1-70B-Instruct | 70B | COMPLETE | GALAXY, GALAXY_T3K, P150X4, P150X8, T3K |
+| Llama-3.1-8B | 8B | COMPLETE | GALAXY, GALAXY_T3K, N150, N300, P100, P150, P150X4, P150X8, T3K |
+| Llama-3.1-8B-Instruct | 8B | COMPLETE | GALAXY, GALAXY_T3K, N150, N300, P100, P150, P150X4, P150X8, T3K |
+| Llama-3.3-70B-Instruct | 70B | COMPLETE | GALAXY, GALAXY_T3K, P150X4, P150X8, T3K |
+| Mistral-7B-Instruct-v0.3 | 7B | COMPLETE | N150, N300, T3K |
+| Qwen3-32B | 32B | COMPLETE | GALAXY, GALAXY_T3K, P150X8, T3K |
+| Llama-3.2-1B | 1B | FUNCTIONAL | N150, N300, T3K |
+| Llama-3.2-1B-Instruct | 1B | FUNCTIONAL | N150, N300, T3K |
+| Llama-3.2-3B | 3B | FUNCTIONAL | N150, N300, T3K |
+| Llama-3.2-3B-Instruct | 3B | FUNCTIONAL | N150, N300, T3K |
+| QwQ-32B | 32B | FUNCTIONAL | GALAXY, GALAXY_T3K, T3K |
+| Qwen2.5-72B | 72B | FUNCTIONAL | GALAXY, GALAXY_T3K, T3K |
+| Qwen2.5-72B-Instruct | 72B | FUNCTIONAL | GALAXY, GALAXY_T3K, T3K |
+| Qwen3-8B | 8B | FUNCTIONAL | GALAXY, GALAXY_T3K, N150, N300, T3K |
+| AFM-4.5B | 4B | EXPERIMENTAL | N300, T3K |
+| DeepSeek-R1-0528 | — | EXPERIMENTAL | GALAXY |
+| Qwen2.5-7B | 7B | EXPERIMENTAL | N150X4, N300 |
+| Qwen2.5-7B-Instruct | 7B | EXPERIMENTAL | N150X4, N300 |
+| Qwen2.5-Coder-32B-Instruct | 32B | EXPERIMENTAL | GALAXY_T3K, T3K |
+| gemma-3-1b-it | 1B | EXPERIMENTAL | N150 |
+| gpt-oss-120b | 120B | EXPERIMENTAL | GALAXY, T3K |
+| gpt-oss-20b | 20B | EXPERIMENTAL | GALAXY, GALAXY_T3K, T3K |
+
+## Vision Language Models (VLM) — 12 Models
+
+| Model | Parameters | Status | Supported Devices |
+|-------|-----------|--------|-------------------|
+| Llama-3.2-11B-Vision | 11B | FUNCTIONAL | N300, T3K |
+| Llama-3.2-11B-Vision-Instruct | 11B | FUNCTIONAL | N300, T3K |
+| Llama-3.2-90B-Vision | 90B | FUNCTIONAL | T3K |
+| Llama-3.2-90B-Vision-Instruct | 90B | FUNCTIONAL | T3K |
+| Qwen2.5-VL-72B-Instruct | 72B | FUNCTIONAL | T3K |
+| Qwen2.5-VL-32B-Instruct | 32B | EXPERIMENTAL | T3K |
+| Qwen2.5-VL-3B-Instruct | 3B | EXPERIMENTAL | N150, N300, T3K |
+| Qwen2.5-VL-7B-Instruct | 7B | EXPERIMENTAL | N150, N300, T3K |
+| gemma-3-27b-it | 27B | EXPERIMENTAL | GALAXY, GALAXY_T3K, T3K |
+| gemma-3-4b-it | 4B | EXPERIMENTAL | N150, N300 |
+| medgemma-27b-it | 27B | EXPERIMENTAL | GALAXY, GALAXY_T3K, T3K |
+| medgemma-4b-it | 4B | EXPERIMENTAL | N150, N300 |
+
+## Image Generation — 9 Models
+
+| Model | Parameters | Status | Supported Devices |
+|-------|-----------|--------|-------------------|
+| FLUX.1-dev | — | COMPLETE | GALAXY, T3K |
+| FLUX.1-schnell | — | COMPLETE | GALAXY, T3K |
+| Motif-Image-6B-Preview | 6B | COMPLETE | GALAXY, T3K |
+| stable-diffusion-3.5-large | — | COMPLETE | GALAXY, T3K |
+| stable-diffusion-xl-1.0-inpainting-0.1 | — | COMPLETE | GALAXY, N150, N300, T3K |
+| stable-diffusion-xl-base-1.0 | — | COMPLETE | GALAXY, N150, N300, T3K |
+| stable-diffusion-xl-base-1.0-img-2-img | — | COMPLETE | GALAXY, N150, N300, T3K |
+| Qwen-Image | — | FUNCTIONAL | GALAXY, T3K |
+| Qwen-Image-2512 | — | FUNCTIONAL | GALAXY, T3K |
+
+## CNN (Classification / Detection) — 7 Models
+
+| Model | Inference Engine | Status | Supported Devices |
+|-------|-----------------|--------|-------------------|
+| efficientnet | Forge | EXPERIMENTAL | N150, N300 |
+| mobilenetv2 | Forge | EXPERIMENTAL | N150, N300 |
+| resnet-50 | Forge | EXPERIMENTAL | N150, N300 |
+| segformer | Forge | EXPERIMENTAL | N150, N300 |
+| unet | Forge | EXPERIMENTAL | N150, N300 |
+| vit | Forge | EXPERIMENTAL | N150, N300 |
+| vovnet | Forge | EXPERIMENTAL | N150, N300 |
+
+## Embedding — 3 Models
+
+| Model | Parameters | Inference Engine | Status | Supported Devices |
+|-------|-----------|-----------------|--------|-------------------|
+| Qwen3-Embedding-4B | 4B | Forge | EXPERIMENTAL | GALAXY, N150, N300, T3K |
+| Qwen3-Embedding-8B | 8B | Media | EXPERIMENTAL | GALAXY, N150, N300, T3K |
+| bge-large-en-v1.5 | — | Media | EXPERIMENTAL | GALAXY, N150, N300, T3K |
+
+## Speech Recognition (STT) — 2 Models
+
+| Model | Inference Engine | Status | Supported Devices |
+|-------|-----------------|--------|-------------------|
+| distil-large-v3 | Media | COMPLETE | GALAXY, N150, T3K |
+| whisper-large-v3 | Media | COMPLETE | GALAXY, N150, T3K |
+
+## Video Generation — 2 Models
+
+| Model | Parameters | Status | Supported Devices |
+|-------|-----------|--------|-------------------|
+| Wan2.2-T2V-A14B-Diffusers | 14B | COMPLETE | GALAXY, T3K |
+| mochi-1-preview | — | COMPLETE | GALAXY, T3K |
+
+## Text-to-Speech (TTS) — 1 Model
+
+| Model | Inference Engine | Status | Supported Devices |
+|-------|-----------------|--------|-------------------|
+| speecht5_tts | Media | COMPLETE | N150, N300 |
+
+---
+
+## Inference Engines
+
+| Engine | Description | Model Types |
+|--------|-------------|------------|
+| vLLM | High-throughput LLM serving with OpenAI-compatible API | LLM, VLM |
+| Media | Media inference server for non-text modalities | Image Gen, STT, TTS, Video, Embedding |
+| Forge | TT-Forge compiler-based inference | CNN, Embedding |
+
+## Updating the Catalog
+
+The model catalog is maintained in `app/backend/shared_config/models_from_inference_server.json`. To sync with the latest TT Inference Server release:
+
+```bash
+python3 app/backend/shared_config/sync_models_from_inference_server.py
+```

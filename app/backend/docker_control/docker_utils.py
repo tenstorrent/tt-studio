@@ -88,8 +88,8 @@ def map_board_type_to_device_name(board_type):
 
 def run_container(impl, weights_id, device_id=0):
     """Run a docker container via TT Inference Server API"""
-    if (impl.model_type == ModelTypes.CHAT):
-        # For chat models, we use the TT Inference Server API to run the container
+    if impl.model_type in (ModelTypes.CHAT, ModelTypes.SPEECH_RECOGNITION):
+        # For chat and speech recognition models, use the TT Inference Server API
         try:
             logger.info(f"Calling TT Inference Server API")
             logger.info(f"run_container called for {impl.model_name}")
@@ -106,6 +106,10 @@ def run_container(impl, weights_id, device_id=0):
                 "dev_mode": True,
                 "chip_id": device_id,  # Pin to specific chip; requires inference server support
             }
+
+            # Pass --impl to inference server for whisper/STT models
+            if impl.model_type == ModelTypes.SPEECH_RECOGNITION:
+                payload["impl"] = "whisper"
 
             logger.info(f"API payload: {payload}")
 

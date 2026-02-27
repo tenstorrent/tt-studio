@@ -72,3 +72,4 @@ docs/RAG_PRODUCTIONIZATION_PLAN.md
 docs/DOCKER_CONTROL_SERVICE_PLAN.md
 !app/backend/shared_config/models_from_inference_server.json
 
+app/.env-old
