@@ -50,6 +50,7 @@ import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import AudioDetectionPage from "../pages/AudioDetectionPage";
+import ImageClassificationPage from "../pages/ImageClassificationPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 
@@ -111,6 +112,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/speech-to-text",
       element: <AudioDetectionPage />,
+      condition: true,
+    },
+    {
+      path: "/image-classification",
+      element: <ImageClassificationPage />,
       condition: true,
     },
     {

@@ -86,6 +86,50 @@ def map_board_type_to_device_name(board_type):
     logger.info(f"Mapped board type '{board_type}' to device name '{device_name}'")
     return device_name
 
+
+def _get_tt_device_ids():
+    """Read device IDs from /dev/tenstorrent (numeric entries)."""
+    dev_path = "/dev/tenstorrent"
+    try:
+        entries = os.listdir(dev_path)
+        ids = sorted(e for e in entries if e.isdigit())
+        if ids:
+            return ",".join(ids)
+    except OSError as e:
+        logger.warning(f"Could not read {dev_path}: {e}")
+    return "0"
+
+
+def _configure_forge_device_env(run_kwargs):
+    """Set DEVICE_IDS, IS_GALAXY, and TT_METAL_MESH_GRAPH_DESCRIPTOR for forge containers
+    based on the detected Tenstorrent board type."""
+    from shared_config.model_config import FORGE_MESH_DESCRIPTORS
+
+    board_type = detect_board_type()
+    device = map_board_type_to_device_name(board_type)
+    logger.info(f"Configuring forge device env for device: {device} (board: {board_type})")
+
+    env = run_kwargs.setdefault("environment", {})
+
+    descriptor = FORGE_MESH_DESCRIPTORS.get(device)
+    if not descriptor:
+        logger.warning(
+            f"No forge mesh descriptor for device '{device}', falling back to n300"
+        )
+        descriptor = FORGE_MESH_DESCRIPTORS["n300"]
+
+    device_ids = _get_tt_device_ids()
+    env["DEVICE_IDS"] = device_ids
+    env["IS_GALAXY"] = "false"
+    env["TT_METAL_MESH_GRAPH_DESCRIPTOR"] = descriptor
+
+    logger.info(
+        f"Forge device env: DEVICE_IDS={env['DEVICE_IDS']}, "
+        f"IS_GALAXY={env['IS_GALAXY']}, "
+        f"TT_METAL_MESH_GRAPH_DESCRIPTOR={descriptor}"
+    )
+
+
 def run_container(impl, weights_id):
     """Run a docker container via TT Inference Server API"""
     if (impl.model_type == ModelTypes.CHAT):
@@ -226,12 +270,20 @@ def run_container(impl, weights_id):
         try:
             logger.info(f"run_container called for {impl.model_name}")
 
+            is_forge = impl.model_type == ModelTypes.IMAGE_CLASSIFICATION
 
             run_kwargs = copy.deepcopy(impl.docker_config)
             # handle runtime configuration changes to docker kwargs
-            device_mounts = get_devices_mounts(impl)
-            if device_mounts:
-                run_kwargs.update({"devices": device_mounts})
+            if is_forge:
+                # Forge containers mount all of /dev/tenstorrent
+                run_kwargs["devices"] = ["/dev/tenstorrent:/dev/tenstorrent"]
+                # Inject device-specific env vars based on detected hardware
+                _configure_forge_device_env(run_kwargs)
+            else:
+                device_mounts = get_devices_mounts(impl)
+                if device_mounts:
+                    run_kwargs.update({"devices": device_mounts})
+
             run_kwargs.update({"ports": get_port_mounts(impl)})
             # add bridge inter-container network
             run_kwargs.update({"network": backend_config.docker_bridge_network_name})
@@ -240,12 +292,15 @@ def run_container(impl, weights_id):
             logger.info(f"!!!host_port:= {host_port}")
             run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
             run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
-            # add environment variables
-            run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
-            # container path, not backend path
-            run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
-                impl.model_container_weights_dir, weights_id
-            )
+
+            run_kwargs["environment"]["MODEL_ID"] = impl.model_id
+
+            if not is_forge:
+                run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
+                run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
+                    impl.model_container_weights_dir, weights_id
+                )
+
             logger.info(f"run_kwargs:= {run_kwargs}")
 
             # Convert run_kwargs to docker-control-service API format
@@ -261,13 +316,21 @@ def run_container(impl, weights_id):
                 "detach": run_kwargs.get("detach", True),
             }
 
-            # Add devices if present
             if "devices" in run_kwargs:
                 api_kwargs["devices"] = run_kwargs["devices"]
 
-            # Add hostname if present
             if "hostname" in run_kwargs:
                 api_kwargs["hostname"] = run_kwargs["hostname"]
+
+            if run_kwargs.get("auto_remove"):
+                api_kwargs["auto_remove"] = run_kwargs["auto_remove"]
+
+            if run_kwargs.get("cap_add"):
+                cap = run_kwargs["cap_add"]
+                api_kwargs["cap_add"] = [cap] if isinstance(cap, str) else cap
+
+            if run_kwargs.get("shm_size"):
+                api_kwargs["shm_size"] = run_kwargs["shm_size"]
 
             container_result = docker_client.run_container(**api_kwargs)
             logger.info(f"Container started via docker-control-service: {container_result}")
@@ -379,16 +442,16 @@ def get_port_mounts(impl):
 
 
 def get_host_port(impl):
-    # use a fixed block of ports starting at 8001 for models
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8002
+    # 8001 = FastAPI inference server, 8002 = Docker Control Service
+    BASE_MODEL_PORT = 8003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8001-8100")
+    logger.warning("Could not find an unused port in block: 8003-8102")
     return None
 
 
@@ -495,8 +558,14 @@ def get_container_status():
     containers = get_managed_containers()
     data = {}
     for con in containers:
+        env_vars = parse_env_var_str(con.attrs.get("Config").get("Env"))
+        model_id = env_vars.get("MODEL_ID")
+        model_impl = model_implmentations.get(model_id)
+        display_name = model_impl.model_name if model_impl else con.name
+
         data[con.id] = {
-            "name": con.name,
+            "name": display_name,
+            "container_name": con.name,
             "status": con.status,
             "health": con.health,
             "create": con.attrs.get("Created"),
@@ -507,7 +576,7 @@ def get_container_status():
                 k: {"DNSNames": v.get("DNSNames")}
                 for k, v in con.attrs.get("NetworkSettings").get("Networks").items()
             },
-            "env_vars": parse_env_var_str(con.attrs.get("Config").get("Env")),
+            "env_vars": env_vars,
         }
     return data
 

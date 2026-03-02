@@ -8,15 +8,12 @@ import axios from "axios";
 import { useEffect, useState } from "react";
 import {
   Bot,
-  // Cpu,
-  // CheckCircle,
   XCircle,
   MessageSquare,
-  // Image,
   Eye,
   Mic,
   Palette,
-  // Camera,
+  ScanSearch,
 } from "lucide-react";
 import {
   Tooltip,
@@ -77,6 +74,13 @@ const MODEL_TYPE_CONFIG = {
     color: "text-orange-500",
     bgColor: "bg-orange-50 dark:bg-orange-900/20",
     borderColor: "border-orange-200 dark:border-orange-800",
+  },
+  image_classification: {
+    label: "Image Classification (Forge)",
+    icon: ScanSearch,
+    color: "text-cyan-500",
+    bgColor: "bg-cyan-50 dark:bg-cyan-900/20",
+    borderColor: "border-cyan-200 dark:border-cyan-800",
   },
   mock: {
     label: "Test Models",

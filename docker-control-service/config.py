@@ -24,6 +24,7 @@ class Settings:
     ALLOWED_IMAGES: List[str] = [
         "ghcr.io/tenstorrent/",
         "tenstorrent/",
+        "tt-forge-server:",
         "alpine:",
         "ubuntu:",
         "python:",

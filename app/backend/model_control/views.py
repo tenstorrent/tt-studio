@@ -284,6 +284,58 @@ class ObjectDetectionInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class ImageClassificationInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """Proxy image classification requests to a deployed Forge CNN container."""
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            image = data.get("image").file
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+
+            top_k = int(data.get("top_k", 5))
+            min_confidence = float(data.get("min_confidence", 1.0))
+            response_format = data.get("response_format", "json")
+
+            pil_image = Image.open(image)
+            if pil_image.mode in ("RGBA", "LA", "P"):
+                pil_image = pil_image.convert("RGB")
+            buf = io.BytesIO()
+            pil_image.save(buf, format="JPEG")
+            file = {"file": ("image.jpg", buf.getvalue(), "image/jpeg")}
+            form_data = {
+                "top_k": (None, str(top_k)),
+                "min_confidence": (None, str(min_confidence)),
+                "response_format": (None, response_format),
+            }
+            try:
+                headers = {"Authorization": f"Bearer {backend_config.jwt_secret}"}
+                inference_data = requests.post(
+                    internal_url, files={**file, **form_data}, headers=headers, timeout=30
+                )
+                inference_data.raise_for_status()
+            except requests.exceptions.HTTPError:
+                if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                    return Response(status=status.HTTP_401_UNAUTHORIZED)
+                return Response(
+                    {"detail": f"Forge container error: {inference_data.text}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Image classification request failed: {e}")
+                return Response(
+                    {"detail": str(e)},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            return Response(inference_data.json(), status=status.HTTP_200_OK)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class ObjectDetectionInferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
         """special inference view that performs special handling"""

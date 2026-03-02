@@ -61,6 +61,7 @@ export const ModelType = {
   ImageGeneration: "ImageGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
+  ImageClassificationModel: "ImageClassificationModel",
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -239,23 +240,26 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
       return "/speech-to-text";
+    case ModelType.ImageClassificationModel:
+      return "/image-classification";
     default:
-      return "/chat"; // /chat is the default
+      return "/chat";
   }
 };
 
 export const getModelTypeFromName = (modelName: string): string => {
-  var modelType: string;
-  if (modelName.toLowerCase().includes("yolo")) {
-    modelType = ModelType.ObjectDetectionModel;
-  } else if (modelName.toLowerCase().includes("diffusion")) {
-    modelType = ModelType.ImageGeneration;
-  } else if (modelName.toLowerCase().includes("whisper")) {
-    modelType = ModelType.SpeechRecognitionModel;
+  const name = modelName.toLowerCase();
+  if (name.includes("yolo")) {
+    return ModelType.ObjectDetectionModel;
+  } else if (name.includes("diffusion")) {
+    return ModelType.ImageGeneration;
+  } else if (name.includes("whisper")) {
+    return ModelType.SpeechRecognitionModel;
+  } else if (name.includes("forge")) {
+    return ModelType.ImageClassificationModel;
   } else {
-    modelType = ModelType.ChatModel;
+    return ModelType.ChatModel;
   }
-  return modelType;
 };
 
 export const checkDeployedModels = async (): Promise<boolean> => {

@@ -2293,6 +2293,60 @@ def setup_fastapi_environment():
     finally:
         os.chdir(original_dir)
 
+
+def build_forge_docker_image():
+    """Build the tt-forge-server Docker image from Dockerfile.forge if not already built."""
+    forge_image_name = "tt-forge-server"
+    forge_image_tag = "latest"
+    full_image = f"{forge_image_name}:{forge_image_tag}"
+
+    print(f"\n{C_TT_PURPLE}{C_BOLD}🔨 Setting up Forge CNN Docker Image{C_RESET}")
+
+    dockerfile_path = os.path.join(INFERENCE_ARTIFACT_DIR, "tt-media-server", "Dockerfile.forge")
+    if not os.path.exists(dockerfile_path):
+        print(f"{C_YELLOW}⚠️  Dockerfile.forge not found at {dockerfile_path} — skipping forge image build{C_RESET}")
+        return True
+
+    # Check if image already exists
+    try:
+        result = run_command(
+            ["docker", "image", "inspect", full_image],
+            capture_output=True, check=False
+        )
+        if result.returncode == 0:
+            print(f"✅ Forge Docker image '{full_image}' already exists — skipping build")
+            return True
+    except Exception:
+        pass
+
+    print(f"🐳 Building Forge Docker image '{full_image}' from Dockerfile.forge...")
+    print(f"   Context: {INFERENCE_ARTIFACT_DIR}")
+    print(f"   This may take several minutes on first build.")
+
+    build_cmd = [
+        "docker", "build",
+        "-f", dockerfile_path,
+        "-t", full_image,
+        INFERENCE_ARTIFACT_DIR,
+    ]
+
+    try:
+        result = subprocess.run(
+            build_cmd, check=True, text=True,
+            stdout=sys.stdout, stderr=sys.stderr,
+        )
+        print(f"✅ Forge Docker image '{full_image}' built successfully")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"{C_RED}⛔ Failed to build Forge Docker image: {e}{C_RESET}")
+        print(f"{C_YELLOW}   You can build it manually later:{C_RESET}")
+        print(f"   docker build -f {dockerfile_path} -t {full_image} {INFERENCE_ARTIFACT_DIR}")
+        return False
+    except FileNotFoundError:
+        print(f"{C_RED}⛔ Docker not found — cannot build Forge image{C_RESET}")
+        return False
+
+
 def start_fastapi_server(no_sudo=False):
     """Start the inference-api FastAPI server on port 8001."""
     print(f"🚀 Starting inference-api FastAPI server on port 8001...")
@@ -3796,6 +3850,10 @@ def main():
                 if not setup_tt_inference_server():
                     print(f"{C_RED}⛔ Failed to setup TT Inference Server. Continuing without FastAPI server.{C_RESET}")
                 else:
+                    # Build Forge CNN Docker image (non-blocking: failure won't stop other setup)
+                    if not build_forge_docker_image():
+                        print(f"{C_YELLOW}⚠️  Forge image build failed. Forge CNN models will not be available until the image is built.{C_RESET}")
+
                     # Setup FastAPI environment
                     if not setup_fastapi_environment():
                         print(f"{C_RED}⛔ Failed to setup FastAPI environment. Continuing without FastAPI server.{C_RESET}")

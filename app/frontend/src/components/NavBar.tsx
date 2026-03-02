@@ -13,6 +13,7 @@ import {
   Image,
   Eye,
   AudioLines,
+  ScanSearch,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
@@ -411,6 +412,8 @@ export default function NavBar() {
         return Eye;
       case ModelType.SpeechRecognitionModel:
         return AudioLines;
+      case ModelType.ImageClassificationModel:
+        return ScanSearch;
       default:
         return BotMessageSquare;
     }
@@ -426,6 +429,8 @@ export default function NavBar() {
         return "Object Detection";
       case ModelType.SpeechRecognitionModel:
         return "Speech Recognition";
+      case ModelType.ImageClassificationModel:
+        return "Image Classification";
       default:
         return "ERROR";
     }
@@ -538,6 +543,16 @@ export default function NavBar() {
             tooltipText:
               "Deploy a speech recognition model to use Speech Recognition",
             route: "/speech-to-text",
+          },
+          {
+            type: "button",
+            icon: ScanSearch,
+            label: "Image Classification",
+            onClick: () => handleNavigation("/image-classification"),
+            isDisabled: true,
+            tooltipText:
+              "Deploy a Forge CNN model to use Image Classification",
+            route: "/image-classification",
           },
         ];
       }

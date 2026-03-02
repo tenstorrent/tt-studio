@@ -5,7 +5,7 @@
 Pydantic Request Models for Docker Control Service
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -16,7 +16,7 @@ class ContainerRunRequest(BaseModel):
     command: Optional[str] = Field(None, description="Command to run")
     environment: Dict[str, str] = Field(default_factory=dict, description="Environment variables")
     ports: Dict[str, int] = Field(default_factory=dict, description="Port mappings (container_port: host_port)")
-    volumes: Dict[str, str] = Field(default_factory=dict, description="Volume mounts (host_path: container_path)")
+    volumes: Dict[str, Any] = Field(default_factory=dict, description="Volume mounts (Docker SDK format)")
     devices: List[str] = Field(default_factory=list, description="Device mounts")
     network: Optional[str] = Field(None, description="Network name")
     hostname: Optional[str] = Field(None, description="Container hostname")
@@ -24,6 +24,8 @@ class ContainerRunRequest(BaseModel):
     auto_remove: bool = Field(False, description="Remove container on exit")
     privileged: bool = Field(False, description="Run in privileged mode (NOT ALLOWED)")
     user: Optional[str] = Field(None, description="User to run as (e.g., '1000:1000')")
+    cap_add: Optional[List[str]] = Field(None, description="Linux capabilities to add")
+    shm_size: Optional[str] = Field(None, description="Shared memory size (e.g., '32G')")
 
 
 class ContainerStopRequest(BaseModel):

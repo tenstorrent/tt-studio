@@ -82,6 +82,12 @@ class ContainerService:
         if request.auto_remove:
             run_kwargs["auto_remove"] = request.auto_remove
 
+        if request.cap_add:
+            run_kwargs["cap_add"] = request.cap_add
+
+        if request.shm_size:
+            run_kwargs["shm_size"] = request.shm_size
+
         if request.user:
             run_kwargs["user"] = request.user
 

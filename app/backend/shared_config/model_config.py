@@ -66,14 +66,23 @@ class ModelImpl:
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
         self._init_model_name()
-        
-        self.docker_config.update({"volumes": self.get_volume_mounts()})
+
+        is_forge = self.model_type == ModelTypes.IMAGE_CLASSIFICATION
+
+        if is_forge:
+            # Forge containers only need hugepages mount, not weight volumes
+            self.docker_config.update({"volumes": self._forge_volume_mounts()})
+        else:
+            self.docker_config.update({"volumes": self.get_volume_mounts()})
+
         self.docker_config["shm_size"] = self.shm_size
-        self.docker_config["environment"]["HF_MODEL_PATH"] = self.hf_model_id
-        self.docker_config["environment"]["HF_HOME"] = Path(
-            backend_config.model_container_cache_root
-        ).joinpath("huggingface")
-        
+
+        if not is_forge:
+            self.docker_config["environment"]["HF_MODEL_PATH"] = self.hf_model_id
+            self.docker_config["environment"]["HF_HOME"] = Path(
+                backend_config.model_container_cache_root
+            ).joinpath("huggingface")
+
         # Set environment variable if N150_WH_ARCH_YAML, N300_WH_ARCH_YAML, or N300x4_WH_ARCH_YAML is in the device configurations
         if (
             DeviceConfigurations.N150_WH_ARCH_YAML in self.device_configurations
@@ -177,6 +186,13 @@ class ModelImpl:
         }
         return volume_mounts
 
+    @staticmethod
+    def _forge_volume_mounts():
+        """Forge containers only need hugepages — no weight volume needed."""
+        return {
+            "/dev/hugepages-1G": {"bind": "/dev/hugepages-1G", "mode": "rw"},
+        }
+
     def setup(self):
         # verify model setup and runtime setup 
         self.init_volumes()
@@ -212,6 +228,42 @@ def base_docker_config():
         "environment": {
             "JWT_SECRET": backend_config.jwt_secret,
             "CACHE_ROOT": backend_config.model_container_cache_root,
+        },
+    }
+
+
+# Mesh graph descriptor base path inside the forge container
+_FORGE_MESH_DESCRIPTOR_BASE = (
+    "/home/container_app_user/app/server/venv-worker/lib/python3.11/"
+    "site-packages/pjrt_plugin_tt/tt-metal/tt_metal/fabric/mesh_graph_descriptors"
+)
+
+FORGE_MESH_DESCRIPTORS = {
+    "n150": f"{_FORGE_MESH_DESCRIPTOR_BASE}/n150_mesh_graph_descriptor.textproto",
+    "n300": f"{_FORGE_MESH_DESCRIPTOR_BASE}/n300_mesh_graph_descriptor.textproto",
+}
+
+# Default mesh descriptor (N300) — overridden at deploy time based on detected device
+_DEFAULT_FORGE_MESH_DESCRIPTOR = FORGE_MESH_DESCRIPTORS["n300"]
+
+
+def forge_docker_config(model_runner: str):
+    """Docker config for forge CNN containers.
+    
+    Device-specific env vars (DEVICE_IDS, IS_GALAXY, TT_METAL_MESH_GRAPH_DESCRIPTOR)
+    are set here with defaults and overridden at deploy time in docker_utils.py.
+    """
+    return {
+        "auto_remove": True,
+        "cap_add": "ALL",
+        "detach": True,
+        "environment": {
+            "JWT_SECRET": backend_config.jwt_secret,
+            "API_KEY": backend_config.jwt_secret,
+            "MODEL_RUNNER": model_runner,
+            "DEVICE_IDS": "0",
+            "IS_GALAXY": "false",
+            "TT_METAL_MESH_GRAPH_DESCRIPTOR": _DEFAULT_FORGE_MESH_DESCRIPTOR,
         },
     }
 
@@ -404,6 +456,118 @@ model_implmentations_list = [
         model_type=ModelTypes.CHAT
     ),
     #! Add new model vLLM model implementations here
+
+    # --- Forge CNN Models (Image Classification) ---
+    # These use the tt-forge-server Docker image built from Dockerfile.forge.
+    # The container runs tt-media-server with forge runners for CNN inference.
+    # Device-specific env vars (DEVICE_IDS, IS_GALAXY, TT_METAL_MESH_GRAPH_DESCRIPTOR)
+    # are injected at deploy time in docker_utils.py based on detected hardware.
+
+    ModelImpl(
+        model_name="Forge-ResNet-50",
+        model_id="id_forge_resnet50_v0.1.0",
+        impl_id="tt-forge",
+        image_name="tt-forge-server",
+        image_tag="latest",
+        device_configurations=N150_N300,
+        docker_config=forge_docker_config("tt-xla-resnet"),
+        shm_size="32G",
+        service_port=8000,
+        service_route="/cnn/search-image",
+        health_route="/tt-liveness",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.IMAGE_CLASSIFICATION,
+    ),
+    ModelImpl(
+        model_name="Forge-VoVNet",
+        model_id="id_forge_vovnet_v0.1.0",
+        impl_id="tt-forge",
+        image_name="tt-forge-server",
+        image_tag="latest",
+        device_configurations=N150_N300,
+        docker_config=forge_docker_config("tt-xla-vovnet"),
+        shm_size="32G",
+        service_port=8000,
+        service_route="/cnn/search-image",
+        health_route="/tt-liveness",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.IMAGE_CLASSIFICATION,
+    ),
+    ModelImpl(
+        model_name="Forge-MobileNetV2",
+        model_id="id_forge_mobilenetv2_v0.1.0",
+        impl_id="tt-forge",
+        image_name="tt-forge-server",
+        image_tag="latest",
+        device_configurations=N150_N300,
+        docker_config=forge_docker_config("tt-xla-mobilenetv2"),
+        shm_size="32G",
+        service_port=8000,
+        service_route="/cnn/search-image",
+        health_route="/tt-liveness",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.IMAGE_CLASSIFICATION,
+    ),
+    ModelImpl(
+        model_name="Forge-EfficientNet",
+        model_id="id_forge_efficientnet_v0.1.0",
+        impl_id="tt-forge",
+        image_name="tt-forge-server",
+        image_tag="latest",
+        device_configurations=N150_N300,
+        docker_config=forge_docker_config("tt-xla-efficientnet"),
+        shm_size="32G",
+        service_port=8000,
+        service_route="/cnn/search-image",
+        health_route="/tt-liveness",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.IMAGE_CLASSIFICATION,
+    ),
+    ModelImpl(
+        model_name="Forge-SegFormer",
+        model_id="id_forge_segformer_v0.1.0",
+        impl_id="tt-forge",
+        image_name="tt-forge-server",
+        image_tag="latest",
+        device_configurations=N150_N300,
+        docker_config=forge_docker_config("tt-xla-segformer"),
+        shm_size="32G",
+        service_port=8000,
+        service_route="/cnn/search-image",
+        health_route="/tt-liveness",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.IMAGE_CLASSIFICATION,
+    ),
+    ModelImpl(
+        model_name="Forge-UNet",
+        model_id="id_forge_unet_v0.1.0",
+        impl_id="tt-forge",
+        image_name="tt-forge-server",
+        image_tag="latest",
+        device_configurations=N150_N300,
+        docker_config=forge_docker_config("tt-xla-unet"),
+        shm_size="32G",
+        service_port=8000,
+        service_route="/cnn/search-image",
+        health_route="/tt-liveness",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.IMAGE_CLASSIFICATION,
+    ),
+    ModelImpl(
+        model_name="Forge-ViT",
+        model_id="id_forge_vit_v0.1.0",
+        impl_id="tt-forge",
+        image_name="tt-forge-server",
+        image_tag="latest",
+        device_configurations=N150_N300,
+        docker_config=forge_docker_config("tt-xla-vit"),
+        shm_size="32G",
+        service_port=8000,
+        service_route="/cnn/search-image",
+        health_route="/tt-liveness",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.IMAGE_CLASSIFICATION,
+    ),
 ]
 
 def validate_model_implemenation_config(impl):
