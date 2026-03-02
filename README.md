@@ -34,23 +34,25 @@ Where TT Inference Server serves a single model on a single device, TT-Studio or
 
 ## Blueprints
 
-TT-Studio ships with four reference blueprints. Each composes one or more TT Inference Server models into an end-to-end workflow.
+TT-Studio ships with eight reference blueprints — four multi-model pipelines and four single-model experiences. Each composes one or more TT Inference Server models into an end-to-end workflow.
 
-### [RAG — Retrieval-Augmented Generation](docs/blueprints/rag.md)
+### Pipelines
 
-Upload documents, build knowledge bases, and query them with LLM-powered semantic search. Combines an LLM with ChromaDB vector storage and SentenceTransformer embeddings.
+| Blueprint | Description |
+|-----------|-------------|
+| [RAG](docs/blueprints/rag.md) | Retrieval-augmented generation with ChromaDB vector storage and document upload |
+| [AI Agent](docs/blueprints/ai-agent.md) | Autonomous assistant with tool use, model auto-discovery, and persistent threads |
+| [Voice Pipeline](docs/blueprints/voice-pipeline.md) | STT &rarr; LLM &rarr; TTS — three models chained in a single SSE-streaming pipeline |
+| [Object Detection](docs/blueprints/object-detection.md) | Image classification and detection using CNN models on Forge |
 
-### [AI Agent](docs/blueprints/ai-agent.md)
+### Model Experiences
 
-Autonomous AI assistant with tool use, model auto-discovery, and persistent conversation threads. Connects to any deployed LLM and extends it with agentic reasoning.
-
-### [Voice Pipeline — Conversational Bot](docs/blueprints/voice-pipeline.md)
-
-End-to-end voice conversation: Speech-to-Text (Whisper) &rarr; LLM &rarr; Text-to-Speech. Three models chained in a single streaming pipeline.
-
-### [Object Detection Pipeline](docs/blueprints/object-detection.md)
-
-Image classification and object detection using CNN models (ResNet, EfficientNet, YOLO, ViT, and more) running on Tenstorrent Forge.
+| Blueprint | Models | Description |
+|-----------|--------|-------------|
+| [LLM Chat](docs/blueprints/llm-chat.md) | 24 | Streaming chat with instruction-tuned LLMs (1B-120B) via vLLM |
+| [Image Generation](docs/blueprints/image-generation.md) | 9 | Text-to-image with Stable Diffusion, FLUX, and Motif via Media Engine |
+| [Vision Language Model](docs/blueprints/vlm.md) | 12 | Multimodal text+image chat with vision-language models via vLLM |
+| [Video Generation](docs/blueprints/video-generation.md) | 2 | Text-to-video with Mochi and Wan via Media Engine |
 
 ---
 
