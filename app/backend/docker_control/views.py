@@ -53,6 +53,15 @@ except Exception:
     logger.warning(f"Could not load model catalog from {_CATALOG_PATH}; status will be null for all models")
     _status_lookup = {}
 
+# Manual compatibility overrides: model names that are always shown as compatible
+# (e.g. when sync JSON device_configurations don't match detected board)
+_OVERRIDE_PATH = Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
+try:
+    _override_data = json.loads(_OVERRIDE_PATH.read_text())
+    _compatibility_override_names: set[str] = set(_override_data.get("model_names", []))
+except Exception:
+    _compatibility_override_names = set()
+
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
@@ -189,6 +198,13 @@ class ContainersView(APIView):
             for board, devices in board_to_device_map.items():
                 if board != 'unknown' and bool(set(devices).intersection(impl.device_configurations)):
                     compatible_boards.append(board)
+
+            # Manual override: always show certain models as compatible (e.g. whisper when sync JSON is incomplete)
+            if impl.model_name in _compatibility_override_names:
+                is_compatible = True
+                if current_board != 'unknown' and current_board not in compatible_boards:
+                    compatible_boards = list(compatible_boards) + [current_board]
+                logger.info(f"Model {impl.model_name}: compatibility overridden to True")
             
             logger.info(f"Model {impl.model_name}: compatible={is_compatible}, boards={compatible_boards}")
 
