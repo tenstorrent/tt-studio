@@ -343,7 +343,7 @@ export default function StepperDemo() {
                 <DeployModelStep
                   selectedModel={selectedModel}
                   handleDeploy={handleDeploy}
-                  selectedDeviceId={selectedDeviceId}
+                  selectedDeviceId={isMultiChipBoard ? selectedDeviceId : undefined}
                 />
               )}
             </Step>

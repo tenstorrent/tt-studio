@@ -11,10 +11,12 @@ import {
   Image as ImageIcon,
   Crosshair,
   Mic,
+  Volume2,
 } from "lucide-react";
 import type { HealthStatus } from "../../../types/models";
 import {
   getModelTypeFromName,
+  getModelTypeFromBackendType,
   ModelType,
 } from "../../../api/modelsDeployedApis";
 
@@ -22,6 +24,7 @@ interface Props {
   id: string;
   name?: string;
   image?: string;
+  model_type?: string;
   health?: HealthStatus;
   onDelete: (id: string) => void;
   onRedeploy: (image?: string) => void;
@@ -33,6 +36,7 @@ export default React.memo(function ManageCell({
   id,
   name,
   image: _image,
+  model_type,
   health,
   onDelete,
   onRedeploy: _onRedeploy,
@@ -48,7 +52,9 @@ export default React.memo(function ManageCell({
   const dangerBtn =
     "!border-red-400/70 !text-red-300 !bg-red-600/20 hover:!bg-red-600/30 shadow-[0_8px_24px_rgba(255,0,0,0.15)]";
 
-  const modelType = getModelTypeFromName(name ?? "");
+  const modelType = model_type
+    ? getModelTypeFromBackendType(model_type)
+    : getModelTypeFromName(name ?? "");
   const openLabel =
     modelType === ModelType.ImageGeneration
       ? "Image Gen"
@@ -56,7 +62,9 @@ export default React.memo(function ManageCell({
         ? "Object Detect"
         : modelType === ModelType.SpeechRecognitionModel
           ? "Speech"
-          : "Chat";
+          : modelType === ModelType.TTS
+            ? "TTS"
+            : "Chat";
   const OpenIcon =
     modelType === ModelType.ImageGeneration
       ? ImageIcon
@@ -64,7 +72,9 @@ export default React.memo(function ManageCell({
         ? Crosshair
         : modelType === ModelType.SpeechRecognitionModel
           ? Mic
-          : MessageSquareText;
+          : modelType === ModelType.TTS
+            ? Volume2
+            : MessageSquareText;
 
   return (
     <div className="relative flex items-center justify-center gap-2 flex-wrap">

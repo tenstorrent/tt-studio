@@ -53,6 +53,7 @@ import AudioDetectionPage from "../pages/AudioDetectionPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import VoicePipelinePage from "../pages/VoicePipelinePage";
+import TTSPage from "../pages/TTSPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -127,6 +128,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/voice-pipeline",
       element: <VoicePipelinePage />,
+      condition: true,
+    },
+    {
+      path: "/tts",
+      element: <TTSPage />,
       condition: true,
     },
     {

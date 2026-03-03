@@ -28,7 +28,7 @@ class SystemResourceService:
     DEVICE_RESETTING_KEY = "device_resetting"
     
     @staticmethod
-    def get_tt_smi_data(timeout=10):
+    def get_tt_smi_data(timeout=30):
         """Get raw tt-smi data with caching to reduce expensive calls"""
         # Check cache first
         cached_data = cache.get(SystemResourceService.TT_SMI_CACHE_KEY)
@@ -547,7 +547,7 @@ class SystemResourceService:
             cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=15)
             return result
 
-        # Try tt-smi -s with 10-second timeout
+        # Try tt-smi -s with 30-second timeout (Docker cold-start can be slower than host)
         try:
             logger.info("Running tt-smi -s for device state check")
             process = subprocess.Popen(
@@ -560,9 +560,9 @@ class SystemResourceService:
             )
 
             try:
-                stdout, stderr = process.communicate(timeout=10)
+                stdout, stderr = process.communicate(timeout=30)
             except subprocess.TimeoutExpired:
-                logger.error("tt-smi -s timed out after 10s — board in BAD_STATE")
+                logger.error("tt-smi -s timed out after 30s — board in BAD_STATE")
                 try:
                     os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                     process.wait(timeout=2)

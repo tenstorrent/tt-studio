@@ -11,6 +11,7 @@ export interface ModelRow {
   image?: string;
   status?: string;
   ports?: string;
+  model_type?: string;
   device_id?: number | null;
 }
 

@@ -63,6 +63,7 @@ class ModelImpl:
     env_file: str = ""
     health_route: str = "/health"
     display_model_type: str = "LLM"
+    inference_engine: str = "vllm"
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -282,6 +283,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             version=entry.get("version", "0.0.1"),
             shm_size=entry.get("shm_size", "32G"),
             display_model_type=entry.get("display_model_type", "LLM"),
+            inference_engine=entry.get("inference_engine", "vllm"),
         )
         impls.append(impl)
     return impls

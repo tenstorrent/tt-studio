@@ -115,231 +115,112 @@ def map_board_type_to_device_name(board_type):
 
 def run_container(impl, weights_id, device_id=0):
     """Run a docker container via TT Inference Server API"""
-    if (impl.model_type == ModelTypes.CHAT):
-        # For chat models, we use the TT Inference Server API to run the container
-        try:
-            logger.info(f"Calling TT Inference Server API")
-            logger.info(f"run_container called for {impl.model_name}")
+    try:
+        logger.info(f"Calling TT Inference Server API")
+        logger.info(f"run_container called for {impl.model_name}")
 
-            # Determine the correct inference-server device name.
-            # A single-chip model on a multi-chip board (e.g. Llama-8B on T3K)
-            # must use the constituent chip device ("n300"), not the board device
-            # ("t3k"). We use chips_required + board_type to pick the right name.
-            from shared_config.model_config import infer_chips_required
-            board_type = detect_board_type()
-            chips_required = infer_chips_required(impl.device_configurations)
-            if chips_required == 1:
-                device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-            else:
-                device = map_board_type_to_device_name(board_type)
-            logger.info(
-                f"Device name '{device}' for {impl.model_name} "
-                f"(board={board_type}, chips_required={chips_required})"
-            )
+        # Determine the correct inference-server device name.
+        # A single-chip model on a multi-chip board (e.g. Llama-8B on T3K)
+        # must use the constituent chip device ("n300"), not the board device
+        # ("t3k"). We use chips_required + board_type to pick the right name.
+        from shared_config.model_config import infer_chips_required
+        board_type = detect_board_type()
+        chips_required = infer_chips_required(impl.device_configurations)
+        if chips_required == 1:
+            device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+        else:
+            device = map_board_type_to_device_name(board_type)
+        logger.info(
+            f"Device name '{device}' for {impl.model_name} "
+            f"(board={board_type}, chips_required={chips_required})"
+        )
 
-            # Assign a unique service port per chip slot to avoid port conflicts
-            # when deploying multiple models on a multi-chip board.
-            BASE_SERVICE_PORT = 7000
+        BASE_SERVICE_PORT = 7000
+
+        # Create payload for the API call
+        payload = {
+            "model": impl.model_name,
+            "workflow": "server",  # Default workflow for container runs
+            "device": device,  # Use mapped device name
+            "docker_server": True,
+            "dev_mode": True,
+        }
+
+        # Only pin to a specific chip slot for multi-chip boards
+        if chips_required > 1:
+            payload["device_id"] = str(device_id)
+            payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
             service_port = BASE_SERVICE_PORT + device_id
+        else:
+            service_port = BASE_SERVICE_PORT  # single chip always uses base port
 
-            # Create payload for the API call
-            payload = {
-                "model": impl.model_name,
-                "workflow": "server",  # Default workflow for container runs
-                "device": device,  # Use mapped device name
-                "docker_server": True,
-                "dev_mode": True,
-                "device_id": str(device_id),  # Pin to specific chip slot
-                "service_port": str(service_port),  # Unique port per slot
-            }
+        # media/forge models require skipping hw validation; vLLM models do not
+        if impl.model_type != ModelTypes.CHAT:
+            payload["skip_system_sw_validation"] = True
 
-            logger.info(f"API payload: {payload}")
+        logger.info(f"API payload: {payload}")
 
-            # Make POST request to TT Inference Server API
-            api_url = "http://172.18.0.1:8001/run"
+        # Make POST request to TT Inference Server API
+        api_url = "http://172.18.0.1:8001/run"
 
-            response = requests.post(
-                api_url,
-                json=payload,
-                timeout=DEPLOYMENT_TIMEOUT_SECONDS  # 5 hour timeout for container startup and weight downloads
-            )
+        response = requests.post(
+            api_url,
+            json=payload,
+            timeout=DEPLOYMENT_TIMEOUT_SECONDS  # 5 hour timeout for container startup and weight downloads
+        )
 
-            if response.status_code in [200, 202]:
-                api_result = response.json()
-                logger.info(f"API call successful (status {response.status_code}): {api_result}")
-                logger.info(f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}")
-                if 'docker_log_file_path' in api_result:
-                    logger.info(f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}")
-                else:
-                    logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
-
-                # Update deploy cache on success
-                update_deploy_cache()
-
-                # Notify agent about new container deployment
-                notify_agent_of_new_container(api_result["container_name"])
-
-                # Create the deployment record only after successful API response
-                # (never before — avoids stale "starting" records blocking slots on failure)
-                container_id = None
-                container_name = "unknown"
-                try:
-                    container_id = api_result.get("container_id")
-                    container_name = api_result.get("container_name", "unknown")
-
-                    # If container_id is not in response, try to get it from Docker by name
-                    if not container_id and container_name:
-                        try:
-                            docker_client = get_docker_client()
-                            container_info = docker_client.get_container(container_name)
-                            container_id = container_info.get("id")
-                            logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
-                        except Exception as docker_error:
-                            logger.warning(f"Could not get container_id from Docker: {docker_error}")
-                            container_id = container_name
-
-                    if container_id:
-                        workflow_log_path = api_result.get("docker_log_file_path")
-                        logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
-
-                        ModelDeployment.objects.create(
-                            container_id=container_id,
-                            container_name=container_name,
-                            model_name=impl.model_name,
-                            device=device,
-                            device_id=device_id,
-                            status="running",
-                            stopped_by_user=False,
-                            port=service_port,
-                            workflow_log_path=workflow_log_path
-                        )
-                        logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
-                    else:
-                        logger.warning(f"Could not save deployment record: no container_id or container_name")
-                except Exception as e:
-                    import traceback
-                    logger.error(
-                        f"Failed to save deployment record for {container_name} (ID: {container_id}): {type(e).__name__}: {e}\n"
-                        f"Traceback: {traceback.format_exc()}"
-                    )
-                    # Don't fail the deployment if we can't save the record
-
-                return {
-                    "status": "success",
-                    "container_name": api_result["container_name"],
-                    "container_id": api_result.get("container_id"),  # Pass through container_id
-                    "job_id": api_result.get("job_id") or api_result.get("container_id"),  # Use job_id or container_id as fallback
-                    "api_response": api_result
-                }
+        if response.status_code in [200, 202]:
+            api_result = response.json()
+            logger.info(f"API call successful (status {response.status_code}): {api_result}")
+            logger.info(f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}")
+            if 'docker_log_file_path' in api_result:
+                logger.info(f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}")
             else:
-                error_msg = f"API call failed with status {response.status_code}: {response.text}"
-                logger.error(error_msg)
+                logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
 
-                # Try to extract job_id and error details from response
-                job_id = None
-                error_detail = error_msg
-                try:
-                    error_data = response.json()
-                    if isinstance(error_data, dict):
-                        # Extract job_id if present
-                        job_id = error_data.get('job_id')
-                        # Extract error message if present
-                        error_detail = error_data.get('message', error_msg)
-                        logger.info(f"Extracted job_id from error response: {job_id}")
-                except Exception as parse_error:
-                    logger.warning(f"Could not parse error response: {parse_error}")
-
-                return {
-                    "status": "error",
-                    "message": error_detail,
-                    "job_id": job_id
-                }
-
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Network error calling TT Inference Server API: {str(e)}"
-            logger.error(error_msg)
-            return {"status": "error", "message": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error in run_container: {str(e)}"
-            logger.error(error_msg)
-            return {"status": "error", "message": error_msg}
-    else:
-        # For non-chat models, we use the docker client to run the container
-        try:
-            logger.info(f"run_container called for {impl.model_name}")
-
-
-            run_kwargs = copy.deepcopy(impl.docker_config)
-            # handle runtime configuration changes to docker kwargs
-            device_mounts = get_devices_mounts(impl, device_id)
-            if device_mounts:
-                run_kwargs.update({"devices": device_mounts})
-            run_kwargs.update({"ports": get_port_mounts(impl)})
-            # add bridge inter-container network
-            run_kwargs.update({"network": backend_config.docker_bridge_network_name})
-            # add unique container name suffixing with host port
-            host_port = list(run_kwargs["ports"].values())[0]
-            logger.info(f"!!!host_port:= {host_port}")
-            run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
-            run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
-            # add environment variables
-            run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
-            # container path, not backend path
-            run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
-                impl.model_container_weights_dir, weights_id
-            )
-            logger.info(f"run_kwargs:= {run_kwargs}")
-
-            # Convert run_kwargs to docker-control-service API format
-            docker_client = get_docker_client()
-            api_kwargs = {
-                "image": impl.image_version,
-                "name": run_kwargs.get("name"),
-                "command": run_kwargs.get("command"),
-                "environment": run_kwargs.get("environment", {}),
-                "ports": run_kwargs.get("ports", {}),
-                "volumes": run_kwargs.get("volumes"),
-                "network": run_kwargs.get("network"),
-                "detach": run_kwargs.get("detach", True),
-            }
-
-            # Add devices if present
-            if "devices" in run_kwargs:
-                api_kwargs["devices"] = run_kwargs["devices"]
-
-            # Add hostname if present
-            if "hostname" in run_kwargs:
-                api_kwargs["hostname"] = run_kwargs["hostname"]
-
-            container_result = docker_client.run_container(**api_kwargs)
-            logger.info(f"Container started via docker-control-service: {container_result}")
-
-            # Extract container info from API response
-            container_id = container_result.get("id")
-            container_name = container_result.get("name")
-            # on changes to containers, update deploy cache
+            # Update deploy cache on success
             update_deploy_cache()
 
             # Notify agent about new container deployment
-            notify_agent_of_new_container(container_name)
+            notify_agent_of_new_container(api_result["container_name"])
 
-            # Save deployment record to database
+            # Create the deployment record only after successful API response
+            # (never before — avoids stale "starting" records blocking slots on failure)
+            container_id = None
+            container_name = "unknown"
             try:
-                # Get device from impl configuration
-                device_config = impl.device_configurations[0] if impl.device_configurations else None
-                device_name = device_config.name if device_config else "unknown"
+                container_id = api_result.get("container_id")
+                container_name = api_result.get("container_name", "unknown")
 
-                ModelDeployment.objects.create(
-                    container_id=container_id,
-                    container_name=container_name,
-                    model_name=impl.model_name,
-                    device=device_name,
-                    device_id=device_id,
-                    status="running",
-                    stopped_by_user=False,
-                    port=host_port
-                )
-                logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                # If container_id is not in response, try to get it from Docker by name
+                if not container_id and container_name:
+                    try:
+                        docker_client = get_docker_client()
+                        container_info = docker_client.get_container(container_name)
+                        container_id = container_info.get("id")
+                        logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
+                    except Exception as docker_error:
+                        logger.warning(f"Could not get container_id from Docker: {docker_error}")
+                        container_id = container_name
+
+                if container_id:
+                    workflow_log_path = api_result.get("docker_log_file_path")
+                    logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
+
+                    ModelDeployment.objects.create(
+                        container_id=container_id,
+                        container_name=container_name,
+                        model_name=impl.model_name,
+                        device=device,
+                        device_id=device_id,
+                        status="running",
+                        stopped_by_user=False,
+                        port=service_port,
+                        workflow_log_path=workflow_log_path
+                    )
+                    logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                else:
+                    logger.warning(f"Could not save deployment record: no container_id or container_name")
             except Exception as e:
                 import traceback
                 logger.error(
@@ -350,13 +231,43 @@ def run_container(impl, weights_id, device_id=0):
 
             return {
                 "status": "success",
-                "container_id": container_id,
-                "container_name": container_name,
-                "service_route": impl.service_route,
-                "port_bindings": run_kwargs["ports"],
+                "container_name": api_result["container_name"],
+                "container_id": api_result.get("container_id"),  # Pass through container_id
+                "job_id": api_result.get("job_id") or api_result.get("container_id"),  # Use job_id or container_id as fallback
+                "api_response": api_result
             }
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+        else:
+            error_msg = f"API call failed with status {response.status_code}: {response.text}"
+            logger.error(error_msg)
+
+            # Try to extract job_id and error details from response
+            job_id = None
+            error_detail = error_msg
+            try:
+                error_data = response.json()
+                if isinstance(error_data, dict):
+                    # Extract job_id if present
+                    job_id = error_data.get('job_id')
+                    # Extract error message if present
+                    error_detail = error_data.get('message', error_msg)
+                    logger.info(f"Extracted job_id from error response: {job_id}")
+            except Exception as parse_error:
+                logger.warning(f"Could not parse error response: {parse_error}")
+
+            return {
+                "status": "error",
+                "message": error_detail,
+                "job_id": job_id
+            }
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error calling TT Inference Server API: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
+    except Exception as e:
+        error_msg = f"Unexpected error in run_container: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
 
 def run_agent_container(container_name, port_bindings, impl):
     # runs agent container after associated llm container runs

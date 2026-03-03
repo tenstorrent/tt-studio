@@ -14,6 +14,7 @@ import {
   Eye,
   AudioLines,
   Mic,
+  Volume2,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
@@ -480,6 +481,13 @@ export default function NavBar() {
       icon: Mic,
       label: "Voice Pipeline",
       tooltip: "End-to-end voice demo (Whisper → LLM → TTS)",
+    },
+    {
+      type: "link",
+      to: "/tts",
+      icon: Volume2,
+      label: "Text to Speech",
+      tooltip: "Convert text to audio with TTS model",
     },
   ];
 

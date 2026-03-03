@@ -118,11 +118,21 @@ def is_chat_capable(hf_model_id: str) -> bool:
     return any(p in lower for p in CHAT_CAPABLE_PATTERNS)
 
 
-def map_service_route(inference_engine: str, hf_model_id: str = "") -> str:
-    """Derive service_route from inference_engine (and model id for vLLM)."""
+def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_type: str = "") -> str:
+    """Derive service_route from inference_engine, model type, and model id.
+    
+    Args:
+        inference_engine: Engine type (vLLM, media, forge)
+        hf_model_id: HuggingFace model ID (for vLLM chat detection)
+        raw_model_type: Raw model type from inference server (TEXT_TO_SPEECH, TTS, etc.)
+    """
     if inference_engine == "vLLM":
         return "/v1/chat/completions" if is_chat_capable(hf_model_id) else "/v1/completions"
     if inference_engine == "media":
+        # TTS models use OpenAI-compatible /v1/audio/speech endpoint
+        if raw_model_type in ("TEXT_TO_SPEECH", "TTS"):
+            return "/v1/audio/speech"
+        # Other media models (image gen, speech recognition, etc.) use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         return "/v1/chat/completions"
@@ -189,7 +199,7 @@ def normalize(source_path: Path) -> list[dict]:
             "status": status,
             "version": first.get("version", "0.0.1"),
             "docker_image": first.get("docker_image"),
-            "service_route": map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", "")),
+            "service_route": map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type),
             "shm_size": "32G",
             "setup_type": "TT_INFERENCE_SERVER",
             "env_vars": env_vars,

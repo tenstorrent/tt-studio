@@ -283,7 +283,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.SpeechRecognitionModel:
       return "/speech-to-text";
     case ModelType.TTS:
-      return "/speech-to-text"; // TTS shares the audio page for now
+      return "/tts";
     case ModelType.Embedding:
       return "/chat"; // placeholder
     case ModelType.CNN:
@@ -310,6 +310,22 @@ export const deployModel = async (
     body: payload,
   });
   return response.json();
+};
+
+// ----- TTS Inference -----
+export const runTTSInference = async (
+  deployId: string,
+  text: string,
+): Promise<Blob> => {
+  const response = await fetch("/models-api/tts/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deploy_id: deployId, text }),
+  });
+  if (!response.ok) {
+    throw new Error(`TTS request failed: HTTP ${response.status}`);
+  }
+  return response.blob();
 };
 
 // ----- Voice Pipeline -----
@@ -386,6 +402,8 @@ export const getModelTypeFromName = (modelName: string): string => {
     modelType = ModelType.ImageGeneration;
   } else if (modelName.toLowerCase().includes("whisper")) {
     modelType = ModelType.SpeechRecognitionModel;
+  } else if (modelName.toLowerCase().includes("tts")) {
+    modelType = ModelType.TTS;
   } else {
     modelType = ModelType.ChatModel;
   }

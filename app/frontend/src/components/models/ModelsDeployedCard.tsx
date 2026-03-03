@@ -22,6 +22,8 @@ import {
   handleRedeploy,
   handleModelNavigationClick,
   fetchModels,
+  fetchDeployedModelsInfo,
+  getModelTypeFromBackendType,
 } from "../../api/modelsDeployedApis";
 import type {
   ColumnVisibilityMap,
@@ -82,7 +84,10 @@ export default function ModelsDeployedCard(): JSX.Element {
     setLoadError(null);
     try {
       const fetched = await fetchModels();
-      setModels(fetched);
+      const deployedInfo = await fetchDeployedModelsInfo();
+      const typeById = Object.fromEntries(deployedInfo.map(d => [d.id, d.model_type]));
+      const enriched = fetched.map(m => ({ ...m, model_type: m.model_type ?? typeById[m.id] }));
+      setModels(enriched);
       if (fetched.length === 0) {
         triggerRefresh();
       }
@@ -351,9 +356,13 @@ export default function ModelsDeployedCard(): JSX.Element {
                   setShowDeleteModal(true);
                 }}
                 onRedeploy={(image?: string) => image && handleRedeploy(image)}
-                onNavigateToModel={(id: string, name: string) =>
-                  handleModelNavigationClick(id, name, navigate)
-                }
+                onNavigateToModel={(id: string, name: string) => {
+                  const row = rows.find((r) => r.id === id);
+                  const frontendType = row?.model_type
+                    ? getModelTypeFromBackendType(row.model_type)
+                    : undefined;
+                  handleModelNavigationClick(id, name, navigate, frontendType);
+                }}
                 onOpenApi={(id: string) => {
                   const encoded = encodeURIComponent(id);
                   window.location.href = `/api-info/${encoded}`;

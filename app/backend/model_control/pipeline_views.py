@@ -127,33 +127,65 @@ class VoicePipelineView(APIView):
                 try:
                     tts_deploy = deploy_cache[tts_deploy_id]
                     tts_url = "http://" + tts_deploy["internal_url"]
+                    model_impl = tts_deploy.get("model_impl")
+                    model_name = getattr(model_impl, "model_name", None) if model_impl else None
+                    
+                    # Determine if this is OpenAI-style or enqueue-style endpoint
+                    is_openai_style = "/v1/audio/speech" in tts_url
+                    
+                    if is_openai_style:
+                        # OpenAI-style: POST directly and get audio back
+                        payload = {"model": model_name, "text": llm_full_text.strip(), "voice": "default"}
+                        tts_resp = requests.post(tts_url, json=payload, headers=headers, timeout=120)
+                        tts_resp.raise_for_status()
+                        
+                        audio_b64 = base64.b64encode(tts_resp.content).decode("utf-8")
+                        content_type = tts_resp.headers.get("Content-Type", "audio/wav")
+                        data_uri = f"data:{content_type};base64,{audio_b64}"
+                        yield f"data: {json.dumps({'type': 'audio_url', 'url': data_uri})}\n\n"
+                    else:
+                        # Enqueue-style: POST → poll status → fetch audio
+                        tts_resp = requests.post(
+                            tts_url,
+                            json={"text": llm_full_text.strip()},
+                            headers=headers,
+                            timeout=30,
+                        )
+                        
+                        # If 404 on enqueue, try fallback to /v1/audio/speech
+                        if tts_resp.status_code == 404 and "/enqueue" in tts_url:
+                            logger.info(f"Pipeline TTS 404 on {tts_url}, trying /v1/audio/speech")
+                            fallback_url = tts_url.replace("/enqueue", "/v1/audio/speech")
+                            payload = {"model": model_name, "text": llm_full_text.strip(), "voice": "default"}
+                            tts_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
+                            tts_resp.raise_for_status()
+                            
+                            audio_b64 = base64.b64encode(tts_resp.content).decode("utf-8")
+                            content_type = tts_resp.headers.get("Content-Type", "audio/wav")
+                            data_uri = f"data:{content_type};base64,{audio_b64}"
+                            yield f"data: {json.dumps({'type': 'audio_url', 'url': data_uri})}\n\n"
+                        else:
+                            tts_resp.raise_for_status()
+                            
+                            task_id = tts_resp.json().get("task_id")
+                            status_url = tts_url.replace("/enqueue", f"/status/{task_id}")
 
-                    tts_resp = requests.post(
-                        tts_url,
-                        json={"text": llm_full_text.strip()},
-                        headers=headers,
-                        timeout=30,
-                    )
-                    tts_resp.raise_for_status()
+                            # Poll for completion
+                            for _ in range(120):
+                                st = requests.get(status_url, headers=headers, timeout=10)
+                                if st.status_code != 404 and st.json().get("status") == "Completed":
+                                    break
+                                time.sleep(1)
 
-                    task_id = tts_resp.json().get("task_id")
-                    status_url = tts_url.replace("/enqueue", f"/status/{task_id}")
+                            audio_url = tts_url.replace("/enqueue", f"/fetch_audio/{task_id}")
+                            audio_resp = requests.get(audio_url, headers=headers, timeout=30)
+                            audio_resp.raise_for_status()
 
-                    # Poll for completion
-                    for _ in range(120):
-                        st = requests.get(status_url, headers=headers, timeout=10)
-                        if st.status_code != 404 and st.json().get("status") == "Completed":
-                            break
-                        time.sleep(1)
-
-                    audio_url = tts_url.replace("/enqueue", f"/fetch_audio/{task_id}")
-                    audio_resp = requests.get(audio_url, headers=headers, timeout=30)
-                    audio_resp.raise_for_status()
-
-                    audio_b64 = base64.b64encode(audio_resp.content).decode("utf-8")
-                    content_type = audio_resp.headers.get("Content-Type", "audio/wav")
-                    data_uri = f"data:{content_type};base64,{audio_b64}"
-                    yield f"data: {json.dumps({'type': 'audio_url', 'url': data_uri})}\n\n"
+                            audio_b64 = base64.b64encode(audio_resp.content).decode("utf-8")
+                            content_type = audio_resp.headers.get("Content-Type", "audio/wav")
+                            data_uri = f"data:{content_type};base64,{audio_b64}"
+                            yield f"data: {json.dumps({'type': 'audio_url', 'url': data_uri})}\n\n"
+                            
                 except Exception as exc:
                     logger.error(f"TTS step failed: {exc}")
                     yield f"data: {json.dumps({'type': 'error', 'stage': 'tts', 'message': str(exc)})}\n\n"

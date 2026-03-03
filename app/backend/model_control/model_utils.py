@@ -92,12 +92,31 @@ def health_check(url, json_data, timeout=5):
     try:
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         response = requests.get(url, json=json_data, headers=headers, timeout=5)
-        response.raise_for_status()
+    except requests.exceptions.ConnectionError as e:
+        # Port not yet listening — container is still starting up
+        logger.info(f"Health check: connection refused (starting): {e}")
+        return None, str(e)
+    except requests.RequestException as e:
+        logger.error(f"Health check failed (network error): {str(e)}")
+        return False, str(e)
+
+    if response.status_code == 200:
         logger.info(f"Health check passed: {response.status_code}")
         return True, response.json() if response.content else {}
-    except requests.RequestException as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return False, str(e)
+
+    # 503 with "not ready" means model is still loading (media-server models)
+    if response.status_code == 503:
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        detail = body.get("detail", "")
+        if "not ready" in detail.lower():
+            logger.info(f"Health check: model not ready yet (starting): {detail}")
+            return None, detail
+
+    logger.error(f"Health check failed: {response.status_code} {response.text[:200]}")
+    return False, response.text[:200]
 
 def stream_response_from_agent_api(url, json_data):
     logger.info('[TRACE_FLOW_STEP_3_BACKEND_TO_AGENT] stream_response_from_agent_api called', extra={'url': url, 'json_data': json_data})

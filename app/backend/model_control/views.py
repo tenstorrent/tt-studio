@@ -59,6 +59,7 @@ logger.info(f"importing {__name__}")
 
 
 
+TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
 CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
@@ -209,9 +210,12 @@ class ModelHealthView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             health_url = "http://" + deploy["health_url"]
             check_passed, health_content = health_check(health_url, json_data=None)
-            if check_passed:
+            if check_passed is True:
                 ret_status = status.HTTP_200_OK
                 content = {"message": "Healthy", "details": health_content}
+            elif check_passed is None:
+                ret_status = status.HTTP_202_ACCEPTED
+                content = {"message": "Starting", "details": health_content}
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
                 content = {"message": "Unavailable", "details": health_content}
@@ -630,7 +634,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
 class TtsInferenceView(APIView):
-    """Text-to-speech inference: POST text → /enqueue → poll → return audio blob."""
+    """Text-to-speech inference: supports both OpenAI-style and enqueue-style endpoints."""
     def post(self, request, *args, **kwargs):
         data = request.data
         logger.info(f"{self.__class__.__name__} data:={data}")
@@ -643,29 +647,25 @@ class TtsInferenceView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
-                inference_data = requests.post(internal_url, json={"text": text}, headers=headers, timeout=30)
-                inference_data.raise_for_status()
-
-                # Poll status until completed
-                task_id = inference_data.json().get("task_id")
-                get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
-                ready = False
-                for _ in range(120):  # up to ~2 minutes
-                    status_resp = requests.get(get_status_url, headers=headers, timeout=10)
-                    if status_resp.status_code != status.HTTP_404_NOT_FOUND:
-                        status_resp.raise_for_status()
-                        if status_resp.json().get("status") == "Completed":
-                            ready = True
-                            break
-                    time.sleep(1)
-
-                if not ready:
-                    return Response({"error": "TTS task timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
-
-                # Fetch audio result
-                get_audio_url = internal_url.replace("/enqueue", f"/fetch_audio/{task_id}")
-                audio_resp = requests.get(get_audio_url, headers=headers, stream=True, timeout=30)
+                model_impl = deploy.get("model_impl")
+                model_name = getattr(model_impl, "model_name", None) if model_impl else None
+                inference_engine = getattr(model_impl, "inference_engine", None)
+                
+                if inference_engine == "media":
+                    headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                    payload = {"model": model_name, "text": text, "voice": "default"}
+                else:
+                    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                    payload = {"model": model_name, "input": text, "voice": "default"}
+                
+                audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
+                
+                # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
+                if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
+                    logger.info(f"TTS 404 on {internal_url}, retrying with /v1/audio/speech")
+                    fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
+                    audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
+                
                 audio_resp.raise_for_status()
 
                 content_type = audio_resp.headers.get("Content-Type", "audio/wav")
@@ -680,10 +680,64 @@ class TtsInferenceView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class OpenAIAudioSpeechView(APIView):
+    """OpenAI-compatible POST /v1/audio/speech — looks up deployed TTS model by name."""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        model_name = data.get("model")
+        text = data.get("input") or data.get("text")
+        if not model_name:
+            return Response({"error": "model is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not text:
+            return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find a running TTS deployment matching the requested model name
+        deploy = None
+        for entry in get_deploy_cache().values():
+            impl = entry.get("model_impl")
+            if impl and getattr(impl, "model_name", None) == model_name:
+                deploy = entry
+                break
+        if deploy is None:
+            return Response(
+                {"error": f"No running deployment found for model '{model_name}'"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        internal_url = "http://" + deploy["internal_url"]
+        try:
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                payload = {"model": model_name, "input": text, "voice": data.get("voice", "default")}
+            
+            audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
+            
+            # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
+            if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
+                logger.info(f"OpenAI audio/speech 404 on {internal_url}, retrying with /v1/audio/speech")
+                fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
+                audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
+            
+            audio_resp.raise_for_status()
+
+            content_type = audio_resp.headers.get("Content-Type", "audio/wav")
+            return HttpResponse(audio_resp.content, content_type=content_type)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"OpenAI audio/speech HTTP error: {http_err}")
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ContainerLogsView(View):
     # Define event detection configuration before the get method
     SIMPLE_EVENT_KEYWORDS = [
-        '[ERROR]', '[FATAL]', '[CRITICAL]', 
+        '[ERROR]', '[FATAL]', '[CRITICAL]',
         '[WARN]', '[WARNING]',
         'RESPONSE_Q OUT OF SYNC',
         'ABORTED', 'CORE DUMPED',

@@ -24,7 +24,7 @@ export interface HealthBadgeRef {
   refreshHealth: () => Promise<void>;
 }
 
-type HealthStatus = "healthy" | "unavailable" | "unhealthy" | "unknown";
+type HealthStatus = "healthy" | "starting" | "unavailable" | "unhealthy" | "unknown";
 
 const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
   ({ deployId, onHealthChange }, ref) => {
@@ -43,6 +43,8 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
 
         if (response.status === 200) {
           setHealth("healthy");
+        } else if (response.status === 202) {
+          setHealth("starting");
         } else if (response.status === 503) {
           setHealth("unavailable");
         } else {
@@ -154,7 +156,7 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
               style={{ minHeight: 28 }}
             >
               <div
-                className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${health === "healthy" ? "animate-pulse" : ""}`}
+                className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${health === "healthy" || health === "starting" ? "animate-pulse" : ""}`}
               />
               {isLoading ? "Loading..." : health}
             </div>

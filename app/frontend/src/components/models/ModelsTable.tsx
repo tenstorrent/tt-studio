@@ -250,6 +250,7 @@ export default function ModelsTable({
                     id={row.id}
                     name={row.name}
                     image={row.image}
+                    model_type={row.model_type}
                     health={healthMap[row.id]}
                     onDelete={onDelete}
                     onRedeploy={onRedeploy}

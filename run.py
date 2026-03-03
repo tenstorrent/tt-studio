@@ -1655,7 +1655,7 @@ def validate_artifact_structure(artifact_dir):
     return True
 
 
-def setup_tt_inference_server():
+def setup_tt_inference_server(pull_branch=False):
     """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
     print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server (Artifact){C_RESET}")
@@ -1730,8 +1730,13 @@ def setup_tt_inference_server():
                     print(f"{C_YELLOW}⚠️  Artifact metadata missing - will re-download branch '{artifact_branch}'{C_RESET}")
                 
                 if not branch_mismatch:
-                    # For branches, we can't easily verify without git, so just show what's configured
-                    print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{branch_str}")
+                    if pull_branch:
+                        # --pull-branch flag: force re-download to pick up new commits on the branch
+                        branch_mismatch = True
+                        print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
+                    else:
+                        # For branches, we can't easily verify without git, so just show what's configured
+                        print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{branch_str}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
                 cur = version.lstrip("v").strip()
@@ -3495,6 +3500,8 @@ def main():
                            help="🔄 Reset preferences and reconfigure all options")
         parser.add_argument("--reconfigure-inference-server", action="store_true",
                            help="🔄 Reconfigure TT Inference Server artifact (branch/version)")
+        parser.add_argument("--pull-branch", action="store_true",
+                           help="🔄 Re-download the inference server artifact from the configured branch to pick up new commits")
         parser.add_argument("--skip-fastapi", action="store_true",
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--skip-docker-control", action="store_true",
@@ -3823,7 +3830,7 @@ def main():
             # The --no-sudo flag is kept for backward compatibility
             try:
                 # Setup TT Inference Server
-                if not setup_tt_inference_server():
+                if not setup_tt_inference_server(pull_branch=args.pull_branch):
                     print(f"{C_RED}⛔ Failed to setup TT Inference Server. Continuing without FastAPI server.{C_RESET}")
                 else:
                     # Sync model catalog from the newly downloaded artifact

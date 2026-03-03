@@ -21,6 +21,7 @@ Including another URLconf
 
 from api.views import UpStatusView
 from django.urls import include, path
+from model_control.views import OpenAIAudioSpeechView
 
 urlpatterns = [
     path("up/", UpStatusView.as_view()),
@@ -30,4 +31,6 @@ urlpatterns = [
     path("collections/", include("vector_db_control.urls")),
     path("logs/", include("logs_control.urls")),
     path("board/", include("board_control.urls")),
+    # OpenAI-compatible audio endpoint
+    path("v1/audio/speech", OpenAIAudioSpeechView.as_view()),
 ]
