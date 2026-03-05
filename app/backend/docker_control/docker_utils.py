@@ -146,13 +146,16 @@ def run_container(impl, weights_id, device_id=0):
             "dev_mode": True,
         }
 
-        # Only pin to a specific chip slot for multi-chip boards
-        if chips_required > 1:
-            payload["device_id"] = str(device_id)
-            payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
-            service_port = BASE_SERVICE_PORT + device_id
-        else:
-            service_port = BASE_SERVICE_PORT  # single chip always uses base port
+        # Use slot-based port allocation for all models (single and multi-chip)
+        # This allows multiple models to run simultaneously on different chip slots
+        # Port mapping: slot 0 -> 7000, slot 1 -> 7001, slot 2 -> 7002, slot 3 -> 7003
+        payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
+        service_port = BASE_SERVICE_PORT + device_id
+
+        # Pin to specific chip slot (both single and multi-chip models)
+        # Single-chip models need this to pin to a specific slot on multi-chip boards (e.g., slot 0 on T3K)
+        # Multi-chip models need this to specify which configuration to use
+        payload["device_id"] = str(device_id)
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -628,8 +631,8 @@ def update_deploy_cache():
                 "DNSNames"
             ][0]
             # Use the actual container port from port bindings instead of the
-            # static model_impl.service_port (which is always 7000).  Multi-slot
-            # deployments bind to 7000+device_id, so we must resolve the real port.
+            # static model_impl.service_port (which is always 7000).  All deployments
+            # now use slot-based ports (7000+device_id), so we must resolve the real port.
             actual_port = model_impl.service_port  # default fallback
             port_bindings = con.get("port_bindings", {})
             if port_bindings:
