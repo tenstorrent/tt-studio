@@ -12,7 +12,7 @@ import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
-import { fetchDeployedModelsInfo } from "@/src/api/modelsDeployedApis";
+import { fetchDeployedModelsInfo, runTTSInference } from "@/src/api/modelsDeployedApis";
 import { runInference } from "@/src/components/chatui/runInference";
 import type { ChatMessage } from "@/src/components/chatui/types";
 import { v4 as uuidv4 } from "uuid";
@@ -50,6 +50,10 @@ export default function SpeechToTextApp() {
   const location = useLocation();
   const [modelID, setModelID] = useState<string | null>(null);
   const [llmDeployId, setLlmDeployId] = useState<string | null>(null);
+  const [ttsDeployId, setTtsDeployId] = useState<string | null>(null);
+
+  // Audio ref for TTS playback
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Chat history state used by runInference for the current conversation
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -73,11 +77,12 @@ export default function SpeechToTextApp() {
     }
   }, [location.state, modelID]);
 
-  // Auto-discover deployed LLM on mount
+  // Auto-discover deployed LLM and TTS models on mount
   useEffect(() => {
-    const discoverLlm = async () => {
+    const discoverModels = async () => {
       try {
         const deployed = await fetchDeployedModelsInfo();
+
         const chatModel = deployed.find((m) => m.model_type === "chat");
         if (chatModel) {
           setLlmDeployId(chatModel.id);
@@ -85,11 +90,19 @@ export default function SpeechToTextApp() {
         } else {
           console.warn("No deployed LLM (chat) model found");
         }
+
+        const ttsModel = deployed.find((m) => m.model_type === "tts");
+        if (ttsModel) {
+          setTtsDeployId(ttsModel.id);
+          console.log("Auto-discovered TTS:", ttsModel.modelName, ttsModel.id);
+        } else {
+          console.warn("No deployed TTS model found");
+        }
       } catch (err) {
-        console.error("Failed to discover deployed LLM:", err);
+        console.error("Failed to discover deployed models:", err);
       }
     };
-    discoverLlm();
+    discoverModels();
   }, []);
 
   const handleNewConversation = () => {
@@ -211,6 +224,38 @@ export default function SpeechToTextApp() {
           false, // not agent mode
           0, // thread id
         );
+
+        // Get the final LLM response text
+        const lastAssistant = localChatHistory.find(
+          (m) => m.sender === "assistant" && m.text
+        );
+        const llmResponseText = lastAssistant?.text || "";
+
+        // Send LLM response to TTS for audio playback
+        if (llmResponseText && ttsDeployId) {
+          console.log("Sending LLM response to TTS...");
+          try {
+            const audioBlob = await runTTSInference(ttsDeployId, llmResponseText);
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            // Attach audio to the assistant message
+            updateMessageInConversation(conversationId, assistantMsgId, {
+              audioBlob: audioBlob,
+              isStreaming: false,
+            });
+
+            // Auto-play the TTS audio
+            if (!ttsAudioRef.current) {
+              ttsAudioRef.current = new Audio();
+            }
+            ttsAudioRef.current.src = audioUrl;
+            ttsAudioRef.current.play().catch((e) =>
+              console.warn("TTS autoplay blocked:", e)
+            );
+          } catch (ttsErr) {
+            console.error("TTS error:", ttsErr);
+          }
+        }
       } catch (err) {
         console.error("LLM inference error:", err);
         updateMessageInConversation(conversationId, assistantMsgId, {
@@ -218,13 +263,12 @@ export default function SpeechToTextApp() {
           isStreaming: false,
         });
       } finally {
-        // Mark streaming complete
         updateMessageInConversation(conversationId, assistantMsgId, {
           isStreaming: false,
         });
       }
     },
-    [llmDeployId, conversations, addMessageToConversation, updateMessageInConversation]
+    [llmDeployId, ttsDeployId, conversations, addMessageToConversation, updateMessageInConversation]
   );
 
   // After transcription completes, add user message then send to LLM

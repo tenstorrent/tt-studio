@@ -437,12 +437,16 @@ function ChatBubble({
                   : "bg-white text-gray-800 border border-gray-200 rounded-tl-sm shadow-sm"
             )}
           >
-            {/* Audio playback for user messages */}
-            {isUser && message.audioBlob && (
+            {/* Audio playback (user = recorded audio, assistant = TTS audio) */}
+            {message.audioBlob && (
               <div
                 className={cn(
                   "mb-2 rounded-md overflow-hidden",
-                  "bg-white/10"
+                  isUser
+                    ? "bg-white/10"
+                    : theme === "dark"
+                      ? "bg-[#222]/60 border border-[#333]"
+                      : "bg-gray-50 border border-gray-200"
                 )}
               >
                 <div className="flex items-center gap-1 sm:gap-2 p-1.5">
@@ -459,7 +463,14 @@ function ChatBubble({
                         audio?.pause();
                       }
                     }}
-                    className="h-6 w-6 p-0 flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10"
+                    className={cn(
+                      "h-6 w-6 p-0 flex items-center justify-center",
+                      isUser
+                        ? "text-white/80 hover:text-white hover:bg-white/10"
+                        : theme === "dark"
+                          ? "text-TT-blue hover:text-TT-blue hover:bg-white/5"
+                          : "text-TT-blue hover:text-TT-blue hover:bg-gray-100"
+                    )}
                   >
                     <Play className="h-3 w-3" />
                   </Button>
