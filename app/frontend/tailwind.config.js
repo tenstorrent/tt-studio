@@ -178,6 +178,10 @@ export default {
           "50%": { "background-position": "100% 50%" },
           "100%": { "background-position": "0% 50%" },
         },
+        waveform: {
+          "0%, 100%": { height: "20%" },
+          "50%": { height: "100%" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -190,6 +194,7 @@ export default {
         shine: "shine 3s ease-out infinite",
         "gradient-flow":
           "gradientFlow 10s ease 0s infinite normal none running",
+        waveform: "waveform 0.8s ease-in-out infinite",
       },
     },
   },

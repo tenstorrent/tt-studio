@@ -691,6 +691,7 @@ class TtsInferenceView(APIView):
                 content_type = audio_resp.headers.get("Content-Type", "audio/wav")
                 django_response = HttpResponse(audio_resp.content, content_type=content_type)
                 django_response["Content-Disposition"] = "attachment; filename=tts_output.wav"
+                django_response["Cache-Control"] = "no-cache, no-store, must-revalidate"
                 return django_response
 
             except requests.exceptions.HTTPError as http_err:
@@ -747,7 +748,9 @@ class OpenAIAudioSpeechView(APIView):
             audio_resp.raise_for_status()
 
             content_type = audio_resp.headers.get("Content-Type", "audio/wav")
-            return HttpResponse(audio_resp.content, content_type=content_type)
+            django_response = HttpResponse(audio_resp.content, content_type=content_type)
+            django_response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return django_response
 
         except requests.exceptions.HTTPError as http_err:
             logger.error(f"OpenAI audio/speech HTTP error: {http_err}")

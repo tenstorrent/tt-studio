@@ -196,9 +196,9 @@ export default function SpeechToTextApp() {
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
-        const lastAssistant = localChatHistory.find(
-          (m) => m.sender === "assistant" && m.text
-        );
+      const lastAssistant = localChatHistory.findLast(
+        (m) => m.sender === "assistant" && m.text
+      );
         const llmResponseText = lastAssistant?.text || "";
         const llmTokenEstimate = llmResponseText.split(/\s+/).length;
 

@@ -13,7 +13,20 @@ import {
 } from "../ui/tooltip";
 import { useTheme } from "../../hooks/useTheme";
 import { MetricsPanel } from "./MetricsPanel";
+import MarkdownComponent from "@/src/components/chatui/MarkdownComponent";
 import type { Conversation, ConversationMessage, PipelineMetrics } from "./types";
+
+function cleanLlmText(text: string): string {
+  return text
+    .replace(/<\|.*?\|>(&gt;)?/g, "")
+    .replace(/\b(assistant|user)\b/gi, "")
+    .replace(/\|(?:eot_id|start_header_id)\|/g, "")
+    .replace(/<think>.*?<\/think>/gis, "")
+    .replace(/<think>.*$/is, "")
+    .replace(/<\/think>/gi, "")
+    .replace(/&(lt|gt);/g, "")
+    .trim();
+}
 
 interface MainContentProps {
   conversations: Conversation[];
@@ -139,14 +152,23 @@ export function MainContent({
             {selectedConversationData &&
             selectedConversationData.messages.length > 0 ? (
               <div className="flex flex-col gap-5">
-                {selectedConversationData.messages.map((message) => (
-                  <ChatMessage
-                    key={message.id}
-                    message={message}
-                    theme={theme}
-                    onCopy={copyToClipboard}
-                  />
-                ))}
+                {selectedConversationData.messages.map((message, index) => {
+                  const isLastAssistant =
+                    message.sender === "assistant" &&
+                    index ===
+                      selectedConversationData.messages.findLastIndex(
+                        (m) => m.sender === "assistant"
+                      );
+                  return (
+                    <ChatMessage
+                      key={message.id}
+                      message={message}
+                      theme={theme}
+                      onCopy={copyToClipboard}
+                      isSynthesizing={isLastAssistant && isTTSGenerating}
+                    />
+                  );
+                })}
 
                 {isStreaming && (
                   <div className="flex items-center gap-1.5 px-1 py-2">
@@ -162,18 +184,6 @@ export function MainContent({
                       className="w-1.5 h-1.5 bg-TT-purple-accent rounded-full animate-bounce"
                       style={{ animationDelay: "300ms" }}
                     />
-                  </div>
-                )}
-
-                {isTTSGenerating && (
-                  <div
-                    className={cn(
-                      "flex items-center gap-2 px-1 py-2 text-xs",
-                      theme === "dark" ? "text-gray-500" : "text-gray-400"
-                    )}
-                  >
-                    <Volume2 className="h-3.5 w-3.5 animate-pulse" />
-                    <span>Generating audio...</span>
                   </div>
                 )}
               </div>
@@ -211,10 +221,12 @@ function ChatMessage({
   message,
   theme,
   onCopy,
+  isSynthesizing = false,
 }: {
   message: ConversationMessage;
   theme: string;
   onCopy: (text: string) => void;
+  isSynthesizing?: boolean;
 }) {
   const isUser = message.sender === "user";
 
@@ -261,7 +273,13 @@ function ChatMessage({
           theme === "dark" ? "text-gray-200" : "text-gray-800"
         )}
       >
-        {message.text || (
+        {message.text ? (
+          isUser ? (
+            <p className="whitespace-pre-wrap break-words">{message.text}</p>
+          ) : (
+            <MarkdownComponent>{cleanLlmText(message.text)}</MarkdownComponent>
+          )
+        ) : (
           <span className="opacity-40 italic">
             {message.isStreaming ? "Thinking..." : ""}
           </span>
@@ -271,10 +289,12 @@ function ChatMessage({
         )}
       </div>
 
-      {/* Audio playback */}
-      {message.audioBlob && audioSrc && (
+      {/* Audio playback / synthesizing indicator */}
+      {message.audioBlob && audioSrc ? (
         <CompactAudioPlayer src={audioSrc} theme={theme} />
-      )}
+      ) : isSynthesizing ? (
+        <SynthesizingIndicator theme={theme} />
+      ) : null}
 
       {/* Copy action */}
       {message.text && !message.isStreaming && (
@@ -301,6 +321,36 @@ function ChatMessage({
           </TooltipProvider>
         </div>
       )}
+    </div>
+  );
+}
+
+function SynthesizingIndicator({ theme }: { theme: string }) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2.5 mt-1 px-2 py-1.5 rounded-md w-fit",
+        theme === "dark" ? "bg-[#151515]" : "bg-gray-100"
+      )}
+    >
+      <Volume2 className="w-3.5 h-3.5 text-TT-purple-accent animate-pulse" />
+      <div className="flex items-end gap-0.5 h-4">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            className="w-[3px] rounded-full bg-TT-purple-accent animate-waveform"
+            style={{ animationDelay: `${i * 120}ms` }}
+          />
+        ))}
+      </div>
+      <span
+        className={cn(
+          "text-xs",
+          theme === "dark" ? "text-gray-400" : "text-gray-500"
+        )}
+      >
+        Synthesizing speech...
+      </span>
     </div>
   );
 }
