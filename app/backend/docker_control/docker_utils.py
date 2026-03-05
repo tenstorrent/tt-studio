@@ -143,7 +143,6 @@ def run_container(impl, weights_id, device_id=0):
             "workflow": "server",  # Default workflow for container runs
             "device": device,  # Use mapped device name
             "docker_server": True,
-            "dev_mode": True,
         }
 
         # Use slot-based port allocation for all models (single and multi-chip)

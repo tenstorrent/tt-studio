@@ -236,6 +236,25 @@ export function FirstStepForm({
   // Get current board info and group models by status and compatibility
   const currentBoard = models[0]?.current_board || "unknown";
 
+  // Map multi-chip boards to their constituent single-chip device for single-chip mode
+  const BOARD_TO_SINGLE_CHIP_DEVICE: Record<string, string> = {
+    "T3K": "N300",
+    "T3000": "N300",
+    "N300x4": "N300",
+    "N150X4": "N150",
+    "P150X4": "P150",
+    "P150X8": "P150",
+    "P300Cx2": "P300c",
+    "P300Cx4": "P300c",
+    "GALAXY": "N300",
+    "GALAXY_T3K": "N300",
+  };
+
+  // Determine the display board name based on chip mode
+  const displayBoard = chipMode === "single" && BOARD_TO_SINGLE_CHIP_DEVICE[currentBoard]
+    ? BOARD_TO_SINGLE_CHIP_DEVICE[currentBoard]
+    : currentBoard;
+
   // Status priority order for sorting
   const STATUS_ORDER: Record<string, number> = {
     COMPLETE: 3,
@@ -464,14 +483,16 @@ export function FirstStepForm({
                 <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
-                      Detected Tenstorrent board:
+                      {chipMode === "single" && displayBoard !== currentBoard
+                        ? "Target device (single chip):"
+                        : "Detected Tenstorrent board:"}
                     </span>
                     <div className="px-2 py-2">
-                      {currentBoard !== "unknown" ? (
+                      {displayBoard !== "unknown" ? (
                         <BoardBadge
-                          boardName={currentBoard}
+                          boardName={displayBoard}
                           onClick={() => {
-                            const lower = currentBoard.toLowerCase();
+                            const lower = displayBoard.toLowerCase();
                             if (
                               lower.includes("t3k") ||
                               lower.includes("t3000")
@@ -553,6 +574,11 @@ export function FirstStepForm({
                         <div className="font-semibold mb-1">
                           Board Compatibility
                         </div>
+                        {chipMode === "single" && displayBoard !== currentBoard && (
+                          <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-blue-700 dark:text-blue-300">
+                            <strong>Single-chip mode:</strong> Models shown are compatible with individual {displayBoard} chips on your {currentBoard} board.
+                          </div>
+                        )}
                         <div>
                           <span className="text-green-500 font-bold">
                             Compatible

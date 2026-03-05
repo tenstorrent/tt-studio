@@ -419,9 +419,14 @@ class SpeechRecognitionInferenceView(APIView):
             audio_file = data.get("file")  # we should only receive 1 file
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
                 inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
                 inference_data.raise_for_status()
             except requests.exceptions.HTTPError as http_err:
@@ -461,7 +466,12 @@ class SpeechRecognitionInferenceCloudView(APIView):
         else:
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
-            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
         file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
         
@@ -573,9 +583,14 @@ class SpeechRecognitionInferenceView(APIView):
             audio_file = data.get("file")  # we should only receive 1 file
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
                 inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
                 inference_data.raise_for_status()
             except requests.exceptions.HTTPError as http_err:
@@ -615,7 +630,12 @@ class SpeechRecognitionInferenceCloudView(APIView):
         else:
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
-            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
         file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
         

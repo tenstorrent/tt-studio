@@ -155,9 +155,9 @@ class ContainersView(APIView):
             'E150': [DeviceConfigurations.E150],
             
             # Wormhole multi-device
-            'N150X4': [DeviceConfigurations.N150X4],
-            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
-            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            'N150X4': [DeviceConfigurations.N150X4, DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
             
             # Blackhole single devices
             'P100': [DeviceConfigurations.P100],
@@ -165,14 +165,14 @@ class ContainersView(APIView):
             'P300c': [DeviceConfigurations.P300c],
             
             # Blackhole multi-device
-            'P150X4': [DeviceConfigurations.P150X4],
-            'P150X8': [DeviceConfigurations.P150X8],
-            'P300Cx2': [DeviceConfigurations.P300Cx2],  # 2 cards (4 chips)
-            'P300Cx4': [DeviceConfigurations.P300Cx4],  # 4 cards (8 chips)
+            'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
+            'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
+            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P300c],  # 2 cards (4 chips)
+            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P300c],  # 4 cards (8 chips)
             
             # Galaxy systems
-            'GALAXY': [DeviceConfigurations.GALAXY],
-            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K],
+            'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
             
             'unknown': []  # Empty list for unknown board type
         }

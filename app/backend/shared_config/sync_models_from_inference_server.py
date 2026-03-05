@@ -139,6 +139,23 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
     return "/v1/chat/completions"
 
 
+def map_health_route(inference_engine: str, service_route: str) -> str:
+    """Derive health_route from inference_engine and service_route.
+    
+    Args:
+        inference_engine: Engine type (vLLM, media, forge)
+        service_route: The service route (e.g., /enqueue, /v1/audio/speech)
+    
+    Returns:
+        The appropriate health check endpoint
+    """
+    if inference_engine == "media" and service_route == "/enqueue":
+        # Media server models using /enqueue have health at root
+        return "/"
+    # All other models (vLLM, forge, media with /v1/audio/speech) use /health
+    return "/health"
+
+
 def filter_env_vars(env_vars: dict) -> dict:
     """Strip device-specific env vars that ModelImpl.__post_init__ handles."""
     return {k: v for k, v in env_vars.items() if k not in DEVICE_SPECIFIC_ENV_KEYS}
@@ -187,6 +204,7 @@ def normalize(source_path: Path) -> list[dict]:
 
         inference_engine = first.get("inference_engine", "vLLM")
         raw_model_type = first.get("model_type", "LLM")
+        service_route = map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type)
 
         models.append({
             "model_name": model_name,
@@ -199,7 +217,8 @@ def normalize(source_path: Path) -> list[dict]:
             "status": status,
             "version": first.get("version", "0.0.1"),
             "docker_image": first.get("docker_image"),
-            "service_route": map_service_route(inference_engine, hf_model_id=first.get("hf_model_repo", ""), raw_model_type=raw_model_type),
+            "service_route": service_route,
+            "health_route": map_health_route(inference_engine, service_route),
             "shm_size": "32G",
             "setup_type": "TT_INFERENCE_SERVER",
             "env_vars": env_vars,
