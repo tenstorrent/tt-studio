@@ -2,103 +2,79 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { AppSidebar } from "@/src/components/speechToText/appSidebar";
 import { MainContent } from "@/src/components/speechToText/mainContent";
-import { SidebarProvider, SidebarTrigger } from "@/src/components/ui/sidebar";
-import { Card } from "../ui/card";
-import { Mic, MessageSquare } from "lucide-react";
-import { Button } from "@/src/components/ui/button";
+import { StatusPanel } from "@/src/components/speechToText/StatusPanel";
+import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
+import { Mic, MessageSquare, Volume2, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
-import { fetchDeployedModelsInfo, runTTSInference } from "@/src/api/modelsDeployedApis";
+import {
+  fetchDeployedModelsInfo,
+  runTTSInference,
+} from "@/src/api/modelsDeployedApis";
 import { runInference } from "@/src/components/chatui/runInference";
 import type { ChatMessage } from "@/src/components/chatui/types";
 import { v4 as uuidv4 } from "uuid";
+import { sendAudioRecording } from "./lib/apiClient";
+import type {
+  Conversation,
+  ConversationMessage,
+  PipelineStage,
+  DeployedModelState,
+  PipelineMetrics,
+} from "./types";
 
-export interface ConversationMessage {
-  id: string;
-  sender: "user" | "assistant";
-  text: string;
-  date: Date;
-  audioBlob?: Blob;
-  isStreaming?: boolean;
-}
-
-export interface Conversation {
-  id: string;
-  title: string;
-  date: Date;
-  messages: ConversationMessage[];
-}
+export type { Conversation, ConversationMessage };
 
 export default function SpeechToTextApp() {
-  if (process.env.NODE_ENV === "development") {
-    console.log("Rendering SpeechToTextApp");
-  }
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [selectedConversation, setSelectedConversation] = useState<
-    string | null
-  >(null);
-  const [isRecording, setIsRecording] = useState(false);
+  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [conversationCounter, setConversationCounter] = useState(1);
-  const [showRecordingInterface, setShowRecordingInterface] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isTTSGenerating, setIsTTSGenerating] = useState(false);
+  const [stage, setStage] = useState<PipelineStage>("idle");
+  const [metrics, setMetrics] = useState<PipelineMetrics | null>(null);
+  const [statusPanelOpen, setStatusPanelOpen] = useState(true);
   const { theme } = useTheme();
 
   const location = useLocation();
   const [modelID, setModelID] = useState<string | null>(null);
-  const [llmDeployId, setLlmDeployId] = useState<string | null>(null);
-  const [ttsDeployId, setTtsDeployId] = useState<string | null>(null);
+  const [models, setModels] = useState<DeployedModelState>({
+    whisper: null,
+    llm: null,
+    tts: null,
+  });
 
-  // Audio ref for TTS playback
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Chat history state used by runInference for the current conversation
+  const ttsAudioUrlRef = useRef<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const chatHistoryRef = useRef<ChatMessage[]>([]);
 
-  // Keep ref in sync for use inside callbacks
   useEffect(() => {
     chatHistoryRef.current = chatHistory;
   }, [chatHistory]);
 
   useEffect(() => {
-    if (location.state) {
-      if (!location.state.containerID) {
-        customToast.error(
-          "modelID is unavailable. Try navigating here from the Models Deployed tab"
-        );
-        return;
-      }
+    if (location.state?.containerID) {
       setModelID(location.state.containerID);
-      console.log(location.state.containerID);
     }
-  }, [location.state, modelID]);
+  }, [location.state]);
 
-  // Auto-discover deployed LLM and TTS models on mount
+  // Auto-discover deployed models
   useEffect(() => {
     const discoverModels = async () => {
       try {
         const deployed = await fetchDeployedModelsInfo();
-
-        const chatModel = deployed.find((m) => m.model_type === "chat");
-        if (chatModel) {
-          setLlmDeployId(chatModel.id);
-          console.log("Auto-discovered LLM:", chatModel.modelName, chatModel.id);
-        } else {
-          console.warn("No deployed LLM (chat) model found");
-        }
-
-        const ttsModel = deployed.find((m) => m.model_type === "tts");
-        if (ttsModel) {
-          setTtsDeployId(ttsModel.id);
-          console.log("Auto-discovered TTS:", ttsModel.modelName, ttsModel.id);
-        } else {
-          console.warn("No deployed TTS model found");
-        }
+        const whisper = deployed.find((m) => m.model_type === "speech_recognition");
+        const llm = deployed.find((m) => m.model_type === "chat");
+        const tts = deployed.find((m) => m.model_type === "tts");
+        setModels({
+          whisper: whisper ? { id: whisper.id, modelName: whisper.modelName, model_type: whisper.model_type } : null,
+          llm: llm ? { id: llm.id, modelName: llm.modelName, model_type: llm.model_type } : null,
+          tts: tts ? { id: tts.id, modelName: tts.modelName, model_type: tts.model_type } : null,
+        });
       } catch (err) {
         console.error("Failed to discover deployed models:", err);
       }
@@ -106,7 +82,7 @@ export default function SpeechToTextApp() {
     discoverModels();
   }, []);
 
-  const handleNewConversation = () => {
+  const handleNewConversation = useCallback(() => {
     const id = Date.now().toString();
     const newConversation: Conversation = {
       id,
@@ -114,60 +90,52 @@ export default function SpeechToTextApp() {
       date: new Date(),
       messages: [],
     };
-
     setConversations((prev) => [newConversation, ...prev]);
     setSelectedConversation(id);
     setConversationCounter((prev) => prev + 1);
-    setIsRecording(true);
-    setShowRecordingInterface(true);
     setChatHistory([]);
-
     return id;
-  };
+  }, [conversationCounter]);
 
-  // Helper: add a message to the specified conversation
   const addMessageToConversation = useCallback(
     (conversationId: string, message: ConversationMessage) => {
       setConversations((prev) =>
-        prev.map((convo) =>
-          convo.id === conversationId
-            ? { ...convo, messages: [...convo.messages, message] }
-            : convo
+        prev.map((c) =>
+          c.id === conversationId
+            ? { ...c, messages: [...c.messages, message] }
+            : c
         )
       );
     },
     []
   );
 
-  // Helper: update a specific message within a conversation
   const updateMessageInConversation = useCallback(
     (conversationId: string, messageId: string, updates: Partial<ConversationMessage>) => {
       setConversations((prev) =>
-        prev.map((convo) =>
-          convo.id === conversationId
+        prev.map((c) =>
+          c.id === conversationId
             ? {
-                ...convo,
-                messages: convo.messages.map((msg) =>
-                  msg.id === messageId ? { ...msg, ...updates } : msg
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === messageId ? { ...m, ...updates } : m
                 ),
               }
-            : convo
+            : c
         )
       );
     },
     []
   );
 
-  // Send transcribed text to the LLM and stream the response
   const sendToLlm = useCallback(
-    async (transcribedText: string, conversationId: string) => {
-      if (!llmDeployId) {
-        console.warn("No LLM deploy_id available, skipping LLM call");
+    async (transcribedText: string, conversationId: string, sttLatencyMs?: number) => {
+      if (!models.llm) {
         customToast.error("No deployed LLM found. Deploy a chat model first.");
         return;
       }
 
-      // Add a placeholder assistant message
+      setStage("thinking");
       const assistantMsgId = uuidv4();
       const assistantMessage: ConversationMessage = {
         id: assistantMsgId,
@@ -178,97 +146,108 @@ export default function SpeechToTextApp() {
       };
       addMessageToConversation(conversationId, assistantMessage);
 
-      // Build the chat history for the LLM from the current conversation's user/assistant messages
       const currentConvo = conversations.find((c) => c.id === conversationId);
       const priorMessages: ChatMessage[] = (currentConvo?.messages ?? [])
         .filter((m) => m.text)
-        .map((m) => ({
-          id: m.id,
-          sender: m.sender,
-          text: m.text,
-        }));
-      // Add the new user message
+        .map((m) => ({ id: m.id, sender: m.sender, text: m.text }));
       priorMessages.push({ id: uuidv4(), sender: "user", text: transcribedText });
 
-      // Use a local chatHistory state for runInference
       const localChatHistory: ChatMessage[] = [...priorMessages];
+      let llmFirstChunk = false;
+      const llmStart = performance.now();
+      let llmTtfbMs = 0;
+
       const setLocalChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>> = (updater) => {
         if (typeof updater === "function") {
           const updated = updater(localChatHistory);
-          // Find the last assistant message and sync it back to conversation
           const lastMsg = updated[updated.length - 1];
           if (lastMsg && lastMsg.sender === "assistant") {
+            if (!llmFirstChunk && lastMsg.text) {
+              llmFirstChunk = true;
+              llmTtfbMs = Math.round(performance.now() - llmStart);
+            }
             updateMessageInConversation(conversationId, assistantMsgId, {
               text: lastMsg.text,
             });
           }
-          // Update local reference
           localChatHistory.length = 0;
           localChatHistory.push(...updated);
         }
       };
 
+      const pipelineStart = performance.now();
+
       try {
         await runInference(
           {
-            deploy_id: llmDeployId,
+            deploy_id: models.llm.id,
             text: transcribedText,
             max_tokens: 512,
             temperature: 0.7,
             top_p: 0.9,
             top_k: 40,
           },
-          undefined, // no RAG
+          undefined,
           localChatHistory,
           setLocalChatHistory,
           setIsStreaming,
-          false, // not agent mode
-          0, // thread id
+          false,
+          0,
         );
 
-        // Get the final LLM response text
+        const llmTotalMs = Math.round(performance.now() - llmStart);
         const lastAssistant = localChatHistory.find(
           (m) => m.sender === "assistant" && m.text
         );
         const llmResponseText = lastAssistant?.text || "";
+        const llmTokenEstimate = llmResponseText.split(/\s+/).length;
 
-        // Send LLM response to TTS for audio playback
-        if (llmResponseText && ttsDeployId) {
-          console.log("Sending LLM response to TTS...");
+        let ttsLatencyMs: number | undefined;
+
+        if (llmResponseText && models.tts) {
+          setStage("speaking");
           setIsTTSGenerating(true);
+          const ttsStart = performance.now();
           try {
-            // Stop any currently playing TTS audio before playing new one
             if (ttsAudioRef.current) {
               ttsAudioRef.current.pause();
               ttsAudioRef.current.currentTime = 0;
-              if (ttsAudioRef.current.src) {
-                URL.revokeObjectURL(ttsAudioRef.current.src);
-              }
+            }
+            if (ttsAudioUrlRef.current) {
+              URL.revokeObjectURL(ttsAudioUrlRef.current);
+              ttsAudioUrlRef.current = null;
             }
 
-            const audioBlob = await runTTSInference(ttsDeployId, llmResponseText);
+            const audioBlob = await runTTSInference(models.tts.id, llmResponseText);
+            ttsLatencyMs = Math.round(performance.now() - ttsStart);
             const audioUrl = URL.createObjectURL(audioBlob);
+            ttsAudioUrlRef.current = audioUrl;
 
-            // Attach audio to the assistant message
             updateMessageInConversation(conversationId, assistantMsgId, {
-              audioBlob: audioBlob,
+              audioBlob,
               isStreaming: false,
             });
 
-            // Auto-play the TTS audio
-            if (!ttsAudioRef.current) {
-              ttsAudioRef.current = new Audio();
-            }
+            if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
             ttsAudioRef.current.src = audioUrl;
-            ttsAudioRef.current.play().catch((e) =>
-              console.warn("TTS autoplay blocked:", e)
-            );
+            ttsAudioRef.current.load();
+            ttsAudioRef.current.play().catch((e) => console.warn("TTS autoplay blocked:", e));
           } catch (ttsErr) {
             console.error("TTS error:", ttsErr);
           } finally {
             setIsTTSGenerating(false);
           }
         }
+
+        const totalMs = Math.round(performance.now() - pipelineStart);
+        setMetrics({
+          stt_latency_ms: sttLatencyMs,
+          llm_ttfb_ms: llmTtfbMs,
+          llm_total_ms: llmTotalMs,
+          llm_tokens: llmTokenEstimate,
+          tts_latency_ms: ttsLatencyMs,
+          total_ms: totalMs,
+        });
       } catch (err) {
         console.error("LLM inference error:", err);
         updateMessageInConversation(conversationId, assistantMsgId, {
@@ -276,41 +255,45 @@ export default function SpeechToTextApp() {
           isStreaming: false,
         });
       } finally {
-        updateMessageInConversation(conversationId, assistantMsgId, {
-          isStreaming: false,
-        });
+        updateMessageInConversation(conversationId, assistantMsgId, { isStreaming: false });
+        setStage("done");
       }
     },
-    [llmDeployId, ttsDeployId, conversations, addMessageToConversation, updateMessageInConversation]
+    [models, conversations, addMessageToConversation, updateMessageInConversation]
   );
 
-  // After transcription completes, add user message then send to LLM
-  const handleNewTranscription = (text: string, audioBlob: Blob) => {
-    const userMsgId = uuidv4();
-    const userMessage: ConversationMessage = {
-      id: userMsgId,
-      sender: "user",
-      text,
-      date: new Date(),
-      audioBlob,
-    };
+  const handleRecordingComplete = async (audioBlob: Blob) => {
+    setStage("transcribing");
 
     let targetConversationId = selectedConversation;
-
     if (!targetConversationId) {
       targetConversationId = handleNewConversation();
     }
 
-    addMessageToConversation(targetConversationId, userMessage);
+    try {
+      const sttStart = performance.now();
+      const data = await sendAudioRecording(audioBlob, { modelID: modelID || "" });
+      const sttLatencyMs = Math.round(performance.now() - sttStart);
+      const text = data.text;
 
-    // Send the transcribed text to the LLM
-    sendToLlm(text, targetConversationId);
+      const userMsgId = uuidv4();
+      const userMessage: ConversationMessage = {
+        id: userMsgId,
+        sender: "user",
+        text,
+        date: new Date(),
+        audioBlob,
+      };
+      addMessageToConversation(targetConversationId, userMessage);
 
-    return targetConversationId;
-  };
-
-  const toggleView = () => {
-    setShowRecordingInterface(!showRecordingInterface);
+      await sendToLlm(text, targetConversationId, sttLatencyMs);
+    } catch (error) {
+      console.error("Error processing audio:", error);
+      customToast.error(
+        `Transcription Error: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+      setStage("idle");
+    }
   };
 
   const selectedConversationData = selectedConversation
@@ -318,129 +301,212 @@ export default function SpeechToTextApp() {
     : null;
 
   useEffect(() => {
-    const savedCounter = localStorage.getItem("conversationCounter");
-    if (savedCounter) {
-      setConversationCounter(Number.parseInt(savedCounter));
-    }
+    const saved = localStorage.getItem("conversationCounter");
+    if (saved) setConversationCounter(Number.parseInt(saved));
   }, []);
 
   useEffect(() => {
     localStorage.setItem("conversationCounter", conversationCounter.toString());
   }, [conversationCounter]);
 
+  const isProcessing = stage === "transcribing" || stage === "thinking" || stage === "speaking";
+
   return (
-    <div className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4 pb-20">
-      <Card
+    <div className="w-full h-full flex flex-col">
+      {/* Header */}
+      <header
         className={cn(
-          "flex w-full h-full shadow-xl overflow-hidden rounded-xl backdrop-blur-sm",
+          "h-10 flex items-center justify-between px-3 border-b shrink-0",
           theme === "dark"
-            ? "bg-[#1A1A1A] border-TT-purple/20"
-            : "bg-white border-TT-purple-shade/20"
+            ? "bg-[#0A0A0A] border-[#1A1A1A]"
+            : "bg-white border-gray-200"
         )}
       >
-        <SidebarProvider defaultOpen={false}>
-          <div className="flex w-full h-full">
-            <div
+        <div className="flex items-center gap-3">
+          <h1
+            className={cn(
+              "text-sm font-semibold",
+              theme === "dark" ? "text-white" : "text-gray-900"
+            )}
+          >
+            Voice Pipeline
+          </h1>
+          <span
+            className={cn(
+              "text-[10px] px-2 py-0.5 rounded-full font-medium",
+              stage === "idle" || stage === "done"
+                ? theme === "dark"
+                  ? "bg-green-500/10 text-green-400"
+                  : "bg-green-50 text-green-600"
+                : theme === "dark"
+                  ? "bg-amber-500/10 text-amber-400"
+                  : "bg-amber-50 text-amber-600"
+            )}
+          >
+            {stage === "idle" || stage === "done" ? "Ready" : stage}
+          </span>
+        </div>
+
+        {/* Model status pills */}
+        <div className="flex items-center gap-2">
+          <ModelPill
+            icon={<Mic className="w-3 h-3" />}
+            label="Whisper"
+            connected={!!models.whisper}
+            theme={theme}
+          />
+          <ModelPill
+            icon={<MessageSquare className="w-3 h-3" />}
+            label="LLM"
+            connected={!!models.llm}
+            theme={theme}
+          />
+          <ModelPill
+            icon={<Volume2 className="w-3 h-3" />}
+            label="TTS"
+            connected={!!models.tts}
+            theme={theme}
+          />
+          <button
+            onClick={() => setStatusPanelOpen(!statusPanelOpen)}
+            className={cn(
+              "ml-2 w-7 h-7 flex items-center justify-center rounded-md transition-colors",
+              theme === "dark"
+                ? "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+            )}
+          >
+            {statusPanelOpen ? (
+              <ChevronRight className="w-4 h-4" />
+            ) : (
+              <ChevronLeft className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* 3-panel body */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Panel - Audio */}
+        <div
+          className={cn(
+            "w-36 lg:w-44 shrink-0 flex flex-col items-center justify-center border-r",
+            theme === "dark"
+              ? "bg-[#0A0A0A] border-[#1A1A1A]"
+              : "bg-white border-gray-200"
+          )}
+        >
+          <div className="flex flex-col items-center gap-3 py-3">
+            <p
               className={cn(
-                "h-full border-r overflow-y-auto",
-                theme === "dark"
-                  ? "border-TT-purple/20"
-                  : "border-TT-purple-shade/20"
+                "text-[10px] font-semibold uppercase tracking-wider",
+                theme === "dark" ? "text-gray-600" : "text-gray-400"
               )}
             >
-              <AppSidebar
-                conversations={conversations}
-                selectedConversation={selectedConversation}
-                onSelectConversation={(id) => {
-                  setSelectedConversation(id);
-                  setIsRecording(false);
-                  setShowRecordingInterface(false);
-                }}
-                onNewConversation={handleNewConversation}
-              />
-            </div>
+              Microphone
+            </p>
+            <AudioRecorderWithVisualizer
+              onRecordingComplete={handleRecordingComplete}
+              onRecordingStart={() => setStage("recording")}
+              disabled={isProcessing}
+            />
+          </div>
 
-            <div className="flex flex-col flex-1 h-full">
-              <div
+          {/* Bot audio section */}
+          {isTTSGenerating && (
+            <div
+              className={cn(
+                "w-full border-t px-3 py-3 flex flex-col items-center gap-2",
+                theme === "dark" ? "border-[#1A1A1A]" : "border-gray-200"
+              )}
+            >
+              <p
                 className={cn(
-                  "sticky top-0 z-50 h-16 md:h-16 border-b flex items-center justify-between px-3 md:px-6",
-                  theme === "dark"
-                    ? "border-TT-purple/30 bg-gradient-to-r from-[#1A1A1A] via-[#222222] to-[#1A1A1A]"
-                    : "border-TT-purple-shade/20 bg-gradient-to-r from-white via-gray-50 to-white"
+                  "text-[10px] font-semibold uppercase tracking-wider",
+                  theme === "dark" ? "text-gray-600" : "text-gray-400"
                 )}
               >
-                <div className="flex items-center">
-                  <SidebarTrigger className="mr-2 md:mr-4 text-TT-purple hover:text-TT-purple-accent" />
-                  <h1 className="text-lg md:text-xl font-semibold text-TT-purple truncate max-w-[150px] md:max-w-full">
-                    {selectedConversation
-                      ? conversations.find((c) => c.id === selectedConversation)
-                          ?.title || "Speech to Text"
-                      : "New Conversation"}
-                  </h1>
-                  {selectedConversation && selectedConversationData && (
-                    <div
-                      className={cn(
-                        "ml-2 md:ml-4 text-xs md:text-sm px-2 md:px-2.5 py-0.5 md:py-1 rounded-full",
-                        theme === "dark"
-                          ? "text-TT-purple-tint1 bg-TT-purple-shade/40"
-                          : "text-TT-purple bg-TT-purple-shade/20"
-                      )}
-                    >
-                      {selectedConversationData.messages.length || 0}{" "}
-                      {selectedConversationData.messages.length === 1
-                        ? "message"
-                        : "messages"}
-                    </div>
-                  )}
-                </div>
-                {selectedConversation && (
-                  <div className="flex items-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={toggleView}
-                      className={cn(
-                        "text-xs md:text-sm px-2 md:px-4 py-1 md:py-2 h-8 md:h-9",
-                        theme === "dark"
-                          ? "border-TT-purple/40 hover:border-TT-purple bg-TT-purple-shade/30 hover:bg-TT-purple-shade/50 text-white"
-                          : "border-TT-purple-shade/40 hover:border-TT-purple bg-TT-purple-shade/10 hover:bg-TT-purple-shade/20 text-gray-900"
-                      )}
-                    >
-                      {showRecordingInterface ? (
-                        <>
-                          <MessageSquare className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2 text-TT-purple-accent" />
-                          <span className="hidden xs:inline">View</span>{" "}
-                          Conversation
-                        </>
-                      ) : (
-                        <>
-                          <Mic className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2 text-TT-purple-accent" />
-                          <span className="hidden xs:inline">Record</span> Audio
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 overflow-hidden">
-                <MainContent
-                  conversations={conversations}
-                  selectedConversation={selectedConversation}
-                  onNewTranscription={handleNewTranscription}
-                  isRecording={isRecording}
-                  setIsRecording={setIsRecording}
-                  showRecordingInterface={showRecordingInterface}
-                  setShowRecordingInterface={setShowRecordingInterface}
-                  modelID={modelID || ""}
-                  isStreaming={isStreaming}
-                  isTTSGenerating={isTTSGenerating}
-                />
+                Bot Audio
+              </p>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="w-2 h-2 bg-TT-purple-accent rounded-sm animate-pulse"
+                    style={{ animationDelay: `${i * 100}ms` }}
+                  />
+                ))}
               </div>
             </div>
+          )}
+        </div>
+
+        {/* Center Panel - Conversation / Metrics */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <MainContent
+            conversations={conversations}
+            selectedConversation={selectedConversation}
+            isStreaming={isStreaming}
+            isTTSGenerating={isTTSGenerating}
+            metrics={metrics}
+          />
+        </div>
+
+        {/* Right Panel - Status */}
+        {statusPanelOpen && (
+          <div
+            className={cn(
+              "w-44 lg:w-52 shrink-0 border-l overflow-hidden",
+              theme === "dark"
+                ? "bg-[#0A0A0A] border-[#1A1A1A]"
+                : "bg-white border-gray-200"
+            )}
+          >
+            <StatusPanel
+              stage={stage}
+              models={models}
+              conversationId={selectedConversation}
+              messageCount={selectedConversationData?.messages.length ?? 0}
+            />
           </div>
-        </SidebarProvider>
-      </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModelPill({
+  icon,
+  label,
+  connected,
+  theme,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  connected: boolean;
+  theme: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs",
+        connected
+          ? theme === "dark"
+            ? "bg-green-500/10 text-green-400"
+            : "bg-green-50 text-green-700"
+          : theme === "dark"
+            ? "bg-[#151515] text-gray-500"
+            : "bg-gray-50 text-gray-400"
+      )}
+    >
+      {icon}
+      <span className="hidden sm:inline">{label}</span>
+      <span
+        className={cn(
+          "w-1.5 h-1.5 rounded-full",
+          connected ? "bg-green-500" : "bg-gray-400"
+        )}
+      />
     </div>
   );
 }

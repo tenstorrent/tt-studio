@@ -348,6 +348,7 @@ export const runVoicePipeline = async (
   onAudio: (dataUrl: string) => void,
   onError: (stage: string, message: string) => void,
   onDone: () => void,
+  onMetrics?: (metrics: Record<string, number>) => void,
 ): Promise<void> => {
   const form = new FormData();
   form.append("audio_file", req.audioFile);
@@ -385,6 +386,10 @@ export const runVoicePipeline = async (
         if (evt.type === "transcript") onTranscript(evt.text);
         else if (evt.type === "llm_chunk") onLlmChunk(evt.text);
         else if (evt.type === "audio_url") onAudio(evt.url);
+        else if (evt.type === "metrics" && onMetrics) {
+          const { type: _, ...metricsData } = evt;
+          onMetrics(metricsData);
+        }
         else if (evt.type === "error") onError(evt.stage ?? "unknown", evt.message);
         else if (evt.type === "done") onDone();
       } catch {
