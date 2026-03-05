@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Loader2,
   Copy,
@@ -9,6 +9,7 @@ import {
   Play,
   Bot,
   User,
+  Volume2,
 } from "lucide-react";
 import { Button } from "@/src/components/ui/button";
 import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
@@ -33,6 +34,7 @@ interface MainContentProps {
   setShowRecordingInterface: (show: boolean) => void;
   modelID: string;
   isStreaming?: boolean;
+  isTTSGenerating?: boolean;
 }
 
 type ScrollBehavior = "auto" | "instant" | "smooth";
@@ -47,6 +49,7 @@ export function MainContent({
   setShowRecordingInterface,
   modelID,
   isStreaming = false,
+  isTTSGenerating = false,
 }: MainContentProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [_audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -59,7 +62,6 @@ export function MainContent({
 
   const contentContainerRef = useRef<HTMLDivElement>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
   const selectedConversationData = selectedConversation
     ? conversations.find((c) => c.id === selectedConversation)
@@ -127,10 +129,6 @@ export function MainContent({
   };
 
   const startNewRecording = () => {
-    if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current.src = "";
-    }
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
@@ -305,7 +303,6 @@ export function MainContent({
                     message={message}
                     theme={theme}
                     onCopy={copyToClipboard}
-                    audioElementRef={audioElementRef}
                   />
                 ))}
 
@@ -318,6 +315,19 @@ export function MainContent({
                         <span className="w-2 h-2 bg-TT-purple rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                         <span className="w-2 h-2 bg-TT-purple rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TTS Generating indicator */}
+                {isTTSGenerating && (
+                  <div className="flex justify-start">
+                    <div className={cn(
+                      "flex items-center gap-2 px-4 py-2 text-sm",
+                      theme === "dark" ? "text-gray-400" : "text-gray-500"
+                    )}>
+                      <Volume2 className="h-4 w-4 animate-pulse" />
+                      <span>Generating audio...</span>
                     </div>
                   </div>
                 )}
@@ -336,7 +346,7 @@ export function MainContent({
                     onClick={startNewRecording}
                     variant="default"
                     size="lg"
-                    disabled={isStreaming}
+                    disabled={isStreaming || isTTSGenerating}
                     className="flex items-center gap-2 sm:gap-3 px-4 sm:px-8 py-2 sm:py-7 bg-gradient-to-r from-TT-purple-accent to-TT-purple-accent hover:from-TT-purple hover:to-TT-purple-accent text-white transition-all duration-300 font-medium shadow-md shadow-TT-purple/20 hover:shadow-lg hover:shadow-TT-purple/30"
                   >
                     <Mic className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
@@ -363,14 +373,29 @@ function ChatBubble({
   message,
   theme,
   onCopy,
-  audioElementRef,
 }: {
   message: ConversationMessage;
   theme: string;
   onCopy: (text: string) => void;
-  audioElementRef: React.MutableRefObject<HTMLAudioElement | null>;
 }) {
   const isUser = message.sender === "user";
+
+  // Memoize the audio URL to avoid recreating it on every render
+  const audioSrc = useMemo(() => {
+    if (message.audioBlob) {
+      return URL.createObjectURL(message.audioBlob);
+    }
+    return undefined;
+  }, [message.audioBlob]);
+
+  // Clean up the object URL when the component unmounts or audioBlob changes
+  useEffect(() => {
+    return () => {
+      if (audioSrc) {
+        URL.revokeObjectURL(audioSrc);
+      }
+    };
+  }, [audioSrc]);
 
   return (
     <div
@@ -477,9 +502,8 @@ function ChatBubble({
                   <audio
                     id={`audio-${message.id}`}
                     className="w-full h-6 opacity-80"
-                    src={URL.createObjectURL(message.audioBlob)}
+                    src={audioSrc}
                     controls
-                    ref={audioElementRef}
                     style={{ height: "28px" }}
                   />
                 </div>

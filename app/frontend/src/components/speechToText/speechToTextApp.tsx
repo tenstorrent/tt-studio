@@ -45,6 +45,7 @@ export default function SpeechToTextApp() {
   const [conversationCounter, setConversationCounter] = useState(1);
   const [showRecordingInterface, setShowRecordingInterface] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isTTSGenerating, setIsTTSGenerating] = useState(false);
   const { theme } = useTheme();
 
   const location = useLocation();
@@ -234,7 +235,17 @@ export default function SpeechToTextApp() {
         // Send LLM response to TTS for audio playback
         if (llmResponseText && ttsDeployId) {
           console.log("Sending LLM response to TTS...");
+          setIsTTSGenerating(true);
           try {
+            // Stop any currently playing TTS audio before playing new one
+            if (ttsAudioRef.current) {
+              ttsAudioRef.current.pause();
+              ttsAudioRef.current.currentTime = 0;
+              if (ttsAudioRef.current.src) {
+                URL.revokeObjectURL(ttsAudioRef.current.src);
+              }
+            }
+
             const audioBlob = await runTTSInference(ttsDeployId, llmResponseText);
             const audioUrl = URL.createObjectURL(audioBlob);
 
@@ -254,6 +265,8 @@ export default function SpeechToTextApp() {
             );
           } catch (ttsErr) {
             console.error("TTS error:", ttsErr);
+          } finally {
+            setIsTTSGenerating(false);
           }
         }
       } catch (err) {
@@ -421,6 +434,7 @@ export default function SpeechToTextApp() {
                   setShowRecordingInterface={setShowRecordingInterface}
                   modelID={modelID || ""}
                   isStreaming={isStreaming}
+                  isTTSGenerating={isTTSGenerating}
                 />
               </div>
             </div>
