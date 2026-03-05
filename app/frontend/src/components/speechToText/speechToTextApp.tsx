@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AppSidebar } from "@/src/components/speechToText/appSidebar";
 import { MainContent } from "@/src/components/speechToText/mainContent";
 import { SidebarProvider, SidebarTrigger } from "@/src/components/ui/sidebar";
@@ -12,19 +12,25 @@ import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
+import { fetchDeployedModelsInfo } from "@/src/api/modelsDeployedApis";
+import { runInference } from "@/src/components/chatui/runInference";
+import type { ChatMessage } from "@/src/components/chatui/types";
+import { v4 as uuidv4 } from "uuid";
 
-interface Transcription {
+export interface ConversationMessage {
   id: string;
+  sender: "user" | "assistant";
   text: string;
   date: Date;
   audioBlob?: Blob;
+  isStreaming?: boolean;
 }
 
-interface Conversation {
+export interface Conversation {
   id: string;
   title: string;
   date: Date;
-  transcriptions: Transcription[];
+  messages: ConversationMessage[];
 }
 
 export default function SpeechToTextApp() {
@@ -38,10 +44,21 @@ export default function SpeechToTextApp() {
   const [isRecording, setIsRecording] = useState(false);
   const [conversationCounter, setConversationCounter] = useState(1);
   const [showRecordingInterface, setShowRecordingInterface] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const { theme } = useTheme();
 
   const location = useLocation();
   const [modelID, setModelID] = useState<string | null>(null);
+  const [llmDeployId, setLlmDeployId] = useState<string | null>(null);
+
+  // Chat history state used by runInference for the current conversation
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const chatHistoryRef = useRef<ChatMessage[]>([]);
+
+  // Keep ref in sync for use inside callbacks
+  useEffect(() => {
+    chatHistoryRef.current = chatHistory;
+  }, [chatHistory]);
 
   useEffect(() => {
     if (location.state) {
@@ -56,14 +73,32 @@ export default function SpeechToTextApp() {
     }
   }, [location.state, modelID]);
 
-  // Function to create a new conversation
+  // Auto-discover deployed LLM on mount
+  useEffect(() => {
+    const discoverLlm = async () => {
+      try {
+        const deployed = await fetchDeployedModelsInfo();
+        const chatModel = deployed.find((m) => m.model_type === "chat");
+        if (chatModel) {
+          setLlmDeployId(chatModel.id);
+          console.log("Auto-discovered LLM:", chatModel.modelName, chatModel.id);
+        } else {
+          console.warn("No deployed LLM (chat) model found");
+        }
+      } catch (err) {
+        console.error("Failed to discover deployed LLM:", err);
+      }
+    };
+    discoverLlm();
+  }, []);
+
   const handleNewConversation = () => {
     const id = Date.now().toString();
-    const newConversation = {
+    const newConversation: Conversation = {
       id,
       title: `Conversation ${conversationCounter}`,
       date: new Date(),
-      transcriptions: [],
+      messages: [],
     };
 
     setConversations((prev) => [newConversation, ...prev]);
@@ -71,66 +106,160 @@ export default function SpeechToTextApp() {
     setConversationCounter((prev) => prev + 1);
     setIsRecording(true);
     setShowRecordingInterface(true);
+    setChatHistory([]);
 
     return id;
   };
 
-  // Function to add a new transcription to a conversation
+  // Helper: add a message to the specified conversation
+  const addMessageToConversation = useCallback(
+    (conversationId: string, message: ConversationMessage) => {
+      setConversations((prev) =>
+        prev.map((convo) =>
+          convo.id === conversationId
+            ? { ...convo, messages: [...convo.messages, message] }
+            : convo
+        )
+      );
+    },
+    []
+  );
+
+  // Helper: update a specific message within a conversation
+  const updateMessageInConversation = useCallback(
+    (conversationId: string, messageId: string, updates: Partial<ConversationMessage>) => {
+      setConversations((prev) =>
+        prev.map((convo) =>
+          convo.id === conversationId
+            ? {
+                ...convo,
+                messages: convo.messages.map((msg) =>
+                  msg.id === messageId ? { ...msg, ...updates } : msg
+                ),
+              }
+            : convo
+        )
+      );
+    },
+    []
+  );
+
+  // Send transcribed text to the LLM and stream the response
+  const sendToLlm = useCallback(
+    async (transcribedText: string, conversationId: string) => {
+      if (!llmDeployId) {
+        console.warn("No LLM deploy_id available, skipping LLM call");
+        customToast.error("No deployed LLM found. Deploy a chat model first.");
+        return;
+      }
+
+      // Add a placeholder assistant message
+      const assistantMsgId = uuidv4();
+      const assistantMessage: ConversationMessage = {
+        id: assistantMsgId,
+        sender: "assistant",
+        text: "",
+        date: new Date(),
+        isStreaming: true,
+      };
+      addMessageToConversation(conversationId, assistantMessage);
+
+      // Build the chat history for the LLM from the current conversation's user/assistant messages
+      const currentConvo = conversations.find((c) => c.id === conversationId);
+      const priorMessages: ChatMessage[] = (currentConvo?.messages ?? [])
+        .filter((m) => m.text)
+        .map((m) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+        }));
+      // Add the new user message
+      priorMessages.push({ id: uuidv4(), sender: "user", text: transcribedText });
+
+      // Use a local chatHistory state for runInference
+      const localChatHistory: ChatMessage[] = [...priorMessages];
+      const setLocalChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>> = (updater) => {
+        if (typeof updater === "function") {
+          const updated = updater(localChatHistory);
+          // Find the last assistant message and sync it back to conversation
+          const lastMsg = updated[updated.length - 1];
+          if (lastMsg && lastMsg.sender === "assistant") {
+            updateMessageInConversation(conversationId, assistantMsgId, {
+              text: lastMsg.text,
+            });
+          }
+          // Update local reference
+          localChatHistory.length = 0;
+          localChatHistory.push(...updated);
+        }
+      };
+
+      try {
+        await runInference(
+          {
+            deploy_id: llmDeployId,
+            text: transcribedText,
+            max_tokens: 512,
+            temperature: 0.7,
+            top_p: 0.9,
+            top_k: 40,
+          },
+          undefined, // no RAG
+          localChatHistory,
+          setLocalChatHistory,
+          setIsStreaming,
+          false, // not agent mode
+          0, // thread id
+        );
+      } catch (err) {
+        console.error("LLM inference error:", err);
+        updateMessageInConversation(conversationId, assistantMsgId, {
+          text: "Error: Failed to get LLM response.",
+          isStreaming: false,
+        });
+      } finally {
+        // Mark streaming complete
+        updateMessageInConversation(conversationId, assistantMsgId, {
+          isStreaming: false,
+        });
+      }
+    },
+    [llmDeployId, conversations, addMessageToConversation, updateMessageInConversation]
+  );
+
+  // After transcription completes, add user message then send to LLM
   const handleNewTranscription = (text: string, audioBlob: Blob) => {
-    const transcriptionId = Date.now().toString();
-    const newTranscription = {
-      id: transcriptionId,
+    const userMsgId = uuidv4();
+    const userMessage: ConversationMessage = {
+      id: userMsgId,
+      sender: "user",
       text,
       date: new Date(),
       audioBlob,
     };
 
-    // If no conversation is selected, create a new one
-    if (!selectedConversation) {
-      const conversationId = handleNewConversation();
+    let targetConversationId = selectedConversation;
 
-      setConversations((prev) => {
-        return prev.map((convo) => {
-          if (convo.id === conversationId) {
-            return {
-              ...convo,
-              transcriptions: [newTranscription],
-            };
-          }
-          return convo;
-        });
-      });
-
-      return conversationId;
+    if (!targetConversationId) {
+      targetConversationId = handleNewConversation();
     }
 
-    // Add transcription to existing conversation
-    setConversations((prev) => {
-      return prev.map((convo) => {
-        if (convo.id === selectedConversation) {
-          return {
-            ...convo,
-            transcriptions: [...convo.transcriptions, newTranscription],
-          };
-        }
-        return convo;
-      });
-    });
+    addMessageToConversation(targetConversationId, userMessage);
 
-    return selectedConversation;
+    // Send the transcribed text to the LLM
+    sendToLlm(text, targetConversationId);
+
+    return targetConversationId;
   };
 
-  // Toggle between recording interface and transcription view
   const toggleView = () => {
     setShowRecordingInterface(!showRecordingInterface);
   };
 
-  // Get selected conversation data
   const selectedConversationData = selectedConversation
     ? conversations.find((c) => c.id === selectedConversation)
     : null;
 
-  // Load counter from localStorage on initial load
   useEffect(() => {
     const savedCounter = localStorage.getItem("conversationCounter");
     if (savedCounter) {
@@ -138,14 +267,12 @@ export default function SpeechToTextApp() {
     }
   }, []);
 
-  // Save counter to localStorage when it changes
   useEffect(() => {
     localStorage.setItem("conversationCounter", conversationCounter.toString());
   }, [conversationCounter]);
 
   return (
     <div className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4 pb-20">
-      {/* Main card container with subtle glow effect */}
       <Card
         className={cn(
           "flex w-full h-full shadow-xl overflow-hidden rounded-xl backdrop-blur-sm",
@@ -156,7 +283,6 @@ export default function SpeechToTextApp() {
       >
         <SidebarProvider defaultOpen={false}>
           <div className="flex w-full h-full">
-            {/* Sidebar - has its own scrolling */}
             <div
               className={cn(
                 "h-full border-r overflow-y-auto",
@@ -203,8 +329,8 @@ export default function SpeechToTextApp() {
                           : "text-TT-purple bg-TT-purple-shade/20"
                       )}
                     >
-                      {selectedConversationData.transcriptions.length || 0}{" "}
-                      {selectedConversationData.transcriptions.length === 1
+                      {selectedConversationData.messages.length || 0}{" "}
+                      {selectedConversationData.messages.length === 1
                         ? "message"
                         : "messages"}
                     </div>
@@ -250,6 +376,7 @@ export default function SpeechToTextApp() {
                   showRecordingInterface={showRecordingInterface}
                   setShowRecordingInterface={setShowRecordingInterface}
                   modelID={modelID || ""}
+                  isStreaming={isStreaming}
                 />
               </div>
             </div>
