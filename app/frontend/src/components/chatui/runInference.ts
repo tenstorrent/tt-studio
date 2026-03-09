@@ -22,7 +22,8 @@ export const runInference = async (
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
   isAgentSelected: boolean,
   threadId: number,
-  abortController?: AbortController
+  abortController?: AbortController,
+  systemPrompt: string | null = null,
 ) => {
   console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
     request,
@@ -135,7 +136,8 @@ export const runInference = async (
       console.log("RAG context being passed to generatePrompt:", ragContext);
       messages = generatePrompt(
         chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-        ragContext
+        ragContext,
+        systemPrompt,
       );
     }
 

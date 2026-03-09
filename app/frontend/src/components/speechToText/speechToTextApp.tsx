@@ -193,6 +193,12 @@ export default function SpeechToTextApp() {
           setIsStreaming,
           false,
           0,
+          undefined,
+          "Role: You are a concise, witty AI assistant for a live demo. \
+          Constraint 1: Keep responses extremely short. Aim for 1-2 sentences maximum (under 30 words). \
+          Constraint 2: Use natural, conversational language. Avoid bullet points, bolding, or markdown. \
+          Constraint 3: Do not repeat the user's question. Get straight to the answer or a clever quip. \
+          Goal: Minimize text output to ensure the Text-to-Speech (TTS) engine can process and play audio instantly."
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
