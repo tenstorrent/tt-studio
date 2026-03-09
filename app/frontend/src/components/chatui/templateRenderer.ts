@@ -135,21 +135,7 @@ ${responseFormat}`
     }`
   messages.push({
     role: "system",
-    content: `You are an open source language model running on Tenstorrent hardware.
-
-SAFETY GUIDELINES:
-• Only answer if you are confident and the information is in your training or the provided context
-• Do NOT guess or make up answers
-• If unsure, reply with: "I'm not sure — please upload a document or ask a human reviewer"
-• Format replies with markdown, bullet points, and code blocks where applicable
-
-${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
-
-${processedQuery.intent.type === "greeting"
-        ? "Keep responses brief and friendly for greetings."
-        : `RESPONSE FORMAT:
-${responseFormat}`
-      }`,
+    content: systemPrompt,
   });
 
   // Add RAG context if available
