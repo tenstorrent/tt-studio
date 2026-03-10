@@ -7,6 +7,7 @@ import AppRouter from "./routes/index.tsx";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSetTitle } from "./api/utlis.ts";
 import { HeroSectionProvider } from "./providers/HeroSectionContext.tsx";
+import CustomToaster from "./components/CustomToaster";
 // Development toolbar imports commented out - remove if not needed
 // import { StagewiseToolbar } from "@stagewise/toolbar-react";
 // import ReactPlugin from "@stagewise-plugins/react";
@@ -26,6 +27,7 @@ function App() {
             <AppRouter />
           </HeroSectionProvider>
         </QueryClientProvider>
+        <CustomToaster />
       </ThemeProvider>
       {/* Development toolbar commented out - remove if not needed
       {import.meta.env.DEV && (
