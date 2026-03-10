@@ -49,7 +49,7 @@ import DeployedHomePage from "../pages/DeployedHomePage";
 import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
-import AudioDetectionPage from "../pages/AudioDetectionPage";
+import VoiceAgentPage from "../pages/VoiceAgentPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import VoicePipelinePage from "../pages/VoicePipelinePage";
@@ -111,8 +111,8 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
-      path: "/speech-to-text",
-      element: <AudioDetectionPage />,
+      path: "/voice-agent",
+      element: <VoiceAgentPage />,
       condition: true,
     },
     {

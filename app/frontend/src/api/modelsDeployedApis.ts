@@ -286,7 +286,7 @@ export const getDestinationFromModelType = (modelType: string): string => {
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
-      return "/speech-to-text";
+      return "/voice-agent";
     case ModelType.TTS:
       return "/tts";
     case ModelType.Embedding:

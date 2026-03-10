@@ -24,6 +24,8 @@ import {
   fetchModels,
   fetchDeployedModelsInfo,
   getModelTypeFromBackendType,
+  ModelType,
+  getModelTypeFromName,
 } from "../../api/modelsDeployedApis";
 import type {
   ColumnVisibilityMap,
@@ -80,6 +82,8 @@ export default function ModelsDeployedCard(): JSX.Element {
   });
 
   const navigate = useNavigate();
+  const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
+
   const loadModels = useCallback(async () => {
     setLoadError(null);
     try {
@@ -168,6 +172,23 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
 
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
+
+  const showVoiceBanner = useMemo(() => {
+    if (voiceBannerDismissed) return false;
+    const deployedTypes = models.map((m) =>
+      m.model_type
+        ? getModelTypeFromBackendType(m.model_type)
+        : getModelTypeFromName(m.name, m.image)
+    );
+    const hasLLM = deployedTypes.some(
+      (t) => t === ModelType.ChatModel || t === ModelType.VLM
+    );
+    const hasSTT = deployedTypes.some(
+      (t) => t === ModelType.SpeechRecognitionModel
+    );
+    const hasTTS = deployedTypes.some((t) => t === ModelType.TTS);
+    return hasLLM && hasSTT && hasTTS;
+  }, [models, voiceBannerDismissed]);
 
   const handleRetry = () => {
     setLoading(true);
@@ -328,6 +349,31 @@ export default function ModelsDeployedCard(): JSX.Element {
           />
         </div>
       </CardHeader>
+
+      {/* Voice Agent discovery banner */}
+      {showVoiceBanner && (
+        <div className="mx-6 mb-4 flex items-center justify-between rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-300">
+          <span>
+            You have an LLM, Whisper, and TTS deployed — try the{" "}
+            <strong>Voice Agent</strong>!
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/voice-agent")}
+              className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500"
+            >
+              Go to Voice Agent
+            </button>
+            <button
+              onClick={() => setVoiceBannerDismissed(true)}
+              className="text-blue-400 hover:text-blue-200"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Chip slot visualization for multi-chip boards */}
       {isMultiChipBoard && chipStatus && (

@@ -446,7 +446,7 @@ export default function NavBar() {
       case ModelType.CNN:
         return "Object Detection";
       case ModelType.SpeechRecognitionModel:
-        return "Speech Recognition";
+        return "Voice Agent";
       case ModelType.TTS:
         return "Text to Speech";
       case ModelType.Embedding:
@@ -576,12 +576,12 @@ export default function NavBar() {
           {
             type: "button",
             icon: AudioLines,
-            label: "Speech Recognition",
-            onClick: () => handleNavigation("/speech-to-text"),
+            label: "Voice Agent",
+            onClick: () => handleNavigation("/voice-agent"),
             isDisabled: true,
             tooltipText:
-              "Deploy a speech recognition model to use Speech Recognition",
-            route: "/speech-to-text",
+              "Deploy a speech recognition model to use Voice Agent",
+            route: "/voice-agent",
           },
         ];
       }

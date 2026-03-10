@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { MainContent } from "@/src/components/speechToText/mainContent";
-import { StatusPanel } from "@/src/components/speechToText/StatusPanel";
-import { AudioRecorderWithVisualizer } from "@/src/components/speechToText/AudioRecorderWithVisualizer";
+import { MainContent } from "@/src/components/voiceAgent/mainContent";
+import { StatusPanel } from "@/src/components/voiceAgent/StatusPanel";
+import { AudioRecorderWithVisualizer } from "@/src/components/voiceAgent/AudioRecorderWithVisualizer";
 import { Mic, MessageSquare, Volume2, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
@@ -28,7 +28,7 @@ import type {
 
 export type { Conversation, ConversationMessage };
 
-export default function SpeechToTextApp() {
+export default function VoiceAgentApp() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
   const [conversationCounter, setConversationCounter] = useState(1);
@@ -278,7 +278,7 @@ export default function SpeechToTextApp() {
 
     try {
       const sttStart = performance.now();
-      const data = await sendAudioRecording(audioBlob, { modelID: modelID || "" });
+      const data = await sendAudioRecording(audioBlob, { modelID: models.whisper?.id || modelID || "" });
       const sttLatencyMs = Math.round(performance.now() - sttStart);
       const text = data.text;
 
