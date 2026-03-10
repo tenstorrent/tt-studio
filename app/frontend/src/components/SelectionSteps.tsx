@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import ElevatedCard from "./ui/elevated-card";
 import { Step, Stepper } from "./ui/stepper";
-import CustomToaster, { customToast } from "./CustomToaster";
+import { customToast } from "./CustomToaster";
 import StepperFooter from "./StepperFooter";
 import { DeployModelStep } from "./DeployModelStep";
 import { FirstStepForm } from "./FirstStepForm";
@@ -188,7 +188,6 @@ export default function StepperDemo() {
 
   return (
     <div className="flex flex-col gap-4 w-full max-w-6xl mx-auto px-6 md:px-8 lg:px-12 pt-8 pb-4 md:pt-12 md:pb-8">
-      <CustomToaster />
       <ElevatedCard
         accent="neutral"
         depth="lg"
