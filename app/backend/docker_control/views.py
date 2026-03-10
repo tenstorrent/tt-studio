@@ -230,6 +230,25 @@ class ContainersView(APIView):
 class StatusView(APIView):
     def get(self, request, *args, **kwargs):
         data = get_container_status()
+        # Enrich with model_type from deploy cache so frontend navbar can route correctly (e.g. Speech -> /speech-to-text).
+        try:
+            from model_control.model_utils import get_deploy_cache
+
+            deploy_cache = get_deploy_cache()
+            for con_id, con_data in data.items():
+                if con_id in deploy_cache:
+                    model_impl = deploy_cache[con_id].get("model_impl")
+                    if model_impl is not None:
+                        mt = getattr(model_impl, "model_type", None)
+                        if mt is not None:
+                            con_data["model_type"] = getattr(
+                                mt, "value", str(mt)
+                            )
+        except Exception as e:
+            logger.warning(
+                "Could not enrich status with model_type from deploy cache: %s",
+                e,
+            )
         return Response(data, status=status.HTTP_200_OK)
 
 

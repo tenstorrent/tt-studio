@@ -390,3 +390,43 @@ layer(base);
   border: none;
   color: inherit;
 }
+
+/* Custom audio player styling to match theme */
+audio {
+  height: 48px;
+  border-radius: 0.5rem;
+}
+
+audio::-webkit-media-controls-panel {
+  background-color: rgb(249 250 251);
+  border: 1px solid rgb(229 231 235);
+}
+
+audio::-webkit-media-controls-play-button,
+audio::-webkit-media-controls-mute-button {
+  filter: invert(0.3);
+}
+
+audio::-webkit-media-controls-current-time-display,
+audio::-webkit-media-controls-time-remaining-display {
+  color: rgb(17 24 39);
+}
+
+audio::-webkit-media-controls-timeline {
+  border-radius: 0.25rem;
+}
+
+.dark audio::-webkit-media-controls-panel {
+  background-color: rgb(24 24 27);
+  border: 1px solid rgba(124, 104, 250, 0.3);
+}
+
+.dark audio::-webkit-media-controls-play-button,
+.dark audio::-webkit-media-controls-mute-button {
+  filter: invert(0.85) hue-rotate(180deg);
+}
+
+.dark audio::-webkit-media-controls-current-time-display,
+.dark audio::-webkit-media-controls-time-remaining-display {
+  color: rgb(228 228 231);
+}

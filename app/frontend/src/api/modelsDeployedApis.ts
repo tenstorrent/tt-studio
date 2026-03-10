@@ -31,6 +31,8 @@ interface ContainerData {
   port_bindings: { [key: string]: PortBinding[] };
   networks: { [key: string]: Network };
   device_id?: number | null;
+  /** Set when status is enriched from deploy cache; used for navbar routing. */
+  model_type?: string;
 }
 
 interface StopResponse {
@@ -73,10 +75,12 @@ export const ModelType = {
 
 /**
  * Map backend model_type strings (from catalog/API) to frontend ModelType constants.
+ * Normalizes casing so values like SPEECH_RECOGNITION still map correctly.
  * Falls back to ChatModel for unknown types.
  */
 export const getModelTypeFromBackendType = (backendType: string): string => {
-  switch (backendType) {
+  const normalized = String(backendType ?? "").toLowerCase();
+  switch (normalized) {
     case "chat":
       return ModelType.ChatModel;
     case "vlm":
@@ -152,6 +156,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         ports: portMapping,
         name: container.name || "Unnamed container",
         device_id: container.device_id ?? null,
+        model_type: container.model_type,
       };
     });
 
@@ -399,20 +404,36 @@ export const runVoicePipeline = async (
   }
 };
 
-export const getModelTypeFromName = (modelName: string): string => {
-  var modelType: string;
-  if (modelName.toLowerCase().includes("yolo")) {
-    modelType = ModelType.ObjectDetectionModel;
-  } else if (modelName.toLowerCase().includes("diffusion")) {
-    modelType = ModelType.ImageGeneration;
-  } else if (modelName.toLowerCase().includes("whisper")) {
-    modelType = ModelType.SpeechRecognitionModel;
-  } else if (modelName.toLowerCase().includes("tts")) {
-    modelType = ModelType.TTS;
-  } else {
-    modelType = ModelType.ChatModel;
+/**
+ * Infer model type from name (and optionally image) when model_type is not available (e.g. Docker-only data).
+ * Recognizes speech models via "whisper", "speech", "asr", or "speech_recognition" in name or image.
+ */
+export const getModelTypeFromName = (
+  modelName: string,
+  image?: string
+): string => {
+  const name = (modelName ?? "").toLowerCase();
+  const imageStr = (image ?? "").toLowerCase();
+  const combined = `${name} ${imageStr}`;
+
+  if (combined.includes("yolo")) {
+    return ModelType.ObjectDetectionModel;
   }
-  return modelType;
+  if (combined.includes("diffusion")) {
+    return ModelType.ImageGeneration;
+  }
+  if (
+    combined.includes("whisper") ||
+    combined.includes("speech") ||
+    combined.includes("asr") ||
+    combined.includes("speech_recognition")
+  ) {
+    return ModelType.SpeechRecognitionModel;
+  }
+  if (combined.includes("tts")) {
+    return ModelType.TTS;
+  }
+  return ModelType.ChatModel;
 };
 
 export const checkDeployedModels = async (): Promise<boolean> => {

@@ -53,7 +53,7 @@ export function ChipStatusDisplay({
             {boardType}
           </span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-500 font-mono">
-            {totalSlots} SLOTS
+            {totalSlots} DEVICES
           </span>
         </div>
         <span className="text-xs font-mono text-gray-500">
@@ -84,7 +84,7 @@ export function ChipStatusDisplay({
                 {/* Slot header row */}
                 <div className="flex items-center justify-between w-full mb-3">
                   <span className="text-xs font-mono font-bold text-gray-400 tracking-wider">
-                    SLOT {String(slot.slot_id).padStart(2, "0")}
+                    DEVICE {String(slot.slot_id).padStart(2, "0")}
                   </span>
                   <span
                     className={`

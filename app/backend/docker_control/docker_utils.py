@@ -160,6 +160,10 @@ def run_container(impl, weights_id, device_id=0):
         if impl.model_type != ModelTypes.CHAT:
             payload["skip_system_sw_validation"] = True
 
+        # TTS and Speech Recognition models require dev_mode for proper operation
+        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+            payload["dev_mode"] = True
+
         logger.info(f"API payload: {payload}")
 
         # Make POST request to TT Inference Server API
