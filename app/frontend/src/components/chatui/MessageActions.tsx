@@ -5,7 +5,7 @@ import type React from "react";
 import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { Clipboard, ThumbsUp, ThumbsDown, Brain } from "lucide-react";
-import CustomToaster, { customToast } from "../CustomToaster";
+import { customToast } from "../CustomToaster";
 import InferenceStats from "./InferenceStats";
 import type { InferenceStats as InferenceStatsType } from "./types";
 
@@ -100,7 +100,6 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
   return (
     <>
-      <CustomToaster />
       <div className="flex items-center justify-between w-full mt-2 gap-2">
         <div className="flex items-center gap-2">
           <Button

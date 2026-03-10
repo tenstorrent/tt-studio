@@ -146,7 +146,7 @@ export const customToast = {
         duration: 4000,
       }
     ),
-  warning: (message: string) =>
+  warning: (message: string, customId?: string) =>
     toast.custom(
       (t) => (
         <ToastContent
@@ -159,7 +159,7 @@ export const customToast = {
         />
       ),
       {
-        id: `tt-global-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        id: customId || `tt-global-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         duration: 3000,
       }
     ),
