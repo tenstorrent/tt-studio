@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSetTitle } from "./api/utlis.ts";
 import { HeroSectionProvider } from "./providers/HeroSectionContext.tsx";
 import { FooterVisibilityProvider } from "./providers/FooterVisibilityContext.tsx";
+import CustomToaster from "./components/CustomToaster";
 // Development toolbar imports commented out - remove if not needed
 // import { StagewiseToolbar } from "@stagewise/toolbar-react";
 // import ReactPlugin from "@stagewise-plugins/react";
@@ -29,6 +30,7 @@ function App() {
             </FooterVisibilityProvider>
           </HeroSectionProvider>
         </QueryClientProvider>
+        <CustomToaster />
       </ThemeProvider>
       {/* Development toolbar commented out - remove if not needed
       {import.meta.env.DEV && (

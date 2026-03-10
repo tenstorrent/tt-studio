@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -122,7 +122,8 @@ export function FirstStepForm({
   useEffect(() => {
     if (hasDeployedModels && deployedModels.length > 0) {
       customToast.warning(
-        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`
+        `${deployedModels.length} model${deployedModels.length > 1 ? "s are" : " is"} currently deployed. Consider deleting existing models before deploying new ones.`,
+        "deployed-models-warning"
       );
     }
   }, [hasDeployedModels, deployedModels]);
