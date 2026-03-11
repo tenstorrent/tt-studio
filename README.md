@@ -5,7 +5,7 @@
 <h1 align="center">TT-Studio</h1>
 
 <p align="center">
-  <em>Reference blueprint for deploying and orchestrating AI inference on Tenstorrent hardware</em>
+  <em>Reference blueprint for deploying and orchestrating AI inference workflows and demo(s) on Tenstorrent hardware</em>
 </p>
 
 ---
@@ -69,7 +69,7 @@ TT-Studio ships with eight reference blueprints — four multi-model pipelines a
 | OS | Ubuntu 22.04+ |
 | Python | 3.8+ |
 | Docker | Docker Engine + Compose V2 |
-| Hardware | Tenstorrent accelerator (or [remote endpoint](docs/remote-endpoint-setup.md)) |
+| Hardware | Tenstorrent accelerator (or [remote endpoint.](docs/remote-endpoint-setup.md)) |
 | Drivers | [Tenstorrent Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html) |
 
 ## Software Used
@@ -92,7 +92,7 @@ TT-Studio ships with eight reference blueprints — four multi-model pipelines a
 ```bash
 git clone https://github.com/tenstorrent/tt-studio.git
 cd tt-studio
-python3 run.py
+python3 run.py --easy
 ```
 
 Open [http://localhost:3000](http://localhost:3000) after provisioning completes. See [Quick Start Guide](docs/quickstart.md) for full details.
