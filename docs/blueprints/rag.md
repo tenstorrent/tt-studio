@@ -10,60 +10,7 @@ Query your documents with AI-powered semantic search. This blueprint combines an
 
 ## Architecture
 
-<!-- TODO: Replace ASCII diagram with the Mermaid diagram below once rendering is confirmed in the docs site -->
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Document    │     │  ChromaDB    │     │  LLM         │
-│  Upload      │────>│  Vector DB   │────>│  (vLLM)      │
-│  (PDF, DOCX, │     │  Embeddings  │     │  Tenstorrent │
-│   TXT, PPTX) │     │  + Retrieval │     │  Hardware    │
-└──────────────┘     └──────────────┘     └──────────────┘
-       │                    │                     │
-       └────────────────────┴─────────────────────┘
-                    Control Plane
-              Document chunking, semantic
-              search, context injection
-```
-
-<!--
-Proposed Mermaid replacement:
-
-```mermaid
-flowchart TB
-    subgraph Ingestion ["Document Ingestion"]
-        A["Document Upload\n(PDF / DOCX / TXT / PPTX / XLSX)"]
-        B["LangChain Text Splitter\n(chunk + overlap)"]
-        C["all-MiniLM-L6-v2\n(CPU · SentenceTransformers)"]
-        A --> B --> C
-    end
-
-    subgraph Store ["Vector Store"]
-        D[("ChromaDB\n(cosine similarity)")]
-    end
-
-    subgraph Query ["Query Path"]
-        E["User Question"]
-        F["all-MiniLM-L6-v2\n(CPU · same model)"]
-        G["Top-K Retrieved Chunks"]
-        H["Prompt with Injected Context"]
-        I["LLM\n(vLLM · Tenstorrent Hardware)"]
-        J["Grounded Response"]
-        E --> F --> D --> G --> H
-        E --> H
-        H --> I --> J
-    end
-
-    C --> D
-```
-
-Notes on the diagram:
-- Two separate subgraphs (Ingestion / Query) make the two phases visually distinct
-- The same embedding model node is shown in both paths to emphasize it's reused, not a separate deployment
-- ChromaDB sits in the middle as the shared store between the two flows
-- LLM box is clearly labeled as TT hardware to contrast with the CPU embedding path
-- If the docs site supports Mermaid (GitHub renders it natively), this can directly replace the ASCII block
--->
+![RAG architecture](../architecture/rag/rag-arch.png)
 
 ## How It Works
 
@@ -96,11 +43,15 @@ See the full [Model Catalog](../model-catalog.md) for all compatible models and 
 
 ## Minimum Hardware
 
-| Device | Notes |
-|--------|-------|
-| N150 | Smallest supported — runs 1B-8B LLMs (embedding runs on CPU automatically) |
-| N300 | Recommended — supports larger LLMs |
-| T3K | Full catalog support including 70B+ models |
+Hardware is only required for the **LLM (generation)** component. Embeddings run on CPU automatically — no Tenstorrent device needed for that part.
+
+| Device | LLM Models Supported |
+|--------|----------------------|
+| N150 | 1B–8B parameter models |
+| N300 | Up to ~34B parameter models |
+| T3K | Full catalog including 70B+ models |
+
+> **Future:** Hardware-accelerated embedding on Tenstorrent devices is supported by [TT-Inference-Server](https://github.com/tenstorrent/tt-inference-server/blob/main/docs/model_support/embedding/README.md) but not yet integrated into TT-Studio. When available, similar hardware tiers will apply to the embedding component.
 
 ## API Endpoints
 

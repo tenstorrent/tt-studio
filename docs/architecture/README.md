@@ -11,6 +11,7 @@ This folder contains architecture diagrams for TT Studio.
 
 - `tt-studio-main/tt-studio-main.mmd` – Main architecture diagram (Mermaid source)
 - `tt-studio-main/tt-studio-main-arch.png` – Rendered PNG (generate from the `.mmd` when you update it)
+- `rag/rag-arch.png` – RAG blueprint architecture diagram (referenced from [RAG blueprint](../blueprints/rag.md))
 
 ## Editing the main diagram
 
