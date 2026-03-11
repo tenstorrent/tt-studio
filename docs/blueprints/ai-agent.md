@@ -5,19 +5,20 @@ Autonomous AI assistant with tool use, model auto-discovery, and persistent conv
 ## Architecture
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Experience  │     │  Agent       │     │  LLM         │
-│  Layer       │────>│  Service     │────>│  (vLLM)      │
-│  (Web UI)    │     │  (FastAPI)   │     │  Tenstorrent │
-│              │     │  Tool Use    │     │  Hardware    │
-└──────────────┘     └──────────────┘     └──────────────┘
-                           │
-                     ┌─────┴─────┐
-                     │  Tools    │
-                     │  Web Search│
-                     │  Auto-    │
-                     │  Discovery│
-                     └───────────┘
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│  Experience     │      │  Agent          │      │  LLM            │
+│  Layer          │─────>│  Service        │─────>│  (vLLM)         │
+│  (Web UI)       │      │  (FastAPI)      │      │  Tenstorrent     │
+│                 │      │  Tool Use       │      │  Hardware       │
+└─────────────────┘      └────────┬────────┘      └─────────────────┘
+                                  │
+                         ┌────────┴────────┐
+                         │  Tools          │
+                         │  · Web Search   │
+                         │    (Tavily)     │
+                         │  · Auto-        │
+                         │    Discovery    │
+                         └─────────────────┘
 ```
 
 ## How It Works
@@ -67,7 +68,7 @@ Any deployed CHAT model is automatically discoverable by the agent. See the full
 
 **Third-Party**
 - FastAPI (agent service)
-- Tavily (web search, optional)
+- Tavily (web search, required)
 
 ## Quick Start
 
@@ -77,6 +78,6 @@ Any deployed CHAT model is automatically discoverable by the agent. See the full
 4. Navigate to **AI Agent** in the web interface
 5. Start a conversation — the agent routes to your deployed model
 
-Optionally set `TAVILY_API_KEY` in `.env` to enable web search capabilities.
+Set `TAVILY_API_KEY` in `.env` to enable web search capabilities (required).
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
