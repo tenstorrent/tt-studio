@@ -1,6 +1,12 @@
 # Vision Language Model (VLM)
 
-Multimodal chat combining text and image understanding. Upload images alongside text prompts and receive responses that reason about visual content — powered by vision-language models running on Tenstorrent hardware via vLLM.
+Multimodal chat — send an image and ask questions about it. 12 vision-language models across Wormhole and Blackhole hardware, powered by vLLM with an OpenAI-compatible API.
+
+## Use This Blueprint When
+
+- You need a model that can reason about image content alongside text
+- You want to build visual Q&A, document analysis, or image captioning workflows
+- You need multimodal chat with the same API shape as text-only LLMs
 
 ## Architecture
 
@@ -102,3 +108,8 @@ VLM uses the same inference endpoint as text-only LLM chat. The control plane de
 4. Upload an image and ask questions about it
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
+
+## Related Blueprints
+
+- [LLM Chat](llm-chat.md) — text-only chat using the same interface and API
+- [Image Generation](image-generation.md) — for generating images rather than understanding them

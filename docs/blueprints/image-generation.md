@@ -1,6 +1,12 @@
 # Image Generation
 
-Text-to-image generation using diffusion models running on Tenstorrent hardware via the Media Engine. Enter a text prompt and receive a generated image — supports Stable Diffusion, FLUX, and Motif architectures.
+Text-to-image with FLUX, Stable Diffusion, and Motif — 9 models, fully on-device, no cloud API costs. Enter a text prompt and receive a generated image running on Tenstorrent hardware via the Media Engine.
+
+## Use This Blueprint When
+
+- You need text-to-image generation without sending prompts to cloud APIs
+- You want to evaluate FLUX, SDXL, or Motif architectures on Tenstorrent hardware
+- You need image-to-image transformation or inpainting capabilities on-device
 
 ## Architecture
 
@@ -94,3 +100,8 @@ See the full [Model Catalog](../model-catalog.md) for all compatible models and 
 4. Enter a text prompt to generate an image
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
+
+## Related Blueprints
+
+- [Video Generation](video-generation.md) — same async task queue pattern extended to video output
+- [Vision Language Model](vlm.md) — for image understanding rather than generation

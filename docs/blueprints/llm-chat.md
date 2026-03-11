@@ -1,6 +1,12 @@
 # LLM Chat
 
-Interactive chat interface for large language models deployed on Tenstorrent hardware. Supports streaming token generation, configurable sampling parameters, and OpenAI-compatible API endpoints via vLLM.
+Streaming chat from 1B to 120B parameter models. OpenAI-compatible API, 24 pre-validated models, multi-turn history — all running on Tenstorrent hardware via vLLM.
+
+## Use This Blueprint When
+
+- You want interactive chat with large language models on-device
+- You need an OpenAI-compatible endpoint your existing tooling can target
+- You want to evaluate model quality across parameter sizes on Tenstorrent hardware
 
 ## Architecture
 
@@ -98,3 +104,9 @@ See the full [Model Catalog](../model-catalog.md) for all 24 chat models.
 4. Start a conversation with the deployed model
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
+
+## Related Blueprints
+
+- [RAG](rag.md) — injects document context into the chat interface for grounded responses
+- [AI Agent](ai-agent.md) — extends LLM Chat with tool use, web search, and persistent threads
+- [Vision Language Model](vlm.md) — same chat interface extended with image understanding

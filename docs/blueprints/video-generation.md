@@ -1,6 +1,12 @@
 # Video Generation
 
-Text-to-video generation using diffusion models running on Tenstorrent hardware via the Media Engine. Enter a text prompt and receive a generated video clip — supports Mochi and Wan architectures.
+Text-to-video with Mochi and Wan on Tenstorrent hardware — fully on-device generation. Enter a text prompt and receive a generated video clip running on Tenstorrent hardware via the Media Engine.
+
+## Use This Blueprint When
+
+- You need text-to-video generation without sending prompts to cloud APIs
+- You want to evaluate Mochi or Wan video diffusion architectures on Tenstorrent hardware
+- You have T3K or Galaxy hardware and want to explore video generation workloads
 
 ## Architecture
 
@@ -77,3 +83,7 @@ Video diffusion models require significant compute. Both supported models requir
 4. Enter a text prompt to generate a video
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
+
+## Related Blueprints
+
+- [Image Generation](image-generation.md) — same async task queue pattern for faster, static image output

@@ -2,6 +2,12 @@
 
 Autonomous AI assistant with tool use, model auto-discovery, and persistent conversation threads. This blueprint connects to any deployed LLM on Tenstorrent hardware and extends it with agentic reasoning capabilities.
 
+## Use This Blueprint When
+
+- You need an LLM that can search the web or take actions beyond text generation
+- You want persistent conversation threads with tool-augmented reasoning
+- You need autonomous decision-making with real-time information access
+
 ## Architecture
 
 ```
@@ -81,3 +87,7 @@ Any deployed CHAT model is automatically discoverable by the agent. See the full
 Set `TAVILY_API_KEY` in `.env` to enable web search capabilities (required).
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
+
+## Related Blueprints
+
+- [LLM Chat](llm-chat.md) — the agent uses the same LLM backend, extended with tool use and persistent threads

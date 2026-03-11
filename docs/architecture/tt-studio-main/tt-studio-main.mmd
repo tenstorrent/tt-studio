@@ -1,0 +1,73 @@
+%%{init: {
+  "theme": "base",
+  "flowchart": { "curve": "linear" },
+  "themeVariables": {
+    "background": "#000000",
+    "primaryTextColor": "#f3f4f6",
+    "lineColor": "#d1d5db",
+    "clusterBkg": "#000000",
+    "clusterBorder": "#d1d5db",
+    "fontFamily": "Inter, Segoe UI, Arial, sans-serif",
+    "fontSize": "14px"
+  }
+}}%%
+flowchart TB
+  User["User / Browser"]
+
+  subgraph Platform["TT-Studio Platform"]
+    direction TB
+    subgraph Access["Access Layer"]
+      direction LR
+      Frontend["Frontend<br/>:3000"]
+      Backend["Backend API<br/>:8000"]
+    end
+    subgraph Services["Application Services"]
+      direction LR
+      Agent["Agent Service<br/>:8080"]
+      RAG["RAG Service"]
+      Chroma[("ChromaDB<br/>:8111")]
+    end
+    subgraph Control["Platform Control"]
+      direction LR
+      DCS["Docker Control Service<br/>:8002"]
+      TTSMI["tt-smi<br/>Device Monitor"]
+    end
+    subgraph Runtime["TT Inference Server Layer"]
+      direction LR
+      vLLM["vLLM"]
+      Media["Media Engine"]
+      Forge["Forge"]
+    end
+  end
+
+  subgraph Hardware["Tenstorrent Hardware"]
+    direction LR
+    TT0["TT Device 0"]
+    TT1["TT Device 1"]
+    DOTS["..."]
+    TTN["TT Device N"]
+  end
+
+  User --> Frontend
+  Frontend --> Backend
+  Backend -->|"agent request"| Agent
+  Backend -->|"rag request"| RAG
+  RAG -->|"vector retrieval"| Chroma
+  Agent -->|"tool / planning result"| Backend
+  RAG -->|"augmented prompt"| Backend
+  Backend -->|"runtime control"| DCS
+  Backend -->|"device inventory"| TTSMI
+  DCS -->|"device status"| TTSMI
+  Backend -->|"inference request"| Runtime
+  DCS -->|"deploy / manage runtimes"| Runtime
+  Agent -->|"model discovery"| vLLM
+  Runtime -->|"model execution (LLM / speech / vision / embedding)"| Hardware
+  TTSMI -->|"device telemetry"| Hardware
+
+  classDef default fill:#000000,stroke:#d1d5db,color:#f3f4f6,stroke-width:1.2px
+  classDef runtime fill:#1a120c,stroke:#f97316,color:#fff7ed,stroke-width:1.2px
+  classDef control fill:#17120a,stroke:#facc15,color:#fefce8,stroke-width:1.2px
+  classDef hardware fill:#1a0f12,stroke:#fb7185,color:#fff1f2,stroke-width:1.2px
+  class vLLM,Media,Forge runtime
+  class DCS,TTSMI control
+  class TT0,TT1,DOTS,TTN hardware

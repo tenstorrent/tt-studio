@@ -2,6 +2,12 @@
 
 End-to-end voice conversation pipeline: record audio, transcribe with Whisper, generate a response with an LLM, and synthesize speech output. Three models chained in a single SSE-streaming pipeline on Tenstorrent hardware.
 
+## Use This Blueprint When
+
+- You want a fully on-device voice assistant without cloud STT/TTS APIs
+- You need to chain multiple models into a single real-time pipeline
+- You want to build a voice interface on top of any deployed LLM
+
 ## Architecture
 
 ```
@@ -87,3 +93,8 @@ Running all three models concurrently requires enough device slots. On single-ch
 4. Record audio and watch the pipeline process through all three stages
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
+
+## Related Blueprints
+
+- [LLM Chat](llm-chat.md) — the same LLM backend used for text generation in this pipeline
+- [RAG](rag.md) — combine with RAG to ground voice responses in your documents

@@ -1,6 +1,12 @@
 # Object Detection Pipeline
 
-Image classification and object detection using CNN models running on Tenstorrent hardware via the Forge inference engine. Upload images and get real-time detection results with bounding boxes and class labels.
+Visual understanding with CNN models. Submit images for classification and detection using Forge-backed models — no GPU required. Upload images and get real-time detection results with bounding boxes and class labels.
+
+## Use This Blueprint When
+
+- You need image classification or object detection on Tenstorrent hardware without a GPU
+- You want to evaluate CNN-based vision models (ResNet, EfficientNet, ViT) on Forge
+- You need semantic segmentation alongside detection in the same pipeline
 
 ## Architecture
 
@@ -80,3 +86,7 @@ CNN models run on the Forge inference engine and are currently validated on Worm
 4. Upload an image to see classification or detection results
 
 See the [Quick Start Guide](../quickstart.md) for full provisioning details.
+
+## Related Blueprints
+
+- [Vision Language Model](vlm.md) — for open-ended visual Q&A rather than structured detection
