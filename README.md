@@ -10,9 +10,7 @@
 
 ---
 
-TT-Studio is a reference blueprint that composes [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) microservices into a managed, multi-model platform. It handles device allocation, container orchestration, and lifecycle management — and ships with 60+ pre-configured models across Wormhole, Blackhole, and Galaxy hardware.
-
-Where TT Inference Server serves a single model on a single device, TT-Studio orchestrates multiple models concurrently with a unified control plane and experience layer.
+TT-Studio is a reference blueprint that abstracts the commands required to run models on Tenstorrent hardware. It uses the [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) CLI under the hood to deploy and manage models through a GUI-driven microservices platform. TT-Studio handles device abstraction, container orchestration, and model lifecycle management across the Tenstorrent hardware family, including Wormhole, Blackhole, and Galaxy systems.
 
 ## Architecture
 
@@ -22,7 +20,7 @@ Where TT Inference Server serves a single model on a single device, TT-Studio or
 ├───────────────────────────────────────────────────────────────┤
 │  Control Plane             REST API · Routing · Health        │
 ├───────────────────────────────────────────────────────────────┤
-│  Orchestration             Docker · TT Inference Server · Ports│
+│  Orchestration             Docker · TT Inference Server ·Ports│
 ├───────────────────────────────────────────────────────────────┤
 │  Runtime                   vLLM · Media Engine · Forge        │
 ├───────────────────────────────────────────────────────────────┤
