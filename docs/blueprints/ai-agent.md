@@ -8,7 +8,7 @@ Autonomous AI assistant with tool use, model auto-discovery, and persistent conv
 ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
 │  Experience     │      │  Agent          │      │  LLM            │
 │  Layer          │─────>│  Service        │─────>│  (vLLM)         │
-│  (Web UI)       │      │  (FastAPI)      │      │  Tenstorrent     │
+│  (Web UI)       │      │  (FastAPI)      │      │  Tenstorrent    │
 │                 │      │  Tool Use       │      │  Hardware       │
 └─────────────────┘      └────────┬────────┘      └─────────────────┘
                                   │
