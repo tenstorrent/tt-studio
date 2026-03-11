@@ -5,12 +5,12 @@
 <h1 align="center">TT-Studio</h1>
 
 <p align="center">
-  <em>Reference blueprint for deploying and orchestrating AI inference workflows and demo(s) on Tenstorrent hardware</em>
+  <em>Reference blueprint illustrating how to leverage Tenstorrent inference technologies to build innovative AI solutions</em>
 </p>
 
 ---
 
-TT-Studio is a reference blueprint that abstracts the commands required to run models on Tenstorrent hardware. It uses the [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) CLI under the hood to deploy and manage models through a GUI-driven microservices platform. TT-Studio handles device abstraction, container orchestration, and model lifecycle management across the Tenstorrent hardware family, including Wormhole, Blackhole, and Galaxy systems.
+TT-Studio is a reference blueprint that demonstrates how to deploy and orchestrate AI models on Tenstorrent hardware. Built on the [TT Inference Server](https://github.com/tenstorrent/tt-inference-server), it provides a GUI-driven platform that handles device discovery, container orchestration, and model lifecycle management across the Tenstorrent hardware family—including Wormhole, Blackhole, and Galaxy systems.
 
 ## Architecture
 
@@ -77,7 +77,7 @@ TT-Studio ships with eight reference blueprints — four multi-model pipelines a
 **Tenstorrent Technology**
 - [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) — Execution framework
 - [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) — Model serving microservice
-- TT-SMI — Device management
+- [TT-SMI](https://github.com/tenstorrent/tt-smi) — Board reset and automatic TT board discovery
 
 **Inference Engines**
 - vLLM (LLM/VLM) · Media Engine (Image/TTS/Video/STT) · Forge (CNN/Embedding)
@@ -90,12 +90,12 @@ TT-Studio ships with eight reference blueprints — four multi-model pipelines a
 ## Quick Start
 
 ```bash
-git clone https://github.com/tenstorrent/tt-studio.git
-cd tt-studio
-python3 run.py --easy
+git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python3 run.py --easy
 ```
 
-Open [http://localhost:3000](http://localhost:3000) after provisioning completes. See [Quick Start Guide](docs/quickstart.md) for full details.
+When prompted, enter your [Hugging Face token](https://huggingface.co/settings/tokens) so TT-Studio can pull models.
+
+After provisioning completes, the UI may open automatically; if not, navigate to [http://localhost:3000](http://localhost:3000). On a remote machine, open that URL from your browser or set up port forwarding so you can reach the host’s port 3000. See the [Quick Start Guide](docs/quickstart.md) for full details.
 
 ## Documentation
 
