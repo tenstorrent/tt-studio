@@ -2,6 +2,8 @@
 layer(base);
 @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap")
 layer(base);
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap")
+layer(base);
 @import "tailwindcss";
 
 @config '../tailwind.config.js';
@@ -431,4 +433,56 @@ audio::-webkit-media-controls-timeline {
 .dark audio::-webkit-media-controls-current-time-display,
 .dark audio::-webkit-media-controls-time-remaining-display {
   color: rgb(228 228 231);
+}
+
+/* Voice Pipeline - Signal Console aesthetic */
+.voice-pipeline-bg {
+  background: radial-gradient(ellipse at 50% 80%, rgba(124,104,250,0.06) 0%, transparent 55%), #0C0C0E;
+}
+
+.voice-pipeline-bg-light {
+  background: radial-gradient(ellipse at 50% 80%, rgba(124,104,250,0.06) 0%, transparent 55%), #F5F5F7;
+}
+
+.voice-glass {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.voice-glass-light {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.glow-purple {
+  box-shadow: 0 0 24px rgba(124,104,250,0.15);
+}
+
+.glow-bar {
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* 3D floating tile effect */
+.voice-tile-3d {
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.3),
+    0 8px 16px rgba(0,0,0,0.25),
+    0 24px 48px rgba(0,0,0,0.2),
+    0 0 0 1px rgba(255,255,255,0.04),
+    0 0 60px rgba(124,104,250,0.08);
+  transform: translateZ(0);
+}
+
+.voice-tile-3d-light {
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.04),
+    0 8px 16px rgba(0,0,0,0.06),
+    0 24px 48px rgba(0,0,0,0.08),
+    0 0 0 1px rgba(0,0,0,0.06),
+    0 0 60px rgba(124,104,250,0.06);
+  transform: translateZ(0);
 }

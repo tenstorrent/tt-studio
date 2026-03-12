@@ -6,22 +6,37 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import type { PipelineStage } from "./types";
 
 type Props = {
   className?: string;
   onRecordingComplete?: (audioBlob: Blob) => void;
   onRecordingStart?: () => void;
   disabled?: boolean;
+  stage?: PipelineStage;
+  isTTSGenerating?: boolean;
 };
 
-const LEVEL_BARS = 12;
+const LEVEL_BARS = 24;
 const SAMPLE_RATE = 16_000;
+
+const STAGE_BAR_COLORS: Record<string, string> = {
+  idle: "bg-TT-purple-accent",
+  recording: "bg-TT-red-accent",
+  transcribing: "bg-TT-yellow",
+  thinking: "bg-TT-yellow",
+  speaking: "bg-TT-green",
+  done: "bg-TT-purple-accent",
+  tts: "bg-TT-green",
+};
 
 export const AudioRecorderWithVisualizer = ({
   className,
   onRecordingComplete,
   onRecordingStart,
   disabled = false,
+  stage = "idle",
+  isTTSGenerating = false,
 }: Props) => {
   const { theme } = useTheme();
 
@@ -141,81 +156,129 @@ export const AudioRecorderWithVisualizer = ({
     draw();
   };
 
+  // Determine bar color based on state
+  const barColorClass = isTTSGenerating
+    ? STAGE_BAR_COLORS.tts
+    : STAGE_BAR_COLORS[stage] || STAGE_BAR_COLORS.idle;
+
+  const isActive = isRecording || isTTSGenerating;
+
+  // Generate fake TTS animation levels
+  const ttsLevels = isTTSGenerating
+    ? levels.map((_, i) => 0.2 + 0.5 * Math.abs(Math.sin(Date.now() / 300 + i * 0.5)))
+    : levels;
+
+  // Use TTS animation frame when generating
+  useEffect(() => {
+    if (!isTTSGenerating) return;
+    let frame: number;
+    const animate = () => {
+      setLevels(
+        new Array(LEVEL_BARS).fill(0).map((_, i) =>
+          0.15 + 0.45 * Math.abs(Math.sin(Date.now() / 250 + i * 0.6))
+        )
+      );
+      frame = requestAnimationFrame(animate);
+    };
+    animate();
+    return () => cancelAnimationFrame(frame);
+  }, [isTTSGenerating]);
+
+  const statusText = disabled
+    ? stage === "transcribing"
+      ? "Transcribing..."
+      : stage === "thinking"
+        ? "Thinking..."
+        : stage === "speaking"
+          ? "Speaking..."
+          : "Processing..."
+    : isRecording
+      ? "Listening — click to stop"
+      : "Click to record";
+
   return (
-    <div className={cn("flex flex-col items-center gap-2", className)}>
-      {/* Audio Level Grid */}
-      <div className="flex items-end gap-[3px] h-10 px-1">
+    <div className={cn("flex flex-col items-center gap-1 sm:gap-2", className)}>
+      {/* Full-width waveform visualizer */}
+      <div className="flex items-end justify-center gap-[2px] sm:gap-[3px] h-4 sm:h-6 lg:h-8 w-full px-2 sm:px-4">
         {levels.map((level, i) => (
           <motion.div
             key={i}
             className={cn(
-              "w-2 rounded-sm",
-              isRecording
-                ? "bg-TT-purple-accent"
+              "flex-1 max-w-[4px] sm:max-w-[6px] lg:max-w-[8px] rounded-sm transition-colors",
+              isActive
+                ? barColorClass
                 : theme === "dark"
-                  ? "bg-[#222]"
-                  : "bg-gray-200"
+                  ? "bg-white/[0.06]"
+                  : "bg-black/[0.06]"
             )}
             animate={{
-              height: isRecording ? Math.max(4, level * 36) : 4,
-              opacity: isRecording ? 0.5 + level * 0.5 : 0.3,
+              height: isActive ? Math.max(2, level * 16) : 2,
+              opacity: isActive ? 0.5 + level * 0.5 : 0.25,
             }}
             transition={{ duration: 0.08, ease: "easeOut" }}
+            style={
+              isActive && level > 0.3
+                ? { boxShadow: `0 0 6px currentColor` }
+                : undefined
+            }
           />
         ))}
       </div>
 
-      {/* Mic Button */}
+      {/* Mic Button — hero element */}
       <div className="relative flex items-center justify-center">
         <AnimatePresence>
           {isRecording && (
             <motion.div
-              className="absolute inset-0 rounded-full bg-red-500/20"
-              initial={{ scale: 1, opacity: 0.6 }}
-              animate={{ scale: 1.8, opacity: 0 }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+              className="absolute inset-0 rounded-full bg-TT-purple-accent/20"
+              initial={{ scale: 1, opacity: 0.5 }}
+              animate={{ scale: 2, opacity: 0 }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
             />
           )}
         </AnimatePresence>
-        <button
+        <motion.button
           onClick={toggleRecording}
           disabled={disabled}
+          whileHover={!disabled ? { scale: 1.06 } : undefined}
+          whileTap={!disabled ? { scale: 0.95 } : undefined}
           className={cn(
-            "relative z-10 w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200",
+            "relative z-10 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full flex items-center justify-center transition-all duration-200",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent focus-visible:ring-offset-2",
             disabled && "opacity-50 cursor-not-allowed",
             isRecording
-              ? "bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30"
+              ? "bg-TT-red-accent hover:bg-TT-red-shade text-white shadow-lg shadow-TT-red-accent/30"
               : theme === "dark"
-                ? "bg-[#1A1A1A] border-2 border-TT-purple-accent/60 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
-                : "bg-white border-2 border-TT-purple-accent/60 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
+                ? "bg-white/[0.05] border-2 border-TT-purple-accent/50 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
+                : "bg-white border-2 border-TT-purple-accent/50 text-TT-purple-accent hover:border-TT-purple-accent hover:shadow-lg hover:shadow-TT-purple-accent/20"
           )}
         >
           {isRecording ? (
-            <Square className="w-5 h-5" />
+            <Square className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />
           ) : (
-            <Mic className="w-6 h-6" />
+            <Mic className="w-6 h-6 sm:w-7 sm:h-7 lg:w-8 lg:h-8" />
           )}
-        </button>
+        </motion.button>
       </div>
 
       {/* Status label */}
-      <p
+      <motion.p
+        key={statusText}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
         className={cn(
-          "text-xs",
+          "text-xs sm:text-sm font-mono tracking-wide",
           isRecording
-            ? "text-red-500"
-            : theme === "dark"
-              ? "text-gray-500"
-              : "text-gray-400"
+            ? "text-TT-red-accent"
+            : disabled
+              ? "text-TT-yellow"
+              : theme === "dark"
+                ? "text-gray-500"
+                : "text-gray-400"
         )}
       >
-        {disabled
-          ? "Processing..."
-          : isRecording
-            ? "Click to stop & send"
-            : "Click to record"}
-      </p>
+        {statusText}
+      </motion.p>
     </div>
   );
 };

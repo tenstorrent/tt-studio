@@ -4,12 +4,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { MainContent } from "@/src/components/voiceAgent/mainContent";
 import { StatusPanel } from "@/src/components/voiceAgent/StatusPanel";
+import { MetricsPanel } from "@/src/components/voiceAgent/MetricsPanel";
 import { AudioRecorderWithVisualizer } from "@/src/components/voiceAgent/AudioRecorderWithVisualizer";
-import { Mic, MessageSquare, Volume2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Activity, BarChart3 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
 import { customToast } from "../CustomToaster";
+import { motion } from "framer-motion";
 import {
   fetchDeployedModelsInfo,
   runTTSInference,
@@ -18,6 +20,24 @@ import { runInference } from "@/src/components/chatui/runInference";
 import type { ChatMessage } from "@/src/components/chatui/types";
 import { v4 as uuidv4 } from "uuid";
 import { sendAudioRecording } from "./lib/apiClient";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/src/components/ui/popover";
+import {
+  Sheet,
+  SheetTrigger,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/src/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/src/components/ui/tooltip";
 import type {
   Conversation,
   ConversationMessage,
@@ -28,6 +48,15 @@ import type {
 
 export type { Conversation, ConversationMessage };
 
+const STAGE_CONFIG: Record<PipelineStage, { label: string; color: string; dotColor: string }> = {
+  idle: { label: "Ready", color: "text-TT-purple-accent", dotColor: "bg-TT-purple-accent" },
+  recording: { label: "Listening", color: "text-TT-red-accent", dotColor: "bg-TT-red-accent" },
+  transcribing: { label: "Transcribing", color: "text-TT-yellow", dotColor: "bg-TT-yellow" },
+  thinking: { label: "Thinking", color: "text-TT-yellow", dotColor: "bg-TT-yellow" },
+  speaking: { label: "Speaking", color: "text-TT-green", dotColor: "bg-TT-green" },
+  done: { label: "Ready", color: "text-TT-purple-accent", dotColor: "bg-TT-purple-accent" },
+};
+
 export default function VoiceAgentApp() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
@@ -36,7 +65,6 @@ export default function VoiceAgentApp() {
   const [isTTSGenerating, setIsTTSGenerating] = useState(false);
   const [stage, setStage] = useState<PipelineStage>("idle");
   const [metrics, setMetrics] = useState<PipelineMetrics | null>(null);
-  const [statusPanelOpen, setStatusPanelOpen] = useState(true);
   const { theme } = useTheme();
 
   const location = useLocation();
@@ -316,203 +344,163 @@ export default function VoiceAgentApp() {
   }, [conversationCounter]);
 
   const isProcessing = stage === "transcribing" || stage === "thinking" || stage === "speaking";
+  const stageConfig = STAGE_CONFIG[stage];
+  const allModelsConnected = !!models.whisper && !!models.llm && !!models.tts;
+  const someModelsConnected = !!models.whisper || !!models.llm || !!models.tts;
 
   return (
-    <div className="w-full h-full flex flex-col">
-      {/* Header */}
-      <header
-        className={cn(
-          "h-10 flex items-center justify-between px-3 border-b shrink-0",
-          theme === "dark"
-            ? "bg-[#0A0A0A] border-[#1A1A1A]"
-            : "bg-white border-gray-200"
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <h1
-            className={cn(
-              "text-sm font-semibold",
-              theme === "dark" ? "text-white" : "text-gray-900"
-            )}
-          >
-            Voice Agent
-          </h1>
-          <span
-            className={cn(
-              "text-[10px] px-2 py-0.5 rounded-full font-medium",
-              stage === "idle" || stage === "done"
-                ? theme === "dark"
-                  ? "bg-green-500/10 text-green-400"
-                  : "bg-green-50 text-green-600"
-                : theme === "dark"
-                  ? "bg-amber-500/10 text-amber-400"
-                  : "bg-amber-50 text-amber-600"
-            )}
-          >
-            {stage === "idle" || stage === "done" ? "Ready" : stage}
-          </span>
-        </div>
-
-        {/* Model status pills */}
-        <div className="flex items-center gap-2">
-          <ModelPill
-            icon={<Mic className="w-3 h-3" />}
-            label="Whisper"
-            connected={!!models.whisper}
-            theme={theme}
-          />
-          <ModelPill
-            icon={<MessageSquare className="w-3 h-3" />}
-            label="LLM"
-            connected={!!models.llm}
-            theme={theme}
-          />
-          <ModelPill
-            icon={<Volume2 className="w-3 h-3" />}
-            label="TTS"
-            connected={!!models.tts}
-            theme={theme}
-          />
-          <button
-            onClick={() => setStatusPanelOpen(!statusPanelOpen)}
-            className={cn(
-              "ml-2 w-7 h-7 flex items-center justify-center rounded-md transition-colors",
-              theme === "dark"
-                ? "text-gray-500 hover:text-gray-300 hover:bg-white/5"
-                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-            )}
-          >
-            {statusPanelOpen ? (
-              <ChevronRight className="w-4 h-4" />
-            ) : (
-              <ChevronLeft className="w-4 h-4" />
-            )}
-          </button>
-        </div>
-      </header>
-
-      {/* 3-panel body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel - Audio */}
-        <div
+    <motion.div
+      initial={{ opacity: 0, y: 40, rotateX: 8 }}
+      animate={{ opacity: 1, y: 0, rotateX: 0 }}
+      transition={{ type: "spring", stiffness: 180, damping: 24 }}
+      style={{ perspective: "1200px", transformStyle: "preserve-3d" }}
+      className={cn(
+        "max-w-2xl w-full flex flex-col rounded-2xl overflow-hidden",
+        "h-[calc(100%-1rem)] sm:h-[calc(100%-2rem)] lg:h-[calc(100%-3rem)]",
+        "m-2 sm:m-4 lg:m-6",
+        theme === "dark"
+          ? "voice-glass voice-tile-3d"
+          : "voice-glass-light voice-tile-3d-light"
+      )}
+    >
+        {/* Header */}
+        <motion.header
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
           className={cn(
-            "w-36 lg:w-44 shrink-0 flex flex-col items-center justify-center border-r",
-            theme === "dark"
-              ? "bg-[#0A0A0A] border-[#1A1A1A]"
-              : "bg-white border-gray-200"
+            "flex items-center justify-between px-5 py-3 shrink-0 border-b",
+            theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
           )}
         >
-          <div className="flex flex-col items-center gap-3 py-3">
-            <p
-              className={cn(
-                "text-[10px] font-semibold uppercase tracking-wider",
-                theme === "dark" ? "text-gray-600" : "text-gray-400"
-              )}
+          <div className="flex items-center gap-3">
+            <h1 className="text-base font-semibold font-['Bricolage_Grotesque'] tracking-tight"
+              style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
             >
-              Microphone
-            </p>
-            <AudioRecorderWithVisualizer
-              onRecordingComplete={handleRecordingComplete}
-              onRecordingStart={() => setStage("recording")}
-              disabled={isProcessing}
-            />
+              Voice Pipeline
+            </h1>
+            <motion.div
+              key={stage}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.25 }}
+              className="flex items-center gap-1.5"
+            >
+              <span
+                className={cn(
+                  "w-2 h-2 rounded-full",
+                  stageConfig.dotColor,
+                  (stage !== "idle" && stage !== "done") && "animate-pulse"
+                )}
+              />
+              <span className={cn("text-xs font-mono font-medium tracking-wide", stageConfig.color)}>
+                {stageConfig.label}
+              </span>
+            </motion.div>
           </div>
 
-          {/* Bot audio section */}
-          {isTTSGenerating && (
-            <div
-              className={cn(
-                "w-full border-t px-3 py-3 flex flex-col items-center gap-2",
-                theme === "dark" ? "border-[#1A1A1A]" : "border-gray-200"
-              )}
-            >
-              <p
-                className={cn(
-                  "text-[10px] font-semibold uppercase tracking-wider",
-                  theme === "dark" ? "text-gray-600" : "text-gray-400"
-                )}
-              >
-                Bot Audio
-              </p>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-2 h-2 bg-TT-purple-accent rounded-sm animate-pulse"
-                    style={{ animationDelay: `${i * 100}ms` }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          <div className="flex items-center gap-1">
+            {/* Model connection dots */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1 mr-2 cursor-default">
+                    <span className={cn("w-1.5 h-1.5 rounded-full", models.whisper ? "bg-TT-purple-accent" : "bg-gray-500")} />
+                    <span className={cn("w-1.5 h-1.5 rounded-full", models.llm ? "bg-TT-purple-accent" : "bg-gray-500")} />
+                    <span className={cn("w-1.5 h-1.5 rounded-full", models.tts ? "bg-TT-purple-accent" : "bg-gray-500")} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  <div className="flex flex-col gap-1">
+                    <span>Whisper: {models.whisper?.modelName || "not deployed"}</span>
+                    <span>LLM: {models.llm?.modelName || "not deployed"}</span>
+                    <span>TTS: {models.tts?.modelName || "not deployed"}</span>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
-        {/* Center Panel - Conversation / Metrics */}
-        <div className="flex-1 flex flex-col min-w-0">
+            {/* Status popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
+                    theme === "dark"
+                      ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
+                      : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
+                  )}
+                >
+                  <Activity className="w-4 h-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 p-0">
+                <StatusPanel
+                  stage={stage}
+                  models={models}
+                  conversationId={selectedConversation}
+                  messageCount={selectedConversationData?.messages.length ?? 0}
+                />
+              </PopoverContent>
+            </Popover>
+
+            {/* Metrics sheet */}
+            <Sheet>
+              <SheetTrigger asChild>
+                <button
+                  className={cn(
+                    "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
+                    theme === "dark"
+                      ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
+                      : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
+                  )}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                </button>
+              </SheetTrigger>
+              <SheetContent side="right">
+                <SheetHeader>
+                  <SheetTitle className="font-['Bricolage_Grotesque']">Pipeline Metrics</SheetTitle>
+                </SheetHeader>
+                <MetricsPanel metrics={metrics} />
+              </SheetContent>
+            </Sheet>
+          </div>
+        </motion.header>
+
+        {/* Transcript area */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.15 }}
+          className="flex-1 min-h-0 overflow-hidden"
+        >
           <MainContent
             conversations={conversations}
             selectedConversation={selectedConversation}
             isStreaming={isStreaming}
             isTTSGenerating={isTTSGenerating}
-            metrics={metrics}
           />
-        </div>
+        </motion.div>
 
-        {/* Right Panel - Status */}
-        {statusPanelOpen && (
-          <div
-            className={cn(
-              "w-44 lg:w-52 shrink-0 border-l overflow-hidden",
-              theme === "dark"
-                ? "bg-[#0A0A0A] border-[#1A1A1A]"
-                : "bg-white border-gray-200"
-            )}
-          >
-            <StatusPanel
-              stage={stage}
-              models={models}
-              conversationId={selectedConversation}
-              messageCount={selectedConversationData?.messages.length ?? 0}
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ModelPill({
-  icon,
-  label,
-  connected,
-  theme,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  connected: boolean;
-  theme: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs",
-        connected
-          ? theme === "dark"
-            ? "bg-green-500/10 text-green-400"
-            : "bg-green-50 text-green-700"
-          : theme === "dark"
-            ? "bg-[#151515] text-gray-500"
-            : "bg-gray-50 text-gray-400"
-      )}
-    >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
-      <span
-        className={cn(
-          "w-1.5 h-1.5 rounded-full",
-          connected ? "bg-green-500" : "bg-gray-400"
-        )}
-      />
-    </div>
+        {/* Controls footer */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className={cn(
+            "shrink-0 border-t px-5 py-3",
+            theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
+          )}
+        >
+          <AudioRecorderWithVisualizer
+            onRecordingComplete={handleRecordingComplete}
+            onRecordingStart={() => setStage("recording")}
+            disabled={isProcessing}
+            stage={stage}
+            isTTSGenerating={isTTSGenerating}
+          />
+        </motion.div>
+    </motion.div>
   );
 }

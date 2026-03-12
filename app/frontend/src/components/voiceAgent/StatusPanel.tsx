@@ -23,12 +23,12 @@ const STAGE_LABELS: Record<PipelineStage, string> = {
 };
 
 const STAGE_COLORS: Record<PipelineStage, string> = {
-  idle: "text-gray-400",
-  recording: "text-red-500",
-  transcribing: "text-amber-500",
-  thinking: "text-TT-purple-accent",
-  speaking: "text-green-500",
-  done: "text-green-500",
+  idle: "text-TT-purple-accent",
+  recording: "text-TT-red-accent",
+  transcribing: "text-TT-yellow",
+  thinking: "text-TT-yellow",
+  speaking: "text-TT-green",
+  done: "text-TT-purple-accent",
 };
 
 function StatusDot({ connected }: { connected: boolean }) {
@@ -53,7 +53,7 @@ export function StatusPanel({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 p-3 h-full overflow-y-auto text-sm",
+        "flex flex-col gap-3 p-3 overflow-y-auto text-sm",
         theme === "dark" ? "text-gray-300" : "text-gray-700"
       )}
     >
@@ -72,8 +72,10 @@ export function StatusPanel({
             className={cn(
               "inline-block w-2.5 h-2.5 rounded-full",
               stage === "idle" || stage === "done"
-                ? "bg-green-500"
-                : "bg-amber-500 animate-pulse"
+                ? "bg-TT-purple-accent"
+                : stage === "recording"
+                  ? "bg-TT-red-accent animate-pulse"
+                  : "bg-TT-yellow animate-pulse"
             )}
           />
           <span className={cn("font-medium", STAGE_COLORS[stage])}>
