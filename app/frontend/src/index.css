@@ -46,6 +46,8 @@ layer(base);
   background-attachment: fixed;
 }
 
+/* Dot pattern utilities integrated into Tailwind config */
+
 @layer base {
   /* Custom Scrollbar Styles */
   ::-webkit-scrollbar {
