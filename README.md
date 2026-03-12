@@ -10,7 +10,7 @@
 
 ---
 
-TT-Studio gives you eight AI application patterns — chat, RAG, voice pipelines, agents, image generation, and more — pre-integrated with hardware management, so you go from hardware to running AI in minutes. All inference runs on-device; no cloud API keys required. Built on the same open-source inference stack (vLLM, Forge, Media Engine) your production systems will use.
+TT-Studio gives you AI application patterns and blueprints — chat, RAG, voice pipelines, agents, image generation, and more — pre-integrated with hardware management, so you go from hardware to running AI in minutes. All inference runs on-device; no cloud API keys required. Built on the same open-source inference stack (vLLM, Forge, Media Engine) your production systems will use.
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ After provisioning completes, the UI will open automatically; if not, navigate t
 - **No cloud dependencies by default** — all inference runs on-device; cloud fallback is opt-in
 - **OpenAI-compatible APIs** — deployed models expose `/v1/chat/completions`; existing tooling works without changes
 - **Full-stack application patterns** — 8 pipelines ship pre-integrated (not sample code) — RAG, voice, and agents work out of the box
-- **60+ pre-validated models** — each model tested against hardware targets; status tiers indicate production-readiness
+- **60+ pre-validated models** — each model tested against hardware targets in our [TT Inference Server Stack](https://github.com/tenstorrent/tt-inference-server).
 
 ---
 
