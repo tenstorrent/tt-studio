@@ -499,13 +499,6 @@ export default function NavBar() {
       label: "Voice Pipeline",
       tooltip: "End-to-end voice demo (Whisper → LLM → TTS)",
     },
-    {
-      type: "link",
-      to: "/tts",
-      icon: Volume2,
-      label: "Text to Speech",
-      tooltip: "Convert text to audio with TTS model",
-    },
   ];
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
