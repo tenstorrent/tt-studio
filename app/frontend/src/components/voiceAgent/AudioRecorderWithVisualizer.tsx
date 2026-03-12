@@ -197,9 +197,9 @@ export const AudioRecorderWithVisualizer = ({
       : "Click to record";
 
   return (
-    <div className={cn("flex flex-col items-center gap-1 sm:gap-2", className)}>
+    <div className={cn("flex flex-col items-center gap-0.5 sm:gap-1.5", className)}>
       {/* Full-width waveform visualizer */}
-      <div className="flex items-end justify-center gap-[2px] sm:gap-[3px] h-4 sm:h-6 lg:h-8 w-full px-2 sm:px-4">
+      <div className="flex items-end justify-center gap-[2px] sm:gap-[3px] h-3 sm:h-5 lg:h-7 w-full px-2 sm:px-4">
         {levels.map((level, i) => (
           <motion.div
             key={i}
@@ -243,7 +243,7 @@ export const AudioRecorderWithVisualizer = ({
           whileHover={!disabled ? { scale: 1.06 } : undefined}
           whileTap={!disabled ? { scale: 0.95 } : undefined}
           className={cn(
-            "relative z-10 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full flex items-center justify-center transition-all duration-200",
+            "relative z-10 w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 rounded-full flex items-center justify-center transition-all duration-200",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent focus-visible:ring-offset-2",
             disabled && "opacity-50 cursor-not-allowed",
             isRecording
@@ -254,9 +254,9 @@ export const AudioRecorderWithVisualizer = ({
           )}
         >
           {isRecording ? (
-            <Square className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />
+            <Square className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" />
           ) : (
-            <Mic className="w-6 h-6 sm:w-7 sm:h-7 lg:w-8 lg:h-8" />
+            <Mic className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7" />
           )}
         </motion.button>
       </div>

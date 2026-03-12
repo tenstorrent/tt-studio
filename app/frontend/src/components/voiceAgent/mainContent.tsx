@@ -104,7 +104,7 @@ export function MainContent({
       ref={contentContainerRef}
       className="h-full overflow-y-auto overscroll-contain"
     >
-      <div className="p-3 sm:p-4 lg:p-6">
+      <div className="p-3 pb-6 sm:p-4 sm:pb-8 lg:p-6 lg:pb-10">
         {selectedConversationData &&
         selectedConversationData.messages.length > 0 ? (
           <div className="flex flex-col gap-5">

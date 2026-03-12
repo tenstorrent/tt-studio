@@ -356,8 +356,7 @@ export default function VoiceAgentApp() {
       style={{ perspective: "1200px", transformStyle: "preserve-3d" }}
       className={cn(
         "max-w-2xl w-full flex flex-col rounded-2xl overflow-hidden",
-        "h-[calc(100%-1rem)] sm:h-[calc(100%-2rem)] lg:h-[calc(100%-3rem)]",
-        "m-2 sm:m-4 lg:m-6",
+        "h-full",
         theme === "dark"
           ? "voice-glass voice-tile-3d"
           : "voice-glass-light voice-tile-3d-light"
