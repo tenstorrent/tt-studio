@@ -18,6 +18,7 @@ A quick view of which capability categories each blueprint has today.
 | AI Agent | ✅ | ✅ threads | — | ✅ auto-disc | — | — |
 | Voice Pipeline | ✅ SSE | — | ⚠️ sys prompt | ✅ 3-model | — | — |
 | Object Detection | — sync | — | — | — | — | — |
+| Application Integrations | — | — | — | ⚠️ LiteLLM planned | — | — |
 
 ✅ = implemented · ⚠️ = partial · — = not yet implemented
 
@@ -991,6 +992,70 @@ Generate and serve an OpenAPI 3.0 spec from the Django views.
   - [ ] `--remote <host>` sets up an SSH tunnel to the specified host for Docker Control Service communication
   - [ ] All inference endpoints proxy through the tunnel transparently
   - [ ] Documented in `docs/remote-endpoint-setup.md`
+
+---
+
+### 9. Application Integrations
+
+OpenAI-compatible access to TT-Studio deployed models from third-party clients including Open WebUI, AnythingLLM, Continue, LangChain, and any OpenAI SDK.
+
+**Reference:** [`docs/blueprints/application-integrations.md`](blueprints/application-integrations.md)
+
+#### Current Feature Inventory
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `/v1/chat/completions` on deployed vLLM containers | ✅ Complete | direct port access |
+| `/v1/models` endpoint on deployed containers | ✅ Complete | |
+| No-auth access (api_key ignored) | ✅ Complete | any string accepted as API key |
+| Stable port / stable endpoint URL | ❌ Missing | port is dynamic, changes on container restart |
+| LiteLLM Gateway (single front-door for all models) | ❌ Missing | see bounty spec |
+| Documented integration guides (per-app) | ❌ Missing | this blueprint |
+| Host-exposed port surfaced in TT-Studio UI | ⚠️ Partial | visible in status API but not prominently displayed on model card |
+
+#### Known Gaps
+
+- **No stable URL** — Dynamic port assignment means client configs break on container restart; no static endpoint exists at the TT-Studio layer
+- **No authentication** — Deployed model containers do not enforce API key validation; unsafe on shared or public networks
+- **Port not prominently surfaced in UI** — Users must inspect `/api/docker/status/` or the Docker CLI to find the container's host port
+- **No `/v1/` passthrough at Django backend** — External tools must connect directly to model container ports; TT-Studio's Django backend does not proxy or expose `/v1/chat/completions` or `/v1/models`
+
+#### Upcoming Features
+
+**LiteLLM Gateway (Stage 1–3)**
+
+See [`docs/bounties/litellm-inference-gateway.md`](bounties/litellm-inference-gateway.md).
+
+- **User Story:** As a developer using Open WebUI, I want a single stable endpoint for all TT-Studio models so I don't have to reconfigure my client every time a model restarts.
+- **Acceptance Criteria:**
+  - [ ] `http://<host>:4000/v1/chat/completions` routes to any currently deployed model
+  - [ ] `GET /v1/models` lists all active deployments dynamically
+  - [ ] LiteLLM config survives `docker compose down && up`
+
+---
+
+**Stable Deploy Port / Expose Port in UI**
+
+Surface the exact OpenAI base URL directly on the model card so users don't need to query the API.
+
+- **User Story:** As a developer integrating a third-party client, I want to see the exact base URL right from the TT-Studio model card so I don't have to look it up via API.
+- **Acceptance Criteria:**
+  - [ ] Model card in UI shows "OpenAI Base URL: `http://localhost:XXXX/v1`"
+  - [ ] Copy-to-clipboard button on the URL
+  - [ ] Port is stable across container restarts (or LiteLLM gateway is used instead)
+- **Affected Files:** `app/frontend/src/components/` (model card / deployed model component)
+
+---
+
+**API Key Enforcement (Optional)**
+
+Allow platform operators to require a shared API key for all model access.
+
+- **User Story:** As a platform operator, I want to optionally require an API key for model access so I can share the TT-Studio host without exposing unrestricted inference.
+- **Acceptance Criteria:**
+  - [ ] Optional env var `TT_STUDIO_API_KEY` — if set, all `/v1/` requests on deployed containers require `Authorization: Bearer <key>`
+  - [ ] Works transparently with all supported client applications (Open WebUI, LangChain, etc.)
+  - [ ] Documented in deployment and integration guides
 
 ---
 
