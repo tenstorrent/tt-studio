@@ -459,15 +459,19 @@ class ProgressHandler(logging.Handler):
                 with progress_lock:
                     if self.job_id in progress_store:
                         cur = progress_store[self.job_id]
-                        prev = cur.get("progress", 0)
-                        pct = max(prev, pct)  # monotonic clamp
-                        progress_store[self.job_id].update({
-                            "status": status,
-                            "stage": stage,
-                            "progress": pct,
-                            "message": text[:200],
-                            "last_updated": time.time(),
-                        })
+                        cur_status = cur.get("status", "running")
+                        if cur_status in ("completed", "failed", "cancelled"):
+                            pass
+                        else:
+                            prev = cur.get("progress", 0)
+                            pct = max(prev, pct)  # monotonic clamp
+                            progress_store[self.job_id].update({
+                                "status": status,
+                                "stage": stage,
+                                "progress": pct,
+                                "message": text[:200],
+                                "last_updated": time.time(),
+                            })
                     else:
                         # Initialize if not exists
                         progress_store[self.job_id] = {
@@ -514,21 +518,33 @@ class ProgressHandler(logging.Handler):
                 progress = 100
                 status = "completed"
             elif any(keyword in message for keyword in ["⛔", "Error", "Failed", "error"]):
-                status = "error"
-                stage = "error"
+                false_positives = [
+                    "any errors will be in the logs",
+                    "if you encounter any issues",
+                    "see error messages in logs",
+                    "this log file is saved",
+                    "no config file found",
+                    "the output of the workflows is not checked",
+                ]
+                if not any(fp in message.lower() for fp in false_positives):
+                    status = "error"
+                    stage = "error"
                 
             # Update progress store (only if we have meaningful progress)
             if progress > 0 or status in ["error", "completed"]:
                 with progress_lock:
                     if self.job_id in progress_store:
                         current_progress = progress_store[self.job_id].get("progress", 0)
-                        # Only update if progress is moving forward, we hit an error, or deployment is completed
-                        if progress > current_progress or status == "error" or status == "completed":
+                        current_status = progress_store[self.job_id].get("status", "running")
+                        # Never let a log-line override a terminal status
+                        if current_status in ("completed", "failed", "cancelled"):
+                            pass
+                        elif progress > current_progress or status == "error" or status == "completed":
                             progress_store[self.job_id].update({
                                 "status": status,
                                 "stage": stage,
                                 "progress": progress,
-                                "message": message[:200],  # Truncate long messages
+                                "message": message[:200],
                                 "last_updated": time.time()
                             })
                     else:

@@ -48,7 +48,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         setDisplayText(<span>Model Deployed!</span>);
         safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
         stopPolling();
-      } else if (progress.status === 'error' || progress.status === 'failed') {
+      } else if (progress.status === 'error' || progress.status === 'failed' || progress.status === 'timeout') {
         setDeploymentFailed(true);
         setIsDeploying(false);
         setIsRocketFlying(false);
@@ -56,6 +56,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
         stopPolling();
       }
+      // 'not_found' is NOT treated as failure here — the hook handles retry logic
     }
   }, [progress, stopPolling]);
 
@@ -67,6 +68,13 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
       null
     );
     if (!stored?.jobId) return;
+
+    const MAX_RESUME_AGE_MS = 60 * 60 * 1000;
+    const age = Date.now() - (stored.startedAt ?? 0);
+    if (age > MAX_RESUME_AGE_MS) {
+      safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
+      return;
+    }
 
     setIsDeploying(true);
     setDeploymentFailed(false);
