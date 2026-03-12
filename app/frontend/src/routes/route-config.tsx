@@ -50,6 +50,7 @@ import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
 import VoiceAgentPage from "../pages/VoiceAgentPage";
+import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import VoicePipelinePage from "../pages/VoicePipelinePage";
@@ -113,6 +114,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/voice-agent",
       element: <VoiceAgentPage />,
+      condition: true,
+    },
+    {
+      path: "/speech-to-text",
+      element: <SpeechToTextPage />,
       condition: true,
     },
     {
