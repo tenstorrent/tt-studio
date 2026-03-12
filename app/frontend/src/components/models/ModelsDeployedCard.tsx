@@ -8,6 +8,9 @@ import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
 import { Table } from "../ui/table";
 import { Button } from "../ui/button";
+import { EnhancedButton } from "../ui/enhanced-button";
+import { PulsatingDot } from "../ui/pulsating-dot";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { AlertCircle } from "lucide-react";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
@@ -352,27 +355,53 @@ export default function ModelsDeployedCard(): JSX.Element {
 
       {/* Voice Agent discovery banner */}
       {showVoiceBanner && (
-        <div className="mx-6 mb-4 flex items-center justify-between rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-300">
-          <span>
-            You have an LLM, Whisper, and TTS deployed — try the{" "}
-            <strong>Voice Agent</strong>!
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigate("/voice-agent")}
-              className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500"
-            >
-              Go to Voice Agent
-            </button>
-            <button
-              onClick={() => setVoiceBannerDismissed(true)}
-              className="text-blue-400 hover:text-blue-200"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
+        <TooltipProvider>
+          <ElevatedCard accent="blue" depth="md" className="mx-6 mb-6">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-2">
+                        <PulsatingDot label="Whisper STT" color="blue" size="md" delay={0} />
+                        <PulsatingDot label="LLM" color="green" size="md" delay={400} />
+                        <PulsatingDot label="TTS" color="purple" size="md" delay={800} />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p className="text-sm">
+                        TT Studio automatically chains your deployed models: Whisper STT → LLM → TTS for seamless voice conversations
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">Voice Agent Ready</h3>
+                    <p className="text-sm text-muted-foreground">
+                      3 models deployed and auto-chained
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <EnhancedButton 
+                    variant="default" 
+                    effect="shine"
+                    onClick={() => navigate("/voice-agent")}
+                  >
+                    Start Voice Chat
+                  </EnhancedButton>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setVoiceBannerDismissed(true)}
+                    aria-label="Dismiss"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </ElevatedCard>
+        </TooltipProvider>
       )}
 
       {/* Chip slot visualization for multi-chip boards */}

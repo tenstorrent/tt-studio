@@ -494,10 +494,10 @@ export default function NavBar() {
     },
     {
       type: "link",
-      to: "/voice-pipeline",
+      to: "/voice-agent",
       icon: Mic,
-      label: "Voice Pipeline",
-      tooltip: "End-to-end voice demo (Whisper → LLM → TTS)",
+      label: "Voice Agent",
+      tooltip: "Full conversational AI interface with voice chat",
     },
   ];
 

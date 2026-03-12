@@ -335,7 +335,7 @@ export default function VoiceAgentApp() {
               theme === "dark" ? "text-white" : "text-gray-900"
             )}
           >
-            Voice Pipeline
+            Voice Agent
           </h1>
           <span
             className={cn(
