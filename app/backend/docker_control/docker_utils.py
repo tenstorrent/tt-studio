@@ -764,6 +764,92 @@ def perform_reset():
             "http_status": 500,
         }
 
+def perform_device_reset(device_id: int):
+    """
+    Reset a specific TT chip/device using tt-smi -r <device_id>.
+    Up to 2 attempts with 30-second timeout each.
+    """
+    try:
+        logger.info(f"Starting chip reset for device {device_id} — running tt-smi -r {device_id}")
+
+        SystemResourceService.set_resetting_state()
+
+        MAX_ATTEMPTS = 2
+        last_output = ""
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.info(f"Device {device_id} reset attempt {attempt} of {MAX_ATTEMPTS}")
+            try:
+                process = subprocess.Popen(
+                    ["tt-smi", "-r", str(device_id)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    preexec_fn=os.setsid,
+                )
+
+                try:
+                    stdout, _ = process.communicate(timeout=30)
+                    last_output = stdout
+                    logger.info(f"tt-smi -r {device_id} attempt {attempt} output: {stdout.strip()!r:.200}")
+
+                    if process.returncode == 0:
+                        logger.info(f"Device {device_id} reset succeeded on attempt {attempt}")
+                        SystemResourceService.clear_device_state_cache()
+                        return {
+                            "status": "success",
+                            "message": f"Device {device_id} reset successfully after {attempt} attempt(s)",
+                            "attempts_used": attempt,
+                            "output": stdout,
+                            "http_status": 200,
+                        }
+
+                    logger.warning(
+                        f"Device {device_id} reset attempt {attempt} failed: exit code {process.returncode}"
+                    )
+
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Device {device_id} reset attempt {attempt} timed out after 30s")
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except Exception:
+                            pass
+                    last_output = "(timeout)"
+
+            except Exception as exc:
+                logger.error(f"Device {device_id} reset attempt {attempt} raised exception: {exc}")
+                last_output = str(exc)
+
+        logger.error(f"All {MAX_ATTEMPTS} reset attempts for device {device_id} failed")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": (
+                f"Device {device_id} did not recover after {MAX_ATTEMPTS} reset attempts. "
+                "Manual intervention may be required."
+            ),
+            "attempts_used": MAX_ATTEMPTS,
+            "output": last_output,
+            "http_status": 500,
+        }
+
+    except Exception as e:
+        logger.exception(f"Unexpected error during device {device_id} reset operation")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": str(e),
+            "attempts_used": 0,
+            "output": "",
+            "http_status": 500,
+        }
+
+
 def check_image_exists(image_name, image_tag):
     """Check if a Docker image exists locally with robust matching"""
     try:

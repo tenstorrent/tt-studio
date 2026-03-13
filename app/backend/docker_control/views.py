@@ -28,6 +28,7 @@ from .docker_utils import (
     stop_container,
     get_container_status,
     perform_reset,
+    perform_device_reset,
     check_image_exists,
     detect_board_type,
     DEPLOYMENT_TIMEOUT_SECONDS,
@@ -808,6 +809,37 @@ class ResetBoardView(APIView):
 
         except Exception as e:
             logger.exception("Exception occurred during reset operation.")
+            return Response(
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ResetDeviceView(APIView):
+    """Reset a single chip/device using tt-smi -r <device_id>."""
+
+    def post(self, request, device_id, *args, **kwargs):
+        try:
+            reset_response = perform_device_reset(device_id)
+
+            if reset_response.get("status") == "error":
+                error_message = reset_response.get(
+                    "message", f"An error occurred during device {device_id} reset."
+                )
+                http_status = reset_response.get(
+                    "http_status", status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                return Response(
+                    {"status": "error", "message": error_message}, status=http_status
+                )
+
+            output = reset_response.get("output", f"Device {device_id} reset successfully.")
+            return StreamingHttpResponse(
+                output, content_type="text/plain", status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.exception(f"Exception occurred during device {device_id} reset operation.")
             return Response(
                 {"status": "error", "message": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
