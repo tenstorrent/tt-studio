@@ -24,6 +24,8 @@ from .views import (
     ContainerEventsView,
     DeploymentHistoryView,
     WorkflowLogStreamView,
+    DiscoverContainersView,
+    RegisterExternalModelView,
 )
 
 urlpatterns = [
@@ -45,4 +47,6 @@ urlpatterns = [
     path("container-events/", views.ContainerEventsView.as_view(), name="container-events"),
     path("deployment-history/", views.DeploymentHistoryView.as_view(), name="deployment-history"),
     path("workflow-logs/<int:deployment_id>/", views.WorkflowLogStreamView.as_view(), name="workflow-logs"),
+    path("discover-containers/", views.DiscoverContainersView.as_view(), name="discover-containers"),
+    path("register-external/", views.RegisterExternalModelView.as_view(), name="register-external"),
 ]

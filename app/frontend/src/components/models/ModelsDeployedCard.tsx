@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Plus } from "lucide-react";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
 import { NoModelsDialog } from "../NoModelsDeployed";
@@ -39,6 +39,7 @@ import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog, { type DeleteStep } from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
+import RegisterModelDialog from "./RegisterModelDialog.tsx";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
 import axios from "axios";
@@ -86,6 +87,7 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const navigate = useNavigate();
   const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
+  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
@@ -328,6 +330,14 @@ export default function ModelsDeployedCard(): JSX.Element {
         <div className="flex items-center justify-between gap-3">
           {/* Left */}
           <CardTitle className="text-xl">Models Deployed</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowRegisterDialog(true)}
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Register Model
+          </Button>
           {/* Center intentionally empty per redesign */}
           <div className="flex-1" />
           {/* Right */}
@@ -474,6 +484,15 @@ export default function ModelsDeployedCard(): JSX.Element {
         deleteStep={deleteStep}
         onConfirm={handleConfirmDelete}
         onCancel={() => !isProcessingDelete && setShowDeleteModal(false)}
+      />
+
+      <RegisterModelDialog
+        open={showRegisterDialog}
+        onClose={() => setShowRegisterDialog(false)}
+        onSuccess={() => {
+          setShowRegisterDialog(false);
+          loadModels();
+        }}
       />
     </ElevatedCard>
   );

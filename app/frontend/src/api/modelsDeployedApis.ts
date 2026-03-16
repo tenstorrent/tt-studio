@@ -515,6 +515,70 @@ export const checkCurrentlyDeployedModels = async (): Promise<{
   }
 };
 
+// ----- Discover & Register External Containers -----
+
+export interface DiscoveredContainer {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  port_bindings: Record<string, { HostIp: string; HostPort: string }[] | null>;
+}
+
+export const discoverContainers = async (): Promise<DiscoveredContainer[]> => {
+  const response = await axios.get<DiscoveredContainer[]>(
+    "/docker-api/discover-containers/"
+  );
+  return response.data;
+};
+
+export interface RegisterExternalModelRequest {
+  container_id: string;
+  model_type: string;
+  model_name: string;
+  hf_model_id?: string;
+  service_port?: number;
+  service_route?: string;
+  health_route?: string;
+}
+
+export interface RegisterExternalModelResponse {
+  status: string;
+  container_id: string;
+  container_name: string;
+  corrections?: string[];
+  message?: string;
+}
+
+export const registerExternalModel = async (
+  req: RegisterExternalModelRequest
+): Promise<RegisterExternalModelResponse> => {
+  const response = await axios.post<RegisterExternalModelResponse>(
+    "/docker-api/register-external/",
+    req
+  );
+  return response.data;
+};
+
+export interface CatalogModel {
+  model_name: string;
+  model_type: string;
+  hf_model_id: string;
+  service_route: string;
+  health_route: string;
+  display_model_type?: string;
+}
+
+export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
+  const response = await axios.get("/docker-api/catalog/");
+  // Catalog endpoint returns { status, models: { [id]: {...} } }
+  const models = response.data?.models;
+  if (models && typeof models === "object" && !Array.isArray(models)) {
+    return Object.values(models) as CatalogModel[];
+  }
+  return [];
+};
+
 // Utility to extract short model name from container name
 export function extractShortModelName(containerName: string): string {
   // Example: 'tt-metal-yolov4-src-base_p8001' => 'yolov4'
