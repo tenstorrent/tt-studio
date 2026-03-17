@@ -46,6 +46,51 @@ Two connection paths:
 | [LibreChat](https://github.com/danny-avila/LibreChat) | Chat UI | `librechat.yaml` endpoint config |
 | Any OpenAI SDK client | Generic | Set `base_url` + `api_key="none"` |
 
+## TT Example Apps
+
+Tenstorrent maintains a companion repo, [`tt-example-apps`](https://github.com/tenstorrent/tt-example-apps), with 14 plug-and-play Python/notebook apps built on top of TT inference. Each app is pre-wired to the OpenAI-compatible endpoint pattern used by TT-Studio.
+
+### Connecting to TT-Studio Instead of Koyeb
+
+The apps default to a Koyeb-hosted URL, but any TT-Studio deployed model works identically. Replace the Koyeb instance URL with `http://localhost:<port>` where `<port>` is the host port of your deployed model. The model name is auto-discovered via `/v1/models` — no hardcoding required.
+
+```bash
+# In any tt-example-apps project:
+export TT_BASE_URL="http://localhost:<port>"   # your deployed model's port
+# Then run the app — model is auto-discovered via /v1/models
+```
+
+### Basic Chat Apps
+
+| App | Description | Frameworks |
+|-----|-------------|------------|
+| `chat_memory` | Streaming chatbot with conversation history | OpenAI SDK, Streamlit |
+| `basic_scripts` | Foundational inference scripts | OpenAI SDK |
+
+### Agent Apps
+
+| App | Description | Frameworks |
+|-----|-------------|------------|
+| `langchain_search_agent` | Web search agent (requires Tavily API key) | LangChain |
+| `langchain_math_agent` | Math problem-solving agent | LangChain |
+| `agno_web_search` | Web search using Agno framework | Agno |
+| `investment_agent` | Financial/investment analysis agent | Agno |
+| `aws_strands_agent` | File-read agent via AWS Strands | AWS Strands |
+| `google_adk_agent` | Text agent via Google ADK | Google ADK |
+| `openai_exchange_rate_agent` | Currency exchange rate agent | OpenAI SDK |
+| `openai_filesystem_mcp` | Filesystem agent via MCP protocol | OpenAI SDK + MCP |
+| `travel_guide` | AI travel planning agent | OpenAI SDK |
+| `weather_agent` | Weather information agent | OpenAI SDK |
+
+### RAG Apps
+
+| App | Description | Frameworks |
+|-----|-------------|------------|
+| `pdf_rag` | RAG over PDF documents | LangChain, ChromaDB |
+| `webpage_rag` | RAG over web pages | LangChain, ChromaDB |
+
+> **Note on tool calling:** Some agent apps require the model server to be launched with `--enable-auto-tool-choice`. TT-Studio models that support tool calling (Llama, Qwen) are configured for this when deployed via the catalog.
+
 ## Finding Your Model's Endpoint
 
 **Option 1 — TT-Studio UI:**
