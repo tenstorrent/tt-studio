@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useModels } from "../hooks/useModels";
 import {
   Tooltip,
@@ -17,7 +17,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import {
   ExternalLink,
-  Github,
   Package,
   Info,
   FileText,
@@ -54,9 +53,12 @@ interface SystemStatus {
 
 const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown between manual refreshes
 
+const FOOTER_HEIGHT_CSS_VAR = "--footer-height";
+
 const Footer: React.FC<FooterProps> = ({ className }) => {
   const { showFooter, setShowFooter } = useFooterVisibility();
   const { theme } = useTheme();
+  const footerRef = useRef<HTMLElement>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     cpuUsage: 0,
     memoryUsage: 0,
@@ -157,10 +159,48 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     // No more timer-based polling - will refresh on model deployment events
   }, []);
 
+  // Auto-hide footer when navigating to Chat UI
+  useEffect(() => {
+    if (location.pathname === "/chat") {
+      setShowFooter(false);
+    }
+  }, [location.pathname, setShowFooter]);
+
+  // Update --footer-height CSS variable on document root whenever footer visibility or content changes
+  useEffect(() => {
+    const updateFooterHeight = () => {
+      if (showFooter && footerRef.current) {
+        const height = footerRef.current.offsetHeight;
+        document.documentElement.style.setProperty(
+          FOOTER_HEIGHT_CSS_VAR,
+          `${height}px`
+        );
+      } else {
+        document.documentElement.style.setProperty(
+          FOOTER_HEIGHT_CSS_VAR,
+          "0px"
+        );
+      }
+    };
+
+    updateFooterHeight();
+    // Re-measure after animation completes (spring animation ~300ms)
+    const timer = setTimeout(updateFooterHeight, 350);
+    return () => clearTimeout(timer);
+  }, [showFooter, loading]);
+
   const textColor = theme === "dark" ? "text-zinc-300" : "text-gray-700";
   const borderColor = theme === "dark" ? "border-zinc-700" : "border-gray-200";
   const bgColor = theme === "dark" ? "bg-zinc-900/95" : "bg-white/95";
   const mutedTextColor = theme === "dark" ? "text-zinc-400" : "text-gray-500";
+
+  // On pages with a vertical sidebar (chat, image-generation), offset footer so it
+  // starts after the 64px (w-16) sidebar instead of overlapping it.
+  const location = useLocation();
+  const hasVerticalNav =
+    location.pathname === "/chat" ||
+    location.pathname === "/image-generation";
+  const footerLeft = hasVerticalNav ? "left-16" : "left-0";
   const normalizedBoardName = systemStatus.boardName?.toLowerCase();
   const isBoardDetectionIssue =
     systemStatus.hardware_status === "error" ||
@@ -581,7 +621,8 @@ Add any other context about the problem here.
         {!showFooter ? (
           <motion.div
             key="toggle-button"
-            className="fixed -bottom-1 left-1/2 -translate-x-1/2 z-40"
+            className="fixed -bottom-1 z-40 -translate-x-1/2"
+            style={{ left: hasVerticalNav ? "calc(50% + 2rem)" : "50%" }}
             initial={{ y: 100 }}
             animate={{ y: 0 }}
             exit={{ y: 100 }}
@@ -611,7 +652,8 @@ Add any other context about the problem here.
         ) : loading ? (
           <motion.footer
             key="footer-loading"
-            className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+            ref={footerRef}
+            className={`fixed bottom-0 ${footerLeft} right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
             initial={{ y: 100 }}
             animate={{ y: 0 }}
             exit={{ y: 100 }}
@@ -660,7 +702,8 @@ Add any other context about the problem here.
         ) : (
           <motion.footer
             key="footer-content"
-            className={`fixed bottom-0 left-0 right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
+            ref={footerRef}
+            className={`fixed bottom-0 ${footerLeft} right-0 z-40 ${bgColor} backdrop-blur-sm border-t ${borderColor} ${className}`}
             initial={{ y: 100 }}
             animate={{ y: 0 }}
             exit={{ y: 100 }}
@@ -701,7 +744,22 @@ Add any other context about the problem here.
                 title="Click to view TT Studio information"
               >
                 <span>TT Studio 2.0.1</span>
-                <Github className="h-3.5 w-3.5" />
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 96 96"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="flex-shrink-0"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    fillRule="evenodd"
+                    clipRule="evenodd"
+                    d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"
+                    fill={theme === "dark" ? "#fff" : "#24292f"}
+                  />
+                </svg>
               </div>
               {systemStatus.boardName?.toLowerCase().includes("t3k") ? (
                 <div
@@ -976,7 +1034,22 @@ Add any other context about the problem here.
                   )
                 }
               >
-                <Github className="h-5 w-5 text-TT-purple-accent" />
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 96 96"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="flex-shrink-0"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    fillRule="evenodd"
+                    clipRule="evenodd"
+                    d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z"
+                    fill={theme === "dark" ? "#fff" : "#24292f"}
+                  />
+                </svg>
                 <div className="text-left">
                   <div className="font-semibold text-gray-900 dark:text-white">
                     GitHub Repository
