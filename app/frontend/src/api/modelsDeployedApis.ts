@@ -540,6 +540,8 @@ export interface RegisterExternalModelRequest {
   service_port?: number;
   service_route?: string;
   health_route?: string;
+  device_id: number;
+  chips_required?: number;
 }
 
 export interface RegisterExternalModelResponse {

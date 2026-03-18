@@ -1414,6 +1414,18 @@ class RegisterExternalModelView(APIView):
             service_port = data.get("service_port", 7000)
             service_route = data.get("service_route", "").strip() or None
             health_route = data.get("health_route", "").strip() or "/health"
+            device_id = data.get("device_id", 0)
+            chips_required = data.get("chips_required", 1)
+
+            # Normalise device_id / chips_required to int
+            try:
+                device_id = int(device_id)
+            except (TypeError, ValueError):
+                device_id = 0
+            try:
+                chips_required = int(chips_required)
+            except (TypeError, ValueError):
+                chips_required = 1
 
             # --- Validate required fields ---
             if not container_id or not model_type or not model_name:
@@ -1428,6 +1440,58 @@ class RegisterExternalModelView(APIView):
                     {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            # --- Validate device_id against chip slot availability ---
+            try:
+                from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
+
+                allocator = ChipSlotAllocator()
+                chip_status = allocator.get_chip_status()
+                total_slots = chip_status.get("total_slots", 1)
+
+                if chips_required >= 4:
+                    # Multi-chip: all slots (0-3) must be free
+                    occupied_slots = [
+                        s for s in chip_status.get("slots", []) if s.get("status") == "occupied"
+                    ]
+                    if occupied_slots:
+                        occupied_names = ", ".join(
+                            f"slot {s['slot_id']} ({s.get('model_name', 'unknown')})"
+                            for s in occupied_slots
+                        )
+                        return Response(
+                            {
+                                "status": "error",
+                                "message": f"Multi-chip model requires all chip slots to be free. Currently occupied: {occupied_names}.",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    device_id = 0  # Multi-chip always registers on slot 0
+                else:
+                    # Single-chip: validate the selected slot is in range and free
+                    if device_id < 0 or device_id >= total_slots:
+                        return Response(
+                            {
+                                "status": "error",
+                                "message": f"Invalid device_id {device_id}. Must be 0–{total_slots - 1}.",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    slot_info = next(
+                        (s for s in chip_status.get("slots", []) if s.get("slot_id") == device_id),
+                        None,
+                    )
+                    if slot_info and slot_info.get("status") == "occupied":
+                        occupying = slot_info.get("model_name", "another model")
+                        return Response(
+                            {
+                                "status": "error",
+                                "message": f"Chip slot {device_id} is already occupied by '{occupying}'. Choose a different slot.",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            except ImportError:
+                logger.warning("ChipSlotAllocator not available; skipping device_id validation")
 
             corrections = []
 
@@ -1573,12 +1637,12 @@ class RegisterExternalModelView(APIView):
                         container_name=container_name,
                         model_name=model_name,
                         device="external",
-                        device_id=0,
+                        device_id=device_id,
                         status="running",
                         stopped_by_user=False,
                         port=int(service_port) if service_port else 7000,
                     )
-                    logger.info(f"Created deployment record for external container '{container_name}'")
+                    logger.info(f"Created deployment record for external container '{container_name}' on device_id={device_id}")
             except Exception as e:
                 logger.error(f"Failed to create deployment record: {e}")
                 # Continue — the network connection is the critical part
