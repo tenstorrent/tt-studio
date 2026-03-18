@@ -596,7 +596,9 @@ def normalize_device_alias(device: str) -> str:
     if not device:
         return device
     alias_map = {
-        "p300cx2": "p150x4",
+        "p300cx2": "p300x2",
+        "p300c*2": "p300x2",
+        "p300*2": "p300x2",
     }
     return alias_map.get(device.strip().lower(), device)
 
@@ -966,8 +968,6 @@ async def run_inference(request: RunRequest):
         argv.extend(["--docker-server"])
         if request.dev_mode:
             argv.extend(["--dev-mode"])
-        if request.skip_system_sw_validation:
-            argv.extend(["--skip-system-sw-validation"])
         argv.extend(["--service-port", "7000"])
         if request.impl:
             argv.extend(["--impl", request.impl])
@@ -1015,18 +1015,51 @@ async def run_inference(request: RunRequest):
                 if prev_cwd != script_dir:
                     os.chdir(script_dir)
 
-                # Set sys.argv for run_main()
-                sys.argv = argv
-                logger.info(f"Job {job_id}: Starting run_main(): {' '.join(argv)}")
-                run_result = run_main()
-                if isinstance(run_result, tuple):
-                    return_code, container_info = run_result
-                else:
-                    return_code = run_result
-                    container_info = None
+                def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
+                    """Execute run_main() for one attempt and return (code, container_info)."""
+                    sys.argv = argv_for_attempt
+                    logger.info(f"Job {job_id}: Starting run_main(): {' '.join(argv_for_attempt)}")
+                    run_result = run_main()
+                    if isinstance(run_result, tuple):
+                        attempt_return_code, attempt_container_info = run_result
+                    else:
+                        attempt_return_code = run_result
+                        attempt_container_info = None
+                    logger.info(f"Job {job_id}: run_main() return code: {attempt_return_code}")
+                    logger.info(f"Job {job_id}: container_info:= {attempt_container_info}")
+                    return attempt_return_code, attempt_container_info
 
-                logger.info(f"Job {job_id}: run_main() return code: {return_code}")
-                logger.info(f"Job {job_id}: container_info:= {container_info}")
+                return_code, container_info = _execute_run(argv)
+
+                # Retry once with --dev-mode only when the initial non-dev run fails.
+                if return_code != 0 and not request.dev_mode:
+                    retry_argv = list(argv)
+                    retry_reason_parts = ["--dev-mode"]
+                    if "--dev-mode" not in retry_argv:
+                        retry_argv.append("--dev-mode")
+                    if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
+                        retry_argv.append("--skip-system-sw-validation")
+                        retry_reason_parts.append("--skip-system-sw-validation")
+                    retry_reason = " and ".join(retry_reason_parts)
+                    logger.warning(
+                        "Job %s: first run failed (code %s), retrying once with %s",
+                        job_id,
+                        return_code,
+                        retry_reason,
+                    )
+                    with progress_lock:
+                        if job_id in progress_store:
+                            current_progress = progress_store[job_id].get("progress", 0)
+                            progress_store[job_id].update(
+                                {
+                                    "status": "retrying",
+                                    "stage": "container_setup",
+                                    "progress": max(current_progress, 70),
+                                    "message": f"Retrying deployment with {retry_reason}...",
+                                    "last_updated": time.time(),
+                                }
+                            )
+                    return_code, container_info = _execute_run(retry_argv)
 
                 if return_code == 0:
                     if not isinstance(container_info, dict) or not container_info.get("container_name"):

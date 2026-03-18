@@ -222,7 +222,6 @@ class DeployView(APIView):
                     model_name=impl.model_name,
                     device=device,
                     timeout_seconds=30,
-                    dev_mode=True,
                     skip_system_sw_validation=True,
                 )
                 if result.status != "success":
