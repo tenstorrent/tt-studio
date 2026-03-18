@@ -75,6 +75,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const [bugReportLoading, setBugReportLoading] = useState(false);
   const { models } = useModels();
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     releaseInfo,
     parsedNotes,
@@ -196,7 +197,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
   // On pages with a vertical sidebar (chat, image-generation), offset footer so it
   // starts after the 64px (w-16) sidebar instead of overlapping it.
-  const location = useLocation();
   const hasVerticalNav =
     location.pathname === "/chat" ||
     location.pathname === "/image-generation";
