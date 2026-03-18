@@ -974,7 +974,10 @@ export default function ChatComponent() {
   };
 
   return (
-    <div className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6 pb-20">
+    <div
+      className="flex flex-col w-full max-w-full mx-auto h-screen overflow-hidden p-2 sm:p-4 md:p-6"
+      style={{ paddingBottom: "var(--footer-height, 0px)" }}
+    >
       <Card className="flex flex-row w-full h-full overflow-hidden min-w-0 relative font-normal">
         {/* Improved mobile handle with translucent styling */}
         {screenSize.isMobileView && !isHistoryPanelOpen && (

@@ -13,7 +13,10 @@ const ChatUI = () => {
               "radial-gradient(ellipse at center, transparent 95%, black 100%)",
           }}
         ></div>
-        <div className="w-full h-full lg:pl-16 overflow-hidden pb-20">
+        <div
+          className="w-full h-full lg:pl-16 overflow-hidden"
+          style={{ paddingBottom: "var(--footer-height, 0px)" }}
+        >
           <ChatComponent />
         </div>
       </div>

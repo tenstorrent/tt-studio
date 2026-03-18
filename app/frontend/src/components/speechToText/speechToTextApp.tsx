@@ -144,7 +144,10 @@ export default function SpeechToTextApp() {
   }, [conversationCounter]);
 
   return (
-    <div className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4 pb-20">
+    <div
+      className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4"
+      style={{ paddingBottom: "var(--footer-height, 0px)" }}
+    >
       {/* Main card container with subtle glow effect */}
       <Card
         className={cn(
