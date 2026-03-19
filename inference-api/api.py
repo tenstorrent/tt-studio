@@ -966,8 +966,6 @@ async def run_inference(request: RunRequest):
         argv.extend(["--workflow", request.workflow])
         argv.extend(["--device", normalized_device])
         argv.extend(["--docker-server"])
-        if request.dev_mode:
-            argv.extend(["--dev-mode"])
         argv.extend(["--service-port", "7000"])
         if request.impl:
             argv.extend(["--impl", request.impl])
@@ -1029,18 +1027,44 @@ async def run_inference(request: RunRequest):
                     logger.info(f"Job {job_id}: container_info:= {attempt_container_info}")
                     return attempt_return_code, attempt_container_info
 
-                return_code, container_info = _execute_run(argv)
-
-                # Retry once with --dev-mode only when the initial non-dev run fails.
-                if return_code != 0 and not request.dev_mode:
+                def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
                     retry_argv = list(argv)
-                    retry_reason_parts = ["--dev-mode"]
-                    if "--dev-mode" not in retry_argv:
-                        retry_argv.append("--dev-mode")
+                    retry_reason_parts: list[str] = []
                     if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                         retry_argv.append("--skip-system-sw-validation")
                         retry_reason_parts.append("--skip-system-sw-validation")
-                    retry_reason = " and ".join(retry_reason_parts)
+                    retry_reason = " and ".join(retry_reason_parts) if retry_reason_parts else "same options"
+                    return retry_argv, retry_reason
+
+                try:
+                    return_code, container_info = _execute_run(argv)
+                except Exception as first_attempt_error:
+                    # run_main() can raise directly (e.g. local setup validation errors)
+                    # and bypass return-code based retry logic.
+                    retry_argv, retry_reason = _build_retry_argv_and_reason()
+                    logger.warning(
+                        "Job %s: first run raised (%s), retrying once with %s",
+                        job_id,
+                        type(first_attempt_error).__name__,
+                        retry_reason,
+                    )
+                    with progress_lock:
+                        if job_id in progress_store:
+                            current_progress = progress_store[job_id].get("progress", 0)
+                            progress_store[job_id].update(
+                                {
+                                    "status": "retrying",
+                                    "stage": "container_setup",
+                                    "progress": max(current_progress, 70),
+                                    "message": f"Retrying deployment with {retry_reason}...",
+                                    "last_updated": time.time(),
+                                }
+                            )
+                    return_code, container_info = _execute_run(retry_argv)
+
+                # Retry once when the initial run fails.
+                if return_code != 0:
+                    retry_argv, retry_reason = _build_retry_argv_and_reason()
                     logger.warning(
                         "Job %s: first run failed (code %s), retrying once with %s",
                         job_id,
