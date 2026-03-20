@@ -12,6 +12,8 @@ import {
   ListFilter,
   Info,
   BarChart2,
+  MessageSquare,
+  Hash,
 } from "lucide-react";
 import { Slider } from "@/src/components/ui/slider";
 import { Input } from "../ui/input";
@@ -31,9 +33,11 @@ interface SettingsProps {
     maxLength: number;
     topP: number;
     topK: number;
+    seed: number;
     toggleableInlineStats: boolean;
+    systemPrompt: string;
   };
-  onSettingsChange: (key: string, value: number | boolean) => void;
+  onSettingsChange: (key: string, value: number | boolean | string) => void;
 }
 
 // Parameter validation ranges
@@ -42,6 +46,7 @@ const PARAM_RANGES = {
   maxLength: { min: 1, max: 2048, step: 1 },
   topP: { min: 0.1, max: 1.0, step: 0.1 },
   topK: { min: 1, max: 50, step: 1 },
+  seed: { min: 0, max: 99999, step: 1 },
 };
 
 // Default values
@@ -50,8 +55,18 @@ const DEFAULT_VALUES = {
   maxLength: 512,
   topP: 0.9,
   topK: 20,
+  seed: 0,
   toggleableInlineStats: true,
 };
+
+// System prompt presets
+const SYSTEM_PROMPT_PRESETS = [
+  { label: "Pirate", prompt: "You are a pirate. Respond to everything in pirate speak." },
+  { label: "Code Tutor", prompt: "You are a coding tutor. Respond only with code examples and brief explanations." },
+  { label: "3 Bullets", prompt: "Always respond in exactly 3 bullet points, no more, no less." },
+  { label: "JSON Output", prompt: "Always respond in valid JSON format with keys: answer, confidence, source." },
+  { label: "Sarcastic", prompt: "You are a sarcastic AI who answers questions reluctantly but accurately." },
+];
 
 const validateParam = (key: string, value: number): number => {
   const range = PARAM_RANGES[key as keyof typeof PARAM_RANGES];
@@ -249,6 +264,64 @@ export default function Settings({
 
           {/* Settings Content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* System Prompt */}
+            <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-md bg-[#7C68FA]/10 text-[#7C68FA]">
+                  <MessageSquare className="h-4 w-4" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                    System Prompt
+                  </span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-gray-400 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Sets the initial instructions and persona for the model</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
+              <textarea
+                value={settings.systemPrompt}
+                onChange={(e) => onSettingsChange("systemPrompt", e.target.value)}
+                placeholder="You are a helpful assistant..."
+                rows={4}
+                className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] resize-y"
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {SYSTEM_PROMPT_PRESETS.map((preset) => {
+                  const isActive = settings.systemPrompt === preset.prompt;
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() =>
+                        onSettingsChange(
+                          "systemPrompt",
+                          isActive ? "" : preset.prompt
+                        )
+                      }
+                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                        isActive
+                          ? "bg-[#7C68FA] text-white border-[#7C68FA]"
+                          : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-[#7C68FA] hover:text-[#7C68FA]"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Custom instructions that define how the model should behave
+              </p>
+            </div>
+
             <Parameter
               label="Temperature"
               value={settings.temperature || DEFAULT_VALUES.temperature}
@@ -315,6 +388,30 @@ export default function Settings({
               step={PARAM_RANGES.topK.step}
               tooltip="Limits the vocabulary size for token selection"
               description="Limits vocabulary: Lower values make text more focused"
+            />
+
+            <Parameter
+              label="Seed"
+              value={settings.seed ?? DEFAULT_VALUES.seed}
+              icon={<Hash className="h-4 w-4" />}
+              onChange={(value) => {
+                const numValue = parseInt(value, 10);
+                if (isNaN(numValue) || numValue < 0) {
+                  onSettingsChange("seed", 0);
+                } else {
+                  onSettingsChange("seed", Math.min(numValue, PARAM_RANGES.seed.max));
+                }
+              }}
+              onBlur={() => {
+                if (settings.seed < 0 || isNaN(settings.seed)) {
+                  onSettingsChange("seed", DEFAULT_VALUES.seed);
+                }
+              }}
+              min={PARAM_RANGES.seed.min}
+              max={PARAM_RANGES.seed.max}
+              step={PARAM_RANGES.seed.step}
+              tooltip="Controls output reproducibility. Set to 0 for random."
+              description="Set to 0 for random. Same seed produces reproducible outputs."
             />
 
             <ToggleSetting

@@ -382,12 +382,20 @@ def stream_response_from_external_api(url, json_data):
     json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
     json_data["stream_options"] = {"include_usage": True}
 
+    # Forward seed if provided (0 or absent means random)
+    seed = json_data.get("seed")
+    if seed is not None and int(seed) > 0:
+        json_data["seed"] = int(seed)
+    else:
+        json_data.pop("seed", None)
+
     # Log final parameters being used
     logger.info("=== Final Model Parameters ===")
     logger.info(f"Temperature: {json_data['temperature']} (type: {type(json_data['temperature'])})")
     logger.info(f"Top K: {json_data['top_k']} (type: {type(json_data['top_k'])})")
     logger.info(f"Top P: {json_data['top_p']} (type: {type(json_data['top_p'])})")
     logger.info(f"Max Tokens: {json_data['max_tokens']} (type: {type(json_data['max_tokens'])})")
+    logger.info(f"Seed: {json_data.get('seed', 'random')}")
     logger.info("=============================")
     # log the payload request
     logger.info(f"stream_response_from_external_api payload request:={json_data}")
