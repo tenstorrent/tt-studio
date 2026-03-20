@@ -193,7 +193,7 @@ export function DeployModelStep({
 
   const deployButtonText = useMemo(() => {
     if (allSlotsOccupied) {
-      return "All Slots Occupied";
+      return "All Devices Occupied";
     }
     if (!selectedModel) return "Select a Model";
     return "Deploy Model";
@@ -296,16 +296,16 @@ export function DeployModelStep({
                 <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
                   <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
-                    All Chip Slots Occupied
+                    All Devices Occupied
                   </h4>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                    All {slotInfo.totalSlots} slots are in use:{" "}
+                    All {slotInfo.totalSlots} devices are in use:{" "}
                     {slotInfo.occupiedDetails
-                      .map((s) => `${s.model_name} (slot ${s.slot_id}${s.port ? ` :${s.port}` : ""})`)
+                      .map((s) => `${s.model_name} (device ${s.slot_id}${s.port ? ` :${s.port}` : ""})`)
                       .join(", ")}
                   </p>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Free up a slot before deploying a new model.
+                    Free up a device before deploying a new model.
                   </p>
                   <Button
                     onClick={handleGoToDeployedModels}
@@ -329,7 +329,7 @@ export function DeployModelStep({
               <div className="flex items-center gap-2">
                 <Info className="h-4 w-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
                 <span className="text-sm text-blue-700 dark:text-blue-300">
-                  {slotInfo.occupiedDetails.length}/{slotInfo.totalSlots} slot{slotInfo.occupiedDetails.length > 1 ? "s" : ""} in use
+                  {slotInfo.occupiedDetails.length}/{slotInfo.totalSlots} device{slotInfo.occupiedDetails.length > 1 ? "s" : ""} in use
                   {" \u2014 "}
                   {slotInfo.availableSlots} available
                 </span>
@@ -412,7 +412,7 @@ export function DeployModelStep({
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
               <span className="text-sm text-gray-800 dark:text-gray-400">
-                Slot:
+                Device:
               </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
                 {selectedDeviceId}

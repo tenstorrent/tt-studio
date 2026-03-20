@@ -24,7 +24,7 @@ export default function MetricsView({ metrics, onScroll, scrollRef }: Props) {
     >
       {Object.keys(metrics).length === 0 ? (
         <div className="text-gray-500 italic">
-          No metrics available - container metrics will appear here...
+          Metrics collection is not yet supported for this container type.
         </div>
       ) : (
         <div className="space-y-3">

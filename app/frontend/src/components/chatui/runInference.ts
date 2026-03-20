@@ -76,7 +76,8 @@ export const runInference = async (
         console.log("Processing with combined RAG context:", ragContext);
         messages = generatePrompt(
           chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-          ragContext
+          ragContext,
+          systemPrompt,
         );
       } else if (file.image_url?.url || file) {
         console.log(
@@ -204,6 +205,7 @@ export const runInference = async (
         top_k: request.top_k,
         top_p: request.top_p,
         max_tokens: request.max_tokens,
+        ...(request.seed && request.seed > 0 ? { seed: request.seed } : {}),
         stream: true,
         stream_options: {
           include_usage: true,
@@ -219,6 +221,7 @@ export const runInference = async (
         top_k: request.top_k,
         top_p: request.top_p,
         max_tokens: request.max_tokens,
+        ...(request.seed && request.seed > 0 ? { seed: request.seed } : {}),
         stream: true,
         stream_options: {
           include_usage: true,

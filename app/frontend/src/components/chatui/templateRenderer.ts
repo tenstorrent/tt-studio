@@ -34,15 +34,16 @@ function isSimpleGreeting(message: string): boolean {
 }
 
 function generateSimpleGreetingResponse(
-  chatHistory: { sender: string; text: string }[]
+  chatHistory: { sender: string; text: string }[],
+  systemPrompt: string | null = null,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
-  // Simple system message for greetings
+  // Use custom system prompt if provided, otherwise default greeting prompt
   messages.push({
     role: "system",
     content:
-      "You are an open source language model running on Tenstorrent hardware. Respond to greetings in a friendly, brief manner.",
+      systemPrompt || "You are an open source language model running on Tenstorrent hardware. Respond to greetings in a friendly, brief manner.",
   });
 
   // Add chat history
@@ -75,7 +76,7 @@ export function generatePrompt(
   // Check for simple greetings first for faster responses
   if (isSimpleGreeting(latestUserQuestion)) {
     console.log("👋 Detected simple greeting, using fast path");
-    return generateSimpleGreetingResponse(chatHistory);
+    return generateSimpleGreetingResponse(chatHistory, systemPrompt);
   }
 
   // Process the user's query

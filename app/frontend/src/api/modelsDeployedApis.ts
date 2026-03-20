@@ -31,6 +31,8 @@ interface ContainerData {
   port_bindings: { [key: string]: PortBinding[] };
   networks: { [key: string]: Network };
   device_id?: number | null;
+  /** Set when status is enriched from deploy cache; used for navbar routing. */
+  model_type?: string;
 }
 
 interface StopResponse {
@@ -73,10 +75,12 @@ export const ModelType = {
 
 /**
  * Map backend model_type strings (from catalog/API) to frontend ModelType constants.
+ * Normalizes casing so values like SPEECH_RECOGNITION still map correctly.
  * Falls back to ChatModel for unknown types.
  */
 export const getModelTypeFromBackendType = (backendType: string): string => {
-  switch (backendType) {
+  const normalized = String(backendType ?? "").toLowerCase();
+  switch (normalized) {
     case "chat":
       return ModelType.ChatModel;
     case "vlm":
@@ -152,6 +156,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         ports: portMapping,
         name: container.name || "Unnamed container",
         device_id: container.device_id ?? null,
+        model_type: container.model_type,
       };
     });
 
@@ -399,20 +404,36 @@ export const runVoicePipeline = async (
   }
 };
 
-export const getModelTypeFromName = (modelName: string): string => {
-  var modelType: string;
-  if (modelName.toLowerCase().includes("yolo")) {
-    modelType = ModelType.ObjectDetectionModel;
-  } else if (modelName.toLowerCase().includes("diffusion")) {
-    modelType = ModelType.ImageGeneration;
-  } else if (modelName.toLowerCase().includes("whisper")) {
-    modelType = ModelType.SpeechRecognitionModel;
-  } else if (modelName.toLowerCase().includes("tts")) {
-    modelType = ModelType.TTS;
-  } else {
-    modelType = ModelType.ChatModel;
+/**
+ * Infer model type from name (and optionally image) when model_type is not available (e.g. Docker-only data).
+ * Recognizes speech models via "whisper", "speech", "asr", or "speech_recognition" in name or image.
+ */
+export const getModelTypeFromName = (
+  modelName: string,
+  image?: string
+): string => {
+  const name = (modelName ?? "").toLowerCase();
+  const imageStr = (image ?? "").toLowerCase();
+  const combined = `${name} ${imageStr}`;
+
+  if (combined.includes("yolo")) {
+    return ModelType.ObjectDetectionModel;
   }
-  return modelType;
+  if (combined.includes("diffusion")) {
+    return ModelType.ImageGeneration;
+  }
+  if (
+    combined.includes("whisper") ||
+    combined.includes("speech") ||
+    combined.includes("asr") ||
+    combined.includes("speech_recognition")
+  ) {
+    return ModelType.SpeechRecognitionModel;
+  }
+  if (combined.includes("tts")) {
+    return ModelType.TTS;
+  }
+  return ModelType.ChatModel;
 };
 
 export const checkDeployedModels = async (): Promise<boolean> => {
@@ -492,6 +513,72 @@ export const checkCurrentlyDeployedModels = async (): Promise<{
       modelNames: [],
     };
   }
+};
+
+// ----- Discover & Register External Containers -----
+
+export interface DiscoveredContainer {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  port_bindings: Record<string, { HostIp: string; HostPort: string }[] | null>;
+}
+
+export const discoverContainers = async (): Promise<DiscoveredContainer[]> => {
+  const response = await axios.get<DiscoveredContainer[]>(
+    "/docker-api/discover-containers/"
+  );
+  return response.data;
+};
+
+export interface RegisterExternalModelRequest {
+  container_id: string;
+  model_type: string;
+  model_name: string;
+  hf_model_id?: string;
+  service_port?: number;
+  service_route?: string;
+  health_route?: string;
+  device_id: number;
+  chips_required?: number;
+}
+
+export interface RegisterExternalModelResponse {
+  status: string;
+  container_id: string;
+  container_name: string;
+  corrections?: string[];
+  message?: string;
+}
+
+export const registerExternalModel = async (
+  req: RegisterExternalModelRequest
+): Promise<RegisterExternalModelResponse> => {
+  const response = await axios.post<RegisterExternalModelResponse>(
+    "/docker-api/register-external/",
+    req
+  );
+  return response.data;
+};
+
+export interface CatalogModel {
+  model_name: string;
+  model_type: string;
+  hf_model_id: string;
+  service_route: string;
+  health_route: string;
+  display_model_type?: string;
+}
+
+export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
+  const response = await axios.get("/docker-api/catalog/");
+  // Catalog endpoint returns { status, models: { [id]: {...} } }
+  const models = response.data?.models;
+  if (models && typeof models === "object" && !Array.isArray(models)) {
+    return Object.values(models) as CatalogModel[];
+  }
+  return [];
 };
 
 // Utility to extract short model name from container name

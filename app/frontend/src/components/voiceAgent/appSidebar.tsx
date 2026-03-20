@@ -24,8 +24,9 @@ interface Conversation {
   id: string;
   title: string;
   date: Date;
-  transcriptions: {
+  messages: {
     id: string;
+    sender: "user" | "assistant";
     text: string;
     date: Date;
   }[];
@@ -56,15 +57,14 @@ export function AppSidebar({
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
 
-    // Search in all transcription text (safely)
-    const transcriptionMatch = conversation.transcriptions.some(
-      (transcription) =>
-        transcription.text && // Check if text exists
-        typeof transcription.text === "string" && // Check that it's a string
-        transcription.text.toLowerCase().includes(searchQuery.toLowerCase())
+    const messageMatch = conversation.messages.some(
+      (msg) =>
+        msg.text &&
+        typeof msg.text === "string" &&
+        msg.text.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    return titleMatch || transcriptionMatch;
+    return titleMatch || messageMatch;
   });
 
   // Function to highlight matching text in a string
@@ -92,22 +92,20 @@ export function AppSidebar({
     );
   };
 
-  // Find matching transcription text to highlight in preview
   const getMatchingPreviewText = (conversation: Conversation) => {
-    if (!searchQuery || !conversation.transcriptions.length) {
+    if (!searchQuery || !conversation.messages.length) {
       return getPreviewText(conversation);
     }
 
-    // Try to find a transcription that matches the search query
-    const matchingTranscription = conversation.transcriptions.find(
-      (t) =>
-        t.text &&
-        typeof t.text === "string" &&
-        t.text.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchingMessage = conversation.messages.find(
+      (m) =>
+        m.text &&
+        typeof m.text === "string" &&
+        m.text.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    if (matchingTranscription && matchingTranscription.text) {
-      const text = matchingTranscription.text;
+    if (matchingMessage && matchingMessage.text) {
+      const text = matchingMessage.text;
       const index = text.toLowerCase().indexOf(searchQuery.toLowerCase());
 
       // Get context around the match
@@ -144,19 +142,17 @@ export function AppSidebar({
     }
   };
 
-  // Standard function to get preview text from conversation
   const getPreviewText = (conversation: Conversation) => {
-    if (!conversation.transcriptions.length) return "No messages yet";
+    if (!conversation.messages.length) return "No messages yet";
 
-    const lastTranscription =
-      conversation.transcriptions[conversation.transcriptions.length - 1];
+    const lastMessage =
+      conversation.messages[conversation.messages.length - 1];
 
-    // Safely handle the text
-    if (!lastTranscription.text) return "Empty message";
+    if (!lastMessage.text) return "Empty message";
 
     return (
-      lastTranscription.text.substring(0, 40) +
-      (lastTranscription.text.length > 40 ? "..." : "")
+      lastMessage.text.substring(0, 40) +
+      (lastMessage.text.length > 40 ? "..." : "")
     );
   };
 
@@ -226,11 +222,11 @@ export function AppSidebar({
                             <div className="text-xs text-muted-foreground mt-1">
                               <span className="block">
                                 {searchQuery &&
-                                conversation.transcriptions.some(
-                                  (t) =>
-                                    t.text &&
-                                    typeof t.text === "string" &&
-                                    t.text
+                                conversation.messages.some(
+                                  (m) =>
+                                    m.text &&
+                                    typeof m.text === "string" &&
+                                    m.text
                                       .toLowerCase()
                                       .includes(searchQuery.toLowerCase())
                                 ) ? (
@@ -268,8 +264,8 @@ export function AppSidebar({
                               </span>
                               <div className="flex justify-between items-center mt-1 flex-wrap gap-1">
                                 <span className="text-xs bg-secondary px-1.5 py-0.5 rounded-sm">
-                                  {conversation.transcriptions.length}{" "}
-                                  {conversation.transcriptions.length === 1
+                                  {conversation.messages.length}{" "}
+                                  {conversation.messages.length === 1
                                     ? "message"
                                     : "messages"}
                                 </span>

@@ -412,13 +412,20 @@ export default function NavBar() {
   const getNavIconFromModelType = (model_type: string): LucideIcon => {
     switch (model_type) {
       case ModelType.ChatModel:
+      case ModelType.VLM:
+      case ModelType.Embedding:
         return BotMessageSquare;
       case ModelType.ImageGeneration:
         return Image;
+      case ModelType.VideoGeneration:
+        return BotMessageSquare;
       case ModelType.ObjectDetectionModel:
+      case ModelType.CNN:
         return Eye;
       case ModelType.SpeechRecognitionModel:
         return AudioLines;
+      case ModelType.TTS:
+        return Volume2;
       default:
         return BotMessageSquare;
     }
@@ -428,14 +435,24 @@ export default function NavBar() {
     switch (model_type) {
       case ModelType.ChatModel:
         return "Chat UI";
+      case ModelType.VLM:
+        return "Chat UI";
       case ModelType.ImageGeneration:
         return "Image Generation";
+      case ModelType.VideoGeneration:
+        return "Video Generation";
       case ModelType.ObjectDetectionModel:
         return "Object Detection";
+      case ModelType.CNN:
+        return "Object Detection";
       case ModelType.SpeechRecognitionModel:
-        return "Speech Recognition";
+        return "Speech to Text";
+      case ModelType.TTS:
+        return "Text to Speech";
+      case ModelType.Embedding:
+        return "Chat UI";
       default:
-        return "ERROR";
+        return "Model";
     }
   };
 
@@ -477,17 +494,10 @@ export default function NavBar() {
     },
     {
       type: "link",
-      to: "/voice-pipeline",
+      to: "/voice-agent",
       icon: Mic,
-      label: "Voice Pipeline",
-      tooltip: "End-to-end voice demo (Whisper → LLM → TTS)",
-    },
-    {
-      type: "link",
-      to: "/tts",
-      icon: Volume2,
-      label: "Text to Speech",
-      tooltip: "Convert text to audio with TTS model",
+      label: "Voice Agent",
+      tooltip: "Full conversational AI interface with voice chat",
     },
   ];
 
@@ -508,17 +518,20 @@ export default function NavBar() {
         return models.map((model) => {
           const modelType = model.model_type
             ? getModelTypeFromBackendType(model.model_type)
-            : getModelTypeFromName(model.name);
+            : getModelTypeFromName(model.name, model.image);
+          const route = getDestinationFromModelType(modelType);
           console.log(`Model: ${model.name}, Type: ${modelType}`);
           return {
             type: "button",
             icon: getNavIconFromModelType(modelType),
             label: getModelPageNameFromModelType(modelType),
             onClick: () =>
-              handleNavigation(getDestinationFromModelType(modelType)),
+              navigate(route, {
+                state: { containerID: model.id, modelName: model.name },
+              }),
             isDisabled: false,
             tooltipText: `Open ${getModelPageNameFromModelType(modelType)} (${model.name})`,
-            route: getDestinationFromModelType(modelType),
+            route,
           };
         });
       } else {
@@ -556,11 +569,11 @@ export default function NavBar() {
           {
             type: "button",
             icon: AudioLines,
-            label: "Speech Recognition",
+            label: "Speech to Text",
             onClick: () => handleNavigation("/speech-to-text"),
             isDisabled: true,
             tooltipText:
-              "Deploy a speech recognition model to use Speech Recognition",
+              "Deploy a speech recognition model to use Speech to Text",
             route: "/speech-to-text",
           },
         ];
@@ -571,20 +584,23 @@ export default function NavBar() {
       return models.map((model) => {
         const modelType = model.model_type
           ? getModelTypeFromBackendType(model.model_type)
-          : getModelTypeFromName(model.name);
+          : getModelTypeFromName(model.name, model.image);
+        const route = getDestinationFromModelType(modelType);
         console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",
           icon: getNavIconFromModelType(modelType),
           label: getModelPageNameFromModelType(modelType),
           onClick: () =>
-            handleNavigation(getDestinationFromModelType(modelType)),
+            navigate(route, {
+              state: { containerID: model.id, modelName: model.name },
+            }),
           isDisabled: models.length === 0,
           tooltipText:
             models.length > 0
               ? `Open ${getModelPageNameFromModelType(modelType)}`
               : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
-          route: getDestinationFromModelType(modelType),
+          route,
         };
       });
     }

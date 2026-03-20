@@ -107,6 +107,8 @@ export default function ChatComponent() {
     topP: 0.9,
     topK: 20,
     toggleableInlineStats: true,
+    systemPrompt: "",
+    seed: 0,
   });
 
   // Add the missing state variables
@@ -446,7 +448,7 @@ export default function ChatComponent() {
   }, [chatThreads, currentThreadIndex, defaultThread]);
 
   // Handle settings changes
-  const handleSettingsChange = (key: string, value: number | boolean) => {
+  const handleSettingsChange = (key: string, value: number | boolean | string) => {
     console.log(`=== Settings Change ===`);
     console.log(`Parameter: ${key}`);
     console.log(`New Value: ${value}`);
@@ -597,6 +599,7 @@ export default function ChatComponent() {
         max_tokens: modelSettings.maxLength,
         top_p: modelSettings.topP,
         top_k: modelSettings.topK,
+        ...(modelSettings.seed > 0 && { seed: modelSettings.seed }),
         stream_options: {
           include_usage: true,
           continuous_usage_stats: true,
@@ -669,7 +672,8 @@ export default function ChatComponent() {
           setIsStreaming,
           isAgentSelected,
           currentThreadIndex,
-          controller
+          controller,
+          modelSettings.systemPrompt || null,
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -804,7 +808,9 @@ export default function ChatComponent() {
         },
         setIsStreaming,
         isAgentSelected,
-        currentThreadIndex
+        currentThreadIndex,
+        undefined,
+        modelSettings.systemPrompt || null,
       );
 
       setReRenderingMessageId(null);
@@ -1228,6 +1234,21 @@ export default function ChatComponent() {
                 : "px-1 sm:px-2 md:px-4"
             }`}
           >
+            {/* System prompt active indicator */}
+            {modelSettings.systemPrompt && (
+              <div className="flex justify-center pt-3 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#7C68FA]/10 border border-[#7C68FA]/20 hover:border-[#7C68FA]/40 transition-colors max-w-[80%]"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#7C68FA] shrink-0" />
+                  <span className="text-xs text-[#7C68FA]/70 group-hover:text-[#7C68FA] truncate">
+                    System: {modelSettings.systemPrompt}
+                  </span>
+                </button>
+              </div>
+            )}
             <ChatHistory
               chatHistory={(() => {
                 const currentThread = getCurrentThread();

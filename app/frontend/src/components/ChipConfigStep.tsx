@@ -190,7 +190,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
       {needsSlotPicker && chipStatus && (
         <div>
           <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-3">
-            Select Chip Slot
+            Select Device
           </h3>
           <div className="flex flex-row justify-center gap-3 flex-wrap">
             {chipStatus.slots.map((slot) => {
@@ -220,7 +220,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
                   <span
                     className={`text-xs font-mono font-bold tracking-wider ${isSelected ? "text-TT-purple" : "text-gray-400"}`}
                   >
-                    SLOT {String(slot.slot_id).padStart(2, "0")}
+                    DEVICE {String(slot.slot_id).padStart(2, "0")}
                   </span>
                   <span
                     className={`text-[10px] font-mono mt-0.5 ${
@@ -239,7 +239,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
           </div>
           {selectedSlot !== null && (
             <p className="mt-2 text-xs font-mono text-TT-purple-accent">
-              ✓ Slot {selectedSlot} selected — model will run on{" "}
+              ✓ Device {selectedSlot} selected — model will run on{" "}
               <code className="bg-gray-800 px-1 rounded">
                 /dev/tenstorrent/{selectedSlot}
               </code>
@@ -251,7 +251,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
       {/* Chip slot status */}
       <div>
         <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-3">
-          Current Slot Status
+          Current Device Status
         </h3>
         {chipStatus ? (
           <ChipStatusDisplay

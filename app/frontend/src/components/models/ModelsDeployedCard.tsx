@@ -8,7 +8,10 @@ import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
 import { Table } from "../ui/table";
 import { Button } from "../ui/button";
-import { AlertCircle } from "lucide-react";
+import { EnhancedButton } from "../ui/enhanced-button";
+import { PulsatingDot } from "../ui/pulsating-dot";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { AlertCircle, Plus } from "lucide-react";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
 import { NoModelsDialog } from "../NoModelsDeployed";
@@ -24,6 +27,8 @@ import {
   fetchModels,
   fetchDeployedModelsInfo,
   getModelTypeFromBackendType,
+  ModelType,
+  getModelTypeFromName,
 } from "../../api/modelsDeployedApis";
 import type {
   ColumnVisibilityMap,
@@ -34,6 +39,7 @@ import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog, { type DeleteStep } from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
+import RegisterModelDialog from "./RegisterModelDialog.tsx";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
 import axios from "axios";
@@ -80,6 +86,9 @@ export default function ModelsDeployedCard(): JSX.Element {
   });
 
   const navigate = useNavigate();
+  const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
+  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+
   const loadModels = useCallback(async () => {
     setLoadError(null);
     try {
@@ -168,6 +177,23 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
 
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
+
+  const showVoiceBanner = useMemo(() => {
+    if (voiceBannerDismissed) return false;
+    const deployedTypes = models.map((m) =>
+      m.model_type
+        ? getModelTypeFromBackendType(m.model_type)
+        : getModelTypeFromName(m.name, m.image)
+    );
+    const hasLLM = deployedTypes.some(
+      (t) => t === ModelType.ChatModel || t === ModelType.VLM
+    );
+    const hasSTT = deployedTypes.some(
+      (t) => t === ModelType.SpeechRecognitionModel
+    );
+    const hasTTS = deployedTypes.some((t) => t === ModelType.TTS);
+    return hasLLM && hasSTT && hasTTS;
+  }, [models, voiceBannerDismissed]);
 
   const handleRetry = () => {
     setLoading(true);
@@ -304,6 +330,14 @@ export default function ModelsDeployedCard(): JSX.Element {
         <div className="flex items-center justify-between gap-3">
           {/* Left */}
           <CardTitle className="text-xl">Models Deployed</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowRegisterDialog(true)}
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Register Model
+          </Button>
           {/* Center intentionally empty per redesign */}
           <div className="flex-1" />
           {/* Right */}
@@ -328,6 +362,57 @@ export default function ModelsDeployedCard(): JSX.Element {
           />
         </div>
       </CardHeader>
+
+      {/* Voice Agent discovery banner */}
+      {showVoiceBanner && (
+        <TooltipProvider>
+          <ElevatedCard accent="blue" depth="md" className="mx-6 mb-6">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-2">
+                        <PulsatingDot label="Whisper STT" color="blue" size="md" delay={0} />
+                        <PulsatingDot label="LLM" color="green" size="md" delay={400} />
+                        <PulsatingDot label="TTS" color="purple" size="md" delay={800} />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p className="text-sm">
+                        TT Studio automatically chains your deployed models: Whisper STT → LLM → TTS for seamless voice conversations
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">Voice Agent Ready</h3>
+                    <p className="text-sm text-muted-foreground">
+                      3 models deployed and auto-chained
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <EnhancedButton 
+                    variant="default" 
+                    effect="shine"
+                    onClick={() => navigate("/voice-agent")}
+                  >
+                    Start Voice Chat
+                  </EnhancedButton>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setVoiceBannerDismissed(true)}
+                    aria-label="Dismiss"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </ElevatedCard>
+        </TooltipProvider>
+      )}
 
       {/* Chip slot visualization for multi-chip boards */}
       {isMultiChipBoard && chipStatus && (
@@ -399,6 +484,15 @@ export default function ModelsDeployedCard(): JSX.Element {
         deleteStep={deleteStep}
         onConfirm={handleConfirmDelete}
         onCancel={() => !isProcessingDelete && setShowDeleteModal(false)}
+      />
+
+      <RegisterModelDialog
+        open={showRegisterDialog}
+        onClose={() => setShowRegisterDialog(false)}
+        onSuccess={() => {
+          setShowRegisterDialog(false);
+          loadModels();
+        }}
       />
     </ElevatedCard>
   );

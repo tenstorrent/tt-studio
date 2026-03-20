@@ -29,6 +29,14 @@ import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
+import MultiCardResetDialog from "./MultiCardResetDialog";
+
+// Board types that have multiple individually-resettable chips
+const MULTI_CHIP_BOARDS = new Set([
+  "T3K", "T3000", "N150X4", "N300x4",
+  "P150X4", "P150X8", "P300Cx2", "P300Cx4",
+  "GALAXY", "GALAXY_T3K",
+]);
 
 type ResetStep = "deleting" | "resetting" | "done" | "failed" | null;
 
@@ -159,6 +167,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isMultiCardOpen, setIsMultiCardOpen] = useState(false);
   const [resetStep, setResetStep] = useState<ResetStep>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cmdOutput, setCmdOutput] = useState<string | null>(null);
@@ -172,6 +181,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
 
   const boardType = deviceState?.board_type ?? "unknown";
   const deviceStateName = deviceState?.state ?? "UNKNOWN";
+  const isMultiChip = MULTI_CHIP_BOARDS.has(boardType);
   const isBadState = deviceStateName === "BAD_STATE";
   const isNotPresent = deviceStateName === "NOT_PRESENT";
   const isResettingContext = deviceStateName === "RESETTING";
@@ -269,6 +279,10 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   };
 
   const handleOpen = () => {
+    if (isMultiChip) {
+      setIsMultiCardOpen(true);
+      return;
+    }
     setIsDialogOpen(true);
     // Only reset state when there's nothing in progress — otherwise re-show current progress
     if (!isLoading) {
@@ -294,10 +308,19 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
     theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
   return (
-    <Dialog
-      open={isDialogOpen}
-      onOpenChange={(open) => (open ? handleOpen() : handleClose())}
-    >
+    <>
+      {/* Multi-chip board: show the per-device grid dialog */}
+      <MultiCardResetDialog
+        open={isMultiCardOpen}
+        onOpenChange={setIsMultiCardOpen}
+        onReset={onReset}
+      />
+
+      {/* Single-chip board: show the original single reset dialog */}
+      <Dialog
+        open={isDialogOpen && !isMultiChip}
+        onOpenChange={(open) => (open ? handleOpen() : handleClose())}
+      >
       <DialogTrigger asChild>
         <Button
           variant="navbar"
@@ -562,6 +585,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 };
 
