@@ -26,9 +26,9 @@ export default function LogView({
     <div
       ref={scrollRef}
       onScroll={onScroll}
-      className="bg-gray-950 text-green-400 p-4 rounded-lg font-mono text-sm overflow-auto h-full relative border border-gray-700 shadow-inner"
+      className="bg-gray-950 text-gray-300 p-4 rounded-lg font-mono text-sm overflow-auto h-full relative border border-gray-700 shadow-inner"
       style={{
-        lineHeight: "1.5",
+        lineHeight: "1.6",
         scrollBehavior: "smooth",
         fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
       }}
@@ -40,37 +40,44 @@ export default function LogView({
       ) : (
         logs.filter(filterLog).map((log, index) => {
           const parsed = parseAnsiColors(log);
+          const isError =
+            log.includes("ERROR") ||
+            log.includes(" 500 ") ||
+            log.includes("FATAL") ||
+            log.includes("CRITICAL");
+          const isWarning =
+            log.includes("WARNING") || log.includes("WARN");
           return (
             <div
               key={index}
-              className={`whitespace-pre-wrap leading-relaxed py-0.5 hover:bg-gray-900 hover:bg-opacity-30 transition-colors duration-150 group ${
-                log.includes("ERROR") || log.includes(" 500 ")
-                  ? "text-red-400"
-                  : ""
+              className={`whitespace-pre-wrap py-0.5 px-1 rounded transition-colors duration-100 ${
+                isError
+                  ? "bg-red-950/30 text-red-400"
+                  : isWarning
+                    ? "bg-yellow-950/20 text-yellow-400"
+                    : "hover:bg-gray-800/40"
               }`}
               style={{
                 wordWrap: "break-word",
                 overflowWrap: "break-word",
-                fontFamily: 'Consolas, "Courier New", "Monaco", monospace',
               }}
             >
-              <span className="text-gray-500 text-xs mr-2 select-none">
-                {String(index + 1).padStart(3, "0")}
+              <span className="text-gray-600 text-xs mr-3 select-none inline-block w-8 text-right">
+                {index + 1}
               </span>
               {parsed.level && (
                 <span
-                  className={`text-xs font-bold mr-2 ${getLogLevelColor(parsed.level)}`}
+                  className={`text-xs font-semibold mr-2 ${getLogLevelColor(parsed.level)}`}
                 >
-                  [{parsed.level}]
+                  {parsed.level}
                 </span>
               )}
-              <span className="terminal-content">
+              <span>
                 {parsed.segments.map((segment, segIndex) => (
                   <span
                     key={segIndex}
                     style={{
-                      color:
-                        segment.color || (parsed.level ? undefined : "#50FA7B"),
+                      color: segment.color || undefined,
                       backgroundColor: segment.backgroundColor,
                       fontWeight: segment.bold ? "bold" : "normal",
                       fontStyle: segment.italic ? "italic" : "normal",
@@ -83,12 +90,6 @@ export default function LogView({
             </div>
           );
         })
-      )}
-      {logs.length > 0 && (
-        <div className="flex items-center mt-2 opacity-75">
-          <span className="text-gray-500 text-xs mr-2 select-none">$</span>
-          <span className="text-green-400 animate-pulse text-sm">█</span>
-        </div>
       )}
       {showScrollButton && (
         <button
