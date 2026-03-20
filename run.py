@@ -1908,7 +1908,21 @@ def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_r
             default_version = current_version
 
         prompt_text = f"📦 Enter release version (e.g., 'v0.8.0') or 'latest' [default: {default_version}]: "
-        val = input(prompt_text).strip() or default_version
+        semver_pattern = r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"
+        while True:
+            val = input(prompt_text).strip() or default_version
+            if val == "latest" or re.match(semver_pattern, val):
+                break
+
+            # Common typo: "v.10.0" or "v.0.10.0" should be "v0.10.0"
+            suggested = ""
+            if re.match(r"^v\.", val):
+                suggested = "v0" + val[1:]
+
+            print(f"{C_RED}⛔ Invalid release version '{val}'.{C_RESET}")
+            print(f"   Expected format: vMAJOR.MINOR.PATCH (example: v0.10.0) or 'latest'")
+            if suggested:
+                print(f"   Did you mean: {suggested}")
         write_env_var("TT_INFERENCE_ARTIFACT_VERSION", val, quote_value=False)
         print(f"✅ TT_INFERENCE_ARTIFACT_VERSION set to '{val}'")
 
@@ -2091,6 +2105,12 @@ def setup_tt_inference_server():
     print(f"\n{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}         🔧 Setting up TT Inference Server (Artifact){C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
+
+    def suggest_semver(version):
+        """Return a likely semantic-version correction for malformed tags."""
+        if re.match(r'^v\.', version):
+            return "v0" + version[1:]
+        return ""
 
     # Read artifact source from .env file or environment
     # Priority: Branch > Version
@@ -2347,8 +2367,16 @@ def setup_tt_inference_server():
                 print(f"   This may take a few minutes...")
                 urllib.request.urlretrieve(github_url, artifact_file)
             except Exception as e:
-                print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
-                print(f"   Make sure the branch name '{artifact_branch}' exists in the repository")
+                error_str = str(e)
+                if "404" in error_str or "Not Found" in error_str:
+                    print(f"{C_RED}⛔ Branch '{artifact_branch}' not found on GitHub (HTTP 404).{C_RESET}")
+                    print(f"   The branch name you configured does not exist.")
+                    print(f"   You entered: TT_INFERENCE_ARTIFACT_BRANCH={artifact_branch}")
+                    print(f"   Run: python run.py --reconfigure-inference-server")
+                    print(f"   Valid branches: https://github.com/tenstorrent/tt-inference-server/branches")
+                else:
+                    print(f"{C_RED}⛔ Failed to download from GitHub branch: {e}{C_RESET}")
+                    print(f"   Make sure the branch name '{artifact_branch}' exists in the repository")
                 if os.path.exists(artifact_file):
                     try:
                         os.remove(artifact_file)
@@ -2566,14 +2594,24 @@ def setup_tt_inference_server():
                     
                     print(f"✅ Artifact downloaded to {artifact_file} ({file_size:,} bytes)")
                 except Exception as e:
-                    print(f"{C_YELLOW}⚠️  Failed to download from GitHub release: {e}{C_RESET}")
-                    print(f"   Falling back to manual setup...")
+                    error_str = str(e)
+                    if "404" in error_str or "Not Found" in error_str:
+                        print(f"{C_RED}⛔ Version '{artifact_version}' not found on GitHub (HTTP 404).{C_RESET}")
+                        print(f"   The release tag you configured does not exist.")
+                        print(f"   You entered: TT_INFERENCE_ARTIFACT_VERSION={artifact_version}")
+                        suggested = suggest_semver(artifact_version)
+                        if suggested:
+                            print(f"   Did you mean: {suggested} (semantic versioning uses vMAJOR.MINOR.PATCH)")
+                        print(f"   Run: python run.py --reconfigure-inference-server")
+                        print(f"   Valid releases: https://github.com/tenstorrent/tt-inference-server/releases")
+                    else:
+                        print(f"{C_RED}⛔ Failed to download from GitHub release: {e}{C_RESET}")
                     if os.path.exists(artifact_file):
                         try:
                             os.remove(artifact_file)
                         except Exception:
                             pass
-                    artifact_file = None
+                    return False
 
             if artifact_file and os.path.exists(artifact_file):
                 try:
@@ -4811,15 +4849,19 @@ def main():
             try:
                 # Setup TT Inference Server
                 if not setup_tt_inference_server():
-                    print(f"{C_RED}⛔ Failed to setup TT Inference Server. Continuing without FastAPI server.{C_RESET}")
-                else:
-                    # Setup FastAPI environment
-                    if not setup_fastapi_environment():
-                        print(f"{C_RED}⛔ Failed to setup FastAPI environment. Continuing without FastAPI server.{C_RESET}")
-                    else:
-                        # Start FastAPI server
-                        if not start_fastapi_server(no_sudo=args.no_sudo):
-                            print(f"{C_RED}⛔ Failed to start FastAPI server. Continuing without FastAPI server.{C_RESET}")
+                    print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
+                    sys.exit(1)
+
+                # Setup FastAPI environment
+                if not setup_fastapi_environment():
+                    print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI environment setup failed. Exiting.{C_RESET}")
+                    sys.exit(1)
+
+                # Start FastAPI server
+                if not start_fastapi_server(no_sudo=args.no_sudo):
+                    print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
+                    print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
+                    sys.exit(1)
             finally:
                 # Return to original directory
                 os.chdir(original_dir)
