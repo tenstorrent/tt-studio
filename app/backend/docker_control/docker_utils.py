@@ -102,7 +102,13 @@ def _get_tt_device_ids():
 
 def _configure_forge_device_env(run_kwargs):
     """Set DEVICE_IDS, IS_GALAXY, and TT_METAL_MESH_GRAPH_DESCRIPTOR for forge containers
-    based on the detected Tenstorrent board type."""
+    based on the detected Tenstorrent board type.
+
+    Forge CNN models run with a (1,1) device mesh — equivalent to one card.
+    For multi-card Blackhole boards (P300Cx2/X4, P150X4/X8) we restrict to the first
+    card only, using its chip IDs and single-card mesh descriptor so TT-Metal does not
+    fall back to auto-discovery (which breaks with the (1,1) mesh shape).
+    """
     from shared_config.model_config import FORGE_MESH_DESCRIPTORS
 
     board_type = detect_board_type()
@@ -111,14 +117,31 @@ def _configure_forge_device_env(run_kwargs):
 
     env = run_kwargs.setdefault("environment", {})
 
-    descriptor = FORGE_MESH_DESCRIPTORS.get(device)
-    if not descriptor:
-        logger.warning(
-            f"No forge mesh descriptor for device '{device}', falling back to n300"
-        )
-        descriptor = FORGE_MESH_DESCRIPTORS["n300"]
+    # For multi-card Blackhole boards, limit to the first card and use its single-card
+    # descriptor so the forge server's (1,1) mesh shape is respected.
+    _MULTI_CARD_TO_SINGLE = {
+        "p300cx2": ("0,1", "p300c"),   # 2 P300c cards → use card 0 (chips 0,1)
+        "p300cx4": ("0,1", "p300c"),   # 4 P300c cards → use card 0 (chips 0,1)
+        "p150x4":  ("0",   "p150"),    # 4 P150 cards  → use card 0 (chip 0)
+        "p150x8":  ("0",   "p150"),    # 8 P150 cards  → use card 0 (chip 0)
+    }
 
-    device_ids = _get_tt_device_ids()
+    if device in _MULTI_CARD_TO_SINGLE:
+        device_ids, single_device = _MULTI_CARD_TO_SINGLE[device]
+        descriptor = FORGE_MESH_DESCRIPTORS.get(single_device, FORGE_MESH_DESCRIPTORS["n300"])
+        logger.info(
+            f"Multi-card board '{board_type}': restricting forge to first card "
+            f"(DEVICE_IDS={device_ids}, descriptor={single_device})"
+        )
+    else:
+        device_ids = _get_tt_device_ids()
+        descriptor = FORGE_MESH_DESCRIPTORS.get(device)
+        if not descriptor:
+            logger.warning(
+                f"No forge mesh descriptor for device '{device}', falling back to n300"
+            )
+            descriptor = FORGE_MESH_DESCRIPTORS["n300"]
+
     env["DEVICE_IDS"] = device_ids
     env["IS_GALAXY"] = "false"
     env["TT_METAL_MESH_GRAPH_DESCRIPTOR"] = descriptor
@@ -409,7 +432,13 @@ def stop_container(container_id):
         update_deploy_cache()
         return result
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        error_msg = str(e)
+        # 404 means the container is already gone — treat as success
+        if "404" in error_msg or "Not Found" in error_msg:
+            logger.info(f"Container {container_id} already stopped/removed (404), treating as success")
+            update_deploy_cache()
+            return {"status": "success", "message": "Container already removed"}
+        return {"status": "error", "message": error_msg}
 
 
 def get_runtime_device_configuration(device_configurations):

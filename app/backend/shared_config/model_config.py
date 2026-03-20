@@ -241,6 +241,15 @@ _FORGE_MESH_DESCRIPTOR_BASE = (
 FORGE_MESH_DESCRIPTORS = {
     "n150": f"{_FORGE_MESH_DESCRIPTOR_BASE}/n150_mesh_graph_descriptor.textproto",
     "n300": f"{_FORGE_MESH_DESCRIPTOR_BASE}/n300_mesh_graph_descriptor.textproto",
+    # Blackhole single-card descriptors
+    "p100": f"{_FORGE_MESH_DESCRIPTOR_BASE}/p100_mesh_graph_descriptor.textproto",
+    "p150": f"{_FORGE_MESH_DESCRIPTOR_BASE}/p150_mesh_graph_descriptor.textproto",
+    "p300c": f"{_FORGE_MESH_DESCRIPTOR_BASE}/p300_mesh_graph_descriptor.textproto",
+    # Blackhole multi-card descriptors
+    "p150x4": f"{_FORGE_MESH_DESCRIPTOR_BASE}/p150_x4_mesh_graph_descriptor.textproto",
+    "p150x8": f"{_FORGE_MESH_DESCRIPTOR_BASE}/p150_x8_mesh_graph_descriptor.textproto",
+    "p300cx2": f"{_FORGE_MESH_DESCRIPTOR_BASE}/p300_x2_mesh_graph_descriptor.textproto",
+    "p300cx4": f"{_FORGE_MESH_DESCRIPTOR_BASE}/bh_qb_4x4_mesh_graph_descriptor.textproto",
 }
 
 # Default mesh descriptor (N300) — overridden at deploy time based on detected device
@@ -275,6 +284,10 @@ def forge_docker_config(model_runner: str):
 N150_N300 = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML}
 ALL_BOARDS = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
 T3000_ONLY = {DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
+# Blackhole devices (single and multi-card)
+BLACKHOLE_SINGLE = {DeviceConfigurations.P100, DeviceConfigurations.P150, DeviceConfigurations.P300c}
+BLACKHOLE_MULTI = {DeviceConfigurations.P150X4, DeviceConfigurations.P150X8, DeviceConfigurations.P300Cx2, DeviceConfigurations.P300Cx4}
+BLACKHOLE_BOARDS = BLACKHOLE_SINGLE | BLACKHOLE_MULTI
 
 model_implmentations_list = [
     # Speech Recognition - Can run on N150 and N300
@@ -469,7 +482,7 @@ model_implmentations_list = [
         impl_id="tt-forge",
         image_name="tt-forge-server",
         image_tag="latest",
-        device_configurations=N150_N300,
+        device_configurations=N150_N300 | BLACKHOLE_BOARDS,
         docker_config=forge_docker_config("tt-xla-resnet"),
         shm_size="32G",
         service_port=8000,
@@ -484,7 +497,7 @@ model_implmentations_list = [
         impl_id="tt-forge",
         image_name="tt-forge-server",
         image_tag="latest",
-        device_configurations=N150_N300,
+        device_configurations=N150_N300 | BLACKHOLE_BOARDS,
         docker_config=forge_docker_config("tt-xla-vovnet"),
         shm_size="32G",
         service_port=8000,
@@ -499,7 +512,7 @@ model_implmentations_list = [
         impl_id="tt-forge",
         image_name="tt-forge-server",
         image_tag="latest",
-        device_configurations=N150_N300,
+        device_configurations=N150_N300 | BLACKHOLE_BOARDS,
         docker_config=forge_docker_config("tt-xla-mobilenetv2"),
         shm_size="32G",
         service_port=8000,
@@ -514,7 +527,7 @@ model_implmentations_list = [
         impl_id="tt-forge",
         image_name="tt-forge-server",
         image_tag="latest",
-        device_configurations=N150_N300,
+        device_configurations=N150_N300 | BLACKHOLE_BOARDS,
         docker_config=forge_docker_config("tt-xla-efficientnet"),
         shm_size="32G",
         service_port=8000,
@@ -529,7 +542,7 @@ model_implmentations_list = [
         impl_id="tt-forge",
         image_name="tt-forge-server",
         image_tag="latest",
-        device_configurations=N150_N300,
+        device_configurations=N150_N300 | BLACKHOLE_BOARDS,
         docker_config=forge_docker_config("tt-xla-segformer"),
         shm_size="32G",
         service_port=8000,
@@ -544,7 +557,7 @@ model_implmentations_list = [
         impl_id="tt-forge",
         image_name="tt-forge-server",
         image_tag="latest",
-        device_configurations=N150_N300,
+        device_configurations=N150_N300 | BLACKHOLE_BOARDS,
         docker_config=forge_docker_config("tt-xla-unet"),
         shm_size="32G",
         service_port=8000,
@@ -559,7 +572,7 @@ model_implmentations_list = [
         impl_id="tt-forge",
         image_name="tt-forge-server",
         image_tag="latest",
-        device_configurations=N150_N300,
+        device_configurations=N150_N300 | BLACKHOLE_BOARDS,
         docker_config=forge_docker_config("tt-xla-vit"),
         shm_size="32G",
         service_port=8000,
