@@ -571,7 +571,71 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
             print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
             print()
 
-def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=False, reconfigure_inference=False):
+def _hf_check_repo(token, repo_id):
+    """Return HTTP status code for a HuggingFace repo config.json. Returns None on network error."""
+    url = f"https://huggingface.co/{repo_id}/resolve/main/config.json"
+    headers = {"User-Agent": "tt-studio"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        if HAS_REQUESTS:
+            return requests.get(url, headers=headers, timeout=10, allow_redirects=True).status_code
+        else:
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                urllib.request.urlopen(req, timeout=10)
+                return 200
+            except urllib.error.HTTPError as e:
+                return e.code
+    except Exception:
+        return None
+
+
+def check_hf_access(token):
+    """Check if HF token can access meta-llama repos. Returns (ok, message)."""
+    repos = [
+        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
+        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
+    ]
+    results = []
+    for repo_id, label in repos:
+        code = _hf_check_repo(token, repo_id)
+        results.append((label, repo_id, code))
+
+    if all(c is None for _, _, c in results):
+        return (None, "⚠️  Could not reach HuggingFace — skipping access check.")
+
+    lines = []
+    any_ok = False
+    any_denied = False
+    invalid = False
+    for label, repo_id, code in results:
+        if code is None:
+            lines.append(f"   ⚠️  {label}: could not reach HuggingFace")
+        elif code == 200:
+            lines.append(f"   ✅ {label}: access confirmed")
+            any_ok = True
+        elif code == 401:
+            lines.append(f"   ✖  {label}: token invalid or expired (401)")
+            invalid = True
+        elif code == 403:
+            lines.append(f"   ✖  {label}: access not granted yet (403) — https://huggingface.co/{repo_id}")
+            any_denied = True
+        else:
+            lines.append(f"   ⚠️  {label}: unexpected HTTP {code}")
+
+    summary = "\n".join(lines)
+    if invalid:
+        return (False, f"HF token access check:\n{summary}")
+    elif any_denied:
+        return (False, f"HF token access check:\n{summary}")
+    elif any_ok:
+        return (True, f"HF token access check:\n{summary}")
+    else:
+        return (None, f"HF token access check:\n{summary}")
+
+
+def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=True, reconfigure_inference=False):
     """
     Handles all environment configuration in a sequential, top-to-bottom flow.
     Reads existing .env file and prompts for missing or placeholder values.
@@ -603,17 +667,14 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             open(ENV_FILE_PATH, 'w').close()
         # When no .env file exists, we should configure everything without asking
         FORCE_OVERWRITE = True
-    
-    print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
-    
-    if easy_mode:
-        print(f"{C_GREEN}⚡ Easy Mode: Minimal prompts, only HF_TOKEN required{C_RESET}")
-        print(f"{C_CYAN}   Using defaults for all other values (not for production){C_RESET}")
-    elif dev_mode:
-        print(f"{C_YELLOW}Development Mode: You can use suggested defaults for quick setup{C_RESET}")
-        print(f"{C_CYAN}   Note: Development defaults are NOT secure for production use{C_RESET}")
-    else:
-        print(f"{C_CYAN}Production Mode: You'll be prompted for secure, production-ready values{C_RESET}")
+
+    if not easy_mode:
+        print(f"\n{C_TT_PURPLE}{C_BOLD}TT Studio Environment Configuration{C_RESET}")
+        print(f"{C_GREEN}⚙️  Configure Env Mode: Full interactive setup for all variables{C_RESET}")
+        if dev_mode:
+            print(f"{C_YELLOW}   Development Mode: suggested defaults shown (NOT secure for production){C_RESET}")
+        else:
+            print(f"{C_CYAN}   Production Mode: prompting for secure, production-ready values{C_RESET}")
     
     # Get existing variables
     existing_vars = get_existing_env_vars()
@@ -624,11 +685,11 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     else:
         # No need to ask, we're configuring everything
         if not env_file_exists:
-            print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
+            if not easy_mode:
+                print(f"\n{C_CYAN}📝 Setting up TT Studio for the first time...{C_RESET}")
             FORCE_OVERWRITE = True
         elif easy_mode:
             # In easy mode with existing .env, don't force overwrite - let individual checks handle it
-            print(f"\n{C_CYAN}📝 Using easy mode configuration...{C_RESET}")
             if env_file_exists and existing_vars:
                 FORCE_OVERWRITE = False
             else:
@@ -637,23 +698,21 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print(f"\n{C_CYAN}📝 No existing configuration found. Will configure all environment variables.{C_RESET}")
             FORCE_OVERWRITE = True
 
-    print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
+    if not easy_mode:
+        print(f"\n{C_CYAN}📁 Setting core application paths...{C_RESET}")
     write_env_var("TT_STUDIO_ROOT", TT_STUDIO_ROOT, quote_value=False)
     write_env_var("HOST_PERSISTENT_STORAGE_VOLUME", os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume"), quote_value=False)
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
 
-    print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
-    
+    if not easy_mode:
+        print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
+
     # JWT_SECRET
     current_jwt = get_env_var("JWT_SECRET")
     if easy_mode:
-        # In easy mode, use default value only if not already configured
         if should_configure_var("JWT_SECRET", current_jwt):
             write_env_var("JWT_SECRET", "test-secret-456")
-            print("✅ JWT_SECRET set to default value (test-secret-456).")
-        else:
-            print("✅ JWT_SECRET already configured (keeping existing value).")
     elif should_configure_var("JWT_SECRET", current_jwt):
         if is_placeholder(current_jwt):
             print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
@@ -670,17 +729,14 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        print(f"✅ JWT_SECRET already configured (keeping existing value).")
-    
+        if not easy_mode:
+            print(f"✅ JWT_SECRET already configured (keeping existing value).")
+
     # DJANGO_SECRET_KEY
     current_django = get_env_var("DJANGO_SECRET_KEY")
     if easy_mode:
-        # In easy mode, use default value only if not already configured
         if should_configure_var("DJANGO_SECRET_KEY", current_django):
             write_env_var("DJANGO_SECRET_KEY", "django-insecure-default")
-            print("✅ DJANGO_SECRET_KEY set to default value.")
-        else:
-            print("✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
     elif should_configure_var("DJANGO_SECRET_KEY", current_django):
         if is_placeholder(current_django):
             print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
@@ -702,12 +758,8 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
     if easy_mode:
-        # In easy mode, use default value only if not already configured
         if should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
             write_env_var("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
-            print("✅ DOCKER_CONTROL_SERVICE_URL set to default value.")
-        else:
-            print("✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
     elif should_configure_var("DOCKER_CONTROL_SERVICE_URL", current_docker_url):
         if is_placeholder(current_docker_url):
             print(f"🔄 DOCKER_CONTROL_SERVICE_URL has placeholder value '{current_docker_url}' - configuring...")
@@ -719,17 +771,14 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         write_env_var("DOCKER_CONTROL_SERVICE_URL", val)
         print("✅ DOCKER_CONTROL_SERVICE_URL saved.")
     else:
-        print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
+        if not easy_mode:
+            print(f"✅ DOCKER_CONTROL_SERVICE_URL already configured (keeping existing value).")
 
     # DOCKER_CONTROL_JWT_SECRET
     current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
     if easy_mode:
-        # In easy mode, use default value only if not already configured
         if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
             write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456")
-            print("✅ DOCKER_CONTROL_JWT_SECRET set to default value (test-secret-456).")
-        else:
-            print("✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
     elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
         if is_placeholder(current_docker_jwt):
             print(f"🔄 DOCKER_CONTROL_JWT_SECRET has placeholder value '{current_docker_jwt}' - configuring...")
@@ -746,80 +795,97 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
-        print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
+        if not easy_mode:
+            print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
 
     # TAVILY_API_KEY (optional)
     current_tavily = get_env_var("TAVILY_API_KEY")
     if easy_mode:
-        # In easy mode, skip TAVILY_API_KEY only if not already configured
         if should_configure_var("TAVILY_API_KEY", current_tavily):
             write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured")
-            print("✅ TAVILY_API_KEY skipped (easy mode).")
-        else:
-            print("✅ TAVILY_API_KEY already configured (keeping existing value).")
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
         prompt_text = "🔍 Enter TAVILY_API_KEY for search agent (optional; press Enter to skip): "
         val = getpass.getpass(prompt_text)
         write_env_var("TAVILY_API_KEY", val or "")
         print("✅ TAVILY_API_KEY saved.")
     else:
-        print(f"✅ TAVILY_API_KEY already configured (keeping existing value).")
-        
+        if not easy_mode:
+            print(f"✅ TAVILY_API_KEY already configured (keeping existing value).")
+
     # HF_TOKEN
     current_hf = get_env_var("HF_TOKEN")
-    if easy_mode:
-        # In easy mode, only prompt if not already configured
-        if should_configure_var("HF_TOKEN", current_hf):
-            while True:
-                val = getpass.getpass("🤗 Enter HF_TOKEN (Hugging Face token): ")
-                if val and val.strip():
-                    write_env_var("HF_TOKEN", val)
-                    print("✅ HF_TOKEN saved.")
-                    break
-                print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
-        else:
-            print(f"✅ HF_TOKEN already configured (keeping existing value).")
-    elif should_configure_var("HF_TOKEN", current_hf):
-        while True:
-            val = getpass.getpass("🤗 Enter HF_TOKEN (Hugging Face token): ")
-            if val and val.strip():
-                write_env_var("HF_TOKEN", val)
-                print("✅ HF_TOKEN saved.")
-                break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
-    else:
-        print(f"✅ HF_TOKEN already configured (keeping existing value).")
+    needs_token = should_configure_var("HF_TOKEN", current_hf)
 
-    print(f"\n{C_TT_PURPLE}{C_BOLD}--- ⚙️  Application Configuration  ---{C_RESET}")
+    if easy_mode and needs_token:
+        print(f"\n{C_CYAN}A Hugging Face token is required to download models like Llama.{C_RESET}")
+        print(f"{C_CYAN}Get yours at: https://huggingface.co/settings/tokens{C_RESET}\n")
+
+    retrying = False
+    while True:
+        if needs_token:
+            if retrying:
+                prompt = "🤗 Enter a new HF_TOKEN (or press Enter to keep the current one and continue later): "
+                val = getpass.getpass(prompt)
+                if not val or not val.strip():
+                    # Keep existing token, continue without access
+                    print(f"{C_YELLOW}⚠️  Continuing with existing token. Re-run once you have access.{C_RESET}")
+                    break
+            else:
+                prompt = "🤗 Enter HF_TOKEN: " if easy_mode else "🤗 Enter HF_TOKEN (Hugging Face token): "
+                val = getpass.getpass(prompt)
+                if not val or not val.strip():
+                    print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+                    continue
+            write_env_var("HF_TOKEN", val)
+            print("✅ HF_TOKEN saved.")
+        else:
+            val = current_hf
+            if not easy_mode:
+                print(f"✅ HF_TOKEN already configured (keeping existing value).")
+
+        ok, msg = check_hf_access(val)
+        print(msg)
+        if ok is False:
+            print()
+            print(f"   1. Enter a different token now")
+            print(f"   2. Continue with this token once access is granted, then re-run: python run.py")
+            while True:
+                choice = input("Choose (1 or 2): ").strip()
+                if choice in ("1", "2"):
+                    break
+                print(f"{C_RED}⛔ Enter 1 or 2.{C_RESET}")
+            if choice == "1":
+                needs_token = True
+                retrying = True
+                continue
+            # choice == "2": continue with current token
+        break
+
+    if not easy_mode:
+        print(f"\n{C_TT_PURPLE}{C_BOLD}--- ⚙️  Application Configuration  ---{C_RESET}")
 
     # VITE_APP_TITLE
     current_title = get_env_var("VITE_APP_TITLE")
     if easy_mode:
-        # In easy mode, use default value only if not already configured
         if should_configure_var("VITE_APP_TITLE", current_title):
             write_env_var("VITE_APP_TITLE", "Tenstorrent | TT Studio")
-            print("✅ VITE_APP_TITLE set to default: Tenstorrent | TT Studio")
-        else:
-            print(f"✅ VITE_APP_TITLE already configured: {current_title}")
     elif should_configure_var("VITE_APP_TITLE", current_title):
         dev_default = "TT Studio (Dev)" if dev_mode else "TT Studio"
         val = input(f"📝 Enter application title (default: {dev_default}): ") or dev_default
         write_env_var("VITE_APP_TITLE", val)
         print("✅ VITE_APP_TITLE saved.")
     else:
-        print(f"✅ VITE_APP_TITLE already configured: {current_title}")
+        if not easy_mode:
+            print(f"✅ VITE_APP_TITLE already configured: {current_title}")
 
-    print(f"\n{C_CYAN}{C_BOLD}------------------ Mode Selection ------------------{C_RESET}")
-    
+    if not easy_mode:
+        print(f"\n{C_CYAN}{C_BOLD}------------------ Mode Selection ------------------{C_RESET}")
+
     # VITE_ENABLE_DEPLOYED
     current_deployed = get_env_var("VITE_ENABLE_DEPLOYED")
     if easy_mode:
-        # In easy mode, disable AI Playground (use TT Studio mode) only if not already configured
         if should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
             write_env_var("VITE_ENABLE_DEPLOYED", "false", quote_value=False)
-            print("✅ VITE_ENABLE_DEPLOYED set to false (TT Studio mode).")
-        else:
-            print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
     elif should_configure_var("VITE_ENABLE_DEPLOYED", current_deployed) or current_deployed not in ["true", "false"]:
         print("Enable AI Playground Mode? (Connects to external cloud models)")
         dev_default = "false" if dev_mode else "false"
@@ -832,20 +898,18 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
-    
+        if not easy_mode:
+            print(f"✅ VITE_ENABLE_DEPLOYED already configured: {current_deployed}")
+
     is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
-    print(f"🔹 AI Playground Mode is {'ENABLED' if is_deployed_mode else 'DISABLED'}")
-    
+    if not easy_mode:
+        print(f"🔹 AI Playground Mode is {'ENABLED' if is_deployed_mode else 'DISABLED'}")
+
     # VITE_ENABLE_RAG_ADMIN
     current_rag = get_env_var("VITE_ENABLE_RAG_ADMIN")
     if easy_mode:
-        # In easy mode, disable RAG admin only if not already configured
         if should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
             write_env_var("VITE_ENABLE_RAG_ADMIN", "false", quote_value=False)
-            print("✅ VITE_ENABLE_RAG_ADMIN set to false (easy mode).")
-        else:
-            print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
     elif should_configure_var("VITE_ENABLE_RAG_ADMIN", current_rag) or current_rag not in ["true", "false"]:
         print("\nEnable RAG document management admin page?")
         dev_default = "false" if dev_mode else "false"
@@ -858,20 +922,18 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 break
             print(f"{C_RED}⛔ Invalid input. Please enter 'true' or 'false'.{C_RESET}")
     else:
-        print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
-    
+        if not easy_mode:
+            print(f"✅ VITE_ENABLE_RAG_ADMIN already configured: {current_rag}")
+
     is_rag_admin_enabled = parse_boolean_env(get_env_var("VITE_ENABLE_RAG_ADMIN"))
-    print(f"🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}")
+    if not easy_mode:
+        print(f"🔹 RAG Admin Page is {'ENABLED' if is_rag_admin_enabled else 'DISABLED'}")
 
     # RAG_ADMIN_PASSWORD (only if RAG is enabled, or set default in easy mode)
     current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
     if easy_mode:
-        # In easy mode, set a default value even if RAG is disabled, but only if not already configured
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password")
-            print("✅ RAG_ADMIN_PASSWORD set to default (easy mode).")
-        else:
-            print("✅ RAG_ADMIN_PASSWORD already configured (keeping existing value).")
     elif is_rag_admin_enabled:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             dev_default = "dev-admin-123" if dev_mode else ""
@@ -903,12 +965,10 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     ]
     
     if easy_mode:
-        # In easy mode, set all cloud variables to empty defaults only if not already configured
         for var_name, _, _ in cloud_vars:
             current_val = get_env_var(var_name)
             if should_configure_var(var_name, current_val):
                 write_env_var(var_name, "")
-        print("✅ Cloud model variables set to empty defaults (easy mode).")
     elif is_deployed_mode:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- ☁️  AI Playground Model Configuration  ---{C_RESET}")
         print(f"{C_YELLOW}Note: These are optional. Press Enter to skip any field.{C_RESET}")
@@ -926,26 +986,27 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             else:
                 print(f"✅ {var_name} already configured (keeping existing value).")
     else:
-        print(f"\n{C_YELLOW}Skipping cloud model configuration (AI Playground mode is disabled).{C_RESET}")
-    
+        if not easy_mode:
+            print(f"\n{C_YELLOW}Skipping cloud model configuration (AI Playground mode is disabled).{C_RESET}")
+
     # Frontend configuration (always set in easy mode, optional otherwise)
     if easy_mode:
         current_frontend_host = get_env_var("FRONTEND_HOST")
         current_frontend_port = get_env_var("FRONTEND_PORT")
         current_frontend_timeout = get_env_var("FRONTEND_TIMEOUT")
-        
+
         if should_configure_var("FRONTEND_HOST", current_frontend_host):
             write_env_var("FRONTEND_HOST", "localhost")
         if should_configure_var("FRONTEND_PORT", current_frontend_port):
             write_env_var("FRONTEND_PORT", "3000", quote_value=False)
         if should_configure_var("FRONTEND_TIMEOUT", current_frontend_timeout):
             write_env_var("FRONTEND_TIMEOUT", "60", quote_value=False)
-        print("✅ Frontend configuration set to defaults (easy mode).")
-    
+
     # TT Inference Server Artifact Configuration
-    print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
+    if not easy_mode:
+        print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔧 TT Inference Server Configuration  ---{C_RESET}")
     configure_inference_server_artifact(dev_mode, easy_mode, force_reconfigure, reconfigure_inference)
-    
+
     print(f"\n{C_GREEN}✅ Environment configuration complete.{C_RESET}")
 
 def display_welcome_banner():
@@ -1419,6 +1480,12 @@ def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_r
     """
     current_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION")
     current_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
+
+    # In easy mode with no reconfigure request: silently default to 'latest' if not already set
+    if easy_mode and not (force_reconfigure or reconfigure_inference):
+        if not (current_version or current_branch):
+            write_env_var("TT_INFERENCE_ARTIFACT_VERSION", "latest", quote_value=False)
+        return
 
     # If configuration exists and user didn't request reconfiguration, use it silently
     if (current_version or current_branch) and not (force_reconfigure or reconfigure_inference):
@@ -3475,20 +3542,21 @@ def main():
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=f"""
 {C_GREEN}{C_BOLD}Examples:{C_RESET}
-  {C_CYAN}python run.py{C_RESET}                   🚀 Normal interactive setup
-  {C_CYAN}python run.py --easy{C_RESET}            ⚡ Easy setup - minimal prompts, only HF_TOKEN required
-  {C_CYAN}python run.py --dev{C_RESET}             🛠️  Development mode with suggested defaults
-  {C_CYAN}python run.py --reconfigure{C_RESET}      🔄 Reset preferences and reconfigure all options
+  {C_CYAN}python run.py{C_RESET}                        🚀 Default: minimal setup, only prompts for HF_TOKEN
+  {C_CYAN}python run.py --dev{C_RESET}                  🛠️  Dev mode with minimal setup (same defaults)
+  {C_CYAN}python run.py --configure-env{C_RESET}        ⚙️  Full interactive setup for secrets/modes
+  {C_CYAN}python run.py --dev --configure-env{C_RESET}  ⚙️  Full interactive setup in dev mode
+  {C_CYAN}python run.py --reconfigure{C_RESET}          🔄 Reset preferences + full interactive setup
   {C_CYAN}python run.py --reconfigure-inference-server{C_RESET} 🔄 Change TT Inference Server artifact (branch/version)
-  {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
-  {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
-  {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
-  {C_CYAN}python run.py --no-browser{C_RESET}      🚫 Skip automatic browser opening
-  {C_CYAN}python run.py --wait-for-services{C_RESET} ⏳ Wait for all services to be healthy before completing
-  {C_CYAN}python run.py --check-headers{C_RESET} 🔍 Check for missing SPDX license headers
-  {C_CYAN}python run.py --add-headers{C_RESET} 📝 Add missing SPDX license headers (excludes frontend)
-  {C_CYAN}python run.py --fix-docker{C_RESET}   🔧 Automatically fix Docker service and permission issues
-  {C_CYAN}python run.py --help-env{C_RESET}        📚 Show detailed environment variables help
+  {C_CYAN}python run.py --cleanup{C_RESET}              🧹 Clean up containers and networks only
+  {C_CYAN}python run.py --cleanup-all{C_RESET}          🗑️  Complete cleanup including data and config
+  {C_CYAN}python run.py --skip-fastapi{C_RESET}         ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
+  {C_CYAN}python run.py --no-browser{C_RESET}           🚫 Skip automatic browser opening
+  {C_CYAN}python run.py --wait-for-services{C_RESET}    ⏳ Wait for all services to be healthy before completing
+  {C_CYAN}python run.py --check-headers{C_RESET}        🔍 Check for missing SPDX license headers
+  {C_CYAN}python run.py --add-headers{C_RESET}          📝 Add missing SPDX license headers (excludes frontend)
+  {C_CYAN}python run.py --fix-docker{C_RESET}           🔧 Automatically fix Docker service and permission issues
+  {C_CYAN}python run.py --help-env{C_RESET}             📚 Show detailed environment variables help
 
 {C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
         """
@@ -3525,8 +3593,8 @@ def main():
                    help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
         parser.add_argument("--fix-docker", action="store_true",
                    help="🔧 Automatically fix Docker service and permission issues")
-        parser.add_argument("--easy", action="store_true",
-                   help="🚀 Easy setup mode - only prompts for HF_TOKEN, uses defaults for everything else")
+        parser.add_argument("--configure-env", action="store_true",
+                   help="⚙️  Interactively configure all environment variables (secrets, modes, cloud endpoints)")
         
         args = parser.parse_args()
         
@@ -3605,10 +3673,10 @@ def main():
         
         display_welcome_banner()
         check_docker_installation()
-        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=args.easy, reconfigure_inference=args.reconfigure_inference_server)
+        configure_environment_sequentially(dev_mode=args.dev, force_reconfigure=args.reconfigure, easy_mode=not args.configure_env, reconfigure_inference=args.reconfigure_inference_server)
 
-        # Save easy mode configuration to JSON if --easy flag was used
-        if args.easy:
+        # Save easy mode configuration to JSON if not in --configure-env mode
+        if not args.configure_env:
             easy_config = {
                 "mode": "easy",
                 "setup_timestamp": datetime.now().isoformat(),
@@ -3710,7 +3778,7 @@ def main():
             sys.exit(1)
 
         # Ensure frontend dependencies are installed
-        ensure_frontend_dependencies(force_prompt=args.reconfigure, easy_mode=args.easy)
+        ensure_frontend_dependencies(force_prompt=args.reconfigure, easy_mode=not args.configure_env)
 
         # Check if all required ports are available
         print(f"\n{C_BOLD}{C_BLUE}🔍 Checking port availability for all services...{C_RESET}")
