@@ -22,12 +22,13 @@ import urllib.request
 import urllib.error
 
 # Add tt-inference-server root to sys.path so we can import workflows, run, etc.
-# Prefer TT_INFERENCE_ARTIFACT_PATH (e.g. .artifacts/tt-inference-server) if it has workflows;
+# Prefer TT_INFERENCE_ARTIFACT_PATH if set; then .artifacts/tt-inference-server (default);
 # otherwise fall back to tt-inference-server directory next to inference-api (e.g. git submodule).
 _tt_studio_root = Path(__file__).resolve().parent.parent
 _candidates = []
 if os.getenv("TT_INFERENCE_ARTIFACT_PATH"):
     _candidates.append(Path(os.getenv("TT_INFERENCE_ARTIFACT_PATH")).resolve())
+_candidates.append(_tt_studio_root / ".artifacts" / "tt-inference-server")
 _candidates.append(_tt_studio_root / "tt-inference-server")
 
 artifact_path = None
