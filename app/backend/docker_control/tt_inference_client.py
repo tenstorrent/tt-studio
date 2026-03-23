@@ -24,7 +24,7 @@ def start_chat_deployment(
     device: str,
     fastapi_run_url: str = "http://172.18.0.1:8001/run",
     timeout_seconds: int = 30,
-    dev_mode: bool = True,
+    dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).

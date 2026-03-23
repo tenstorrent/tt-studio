@@ -201,16 +201,14 @@ export default function RagManagement() {
         );
 
         // Process the results
-        const finalCollections = collectionsWithDocuments
-          .map((result) => {
-            if (result.status === "fulfilled") {
-              return result.value;
-            } else {
-              console.error("Failed to process collection:", result.reason);
-              return null;
-            }
-          })
-          .filter(Boolean); // Remove null values
+        const finalCollections = collectionsWithDocuments.flatMap((result) => {
+          if (result.status === "fulfilled") {
+            return [result.value];
+          }
+
+          console.error("Failed to process collection:", result.reason);
+          return [];
+        });
 
         console.log(
           "[RagManagement] Collections with documents:",
