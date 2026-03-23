@@ -72,7 +72,7 @@ def map_board_type_to_device_name(board_type):
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300Cx2": "p300cx2",  # 2 cards (4 chips)
+        "P300Cx2": "p300x2",  # 2 cards (4 chips)
         "P300Cx4": "p300cx4",  # 4 cards (8 chips)
         
         # Galaxy systems
@@ -103,7 +103,7 @@ def run_container(impl, weights_id):
                 "workflow": "server",  # Default workflow for container runs
                 "device": device,  # Use mapped device name
                 "docker_server": True,
-                "dev_mode": True
+                "dev_mode": False
             }
 
             logger.info(f"API payload: {payload}")

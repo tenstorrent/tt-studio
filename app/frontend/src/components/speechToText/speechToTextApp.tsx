@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState, useEffect } from "react";
 import { AppSidebar } from "@/src/components/speechToText/appSidebar";
@@ -28,7 +28,7 @@ interface Conversation {
 }
 
 export default function SpeechToTextApp() {
-  if (process.env.NODE_ENV === "development") {
+  if (import.meta.env.DEV) {
     console.log("Rendering SpeechToTextApp");
   }
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -144,7 +144,10 @@ export default function SpeechToTextApp() {
   }, [conversationCounter]);
 
   return (
-    <div className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4 pb-20">
+    <div
+      className="w-full md:w-11/12 lg:w-4/5 h-full md:h-4/5 mx-auto my-auto p-2 md:p-4"
+      style={{ paddingBottom: "var(--footer-height, 0px)" }}
+    >
       {/* Main card container with subtle glow effect */}
       <Card
         className={cn(

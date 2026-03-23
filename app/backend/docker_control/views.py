@@ -29,8 +29,10 @@ from .docker_utils import (
     perform_reset,
     check_image_exists,
     detect_board_type,
+    map_board_type_to_device_name,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
+from .tt_inference_client import start_chat_deployment
 from .docker_control_client import get_docker_client
 from shared_config.model_config import model_implmentations
 from shared_config.model_type_config import ModelTypes
@@ -210,7 +212,31 @@ class DeployView(APIView):
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
             impl = model_implmentations[impl_id]
-            response = run_container(impl, weights_id)
+            # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
+            # We call it directly here so we can return job_id immediately for progress polling,
+            # without requiring docker_utils.py to handle async "job started" responses.
+            if impl.model_type == ModelTypes.CHAT:
+                board_type = detect_board_type()
+                device = map_board_type_to_device_name(board_type)
+                result = start_chat_deployment(
+                    model_name=impl.model_name,
+                    device=device,
+                    timeout_seconds=30,
+                    skip_system_sw_validation=True,
+                )
+                if result.status != "success":
+                    return Response(
+                        {"status": "error", "message": result.message},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+                response = {
+                    "status": "success",
+                    "job_id": result.job_id,
+                    "message": result.message or "Deployment started",
+                    "api_response": result.api_response or {},
+                }
+            else:
+                response = run_container(impl, weights_id)
             
             # Ensure job_id is set for progress tracking
             # Use job_id from API response, or fallback to container_id or container_name
@@ -260,6 +286,13 @@ class DeploymentProgressView(APIView):
                     progress_data = response.json()
                     logger.info(f"Got progress from FastAPI: {progress_data}")
 
+                    # FastAPI explicitly reports job_id doesn't exist (common after cleanup/restart).
+                    # In that case, do not fall back to container heuristics which can be misleading.
+                    if progress_data.get("status") == "not_found":
+                        if job_id in deployment_start_times:
+                            del deployment_start_times[job_id]
+                        return Response(progress_data, status=status.HTTP_200_OK)
+
                     # Normalize 'stalled' status to 'running' with appropriate message
                     # 'stalled' typically means downloading weights, which can take hours
                     if progress_data.get("status") == "stalled":
@@ -290,7 +323,7 @@ class DeploymentProgressView(APIView):
                             del deployment_start_times[job_id]
 
                     # Add support for new status types
-                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying"]:
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying", "not_found"]:
                         return Response(progress_data, status=status.HTTP_200_OK)
 
                 logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
