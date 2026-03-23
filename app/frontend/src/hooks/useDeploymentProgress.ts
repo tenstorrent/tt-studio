@@ -32,7 +32,7 @@ export const useDeploymentProgress = (
   const [error, setError] = useState<string | null>(null);
   const [isSSEConnected, setIsSSEConnected] = useState(false);
   
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const notFoundCountRef = useRef<number>(0);
