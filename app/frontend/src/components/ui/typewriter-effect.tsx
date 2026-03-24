@@ -22,7 +22,7 @@ export const TypewriterEffectSmooth = ({
 
   useEffect(() => {
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const sequence = async () => {
       if (!isMounted) return;

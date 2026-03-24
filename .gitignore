@@ -8,6 +8,9 @@ __pycache__
 *.whl
 .venv/
 
+# submodules / artifacts
+.artifacts/
+
 # Virtual Environment
 env
 .testvenv
@@ -48,6 +51,18 @@ db.sqlite3
 !docker-control-service/requirements-api.txt
 
 app/frontend/src/assets/*
+
+fastapi.pid
+fastapi.log
+
+# Artifacts
+.artifacts/
+*.tar.gz
+*.zip
+
+# Inference API
+inference-api/.venv/
+inference-api/__pycache__/
 
 # Agent working directory (temporary files only)
 .claude/**/*

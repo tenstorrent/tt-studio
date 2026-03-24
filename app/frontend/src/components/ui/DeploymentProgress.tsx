@@ -11,6 +11,10 @@ interface DeploymentProgressProps {
     progress: number;
     message: string;
     last_updated?: number;
+    weights_repo?: string;
+    downloaded_bytes?: number;
+    eta_seconds?: number | null;
+    speed_bps?: number | null;
   } | null;
   className?: string;
   onRetry?: () => void;
@@ -74,6 +78,30 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const isCancelled = status === 'cancelled';
   const isRunning = status === 'running' || status === 'starting';
 
+  const formatBytes = (bytes?: number | null) => {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    let value = bytes;
+    let u = 0;
+    while (value >= 1024 && u < units.length - 1) {
+      value /= 1024;
+      u += 1;
+    }
+    const decimals = value >= 100 || u === 0 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(decimals)} ${units[u]}`;
+  };
+
+  const weightsDetails =
+    stage === 'model_preparation' &&
+    (progress.downloaded_bytes !== undefined ||
+      progress.speed_bps !== undefined ||
+      progress.eta_seconds !== undefined);
+
+  const speedText =
+    progress.speed_bps !== null && progress.speed_bps !== undefined
+      ? `${formatBytes(progress.speed_bps)}/s`
+      : null;
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -113,21 +141,61 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
           </span>
         </div>
       </div>
-      
+
       {/* Progress bar */}
       <div className="mb-3">
-        <Progress 
-          value={isError ? 100 : isComplete ? 100 : progressPercent} 
+        <Progress
+          value={isError ? 100 : isComplete ? 100 : progressPercent}
           className="h-2"
           indicatorClassName={getProgressBarColor()}
         />
       </div>
-      
+
       {/* Message */}
       <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
         {message}
       </p>
-      
+
+      {/* Weights download details (when available) */}
+      {weightsDetails && (
+        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <span className="text-xs font-medium text-foreground/80">
+                Model weights download
+              </span>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground/80" />
+                <span className="text-xs">Downloading…</span>
+              </div>
+            </div>
+            <Progress
+              value={100}
+              className="h-2"
+              indicatorClassName="bg-TT-purple-accent/80 animate-pulse"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono tabular-nums">
+            {progress.downloaded_bytes !== undefined ? (
+              <span>{formatBytes(progress.downloaded_bytes)}</span>
+            ) : null}
+            {speedText ? <span>• {speedText}</span> : null}
+          </div>
+          {progress.weights_repo ? (
+            <div className="truncate" title={progress.weights_repo}>
+              Repo: {progress.weights_repo}
+            </div>
+          ) : null}
+
+          <div className="rounded-md border bg-muted/30 p-2 text-muted-foreground">
+            <span className="font-medium text-foreground/80">Note:</span> You can leave this page
+            while the model downloads. The download continues in the background, and future
+            deploys will reuse the cached weights.
+          </div>
+        </div>
+      )}
+
       {/* Status indicators */}
       {isError && (
         <div className="flex items-center justify-between mt-3">
@@ -155,7 +223,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
           </div>
         </div>
       )}
-      
+
       {isComplete && (
         <div className="flex items-center mt-2">
           <div className="w-3 h-3 bg-green-500 dark:bg-green-600 rounded-full mr-2"></div>
