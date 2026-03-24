@@ -1139,10 +1139,11 @@ def _hf_check_repo(token, repo_id):
 
 
 def check_hf_access(token):
-    """Check if HF token can access meta-llama repos. Returns (ok, message)."""
+    """Check if HF token can access meta-llama and Qwen repos. Returns (ok, message)."""
     repos = [
         ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
         ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
+        ("Qwen/Qwen3-32B", "Qwen3-32B"),
     ]
     results = []
     for repo_id, label in repos:
