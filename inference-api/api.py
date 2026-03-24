@@ -862,7 +862,7 @@ def sync_tokens_from_tt_studio():
                     if '=' in line:
                         key, value = line.split('=', 1)
                         key = key.strip()
-                        value = value.strip()
+                        value = value.strip().strip('"').strip("'")
                         if key == 'JWT_SECRET':
                             tt_studio_jwt = value
                         elif key == 'HF_TOKEN':
@@ -885,7 +885,7 @@ def sync_tokens_from_tt_studio():
                     if '=' in line_stripped:
                         key, value = line_stripped.split('=', 1)
                         key = key.strip()
-                        value = value.strip()
+                        value = value.strip().strip('"').strip("'")
                         if key == 'JWT_SECRET':
                             inference_jwt = value
                         elif key == 'HF_TOKEN':
