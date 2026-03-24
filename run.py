@@ -2266,6 +2266,9 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             f.write(f"     Validation Status : {'✓ PASSED' if validation_passed else '✗ FAILED'}\n")
             f.write(f"     Validation Checks : workflows_dir, workflows/utils.py\n")
             f.write(f"     Sudo Used         : {'Yes' if sudo_used else 'No'}\n")
+            # Machine-readable marker lines used by cache invalidation detection
+            f.write(f"     artifact_type={artifact_type}\n")
+            f.write(f"     artifact_value={artifact_value}\n")
             f.write("\n" + "=" * 80 + "\n")
 
         print(f"📝 Artifact info written to {info_file}")
@@ -2355,6 +2358,20 @@ def setup_tt_inference_server():
     if not artifact_branch and not artifact_version:
         artifact_version = "latest"
 
+    if artifact_branch and artifact_version and artifact_version != "latest":
+        print(f"{C_YELLOW}⚠️  Both TT_INFERENCE_ARTIFACT_BRANCH and TT_INFERENCE_ARTIFACT_VERSION are set.{C_RESET}")
+        print(f"   1. Use branch '{artifact_branch}'")
+        print(f"   2. Use version '{artifact_version}'")
+        while True:
+            choice = input("Choose (1 or 2): ").strip()
+            if choice in ("1", "2"):
+                break
+            print(f"{C_RED}⛔ Enter 1 or 2.{C_RESET}")
+        if choice == "1":
+            artifact_version = None
+        else:
+            artifact_branch = None
+
     # Create artifacts directory early so we can check for local tarballs
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
     os.makedirs(artifacts_dir, exist_ok=True)
@@ -2398,6 +2415,10 @@ def setup_tt_inference_server():
                                 if f"artifact_value={artifact_branch}" not in info_content:
                                     branch_mismatch = True
                                     print(f"{C_YELLOW}⚠️  Branch mismatch: requested '{artifact_branch}' but artifact has different branch{C_RESET}")
+                            else:
+                                # Old-format or unrecognized artifact-info.txt — force re-download
+                                branch_mismatch = True
+                                print(f"{C_YELLOW}⚠️  Unrecognized artifact metadata format - re-downloading branch '{artifact_branch}'{C_RESET}")
                     except Exception:
                         pass
                 else:
@@ -2423,6 +2444,10 @@ def setup_tt_inference_server():
                                 if 'artifact_type=branch' in info_content:
                                     version_mismatch = True
                                     print(f"{C_YELLOW}⚠️  Switching from branch artifact to version '{artifact_version}'{C_RESET}")
+                                elif 'artifact_type=version' not in info_content:
+                                    # Old-format or unrecognized artifact-info.txt — force re-download
+                                    version_mismatch = True
+                                    print(f"{C_YELLOW}⚠️  Unrecognized artifact metadata format - re-downloading version '{artifact_version}'{C_RESET}")
                         except Exception:
                             pass
                     else:
@@ -3046,12 +3071,14 @@ def start_fastapi_server(no_sudo=False):
             pythonpath_export = ""
             if os.path.exists(INFERENCE_ARTIFACT_DIR):
                 pythonpath_export = f'export PYTHONPATH="{INFERENCE_ARTIFACT_DIR}:$PYTHONPATH"\n'
-            
+
+            tt_studio_root_export = f'export TT_STUDIO_ROOT="{TT_STUDIO_ROOT}"\n'
+
             temp_script.write(f'''#!/bin/bash
 set -e
 cd "$1"
-{artifact_path_export}{benchmark_targets_export}{pythonpath_export}echo $$ > "$2"
-if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
+{tt_studio_root_export}{artifact_path_export}{benchmark_targets_export}{pythonpath_export}echo $$ > "$2"
+if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1; then
     echo "Failed to start inference-api server. Check logs at $4"
     exit 1
 fi
