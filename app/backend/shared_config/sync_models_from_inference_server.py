@@ -132,7 +132,10 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         # TTS models use OpenAI-compatible /v1/audio/speech endpoint
         if raw_model_type in ("TEXT_TO_SPEECH", "TTS"):
             return "/v1/audio/speech"
-        # Other media models (image gen, speech recognition, etc.) use enqueue
+        # Speech recognition models use OpenAI-compatible /v1/audio/transcriptions endpoint
+        if raw_model_type in ("AUDIO", "SPEECH_RECOGNITION"):
+            return "/v1/audio/transcriptions"
+        # Other media models (image gen, video, embedding, etc.) use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         return "/v1/chat/completions"
@@ -149,10 +152,7 @@ def map_health_route(inference_engine: str, service_route: str) -> str:
     Returns:
         The appropriate health check endpoint
     """
-    if inference_engine == "media" and service_route == "/enqueue":
-        # Media server models using /enqueue have health at root
-        return "/"
-    # All other models (vLLM, forge, media with /v1/audio/speech) use /health
+    # All models (vLLM, forge, media) use /health — GET / returns 404 on the media server
     return "/health"
 
 
