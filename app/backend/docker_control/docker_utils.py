@@ -135,6 +135,17 @@ def run_container(impl, weights_id, device_id=0):
             f"(board={board_type}, chips_required={chips_required})"
         )
 
+        # Speech models (Whisper, TTS) only need a single N150-class chip.
+        # On multi-chip N300-based boards (T3K, etc.) the single-chip lookup
+        # returns "n300", but these models require "n150" to run correctly.
+        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+            if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
+                device = "n150"
+                logger.info(
+                    f"Overriding device to 'n150' for speech model {impl.model_name} "
+                    f"on multi-chip board {board_type}"
+                )
+
         BASE_SERVICE_PORT = 7000
 
         # Create payload for the API call
