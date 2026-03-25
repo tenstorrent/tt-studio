@@ -15,7 +15,7 @@ export const MainLayout = ({ children }: { children: React.ReactNode }) => (
       }}
     ></div>
     <NavBar />
-    <div className="main-content pt-16 pb-20 relative z-10">{children}</div>
+    <div className="main-content min-h-screen pt-16 pb-20 relative z-10">{children}</div>
     {!isDeployedEnabled() && <Footer />}
   </div>
 );

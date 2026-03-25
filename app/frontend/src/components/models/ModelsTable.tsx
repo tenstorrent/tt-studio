@@ -219,7 +219,7 @@ export default function ModelsTable({
                   {row.device_id != null ? (
                     <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-full bg-TT-purple-shade/40 text-TT-purple border border-TT-purple-accent/30">
                       <Cpu className="w-3 h-3" />
-                      Slot {String(row.device_id).padStart(2, "0")}
+                      Device {String(row.device_id).padStart(2, "0")}
                     </span>
                   ) : (
                     <span className="text-xs text-gray-500">—</span>
@@ -280,8 +280,8 @@ export default function ModelsTable({
                         <CopyableText text={row.image ?? ""} />
                       </div>
                       <div className="min-w-0">
-                        <div className="text-xs text-stone-500 mb-1">Chip Slot</div>
-                        <CopyableText text={row.device_id != null ? `Slot ${row.device_id}` : "N/A"} />
+                        <div className="text-xs text-stone-500 mb-1">Device</div>
+                        <CopyableText text={row.device_id != null ? `Device ${row.device_id}` : "N/A"} />
                       </div>
                       <div className="min-w-0">
                         <div className="text-xs text-stone-500 mb-1">Ports</div>

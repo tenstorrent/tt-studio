@@ -278,6 +278,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             device_configurations=device_configs,
             docker_config=cfg,
             service_route=entry["service_route"],
+            health_route=entry.get("health_route", "/health"),
             setup_type=setup_type,
             model_type=model_type,
             version=entry.get("version", "0.0.1"),

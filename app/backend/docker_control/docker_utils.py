@@ -135,6 +135,17 @@ def run_container(impl, weights_id, device_id=0):
             f"(board={board_type}, chips_required={chips_required})"
         )
 
+        # Speech models (Whisper, TTS) only need a single N150-class chip.
+        # On multi-chip N300-based boards (T3K, etc.) the single-chip lookup
+        # returns "n300", but these models require "n150" to run correctly.
+        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+            if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
+                device = "n150"
+                logger.info(
+                    f"Overriding device to 'n150' for speech model {impl.model_name} "
+                    f"on multi-chip board {board_type}"
+                )
+
         BASE_SERVICE_PORT = 7000
 
         # Create payload for the API call
@@ -143,20 +154,26 @@ def run_container(impl, weights_id, device_id=0):
             "workflow": "server",  # Default workflow for container runs
             "device": device,  # Use mapped device name
             "docker_server": True,
-            "dev_mode": True,
         }
 
-        # Only pin to a specific chip slot for multi-chip boards
-        if chips_required > 1:
-            payload["device_id"] = str(device_id)
-            payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
-            service_port = BASE_SERVICE_PORT + device_id
-        else:
-            service_port = BASE_SERVICE_PORT  # single chip always uses base port
+        # Use slot-based port allocation for all models (single and multi-chip)
+        # This allows multiple models to run simultaneously on different chip slots
+        # Port mapping: slot 0 -> 7000, slot 1 -> 7001, slot 2 -> 7002, slot 3 -> 7003
+        payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
+        service_port = BASE_SERVICE_PORT + device_id
+
+        # Pin to specific chip slot (both single and multi-chip models)
+        # Single-chip models need this to pin to a specific slot on multi-chip boards (e.g., slot 0 on T3K)
+        # Multi-chip models need this to specify which configuration to use
+        payload["device_id"] = str(device_id)
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
             payload["skip_system_sw_validation"] = True
+
+        # TTS and Speech Recognition models require dev_mode for proper operation
+        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+            payload["dev_mode"] = True
 
         logger.info(f"API payload: {payload}")
 
@@ -628,8 +645,8 @@ def update_deploy_cache():
                 "DNSNames"
             ][0]
             # Use the actual container port from port bindings instead of the
-            # static model_impl.service_port (which is always 7000).  Multi-slot
-            # deployments bind to 7000+device_id, so we must resolve the real port.
+            # static model_impl.service_port (which is always 7000).  All deployments
+            # now use slot-based ports (7000+device_id), so we must resolve the real port.
             actual_port = model_impl.service_port  # default fallback
             port_bindings = con.get("port_bindings", {})
             if port_bindings:
@@ -757,6 +774,92 @@ def perform_reset():
             "output": "",
             "http_status": 500,
         }
+
+def perform_device_reset(device_id: int):
+    """
+    Reset a specific TT chip/device using tt-smi -r <device_id>.
+    Up to 2 attempts with 30-second timeout each.
+    """
+    try:
+        logger.info(f"Starting chip reset for device {device_id} — running tt-smi -r {device_id}")
+
+        SystemResourceService.set_resetting_state()
+
+        MAX_ATTEMPTS = 2
+        last_output = ""
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.info(f"Device {device_id} reset attempt {attempt} of {MAX_ATTEMPTS}")
+            try:
+                process = subprocess.Popen(
+                    ["tt-smi", "-r", str(device_id)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    preexec_fn=os.setsid,
+                )
+
+                try:
+                    stdout, _ = process.communicate(timeout=30)
+                    last_output = stdout
+                    logger.info(f"tt-smi -r {device_id} attempt {attempt} output: {stdout.strip()!r:.200}")
+
+                    if process.returncode == 0:
+                        logger.info(f"Device {device_id} reset succeeded on attempt {attempt}")
+                        SystemResourceService.clear_device_state_cache()
+                        return {
+                            "status": "success",
+                            "message": f"Device {device_id} reset successfully after {attempt} attempt(s)",
+                            "attempts_used": attempt,
+                            "output": stdout,
+                            "http_status": 200,
+                        }
+
+                    logger.warning(
+                        f"Device {device_id} reset attempt {attempt} failed: exit code {process.returncode}"
+                    )
+
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Device {device_id} reset attempt {attempt} timed out after 30s")
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except Exception:
+                            pass
+                    last_output = "(timeout)"
+
+            except Exception as exc:
+                logger.error(f"Device {device_id} reset attempt {attempt} raised exception: {exc}")
+                last_output = str(exc)
+
+        logger.error(f"All {MAX_ATTEMPTS} reset attempts for device {device_id} failed")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": (
+                f"Device {device_id} did not recover after {MAX_ATTEMPTS} reset attempts. "
+                "Manual intervention may be required."
+            ),
+            "attempts_used": MAX_ATTEMPTS,
+            "output": last_output,
+            "http_status": 500,
+        }
+
+    except Exception as e:
+        logger.exception(f"Unexpected error during device {device_id} reset operation")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": str(e),
+            "attempts_used": 0,
+            "output": "",
+            "http_status": 500,
+        }
+
 
 def check_image_exists(image_name, image_tag):
     """Check if a Docker image exists locally with robust matching"""

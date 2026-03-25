@@ -546,6 +546,8 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
                     original_cmd += " --skip-fastapi"
                 if args.no_sudo:
                     original_cmd += " --no-sudo"
+                if args.resync:
+                    original_cmd += " --resync"
             
             print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
             print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
@@ -3475,6 +3477,7 @@ def main():
   {C_CYAN}python run.py --dev{C_RESET}             🛠️  Development mode with suggested defaults
   {C_CYAN}python run.py --reconfigure{C_RESET}      🔄 Reset preferences and reconfigure all options
   {C_CYAN}python run.py --reconfigure-inference-server{C_RESET} 🔄 Change TT Inference Server artifact (branch/version)
+  {C_CYAN}python run.py --resync{C_RESET}         🔄 Force model catalog resync
   {C_CYAN}python run.py --cleanup{C_RESET}         🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}     🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}    ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
@@ -3500,6 +3503,8 @@ def main():
                            help="🔄 Reset preferences and reconfigure all options")
         parser.add_argument("--reconfigure-inference-server", action="store_true",
                            help="🔄 Reconfigure TT Inference Server artifact (branch/version)")
+        parser.add_argument("--resync", action="store_true",
+                           help="🔄 Force resync of model catalog from TT Inference Server artifact")
         parser.add_argument("--pull-branch", action="store_true",
                            help="🔄 Re-download the inference server artifact from the configured branch to pick up new commits")
         parser.add_argument("--skip-fastapi", action="store_true",
@@ -3833,8 +3838,19 @@ def main():
                 if not setup_tt_inference_server(pull_branch=args.pull_branch):
                     print(f"{C_RED}⛔ Failed to setup TT Inference Server. Continuing without FastAPI server.{C_RESET}")
                 else:
-                    # Sync model catalog from the newly downloaded artifact
-                    _sync_model_catalog()
+                    # Only sync model catalog when explicitly requested or needed
+                    models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
+                    should_sync = (
+                        args.resync or
+                        args.reconfigure_inference_server or
+                        not os.path.exists(models_json_path)
+                    )
+
+                    if should_sync:
+                        print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
+                        _sync_model_catalog()
+                    else:
+                        print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
                     # Setup FastAPI environment
                     if not setup_fastapi_environment():
                         print(f"{C_RED}⛔ Failed to setup FastAPI environment. Continuing without FastAPI server.{C_RESET}")
@@ -3992,6 +4008,8 @@ def main():
                 original_cmd += " --skip-fastapi"
             if args.no_sudo:
                 original_cmd += " --no-sudo"
+            if args.resync:
+                original_cmd += " --resync"
         
         print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
         print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")

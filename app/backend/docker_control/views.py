@@ -28,6 +28,7 @@ from .docker_utils import (
     stop_container,
     get_container_status,
     perform_reset,
+    perform_device_reset,
     check_image_exists,
     detect_board_type,
     DEPLOYMENT_TIMEOUT_SECONDS,
@@ -155,9 +156,9 @@ class ContainersView(APIView):
             'E150': [DeviceConfigurations.E150],
             
             # Wormhole multi-device
-            'N150X4': [DeviceConfigurations.N150X4],
-            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
-            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML],
+            'N150X4': [DeviceConfigurations.N150X4, DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML],
+            'T3000': [DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            'T3K': [DeviceConfigurations.T3K, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
             
             # Blackhole single devices
             'P100': [DeviceConfigurations.P100],
@@ -165,14 +166,14 @@ class ContainersView(APIView):
             'P300c': [DeviceConfigurations.P300c],
             
             # Blackhole multi-device
-            'P150X4': [DeviceConfigurations.P150X4],
-            'P150X8': [DeviceConfigurations.P150X8],
-            'P300Cx2': [DeviceConfigurations.P300Cx2],  # 2 cards (4 chips)
-            'P300Cx4': [DeviceConfigurations.P300Cx4],  # 4 cards (8 chips)
+            'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
+            'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
+            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P300c],  # 2 cards (4 chips)
+            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P300c],  # 4 cards (8 chips)
             
             # Galaxy systems
-            'GALAXY': [DeviceConfigurations.GALAXY],
-            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K],
+            'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
+            'GALAXY_T3K': [DeviceConfigurations.GALAXY_T3K, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
             
             'unknown': []  # Empty list for unknown board type
         }
@@ -230,6 +231,25 @@ class ContainersView(APIView):
 class StatusView(APIView):
     def get(self, request, *args, **kwargs):
         data = get_container_status()
+        # Enrich with model_type from deploy cache so frontend navbar can route correctly (e.g. Speech -> /speech-to-text).
+        try:
+            from model_control.model_utils import get_deploy_cache
+
+            deploy_cache = get_deploy_cache()
+            for con_id, con_data in data.items():
+                if con_id in deploy_cache:
+                    model_impl = deploy_cache[con_id].get("model_impl")
+                    if model_impl is not None:
+                        mt = getattr(model_impl, "model_type", None)
+                        if mt is not None:
+                            con_data["model_type"] = getattr(
+                                mt, "value", str(mt)
+                            )
+        except Exception as e:
+            logger.warning(
+                "Could not enrich status with model_type from deploy cache: %s",
+                e,
+            )
         return Response(data, status=status.HTTP_200_OK)
 
 
@@ -795,6 +815,37 @@ class ResetBoardView(APIView):
             )
 
 
+class ResetDeviceView(APIView):
+    """Reset a single chip/device using tt-smi -r <device_id>."""
+
+    def post(self, request, device_id, *args, **kwargs):
+        try:
+            reset_response = perform_device_reset(device_id)
+
+            if reset_response.get("status") == "error":
+                error_message = reset_response.get(
+                    "message", f"An error occurred during device {device_id} reset."
+                )
+                http_status = reset_response.get(
+                    "http_status", status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                return Response(
+                    {"status": "error", "message": error_message}, status=http_status
+                )
+
+            output = reset_response.get("output", f"Device {device_id} reset successfully.")
+            return StreamingHttpResponse(
+                output, content_type="text/plain", status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.exception(f"Exception occurred during device {device_id} reset operation.")
+            return Response(
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class ImageStatusView(APIView):
     def get(self, request, model_id):
         try:
@@ -1283,6 +1334,341 @@ class DeploymentHistoryView(APIView):
             return Response(
                 {'status': 'error', 'message': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DiscoverContainersView(APIView):
+    """List running containers NOT already on tt_studio_network (candidates for registration)."""
+
+    # Container name prefixes that belong to the TT Studio infrastructure itself
+    _INFRA_PREFIXES = ("tt_studio_", "tt-studio-", "tt_studio-", "docker-control")
+
+    def get(self, request, *args, **kwargs):
+        try:
+            docker_client = get_docker_client()
+            response = docker_client.list_containers(all=False)
+            containers_list = response.get("containers", []) if isinstance(response, dict) else []
+
+            network_name = backend_config.docker_bridge_network_name
+            results = []
+
+            for c in containers_list:
+                name = c.get("name", "")
+                # Skip TT Studio infrastructure containers
+                if any(name.startswith(p) or name.lower().startswith(p) for p in self._INFRA_PREFIXES):
+                    continue
+
+                # Skip containers already on tt_studio_network
+                networks = c.get("NetworkSettings", {}).get("Networks", {})
+                if not networks:
+                    networks = c.get("networks", {})
+                if network_name in networks:
+                    continue
+
+                # Extract port bindings
+                port_bindings = c.get("NetworkSettings", {}).get("Ports", {})
+                if not port_bindings:
+                    port_bindings = c.get("port_bindings", {})
+
+                results.append({
+                    "id": c.get("id", ""),
+                    "name": name,
+                    "image": c.get("Config", {}).get("Image", c.get("image", "")),
+                    "status": c.get("status", ""),
+                    "port_bindings": port_bindings or {},
+                })
+
+            return Response(results, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error discovering containers: {e}")
+            return Response(
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class RegisterExternalModelView(APIView):
+    """Register an external Docker container with TT Studio."""
+
+    # Default service routes by model type
+    _DEFAULT_ROUTES = {
+        "chat": "/v1/chat/completions",
+        "vlm": "/v1/chat/completions",
+        "embedding": "/v1/chat/completions",
+        "tts": "/v1/audio/speech",
+        "speech_recognition": "/v1/audio/transcriptions",
+        "image_generation": "/v1/images/generations",
+        "video_generation": "/v1/chat/completions",
+        "object_detection": "/v1/chat/completions",
+        "cnn": "/v1/chat/completions",
+    }
+
+    def post(self, request, *args, **kwargs):
+        try:
+            data = request.data
+            container_id = data.get("container_id")
+            model_type = data.get("model_type", "").lower()
+            model_name = data.get("model_name", "").strip()
+            hf_model_id = data.get("hf_model_id", "").strip() or None
+            service_port = data.get("service_port", 7000)
+            service_route = data.get("service_route", "").strip() or None
+            health_route = data.get("health_route", "").strip() or "/health"
+            device_id = data.get("device_id", 0)
+            chips_required = data.get("chips_required", 1)
+
+            # Normalise device_id / chips_required to int
+            try:
+                device_id = int(device_id)
+            except (TypeError, ValueError):
+                device_id = 0
+            try:
+                chips_required = int(chips_required)
+            except (TypeError, ValueError):
+                chips_required = 1
+
+            # --- Validate required fields ---
+            if not container_id or not model_type or not model_name:
+                return Response(
+                    {"status": "error", "message": "container_id, model_type, and model_name are required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if model_type not in self._DEFAULT_ROUTES and model_type != "mock":
+                valid_types = ", ".join(sorted(self._DEFAULT_ROUTES.keys()))
+                return Response(
+                    {"status": "error", "message": f"Invalid model_type '{model_type}'. Valid types: {valid_types}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # --- Validate device_id against chip slot availability ---
+            try:
+                from docker_control.chip_allocator import ChipSlotAllocator, AllocationError, MultiChipConflictError
+
+                allocator = ChipSlotAllocator()
+                chip_status = allocator.get_chip_status()
+                total_slots = chip_status.get("total_slots", 1)
+
+                if chips_required >= 4:
+                    # Multi-chip: all slots (0-3) must be free
+                    occupied_slots = [
+                        s for s in chip_status.get("slots", []) if s.get("status") == "occupied"
+                    ]
+                    if occupied_slots:
+                        occupied_names = ", ".join(
+                            f"slot {s['slot_id']} ({s.get('model_name', 'unknown')})"
+                            for s in occupied_slots
+                        )
+                        return Response(
+                            {
+                                "status": "error",
+                                "message": f"Multi-chip model requires all chip slots to be free. Currently occupied: {occupied_names}.",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    device_id = 0  # Multi-chip always registers on slot 0
+                else:
+                    # Single-chip: validate the selected slot is in range and free
+                    if device_id < 0 or device_id >= total_slots:
+                        return Response(
+                            {
+                                "status": "error",
+                                "message": f"Invalid device_id {device_id}. Must be 0–{total_slots - 1}.",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    slot_info = next(
+                        (s for s in chip_status.get("slots", []) if s.get("slot_id") == device_id),
+                        None,
+                    )
+                    if slot_info and slot_info.get("status") == "occupied":
+                        occupying = slot_info.get("model_name", "another model")
+                        return Response(
+                            {
+                                "status": "error",
+                                "message": f"Chip slot {device_id} is already occupied by '{occupying}'. Choose a different slot.",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            except ImportError:
+                logger.warning("ChipSlotAllocator not available; skipping device_id validation")
+
+            corrections = []
+
+            # --- Verify container exists and is running ---
+            docker_client = get_docker_client()
+            try:
+                container_info = docker_client.get_container(container_id)
+            except Exception:
+                return Response(
+                    {"status": "error", "message": f"Container '{container_id}' not found or not accessible."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            container_status = container_info.get("status", "")
+            if "running" not in container_status.lower():
+                return Response(
+                    {"status": "error", "message": f"Container '{container_id}' is not running (status: {container_status})."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # --- Port conflict check ---
+            port_bindings = container_info.get("NetworkSettings", {}).get("Ports", {})
+            if not port_bindings:
+                port_bindings = container_info.get("port_bindings", {})
+            exposed_ports = []
+            if port_bindings:
+                for port_key in port_bindings.keys():
+                    try:
+                        exposed_ports.append(int(port_key.split("/")[0]))
+                    except (ValueError, IndexError):
+                        pass
+
+            if service_port and exposed_ports and int(service_port) not in exposed_ports:
+                return Response(
+                    {
+                        "status": "error",
+                        "message": f"Container does not expose port {service_port}. Available ports: {', '.join(str(p) for p in exposed_ports)}",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # --- HF Model ID catalog matching ---
+            if hf_model_id:
+                try:
+                    catalog_data = json.loads(_CATALOG_PATH.read_text())
+                    for catalog_model in catalog_data.get("models", []):
+                        if catalog_model.get("hf_model_id", "").lower() == hf_model_id.lower():
+                            # Found a catalog match — use its authoritative routes
+                            catalog_route = catalog_model.get("service_route")
+                            catalog_health = catalog_model.get("health_route")
+                            catalog_type = catalog_model.get("model_type", "").lower()
+
+                            if catalog_route and service_route and service_route != catalog_route:
+                                corrections.append(
+                                    f"Service route corrected from '{service_route}' to '{catalog_route}' based on catalog entry for {catalog_model.get('model_name')}"
+                                )
+                                service_route = catalog_route
+                            elif catalog_route and not service_route:
+                                service_route = catalog_route
+
+                            if catalog_health and health_route != catalog_health:
+                                corrections.append(
+                                    f"Health route corrected from '{health_route}' to '{catalog_health}' based on catalog entry"
+                                )
+                                health_route = catalog_health
+
+                            if catalog_type and catalog_type != model_type:
+                                corrections.append(
+                                    f"Model type corrected from '{model_type}' to '{catalog_type}' based on catalog entry"
+                                )
+                                model_type = catalog_type
+
+                            break
+                except Exception as e:
+                    logger.warning(f"Could not check HF model ID against catalog: {e}")
+
+            # --- Apply default route if still unset ---
+            if not service_route:
+                service_route = self._DEFAULT_ROUTES.get(model_type, "/v1/chat/completions")
+
+            # --- Rename container based on model name ---
+            current_name = container_info.get("name", container_id)
+            if current_name.startswith("/"):
+                current_name = current_name[1:]
+
+            # Sanitize desired name: lowercase, replace problematic chars
+            desired_name = model_name.lower().replace("/", "-").replace(" ", "_")
+            # Remove any chars that aren't alphanumeric, hyphens, or underscores
+            desired_name = "".join(c for c in desired_name if c.isalnum() or c in "-_.")
+
+            container_name = current_name
+            if desired_name and current_name != desired_name:
+                try:
+                    docker_client.rename_container(container_id, desired_name)
+                    corrections.append(f"Container renamed from '{current_name}' to '{desired_name}'")
+                    container_name = desired_name
+                    logger.info(f"Renamed container '{current_name}' to '{desired_name}'")
+                except Exception as e:
+                    logger.warning(f"Could not rename container: {e}")
+                    container_name = current_name
+
+            # --- Connect container to tt_studio_network ---
+            network_name = backend_config.docker_bridge_network_name
+            networks = container_info.get("NetworkSettings", {}).get("Networks", {})
+            if not networks:
+                networks = container_info.get("networks", {})
+
+            if network_name not in networks:
+                try:
+                    docker_client.connect_container_to_network(network_name, container_id)
+                    logger.info(f"Connected container '{container_id}' to network '{network_name}'")
+                except requests.exceptions.HTTPError as e:
+                    if e.response is not None and e.response.status_code in (409, 500):
+                        # Already connected or similar — treat as non-fatal
+                        corrections.append(f"Container may already be on {network_name}")
+                        logger.warning(f"Non-fatal error connecting to network: {e}")
+                    else:
+                        return Response(
+                            {"status": "error", "message": f"Failed to connect container to {network_name}: {e}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
+                except Exception as e:
+                    return Response(
+                        {"status": "error", "message": f"Failed to connect container to {network_name}: {e}"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+            else:
+                corrections.append(f"Container was already on {network_name}")
+
+            # --- Create deployment record ---
+            try:
+                from docker_control.models import ModelDeployment
+
+                # Check for duplicate registration
+                existing = ModelDeployment.objects.filter(
+                    container_id=container_id, status="running"
+                )
+                if existing.exists():
+                    corrections.append("Deployment record already exists — updated")
+                else:
+                    ModelDeployment.objects.create(
+                        container_id=container_id,
+                        container_name=container_name,
+                        model_name=model_name,
+                        device="external",
+                        device_id=device_id,
+                        status="running",
+                        stopped_by_user=False,
+                        port=int(service_port) if service_port else 7000,
+                    )
+                    logger.info(f"Created deployment record for external container '{container_name}' on device_id={device_id}")
+            except Exception as e:
+                logger.error(f"Failed to create deployment record: {e}")
+                # Continue — the network connection is the critical part
+
+            # --- Refresh deploy cache ---
+            try:
+                from .docker_utils import update_deploy_cache
+                update_deploy_cache()
+            except Exception as e:
+                logger.warning(f"Failed to update deploy cache after registration: {e}")
+
+            return Response(
+                {
+                    "status": "success",
+                    "container_id": container_id,
+                    "container_name": container_name,
+                    "corrections": corrections,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.error(f"Error registering external model: {e}")
+            return Response(
+                {"status": "error", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 

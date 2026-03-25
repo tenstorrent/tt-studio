@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import { useGitHubReleases } from "../hooks/useGitHubReleases";
 import { HardwareIcon } from "./aiPlaygroundHome/HardwareIcon";
+import { cn } from "../lib/utils";
 
 interface FooterProps {
   className?: string;
@@ -52,6 +54,10 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const lastRefreshTime = useRef<number | null>(null);
   const [showTTStudioModal, setShowTTStudioModal] = useState(false);
   const [bugReportLoading, setBugReportLoading] = useState(false);
+  const [showModelPopover, setShowModelPopover] = useState(false);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
+  const popoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const badgeWrapperRef = useRef<HTMLDivElement>(null);
   const { models } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
   const navigate = useNavigate();
@@ -175,6 +181,38 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
       : deviceStateName === "NOT_PRESENT"
         ? "No Tenstorrent device detected. Check hardware connection."
         : null;
+
+  // Hover popover handlers for deployed models
+  const handlePopoverEnter = () => {
+    if (popoverTimeoutRef.current) clearTimeout(popoverTimeoutRef.current);
+    if (models.length > 0) {
+      const rect = badgeWrapperRef.current?.getBoundingClientRect();
+      if (rect) {
+        setPopoverPos({ left: rect.left, top: rect.top });
+      }
+      setShowModelPopover(true);
+    }
+  };
+
+  const handlePopoverLeave = () => {
+    popoverTimeoutRef.current = setTimeout(() => setShowModelPopover(false), 200);
+  };
+
+  const getHealthColor = (health: unknown, status?: unknown) => {
+    const h = String(health ?? "").toLowerCase();
+    const s = String(status ?? "").toLowerCase();
+    if (h === "unhealthy" || s.includes("exited")) return "bg-TT-red-accent";
+    if (h === "healthy" || s.includes("running") || s === "deployed") return "bg-TT-green";
+    if (h === "starting") return "bg-TT-yellow";
+    return "bg-TT-yellow";
+  };
+
+  const getStatusText = (status: unknown) => {
+    const s = String(status ?? "").toLowerCase();
+    if (s.includes("running")) return "Running";
+    if (s.includes("exited")) return "Stopped";
+    return String(status) || "Unknown";
+  };
 
   // Handle click on deployed models section
   const handleDeployedModelsClick = () => {
@@ -740,34 +778,121 @@ Add any other context about the problem here.
 
             {/* Deployed Models Section */}
             <div className="flex items-center gap-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="inline-block">
-                      <Badge
-                        variant={models.length > 0 ? "default" : "outline"}
-                        className={`text-xs cursor-pointer transition-colors hover:bg-opacity-80 ${
-                          models.length > 0
-                            ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-100 dark:hover:bg-green-800"
-                            : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-                        }`}
-                        onClick={handleDeployedModelsClick}
-                      >
-                        📟 {getDeployedModelsText()}
-                      </Badge>
+              <div
+                ref={badgeWrapperRef}
+                className="inline-block"
+                onMouseEnter={handlePopoverEnter}
+                onMouseLeave={handlePopoverLeave}
+              >
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-xs cursor-pointer transition-all duration-300",
+                    models.length > 0
+                      ? "bg-TT-purple-accent/20 text-TT-purple-tint1 border-TT-purple-accent/30 hover:bg-TT-purple-accent/30 hover:shadow-[0_0_12px_rgba(124,104,250,0.3)] hover:scale-105"
+                      : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  )}
+                  onClick={() => {
+                    setShowModelPopover(false);
+                    handleDeployedModelsClick();
+                  }}
+                >
+                  📟 {getDeployedModelsText()}
+                </Badge>
+              </div>
+
+              {/* Hover popover - rendered via portal to escape footer overflow */}
+              {models.length > 0 && showModelPopover && popoverPos && createPortal(
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="fixed w-80 z-[9999] rounded-xl border border-TT-purple-accent/20 bg-stone-950 shadow-[0_0_30px_rgba(124,104,250,0.15)]"
+                  style={{ left: popoverPos.left, top: popoverPos.top - 8 }}
+                  onMouseEnter={handlePopoverEnter}
+                  onMouseLeave={handlePopoverLeave}
+                >
+                  <div style={{ transform: 'translateY(-100%)' }} className="bg-stone-950 rounded-xl border border-TT-purple-accent/20 overflow-hidden">
+                    {/* Header */}
+                    <div className="px-4 pt-3 pb-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-TT-purple-tint1 uppercase tracking-wider">
+                          Deployed Models
+                        </span>
+                        <span className="text-[10px] text-TT-purple/60 font-mono">
+                          {models.length} active
+                        </span>
+                      </div>
+                      <div className="mt-2 h-[1px] w-full bg-gradient-to-r from-transparent via-TT-purple-accent/50 to-transparent" />
                     </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>
-                      {models.length > 0
-                        ? `Click to view ${models.length} deployed model${
-                            models.length > 1 ? "s" : ""
-                          }${models.length === 1 ? `: ${models[0].name || "Unknown Model"}` : ""}`
-                        : "Click to view deployed models page"}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+
+                    {/* Model list */}
+                    <div className="px-2 py-2 max-h-48 overflow-y-auto">
+                      {models.map((model, index) => (
+                        <motion.div
+                          key={model.id}
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05, duration: 0.2 }}
+                          className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors group"
+                        >
+                          {/* Health dot */}
+                          <div className="relative flex-shrink-0">
+                            <div className={cn(
+                              "w-2 h-2 rounded-full",
+                              getHealthColor(model.health, model.status)
+                            )} />
+                            {getHealthColor(model.health, model.status) === "bg-TT-green" && (
+                              <div className={cn(
+                                "absolute inset-0 w-2 h-2 rounded-full animate-ping opacity-30",
+                                getHealthColor(model.health, model.status)
+                              )} />
+                            )}
+                          </div>
+
+                          {/* Model info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium text-stone-100 truncate">
+                              {model.name || "Unknown Model"}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {model.model_type && (
+                                <span className="text-[10px] text-TT-purple/80 font-mono">
+                                  {model.model_type}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-stone-500">
+                                {getStatusText(model.status)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Device ID badge */}
+                          {model.device_id != null && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-TT-purple-accent/10 text-TT-purple/70 font-mono flex-shrink-0">
+                              dev:{model.device_id}
+                            </span>
+                          )}
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Footer hint */}
+                    <div
+                      className="px-4 py-2 border-t border-white/10 cursor-pointer hover:bg-white/5 transition-colors"
+                      onClick={() => {
+                        setShowModelPopover(false);
+                        handleDeployedModelsClick();
+                      }}
+                    >
+                      <span className="text-[10px] text-stone-500">
+                        Click to manage models →
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>,
+                document.body
+              )}
 
               {/* Logs Button */}
               {models.length > 0 && (

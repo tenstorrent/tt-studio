@@ -74,3 +74,5 @@ docs/DOCKER_CONTROL_SERVICE_PLAN.md
 
 request-venv/*
 app/.env-old
+output.wav
+app/backend/core.*

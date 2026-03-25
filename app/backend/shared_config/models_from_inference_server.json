@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.9.0",
-    "generated_at": "2026-03-03T15:24:14.263161+00:00"
+    "generated_at": "2026-03-25T19:53:10.559666+00:00"
   },
   "total_models": 60,
   "models": [
@@ -25,6 +25,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -52,7 +53,8 @@
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
-      "service_route": "/enqueue",
+      "service_route": "/v1/audio/transcriptions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -80,6 +82,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -107,6 +110,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -137,6 +141,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -167,6 +172,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -201,6 +207,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-25305db-6e67d2d",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -235,6 +242,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-25305db-6e67d2d",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -265,6 +273,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -293,6 +302,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -321,6 +331,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -348,6 +359,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -377,6 +389,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -405,6 +418,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-a9b09e0",
       "service_route": "/v1/audio/speech",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -432,6 +446,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -461,6 +476,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.5.0-fbbbd2da8cfab49ddf43d28dd9c0813a3c3ee2bd",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -490,6 +506,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -519,6 +536,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -546,6 +564,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -573,7 +592,8 @@
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
-      "service_route": "/enqueue",
+      "service_route": "/v1/audio/transcriptions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -602,6 +622,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -630,6 +651,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -658,6 +680,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -687,6 +710,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-9b67e09-a91b644",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -716,6 +740,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-20edc39-03cb300",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -744,6 +769,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-20edc39-03cb300",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -771,6 +797,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -799,6 +826,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-v0.61.1-rc1-5cbc982",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -827,6 +855,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -855,6 +884,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -884,6 +914,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -914,6 +945,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-13f44c5-0edd242",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -943,6 +975,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -974,6 +1007,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e95ffa5-48eba14",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1002,6 +1036,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e95ffa5-48eba14",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1030,6 +1065,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-ae65ee5-35f023f",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1059,6 +1095,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1091,6 +1128,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-e3d97e5-a186bf4",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1120,6 +1158,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1146,6 +1185,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1176,6 +1216,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-0b10c51-3499ffa",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1205,6 +1246,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1233,6 +1275,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-65718bb-409b1cd",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1263,6 +1306,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-60ffb199-3499ffa1",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1294,6 +1338,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-0b10c51-3499ffa",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1323,6 +1368,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c254ee3-c4f2327",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1351,6 +1397,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1378,6 +1425,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
       "service_route": "/v1/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1406,6 +1454,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-5b5db8a-e771fff",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1434,6 +1483,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-17a5973-aa4ae1e",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1462,6 +1512,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1492,6 +1543,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1522,6 +1574,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.9.0-c18569e-b2894d3",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1552,6 +1605,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1587,6 +1641,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
       "service_route": "/enqueue",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1618,6 +1673,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1645,6 +1701,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1672,6 +1729,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1699,6 +1757,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1726,6 +1785,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-shield/tt-media-inference-server-forge:a9b09e0b611da6deb4d8972e8296148fd864e5fd_98dcf62_60920940673",
       "service_route": "/v1/chat/completions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {

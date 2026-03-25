@@ -235,7 +235,7 @@ export default function StepperDemo() {
                   <ul className="text-xs space-y-1">
                     {conflicts.map((c: any, i: number) => (
                       <li key={i} className="flex items-center justify-between">
-                        <span>• {c.model} (slot {c.slot})</span>
+                        <span>• {c.model} (device {c.slot})</span>
                       </li>
                     ))}
                   </ul>
@@ -249,7 +249,7 @@ export default function StepperDemo() {
           return { success: false };
         } else if (errorType === 'allocation_failed') {
           // General allocation failure (all slots occupied)
-          const message = errorData?.message || 'All chip slots are occupied';
+          const message = errorData?.message || 'All devices are occupied';
           customToast.error(`Chip Allocation Failed: ${message}`, { duration: 10000 });
           return { success: false };
         }

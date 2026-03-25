@@ -64,10 +64,13 @@ class VoicePipelineView(APIView):
         def event_stream():
             headers = {"Authorization": f"Bearer {encoded_jwt}"}
             deploy_cache = get_deploy_cache()
+            pipeline_start = time.time()
+            metrics = {}
 
             # ------------------------------------------------------------------
             # Step 1: STT (Whisper)
             # ------------------------------------------------------------------
+            stt_start = time.time()
             try:
                 whisper_deploy = deploy_cache[whisper_deploy_id]
                 whisper_url = "http://" + whisper_deploy["internal_url"]
@@ -79,6 +82,7 @@ class VoicePipelineView(APIView):
                 )
                 stt_resp.raise_for_status()
                 transcript = stt_resp.json().get("text", "")
+                metrics["stt_latency_ms"] = round((time.time() - stt_start) * 1000)
                 yield f"data: {json.dumps({'type': 'transcript', 'text': transcript})}\n\n"
             except Exception as exc:
                 logger.error(f"STT step failed: {exc}")
@@ -109,10 +113,16 @@ class VoicePipelineView(APIView):
             }
 
             llm_full_text = ""
+            llm_start = time.time()
+            llm_first_chunk_time = None
+            llm_chunk_count = 0
             try:
                 for chunk in stream_response_from_external_api(llm_url, llm_payload):
                     if isinstance(chunk, bytes):
                         chunk = chunk.decode("utf-8")
+                    if llm_first_chunk_time is None and chunk.strip():
+                        llm_first_chunk_time = time.time()
+                    llm_chunk_count += 1
                     llm_full_text += chunk
                     yield f"data: {json.dumps({'type': 'llm_chunk', 'text': chunk})}\n\n"
             except Exception as exc:
@@ -120,10 +130,16 @@ class VoicePipelineView(APIView):
                 yield f"data: {json.dumps({'type': 'error', 'stage': 'llm', 'message': str(exc)})}\n\n"
                 return
 
+            llm_end = time.time()
+            metrics["llm_ttfb_ms"] = round((llm_first_chunk_time - llm_start) * 1000) if llm_first_chunk_time else 0
+            metrics["llm_total_ms"] = round((llm_end - llm_start) * 1000)
+            metrics["llm_tokens"] = llm_chunk_count
+
             # ------------------------------------------------------------------
             # Step 3: TTS (optional)
             # ------------------------------------------------------------------
             if tts_deploy_id and llm_full_text.strip():
+                tts_start = time.time()
                 try:
                     tts_deploy = deploy_cache[tts_deploy_id]
                     tts_url = "http://" + tts_deploy["internal_url"]
@@ -186,11 +202,14 @@ class VoicePipelineView(APIView):
                             data_uri = f"data:{content_type};base64,{audio_b64}"
                             yield f"data: {json.dumps({'type': 'audio_url', 'url': data_uri})}\n\n"
                             
+                    metrics["tts_latency_ms"] = round((time.time() - tts_start) * 1000)
                 except Exception as exc:
                     logger.error(f"TTS step failed: {exc}")
                     yield f"data: {json.dumps({'type': 'error', 'stage': 'tts', 'message': str(exc)})}\n\n"
                     # Don't abort — transcript and LLM response were already sent
 
+            metrics["total_ms"] = round((time.time() - pipeline_start) * 1000)
+            yield f"data: {json.dumps({'type': 'metrics', **metrics})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
