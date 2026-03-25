@@ -19,7 +19,7 @@ export function DeployModelStep({
   selectedModel,
 }: {
   selectedModel: string | null;
-  handleDeploy: () => Promise<{ success: boolean; job_id?: string }>;
+  handleDeploy: (options?: { device_id?: number; host_port?: number }) => Promise<{ success: boolean; job_id?: string }>;
 }) {
   const { nextStep, isLastStep } = useStepper();
   const { refreshModels } = useModels();
@@ -55,6 +55,11 @@ export function DeployModelStep({
   const [deploymentLogs, setDeploymentLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [loadingLogs, setLoadingLogs] = useState(false);
+
+  // Advanced options state (hidden from UI, using defaults)
+  const selectedDeviceId = "0";
+  const useCustomPort = false;
+  const customPort = "";
 
   // Add function to fetch logs
   const fetchDeploymentLogs = useCallback(async (jobId: string) => {
@@ -215,7 +220,19 @@ export function DeployModelStep({
     });
     setShouldPoll(true);
 
-    const deployResult = await handleDeploy();
+    // Build deployment options
+    const deployOptions: { device_id?: number; host_port?: number } = {};
+    if (selectedDeviceId) {
+      deployOptions.device_id = parseInt(selectedDeviceId, 10);
+    }
+    if (useCustomPort && customPort) {
+      const port = parseInt(customPort, 10);
+      if (port >= 1024 && port <= 65535) {
+        deployOptions.host_port = port;
+      }
+    }
+
+    const deployResult = await handleDeploy(deployOptions);
     
     // Store job_id for progress tracking
     if (deployResult.job_id) {
@@ -237,6 +254,9 @@ export function DeployModelStep({
     triggerRefresh,
     triggerHardwareRefresh,
     isDeployDisabled,
+    selectedDeviceId,
+    useCustomPort,
+    customPort,
   ]);
 
   const onDeploymentComplete = useCallback(() => {
@@ -379,6 +399,7 @@ export function DeployModelStep({
             </div>
           )}
         </div>
+
       </div>
       <StepperFormActions removeDynamicSteps={() => {}} />
     </>

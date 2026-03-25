@@ -61,6 +61,7 @@ export const ModelType = {
   ImageGeneration: "ImageGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
+  FaceRecognitionModel: "FaceRecognitionModel",
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -239,6 +240,8 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
       return "/speech-to-text";
+    case ModelType.FaceRecognitionModel:
+      return "/face-recognition";
     default:
       return "/chat"; // /chat is the default
   }
@@ -252,6 +255,8 @@ export const getModelTypeFromName = (modelName: string): string => {
     modelType = ModelType.ImageGeneration;
   } else if (modelName.toLowerCase().includes("whisper")) {
     modelType = ModelType.SpeechRecognitionModel;
+  } else if (modelName.toLowerCase().includes("face") || modelName.toLowerCase().includes("recognition")) {
+    modelType = ModelType.FaceRecognitionModel;
   } else {
     modelType = ModelType.ChatModel;
   }

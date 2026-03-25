@@ -211,6 +211,8 @@ class DeployView(APIView):
         if serializer.is_valid():
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
+            device_id = serializer.validated_data.get("device_id", 0)
+            host_port = serializer.validated_data.get("host_port")
             impl = model_implmentations[impl_id]
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
@@ -236,7 +238,7 @@ class DeployView(APIView):
                     "api_response": result.api_response or {},
                 }
             else:
-                response = run_container(impl, weights_id)
+                response = run_container(impl, weights_id, device_id=device_id, host_port=host_port)
             
             # Ensure job_id is set for progress tracking
             # Use job_id from API response, or fallback to container_id or container_name
@@ -1306,3 +1308,31 @@ class WorkflowLogStreamView(View):
                 status=500,
                 content=str(e)
             )
+
+
+class AvailableDevicesView(APIView):
+    """Get list of available Tenstorrent devices on the system"""
+    
+    def get(self, request, *args, **kwargs):
+        import glob
+        
+        devices = []
+        
+        # Check for Tenstorrent devices in /dev/tenstorrent/
+        device_paths = sorted(glob.glob("/dev/tenstorrent/[0-9]*"))
+        
+        for device_path in device_paths:
+            try:
+                device_id = int(os.path.basename(device_path))
+                devices.append({
+                    "id": device_id,
+                    "path": device_path,
+                    "available": os.access(device_path, os.R_OK | os.W_OK)
+                })
+            except (ValueError, OSError) as e:
+                logger.warning(f"Error checking device {device_path}: {e}")
+        
+        return Response({
+            "devices": devices,
+            "count": len(devices)
+        }, status=status.HTTP_200_OK)

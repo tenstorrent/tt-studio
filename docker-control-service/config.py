@@ -27,6 +27,8 @@ class Settings:
         "alpine:",
         "ubuntu:",
         "python:",
+        "face-recognition-api:",  # Local face recognition service
+        "ghcr.io/tenstorrent/tt-inference-server/face-recognition-docker-ttstudio:",  # GHCR face recognition
     ]
 
     ALLOWED_NETWORKS: List[str] = [
