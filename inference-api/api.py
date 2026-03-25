@@ -560,6 +560,10 @@ class ProgressHandler(logging.Handler):
                 stage = "complete"
                 progress = 100
                 status = "completed"
+            elif any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token"]) and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"]):
+                status = "error"
+                stage = "error"
+                message = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
             elif any(keyword in message for keyword in ["⛔", "Error", "Failed", "error"]):
                 false_positives = [
                     "any errors will be in the logs",
@@ -1237,6 +1241,14 @@ async def run_inference(request: RunRequest):
                                 }
                             )
                 else:
+                    # Scan recent logs for auth errors to surface a clear message
+                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token", "gatedrepoerror"]
+                    auth_error_msg = None
+                    for entry in reversed(list(log_store.get(job_id, []))):
+                        msg = entry.get("message", "").lower()
+                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]):
+                            auth_error_msg = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
+                            break
                     with progress_lock:
                         if job_id in progress_store:
                             progress_store[job_id].update(
@@ -1244,7 +1256,7 @@ async def run_inference(request: RunRequest):
                                     "status": "failed",
                                     "stage": "error",
                                     "progress": 0,
-                                    "message": f"Deployment failed with return code: {return_code}",
+                                    "message": auth_error_msg or f"Deployment failed with return code: {return_code}",
                                     "last_updated": time.time(),
                                 }
                             )

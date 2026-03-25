@@ -1260,7 +1260,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_jwt = get_env_var("JWT_SECRET")
     if easy_mode:
         if should_configure_var("JWT_SECRET", current_jwt):
-            write_env_var("JWT_SECRET", "test-secret-456")
+            write_env_var("JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("JWT_SECRET", current_jwt):
         if is_placeholder(current_jwt):
             print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
@@ -1272,7 +1272,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
-                write_env_var("JWT_SECRET", val)
+                write_env_var("JWT_SECRET", val.strip().strip('"\''), quote_value=False)
                 print("✅ JWT_SECRET saved.")
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -1284,7 +1284,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_django = get_env_var("DJANGO_SECRET_KEY")
     if easy_mode:
         if should_configure_var("DJANGO_SECRET_KEY", current_django):
-            write_env_var("DJANGO_SECRET_KEY", "django-insecure-default")
+            write_env_var("DJANGO_SECRET_KEY", "django-insecure-default", quote_value=False)
     elif should_configure_var("DJANGO_SECRET_KEY", current_django):
         if is_placeholder(current_django):
             print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
@@ -1296,7 +1296,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
-                write_env_var("DJANGO_SECRET_KEY", val)
+                write_env_var("DJANGO_SECRET_KEY", val.strip().strip('"\''), quote_value=False)
                 print("✅ DJANGO_SECRET_KEY saved.")
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -1326,7 +1326,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
     if easy_mode:
         if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
-            write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456")
+            write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
         if is_placeholder(current_docker_jwt):
             print(f"🔄 DOCKER_CONTROL_JWT_SECRET has placeholder value '{current_docker_jwt}' - configuring...")
@@ -1338,7 +1338,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
-                write_env_var("DOCKER_CONTROL_JWT_SECRET", val)
+                write_env_var("DOCKER_CONTROL_JWT_SECRET", val.strip().strip('"\''), quote_value=False)
                 print("✅ DOCKER_CONTROL_JWT_SECRET saved.")
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -1350,11 +1350,11 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_tavily = get_env_var("TAVILY_API_KEY")
     if easy_mode:
         if should_configure_var("TAVILY_API_KEY", current_tavily):
-            write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured")
+            write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured", quote_value=False)
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
         prompt_text = "🔍 Enter TAVILY_API_KEY for search agent (optional; press Enter to skip): "
         val = getpass.getpass(prompt_text)
-        write_env_var("TAVILY_API_KEY", val or "")
+        write_env_var("TAVILY_API_KEY", (val or "").strip().strip('"\''), quote_value=False)
         print("✅ TAVILY_API_KEY saved.")
     else:
         if not easy_mode:
@@ -1384,7 +1384,8 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 if not val or not val.strip():
                     print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
                     continue
-            write_env_var("HF_TOKEN", val)
+            val = val.strip().strip('"\'')
+            write_env_var("HF_TOKEN", val, quote_value=False)
             print("✅ HF_TOKEN saved.")
         else:
             val = current_hf
@@ -1481,7 +1482,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
     if easy_mode:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
-            write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password")
+            write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password", quote_value=False)
     elif is_rag_admin_enabled:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             dev_default = "dev-admin-123" if dev_mode else ""
@@ -1493,7 +1494,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 if not val and dev_mode:
                     val = dev_default
                 if val and val.strip():
-                    write_env_var("RAG_ADMIN_PASSWORD", val)
+                    write_env_var("RAG_ADMIN_PASSWORD", val.strip().strip('"\''), quote_value=False)
                     print("✅ RAG_ADMIN_PASSWORD saved.")
                     break
                 print(f"{C_RED}⛔ Password cannot be empty.{C_RESET}")
