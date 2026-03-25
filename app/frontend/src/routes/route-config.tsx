@@ -45,6 +45,7 @@ import ChatUI from "../pages/ChatUIPage";
 import RagManagement from "../components/rag/RagManagement";
 import LogsPage from "../pages/LogsPage";
 import ObjectDetectionPage from "../pages/ObjectDetectionPage";
+import FaceRecognitionPage from "../pages/FaceRecognitionPage";
 import DeployedHomePage from "../pages/DeployedHomePage";
 import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
@@ -91,6 +92,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/object-detection",
       element: <ObjectDetectionPage />,
+      condition: true,
+    },
+    {
+      path: "/face-recognition",
+      element: <FaceRecognitionPage />,
       condition: true,
     },
     {

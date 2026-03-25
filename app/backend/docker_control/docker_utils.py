@@ -86,8 +86,15 @@ def map_board_type_to_device_name(board_type):
     logger.info(f"Mapped board type '{board_type}' to device name '{device_name}'")
     return device_name
 
-def run_container(impl, weights_id):
-    """Run a docker container via TT Inference Server API"""
+def run_container(impl, weights_id, device_id=0, host_port=None):
+    """Run a docker container via TT Inference Server API
+    
+    Args:
+        impl: ModelImpl configuration
+        weights_id: ID of model weights to use
+        device_id: Tenstorrent device ID (0-7), defaults to 0
+        host_port: Host port to expose the service on, defaults to auto-assigned
+    """
     if (impl.model_type == ModelTypes.CHAT):
         # For chat models, we use the TT Inference Server API to run the container
         try:
@@ -224,22 +231,25 @@ def run_container(impl, weights_id):
     else:
         # For non-chat models, we use the docker client to run the container
         try:
-            logger.info(f"run_container called for {impl.model_name}")
+            logger.info(f"run_container called for {impl.model_name} with device_id={device_id}, host_port={host_port}")
 
 
             run_kwargs = copy.deepcopy(impl.docker_config)
             # handle runtime configuration changes to docker kwargs
-            device_mounts = get_devices_mounts(impl)
+            device_mounts = get_devices_mounts(impl, device_id=device_id)
             if device_mounts:
                 run_kwargs.update({"devices": device_mounts})
-            run_kwargs.update({"ports": get_port_mounts(impl)})
+            run_kwargs.update({"ports": get_port_mounts(impl, host_port=host_port)})
             # add bridge inter-container network
             run_kwargs.update({"network": backend_config.docker_bridge_network_name})
             # add unique container name suffixing with host port
-            host_port = list(run_kwargs["ports"].values())[0]
-            logger.info(f"!!!host_port:= {host_port}")
-            run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
-            run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
+            actual_host_port = list(run_kwargs["ports"].values())[0]
+            logger.info(f"!!!host_port:= {actual_host_port}")
+            
+            # Add DEVICE_ID environment variable for the container
+            run_kwargs["environment"]["DEVICE_ID"] = str(device_id)
+            run_kwargs.update({"name": f"{impl.container_base_name}_p{actual_host_port}"})
+            run_kwargs.update({"hostname": f"{impl.container_base_name}_p{actual_host_port}"})
             # add environment variables
             run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
             # container path, not backend path
@@ -250,13 +260,38 @@ def run_container(impl, weights_id):
 
             # Convert run_kwargs to docker-control-service API format
             docker_client = get_docker_client()
+            
+            # Convert volumes from {host_path: {"bind": container_path, "mode": "rw"}} 
+            # to simple {host_path: container_path} format expected by docker-control-service
+            volumes_raw = run_kwargs.get("volumes", {})
+            volumes = {}
+            if volumes_raw:
+                for host_path, mount_config in volumes_raw.items():
+                    host_path_str = str(host_path)
+                    if isinstance(mount_config, dict):
+                        volumes[host_path_str] = mount_config.get("bind", str(mount_config))
+                    else:
+                        volumes[host_path_str] = str(mount_config)
+            
+            # Convert ports from {"7000/tcp": 8002} to {"7000/tcp": 8002} (already correct format)
+            ports_raw = run_kwargs.get("ports", {})
+            ports = {}
+            if ports_raw:
+                for container_port, host_port in ports_raw.items():
+                    ports[str(container_port)] = int(host_port) if isinstance(host_port, (int, str)) else host_port
+            
+            # Convert environment values from PosixPath to strings
+            environment = run_kwargs.get("environment", {})
+            if environment:
+                environment = {str(k): str(v) if v is not None else "" for k, v in environment.items()}
+            
             api_kwargs = {
                 "image": impl.image_version,
                 "name": run_kwargs.get("name"),
                 "command": run_kwargs.get("command"),
-                "environment": run_kwargs.get("environment", {}),
-                "ports": run_kwargs.get("ports", {}),
-                "volumes": run_kwargs.get("volumes"),
+                "environment": environment,
+                "ports": ports,
+                "volumes": volumes,
                 "network": run_kwargs.get("network"),
                 "detach": run_kwargs.get("detach", True),
             }
@@ -268,6 +303,18 @@ def run_container(impl, weights_id):
             # Add hostname if present
             if "hostname" in run_kwargs:
                 api_kwargs["hostname"] = run_kwargs["hostname"]
+            
+            # Add cap_add if present (needed for hugepages memory pinning)
+            if "cap_add" in run_kwargs:
+                cap_add = run_kwargs["cap_add"]
+                # Convert single string to list if needed
+                if isinstance(cap_add, str):
+                    cap_add = [cap_add]
+                api_kwargs["cap_add"] = cap_add
+            
+            # Add shm_size if present
+            if "shm_size" in run_kwargs:
+                api_kwargs["shm_size"] = run_kwargs["shm_size"]
 
             container_result = docker_client.run_container(**api_kwargs)
             logger.info(f"Container started via docker-control-service: {container_result}")
@@ -338,10 +385,21 @@ def run_agent_container(container_name, port_bindings, impl):
     )
 
 def stop_container(container_id):
-    """Stop a specific docker container"""
+    """Stop and remove a specific docker container"""
     try:
         docker_client = get_docker_client()
+        # First stop the container
         result = docker_client.stop_container(container_id)
+        logger.info(f"Stop container result: {result}")
+        
+        # Then remove the container to prevent name conflicts on redeploy
+        try:
+            remove_result = docker_client.remove_container(container_id, force=True)
+            logger.info(f"Remove container result: {remove_result}")
+        except Exception as remove_error:
+            logger.warning(f"Failed to remove container {container_id}: {remove_error}")
+            # Continue even if remove fails - container might already be removed
+        
         # on changes to containers, update deploy cache
         update_deploy_cache()
         return result
@@ -355,40 +413,53 @@ def get_runtime_device_configuration(device_configurations):
     return next(iter(device_configurations))
 
 
-def get_devices_mounts(impl):
-    device_config = get_runtime_device_configuration(impl.device_configurations)
-    assert isinstance(device_config, DeviceConfigurations)
-    # TODO: add logic to handle multiple devices and multiple containers
-    single_device_mounts = ["/dev/tenstorrent/0:/dev/tenstorrent/0"]
+def get_devices_mounts(impl, device_id=0):
+    """Get device mounts for the container.
+    
+    Args:
+        impl: ModelImpl configuration
+        device_id: Specific device ID to mount (0-7), defaults to 0
+    """
+    # Use specific device ID for single-device configurations
+    single_device_mounts = [f"/dev/tenstorrent/{device_id}:/dev/tenstorrent/{device_id}"]
     all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
-    device_map = {
-        DeviceConfigurations.E150: single_device_mounts,
-        DeviceConfigurations.N150: single_device_mounts,
-        DeviceConfigurations.N150_WH_ARCH_YAML: single_device_mounts,
-        DeviceConfigurations.N300: single_device_mounts,
-        DeviceConfigurations.N300x4_WH_ARCH_YAML: all_device_mounts,
-        DeviceConfigurations.N300x4: all_device_mounts,
-    }
-    device_mounts = device_map.get(device_config)
+    
+    # For face recognition and similar models, just mount the specific device requested
+    # This is simpler and works regardless of board configuration
+    device_mounts = single_device_mounts
+    
+    logger.info(f"Device mounts for device_id={device_id}: {device_mounts}")
     return device_mounts
 
 
-def get_port_mounts(impl):
-    host_port = get_host_port(impl)
+def get_port_mounts(impl, host_port=None):
+    """Get port mappings for the container.
+    
+    Args:
+        impl: ModelImpl configuration
+        host_port: Specific host port to use, or None for auto-assignment
+    """
+    if host_port is None:
+        host_port = get_host_port(impl)
     return {f"{impl.service_port}/tcp": host_port}
 
 
 def get_host_port(impl):
-    # use a fixed block of ports starting at 8001 for models
+    # use a fixed block of ports starting at 8002 for models
+    # Note: 8000 = backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
+    # Reserve these ports to avoid conflicts with TT-Studio services
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
+    # Reserve ports used by TT-Studio services on the host
+    RESERVED_PORTS = ["8000", "8001", "8002"]
+    used_host_ports.extend(RESERVED_PORTS)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8002
+    BASE_MODEL_PORT = 8003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8001-8100")
+    logger.warning("Could not find an unused port in block: 8003-8102")
     return None
 
 
@@ -581,10 +652,14 @@ def update_deploy_cache():
                 # If database lookup failed or no deployment found, use fallback logic
                 if not deployment_found:
                     logger.info(f"Using fallback logic to match container {con['name']}")
-                    # Try to match by container name
+                    # Try to match by container name (case-insensitive)
                     model_impl = None
+                    con_name_lower = con["name"].lower().replace("-", "").replace("_", "")
                     for k, v in model_implmentations.items():
-                        if v.model_name in con["name"]:
+                        model_name_lower = v.model_name.lower().replace("-", "").replace("_", "")
+                        # Also check container_base_name for better matching
+                        container_base_lower = v.container_base_name.lower().replace("-", "").replace("_", "")
+                        if model_name_lower in con_name_lower or container_base_lower in con_name_lower:
                             model_impl = v
                             logger.info(f"Matched container by name to model_impl: {model_impl.model_name}")
                             break

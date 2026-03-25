@@ -461,6 +461,163 @@ class SpeechRecognitionInferenceCloudView(APIView):
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
+
+class FaceRecognitionRecognizeView(APIView):
+    """Proxy view for face recognition - recognize faces in an image"""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        
+        deploy_id = data.get("deploy_id")
+        image = data.get("image")
+        if not image:
+            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]  # Remove route, keep host:port
+            internal_url = f"{base_url}/recognize-face"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            files = {"image": (image.name, image.file, image.content_type)}
+            inference_data = requests.post(internal_url, files=files, headers=headers, timeout=30)
+            inference_data.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response({"error": "Models not loaded"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            else:
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face recognition error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+
+class FaceRecognitionRegisterView(APIView):
+    """Proxy view for face recognition - register a new face"""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        
+        deploy_id = data.get("deploy_id")
+        image = data.get("image")
+        name = data.get("name")
+        
+        if not image:
+            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            internal_url = f"{base_url}/register-face"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            files = {"image": (image.name, image.file, image.content_type)}
+            form_data = {"name": name}
+            inference_data = requests.post(internal_url, files=files, data=form_data, headers=headers, timeout=30)
+            inference_data.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif inference_data.status_code == status.HTTP_409_CONFLICT:
+                return Response({"error": "Identity already exists"}, status=status.HTTP_409_CONFLICT)
+            elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response({"error": "Models not loaded"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            else:
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face registration error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+
+class FaceRecognitionListView(APIView):
+    """Proxy view for face recognition - list registered faces"""
+    def get(self, request, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        logger.info(f"{self.__class__.__name__} deploy_id:={deploy_id}")
+        
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            internal_url = f"{base_url}/registered-faces"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            response = requests.get(internal_url, headers=headers, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face list error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response(response.json(), status=status.HTTP_200_OK)
+
+
+class FaceRecognitionDeleteView(APIView):
+    """Proxy view for face recognition - delete a registered face"""
+    def delete(self, request, name, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        logger.info(f"{self.__class__.__name__} deploy_id:={deploy_id} name:={name}")
+        
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            internal_url = f"{base_url}/registered-faces/{name}"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            response = requests.delete(internal_url, headers=headers, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            if response.status_code == status.HTTP_404_NOT_FOUND:
+                return Response({"error": f"Identity '{name}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face delete error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response(response.json(), status=status.HTTP_200_OK)
+
+
 class ImageGenerationInferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
         """special image generation inference view that performs special file handling"""
