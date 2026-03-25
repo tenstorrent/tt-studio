@@ -1,7 +1,7 @@
 {
   "source": {
     "artifact_version": "0.9.0",
-    "generated_at": "2026-03-05T00:22:41.629556+00:00"
+    "generated_at": "2026-03-25T19:53:10.559666+00:00"
   },
   "total_models": 60,
   "models": [
@@ -53,8 +53,8 @@
       "status": "COMPLETE",
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
-      "service_route": "/enqueue",
-      "health_route": "/",
+      "service_route": "/v1/audio/transcriptions",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -82,7 +82,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -110,7 +110,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -331,7 +331,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -359,7 +359,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -446,7 +446,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-c180ef7",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -476,7 +476,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.5.0-fbbbd2da8cfab49ddf43d28dd9c0813a3c3ee2bd",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -506,7 +506,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -536,7 +536,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -564,7 +564,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-65718bb",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -855,7 +855,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -884,7 +884,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.9.0-be88351",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1095,7 +1095,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
@@ -1641,7 +1641,7 @@
       "version": "0.9.0",
       "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
       "service_route": "/enqueue",
-      "health_route": "/",
+      "health_route": "/health",
       "shm_size": "32G",
       "setup_type": "TT_INFERENCE_SERVER",
       "env_vars": {
