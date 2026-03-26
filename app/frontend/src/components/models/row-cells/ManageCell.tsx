@@ -12,6 +12,7 @@ import {
   Crosshair,
   Mic,
   Volume2,
+  ScanFace,
 } from "lucide-react";
 import type { HealthStatus } from "../../../types/models";
 import {
@@ -62,9 +63,11 @@ export default React.memo(function ManageCell({
         ? "Object Detect"
         : modelType === ModelType.SpeechRecognitionModel
           ? "Speech"
-          : modelType === ModelType.TTS
-            ? "TTS"
-            : "Chat";
+          : modelType === ModelType.FaceRecognitionModel
+            ? "Face Rec"
+            : modelType === ModelType.TTS
+              ? "TTS"
+              : "Chat";
   const OpenIcon =
     modelType === ModelType.ImageGeneration
       ? ImageIcon
@@ -72,9 +75,11 @@ export default React.memo(function ManageCell({
         ? Crosshair
         : modelType === ModelType.SpeechRecognitionModel
           ? Mic
-          : modelType === ModelType.TTS
-            ? Volume2
-            : MessageSquareText;
+          : modelType === ModelType.FaceRecognitionModel
+            ? ScanFace
+            : modelType === ModelType.TTS
+              ? Volume2
+              : MessageSquareText;
 
   return (
     <div className="relative flex items-center justify-center gap-2 flex-wrap">

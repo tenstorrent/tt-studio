@@ -15,6 +15,7 @@ import {
   AudioLines,
   Mic,
   Volume2,
+  ScanFace,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
@@ -424,6 +425,8 @@ export default function NavBar() {
         return Eye;
       case ModelType.SpeechRecognitionModel:
         return AudioLines;
+      case ModelType.FaceRecognitionModel:
+        return ScanFace;
       case ModelType.TTS:
         return Volume2;
       default:
@@ -447,6 +450,8 @@ export default function NavBar() {
         return "Object Detection";
       case ModelType.SpeechRecognitionModel:
         return "Speech to Text";
+      case ModelType.FaceRecognitionModel:
+        return "Face Recognition";
       case ModelType.TTS:
         return "Text to Speech";
       case ModelType.Embedding:

@@ -19,7 +19,10 @@ export function DeployModelStep({
   selectedDeviceId,
 }: {
   selectedModel: string | null;
-  handleDeploy: () => Promise<{ success: boolean; job_id?: string }>;
+  handleDeploy: (options?: {
+    device_id?: number;
+    host_port?: number | null;
+  }) => Promise<{ success: boolean; job_id?: string }>;
   selectedDeviceId?: number;
 }) {
   const { nextStep, isLastStep } = useStepper();
@@ -229,8 +232,12 @@ export function DeployModelStep({
     });
     setShouldPoll(true);
 
-    const deployResult = await handleDeploy();
-    
+    const deployOptions: { device_id?: number; host_port?: number | null } = {};
+    if (selectedDeviceId !== undefined) {
+      deployOptions.device_id = selectedDeviceId;
+    }
+    const deployResult = await handleDeploy(deployOptions);
+
     // Store job_id for progress tracking
     if (deployResult.job_id) {
       setCurrentJobId(deployResult.job_id);
@@ -251,6 +258,7 @@ export function DeployModelStep({
     triggerRefresh,
     triggerHardwareRefresh,
     isDeployDisabled,
+    selectedDeviceId,
   ]);
 
   const onDeploymentComplete = useCallback(() => {

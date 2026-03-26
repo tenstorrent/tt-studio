@@ -157,7 +157,10 @@ export default function StepperDemo() {
     }
   }, [autoDeployModel]);
 
-  const handleDeploy = async (): Promise<{
+  const handleDeploy = async (options?: {
+    device_id?: number;
+    host_port?: number | null;
+  }): Promise<{
     success: boolean;
     job_id?: string;
   }> => {
@@ -165,6 +168,7 @@ export default function StepperDemo() {
     console.log("handleDeploy called with:", {
       selectedModel,
       isAutoDeploying,
+      options,
     });
 
     setLoading(true);
@@ -178,10 +182,11 @@ export default function StepperDemo() {
     const payload = JSON.stringify({
       model_id,
       weights_id,
-      device_id: selectedDeviceId,
+      device_id: options?.device_id ?? 0,
+      host_port: options?.host_port ?? null,
     });
 
-    console.log("📦 Deploying with default weights:", { model_id, weights_id });
+    console.log("📦 Deploying with options:", { model_id, weights_id, ...options });
 
     console.log("Deployment payload:", payload);
     console.log("Deployment URL:", deployUrl);
