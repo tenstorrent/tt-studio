@@ -988,23 +988,23 @@ async def run_inference(request: RunRequest):
         
         # Add optional arguments if they are set
         if request.impl:
-            argv.extend(["--impl", request.impl])
+            sys.argv.extend(["--impl", request.impl])
         if request.local_server:
-            argv.append("--local-server")
+            sys.argv.append("--local-server")
         if request.interactive:
-            argv.append("--interactive")
+            sys.argv.append("--interactive")
         if request.workflow_args:
-            argv.extend(["--workflow-args", request.workflow_args])
+            sys.argv.extend(["--workflow-args", request.workflow_args])
         if request.disable_trace_capture:
-            argv.append("--disable-trace-capture")
+            sys.argv.append("--disable-trace-capture")
         if request.override_docker_image:
             sys.argv.extend(["--override-docker-image", request.override_docker_image])
         if request.device_id:
             sys.argv.extend(["--device-id", request.device_id])
         if request.override_tt_config:
-            argv.extend(["--override-tt-config", request.override_tt_config])
+            sys.argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
-            argv.extend(["--vllm-override-args", request.vllm_override_args])
+            sys.argv.extend(["--vllm-override-args", request.vllm_override_args])
 
         def _run_job_in_background():
             weights_stop_event = threading.Event()
@@ -1050,7 +1050,7 @@ async def run_inference(request: RunRequest):
                     return attempt_return_code, attempt_container_info
 
                 def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
-                    retry_argv = list(argv)
+                    retry_argv = list(sys.argv)
                     retry_reason_parts: list[str] = []
                     if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                         retry_argv.append("--skip-system-sw-validation")
@@ -1059,7 +1059,7 @@ async def run_inference(request: RunRequest):
                     return retry_argv, retry_reason
 
                 try:
-                    return_code, container_info = _execute_run(argv)
+                    return_code, container_info = _execute_run(sys.argv)
                 except Exception as first_attempt_error:
                     # run_main() can raise directly (e.g. local setup validation errors)
                     # and bypass return-code based retry logic.

@@ -22,6 +22,8 @@ def start_chat_deployment(
     *,
     model_name: str,
     device: str,
+    device_id: Optional[int] = None,
+    service_port: Optional[int] = None,
     fastapi_run_url: str = "http://172.18.0.1:8001/run",
     timeout_seconds: int = 30,
     dev_mode: bool = False,
@@ -40,6 +42,10 @@ def start_chat_deployment(
         "dev_mode": dev_mode,
         "skip_system_sw_validation": skip_system_sw_validation,
     }
+    if service_port is not None:
+        payload["service_port"] = str(service_port)
+    if device_id is not None:
+        payload["device_id"] = str(device_id)
 
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)

@@ -180,20 +180,29 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const showVoiceBanner = useMemo(() => {
     if (voiceBannerDismissed) return false;
-    const deployedTypes = models.map((m) =>
+    const getType = (m: (typeof models)[number]) =>
       m.model_type
         ? getModelTypeFromBackendType(m.model_type)
-        : getModelTypeFromName(m.name, m.image)
+        : getModelTypeFromName(m.name, m.image);
+
+    const llmModel = models.find((m) => {
+      const t = getType(m);
+      return t === ModelType.ChatModel || t === ModelType.VLM;
+    });
+    const sttModel = models.find(
+      (m) => getType(m) === ModelType.SpeechRecognitionModel
     );
-    const hasLLM = deployedTypes.some(
-      (t) => t === ModelType.ChatModel || t === ModelType.VLM
+    const ttsModel = models.find((m) => getType(m) === ModelType.TTS);
+
+    if (!llmModel || !sttModel || !ttsModel) return false;
+
+    // Only show once all three are confirmed healthy
+    return (
+      healthMap[llmModel.id] === "healthy" &&
+      healthMap[sttModel.id] === "healthy" &&
+      healthMap[ttsModel.id] === "healthy"
     );
-    const hasSTT = deployedTypes.some(
-      (t) => t === ModelType.SpeechRecognitionModel
-    );
-    const hasTTS = deployedTypes.some((t) => t === ModelType.TTS);
-    return hasLLM && hasSTT && hasTTS;
-  }, [models, voiceBannerDismissed]);
+  }, [models, healthMap, voiceBannerDismissed]);
 
   const handleRetry = () => {
     setLoading(true);

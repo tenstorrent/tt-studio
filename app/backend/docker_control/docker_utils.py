@@ -27,6 +27,47 @@ logger.info(f"importing {__name__}")
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
+FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+
+
+def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
+    """Poll FastAPI /run/progress/{job_id} until the job reaches a terminal state.
+
+    Returns the final progress dict (status=="completed") or raises RuntimeError on failure/timeout.
+    """
+    poll_interval = 5  # seconds between polls
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+        try:
+            resp = requests.get(
+                f"{FASTAPI_BASE_URL}/run/progress/{job_id}",
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                progress = resp.json()
+                job_status = progress.get("status")
+                if job_status == "completed":
+                    return progress
+                if job_status in ("failed", "error"):
+                    raise RuntimeError(
+                        progress.get("message", f"Deployment job {job_id} failed")
+                    )
+                if job_status == "not_found":
+                    raise RuntimeError(f"Deployment job {job_id} not found in progress store")
+                logger.debug(
+                    "Job %s: status=%s progress=%s%%",
+                    job_id,
+                    job_status,
+                    progress.get("progress", 0),
+                )
+        except requests.exceptions.RequestException as e:
+            logger.warning("Progress poll failed for job %s: %s", job_id, e)
+
+        time.sleep(poll_interval)
+
+    raise TimeoutError(f"Deployment job {job_id} did not complete within {timeout_seconds}s")
+
 # Ensure the bridge network exists on startup
 def _ensure_network():
     """Ensure the tt_studio_network exists via docker-control-service"""
@@ -178,12 +219,12 @@ def run_container(impl, weights_id, device_id=0):
         logger.info(f"API payload: {payload}")
 
         # Make POST request to TT Inference Server API
-        api_url = "http://172.18.0.1:8001/run"
+        api_url = f"{FASTAPI_BASE_URL}/run"
 
         response = requests.post(
             api_url,
             json=payload,
-            timeout=DEPLOYMENT_TIMEOUT_SECONDS  # 5 hour timeout for container startup and weight downloads
+            timeout=60  # Short timeout: the /run endpoint returns 202 immediately
         )
 
         if response.status_code in [200, 202]:
@@ -195,19 +236,41 @@ def run_container(impl, weights_id, device_id=0):
             else:
                 logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
 
+            job_id = api_result.get("job_id")
+            logger.info(f"Deployment job submitted with job_id={job_id}; polling for completion...")
+
+            # The FastAPI /run endpoint returns 202 immediately (async job).
+            # Poll /run/progress/{job_id} until the job reaches a terminal state.
+            completed_progress: dict = {}
+            if job_id:
+                try:
+                    completed_progress = _poll_deployment_to_completion(
+                        job_id, timeout_seconds=DEPLOYMENT_TIMEOUT_SECONDS
+                    )
+                    logger.info(f"Job {job_id} completed: {completed_progress}")
+                except (RuntimeError, TimeoutError) as poll_err:
+                    error_msg = f"Deployment job failed or timed out: {poll_err}"
+                    logger.error(error_msg)
+                    return {"status": "error", "message": error_msg, "job_id": job_id}
+            else:
+                logger.warning("No job_id in 202 response; attempting to use response data directly")
+                completed_progress = api_result
+
             # Update deploy cache on success
             update_deploy_cache()
 
-            # Notify agent about new container deployment
-            notify_agent_of_new_container(api_result["container_name"])
+            # Notify agent about new container deployment (best-effort)
+            container_name_for_notify = completed_progress.get("container_name")
+            if container_name_for_notify:
+                notify_agent_of_new_container(container_name_for_notify)
 
             # Create the deployment record only after successful API response
             # (never before — avoids stale "starting" records blocking slots on failure)
             container_id = None
             container_name = "unknown"
             try:
-                container_id = api_result.get("container_id")
-                container_name = api_result.get("container_name", "unknown")
+                container_id = completed_progress.get("container_id")
+                container_name = completed_progress.get("container_name", "unknown")
 
                 # If container_id is not in response, try to get it from Docker by name
                 if not container_id and container_name:
@@ -221,8 +284,8 @@ def run_container(impl, weights_id, device_id=0):
                         container_id = container_name
 
                 if container_id:
-                    workflow_log_path = api_result.get("docker_log_file_path")
-                    logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
+                    workflow_log_path = completed_progress.get("docker_log_file_path")
+                    logger.info(f"Extracted workflow_log_path from completed progress: {workflow_log_path}")
 
                     ModelDeployment.objects.create(
                         container_id=container_id,
@@ -248,10 +311,10 @@ def run_container(impl, weights_id, device_id=0):
 
             return {
                 "status": "success",
-                "container_name": api_result["container_name"],
-                "container_id": api_result.get("container_id"),  # Pass through container_id
-                "job_id": api_result.get("job_id") or api_result.get("container_id"),  # Use job_id or container_id as fallback
-                "api_response": api_result
+                "container_name": completed_progress.get("container_name"),
+                "container_id": completed_progress.get("container_id"),
+                "job_id": job_id or completed_progress.get("job_id"),
+                "api_response": completed_progress
             }
         else:
             error_msg = f"API call failed with status {response.status_code}: {response.text}"

@@ -32,6 +32,8 @@ from .docker_utils import (
     check_image_exists,
     detect_board_type,
     map_board_type_to_device_name,
+    _BOARD_TO_SINGLE_CHIP_DEVICE,
+    update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
 from .tt_inference_client import start_chat_deployment
@@ -299,32 +301,9 @@ class DeployView(APIView):
                 manual_device_id = int(manual_device_id)
 
             impl = model_implmentations[impl_id]
-            # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
-            # We call it directly here so we can return job_id immediately for progress polling,
-            # without requiring docker_utils.py to handle async "job started" responses.
-            if impl.model_type == ModelTypes.CHAT:
-                board_type = detect_board_type()
-                device = map_board_type_to_device_name(board_type)
-                result = start_chat_deployment(
-                    model_name=impl.model_name,
-                    device=device,
-                    timeout_seconds=30,
-                    skip_system_sw_validation=True,
-                )
-                if result.status != "success":
-                    return Response(
-                        {"status": "error", "message": result.message},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    )
-                response = {
-                    "status": "success",
-                    "job_id": result.job_id,
-                    "message": result.message or "Deployment started",
-                    "api_response": result.api_response or {},
-                }
-            else:
-    
-            # Auto-allocate chip slot
+
+            # Allocate a chip slot for all model types so device_id and service_port
+            # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
                 device_id = allocator.allocate_chip_slot(
@@ -350,35 +329,133 @@ class DeployView(APIView):
                     "message": str(e)
                 }, status=status.HTTP_409_CONFLICT)
 
-            # Continue with deployment using allocated device_id
-            response = run_container(impl, weights_id, device_id=device_id)
+            BASE_SERVICE_PORT = 7000
+            service_port = BASE_SERVICE_PORT + device_id
 
-            # Add allocated_device_id to response
-            response["allocated_device_id"] = device_id
-
-            # Ensure job_id is set for progress tracking
-            # Use job_id from API response, or fallback to container_id or container_name
-            if not response.get("job_id"):
-                response["job_id"] = response.get("container_id") or response.get("container_name")
-
-            # Check if deployment failed
-            if response.get("status") == "error":
-                logger.error(f"Deployment failed: {response.get('message', 'Unknown error')}")
-                return Response(
-                    response,
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
+            # We call it directly here so we can return job_id immediately for progress polling,
+            # without requiring docker_utils.py to handle async "job started" responses.
+            if impl.model_type == ModelTypes.CHAT:
+                from shared_config.model_config import infer_chips_required
+                board_type = detect_board_type()
+                chips_required = infer_chips_required(impl.device_configurations)
+                if chips_required == 1:
+                    device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                else:
+                    device = map_board_type_to_device_name(board_type)
+                result = start_chat_deployment(
+                    model_name=impl.model_name,
+                    device=device,
+                    device_id=device_id,
+                    service_port=service_port,
+                    timeout_seconds=30,
+                    skip_system_sw_validation=True,
                 )
-
-            # Refresh tt-smi cache after successful deployment
-            if response.get("status") == "success":
+                if result.status != "success":
+                    return Response(
+                        {"status": "error", "message": result.message},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+                # Create a ModelDeployment record immediately so the chip slot
+                # shows IN USE and the allocator tracks this deployment.
+                # Use job_id as a placeholder container_id until the real Docker
+                # container_id is known (updated in DeploymentProgressView on completion).
                 try:
-                    SystemResourceService.force_refresh_tt_smi_cache()
+                    from docker_control.models import ModelDeployment
+                    ModelDeployment.objects.create(
+                        container_id=result.job_id,
+                        container_name=impl.model_name,
+                        model_name=impl.model_name,
+                        device=device,
+                        device_id=device_id,
+                        status="starting",
+                        port=service_port,
+                    )
                 except Exception as e:
-                    logger.warning(f"Failed to refresh tt-smi cache after deployment: {e}")
+                    logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
+                response = {
+                    "status": "success",
+                    "job_id": result.job_id,
+                    "message": result.message or "Deployment started",
+                    "api_response": result.api_response or {},
+                    "allocated_device_id": device_id,
+                }
+                return Response(response, status=status.HTTP_201_CREATED)
+            else:
+                # Continue with deployment using allocated device_id
+                response = run_container(impl, weights_id, device_id=device_id)
 
-            return Response(response, status=status.HTTP_201_CREATED)
+                # Add allocated_device_id to response
+                response["allocated_device_id"] = device_id
+
+                # Ensure job_id is set for progress tracking
+                # Use job_id from API response, or fallback to container_id or container_name
+                if not response.get("job_id"):
+                    response["job_id"] = response.get("container_id") or response.get("container_name")
+
+                # Check if deployment failed
+                if response.get("status") == "error":
+                    logger.error(f"Deployment failed: {response.get('message', 'Unknown error')}")
+                    return Response(
+                        response,
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+
+                # Refresh tt-smi cache after successful deployment
+                if response.get("status") == "success":
+                    try:
+                        SystemResourceService.force_refresh_tt_smi_cache()
+                    except Exception as e:
+                        logger.warning(f"Failed to refresh tt-smi cache after deployment: {e}")
+
+                return Response(response, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
+    """Keep the ModelDeployment placeholder record in sync with FastAPI progress.
+
+    On completion: swap the job_id placeholder container_id for the real Docker
+    container_id and mark status 'running', then refresh the deploy cache so the
+    "Device" column and chip slot visualization reflect the running container.
+
+    On terminal failure: mark the placeholder record as stopped so the chip slot
+    is freed immediately.
+    """
+    job_status = progress_data.get("status")
+    try:
+        from docker_control.models import ModelDeployment
+        dep = ModelDeployment.objects.filter(container_id=job_id).first()
+        if dep is None:
+            return
+
+        if job_status == "completed":
+            real_container_id = progress_data.get("container_id")
+            real_container_name = progress_data.get("container_name")
+            if real_container_id:
+                dep.container_id = real_container_id
+                if real_container_name:
+                    dep.container_name = real_container_name
+                dep.status = "running"
+                dep.save()
+                logger.info(
+                    f"Updated ModelDeployment for {dep.model_name}: "
+                    f"container_id={real_container_id}, status=running"
+                )
+                try:
+                    update_deploy_cache()
+                except Exception as e:
+                    logger.warning(f"Could not refresh deploy cache after chat deployment: {e}")
+
+        elif job_status in ("error", "failed", "cancelled", "timeout"):
+            dep.status = "stopped"
+            dep.save()
+            logger.info(
+                f"Marked ModelDeployment for {dep.model_name} as stopped (job status: {job_status})"
+            )
+    except Exception as e:
+        logger.warning(f"_sync_chat_deployment_record failed for job {job_id}: {e}")
 
 
 class DeploymentProgressView(APIView):
@@ -439,6 +516,9 @@ class DeploymentProgressView(APIView):
                     elif progress_data.get("status") in ["completed", "error", "failed", "cancelled"]:
                         if job_id in deployment_start_times:
                             del deployment_start_times[job_id]
+
+                    # Sync ModelDeployment record for chat models tracked by job_id
+                    _sync_chat_deployment_record(job_id, progress_data)
 
                     # Add support for new status types
                     if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying", "not_found"]:
@@ -1682,7 +1762,6 @@ class RegisterExternalModelView(APIView):
 
             # --- Refresh deploy cache ---
             try:
-                from .docker_utils import update_deploy_cache
                 update_deploy_cache()
             except Exception as e:
                 logger.warning(f"Failed to update deploy cache after registration: {e}")
