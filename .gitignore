@@ -77,3 +77,4 @@ app/.env-old
 output.wav
 app/backend/core.*
 .workflow_venvs/.venv_bootstrap_uv
+speech.wav
