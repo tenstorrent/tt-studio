@@ -4,7 +4,7 @@
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Iterable, Tuple
 import sys
 import os
 import logging
@@ -17,14 +17,18 @@ import json
 from collections import deque
 from pathlib import Path
 from datetime import datetime
+import math
+import urllib.request
+import urllib.error
 
 # Add tt-inference-server root to sys.path so we can import workflows, run, etc.
-# Prefer TT_INFERENCE_ARTIFACT_PATH (e.g. .artifacts/tt-inference-server) if it has workflows;
+# Prefer TT_INFERENCE_ARTIFACT_PATH if set; then .artifacts/tt-inference-server (default);
 # otherwise fall back to tt-inference-server directory next to inference-api (e.g. git submodule).
 _tt_studio_root = Path(__file__).resolve().parent.parent
 _candidates = []
 if os.getenv("TT_INFERENCE_ARTIFACT_PATH"):
     _candidates.append(Path(os.getenv("TT_INFERENCE_ARTIFACT_PATH")).resolve())
+_candidates.append(_tt_studio_root / ".artifacts" / "tt-inference-server")
 _candidates.append(_tt_studio_root / "tt-inference-server")
 
 artifact_path = None
@@ -158,6 +162,237 @@ _DOCKER_RUN_NAME_RE = re.compile(r"--name\s+(?P<name>[^\s]+)")
 _RUN_LOG_PATH_RE = re.compile(r"This log file is saved on local machine at:\s*(?P<path>\S+)")
 _DOCKER_WORKFLOW_LOG_PATH_RE = re.compile(r"Running docker container with log file:\s*(?P<path>\S+)")
 
+# Host-setup / weights download hints (from tt-inference-server logs)
+_HF_DOWNLOAD_REPO_RE = re.compile(r"Downloading model from Hugging Face:\s*(?P<repo>[^\s]+)")
+_HOST_HF_HOME_RE = re.compile(r"HOST_HF_HOME set to\s*(?P<path>\S+)")
+
+
+def _format_bytes(num_bytes: Optional[float]) -> str:
+    if not num_bytes or num_bytes <= 0:
+        return "0 B"
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    idx = min(int(math.log(num_bytes, 1024)), len(units) - 1)
+    scaled = num_bytes / (1024 ** idx)
+    # Keep it compact for UI messages
+    if scaled >= 100 or idx == 0:
+        return f"{scaled:.0f} {units[idx]}"
+    if scaled >= 10:
+        return f"{scaled:.1f} {units[idx]}"
+    return f"{scaled:.2f} {units[idx]}"
+
+
+def _format_eta(seconds: Optional[float]) -> str:
+    if seconds is None or seconds < 0 or math.isinf(seconds) or math.isnan(seconds):
+        return "ETA ?"
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h > 0:
+        return f"ETA {h}h {m:02d}m"
+    if m > 0:
+        return f"ETA {m}m {sec:02d}s"
+    return f"ETA {sec}s"
+
+
+def _extract_repo_and_hf_home_from_job_logs(job_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """Best-effort extraction of HF repo id and HOST_HF_HOME from captured run.py logs."""
+    with progress_lock:
+        entries = list(log_store.get(job_id, []))
+    repo = None
+    hf_home = None
+    for e in entries:
+        msg = str(e.get("message", ""))
+        if repo is None:
+            m = _HF_DOWNLOAD_REPO_RE.search(msg)
+            if m:
+                repo = m.group("repo")
+        if hf_home is None:
+            m = _HOST_HF_HOME_RE.search(msg)
+            if m:
+                hf_home = m.group("path")
+        if repo and hf_home:
+            break
+    return repo, hf_home
+
+
+def _default_hf_home() -> Path:
+    # Mirror tt-inference-server defaulting behavior (HOST_HF_HOME -> HF_HOME -> ~/.cache/huggingface)
+    return Path(
+        os.getenv(
+            "HOST_HF_HOME",
+            os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface")),
+        )
+    )
+
+
+def _hf_cache_repo_root(hf_home: Path, repo_id: str) -> Optional[Path]:
+    """Return the repo cache root under HF_HOME (supports both 'hub/' and legacy layouts)."""
+    local_repo = repo_id.replace("/", "--")
+    candidates = [
+        hf_home / "hub" / f"models--{local_repo}",
+        hf_home / f"models--{local_repo}",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    # Return first candidate even if it doesn't exist yet (download just started)
+    return candidates[0] if candidates else None
+
+
+def _dir_size_bytes(path: Path) -> int:
+    """Fast, non-recursive size sum for a directory of files."""
+    try:
+        total = 0
+        if not path.exists() or not path.is_dir():
+            return 0
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                except FileNotFoundError:
+                    # File may disappear mid-scan; ignore.
+                    continue
+        return total
+    except Exception:
+        return 0
+
+
+def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
+    """Estimate downloaded bytes by summing HF cache blobs (and temp/incomplete) sizes."""
+    repo_root = _hf_cache_repo_root(hf_home, repo_id)
+    if not repo_root:
+        return 0
+    blobs = _dir_size_bytes(repo_root / "blobs")
+    # Some downloads keep partials in "tmp" and/or ".incomplete" files; count tmp as well.
+    tmp = _dir_size_bytes(repo_root / "tmp")
+    return blobs + tmp
+
+
+def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterable[str]) -> Optional[int]:
+    """Fetch total expected bytes from Hugging Face model metadata (best-effort)."""
+    if not repo_id or "/" not in repo_id:
+        return None
+    url = f"https://huggingface.co/api/models/{repo_id}"
+    headers = {"User-Agent": "tt-studio/weights-progress"}
+    if hf_token:
+        headers["Authorization"] = f"Bearer {hf_token}"
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = resp.read()
+        payload = json.loads(data.decode("utf-8"))
+        siblings = payload.get("siblings", [])
+        total = 0
+        for s in siblings:
+            try:
+                name = s.get("rfilename") or ""
+                if any(name.startswith(pfx) for pfx in exclude_prefixes):
+                    continue
+                size = s.get("size")
+                if isinstance(size, int) and size > 0:
+                    total += size
+            except Exception:
+                continue
+        return total if total > 0 else None
+    except urllib.error.HTTPError as e:
+        logger.debug(f"HF total-bytes fetch failed for {repo_id}: HTTP {e.code}")
+        return None
+    except Exception as e:
+        logger.debug(f"HF total-bytes fetch failed for {repo_id}: {e}")
+        return None
+
+
+def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
+    """Background monitor: converts HF cache growth into % + ETA and updates progress_store.
+
+    This is designed to cover long-running `hf download <repo>` operations where tt-inference-server
+    does not emit structured per-file progress events.
+    """
+    last_bytes = 0
+    last_t = time.time()
+    ema_speed_bps: Optional[float] = None
+    repo_id: Optional[str] = None
+    hf_home: Optional[Path] = None
+    exclude_prefixes = ("original/",)
+
+    # Poll at 1s cadence; keep it lightweight (single dir scan).
+    while not stop_event.is_set():
+        with progress_lock:
+            cur = progress_store.get(job_id)
+            if not cur:
+                return
+            status = cur.get("status")
+            stage = cur.get("stage")
+            if status in {"completed", "error", "failed", "timeout", "cancelled"}:
+                return
+            # If we've moved on to container setup/finalizing, stop updating weights progress.
+            if stage in {"container_setup", "finalizing", "complete"}:
+                return
+
+        # Discover repo + HF_HOME from logs (these appear before the download starts).
+        if repo_id is None or hf_home is None:
+            discovered_repo, discovered_home = _extract_repo_and_hf_home_from_job_logs(job_id)
+            if repo_id is None:
+                repo_id = discovered_repo
+            if hf_home is None:
+                hf_home = Path(discovered_home) if discovered_home else None
+
+        if hf_home is None:
+            hf_home = _default_hf_home()
+
+        if repo_id:
+            downloaded = _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
+            now = time.time()
+            dt = max(1e-3, now - last_t)
+            delta = downloaded - last_bytes
+            if delta > 0:
+                inst_speed = delta / dt
+                # Exponential moving average to stabilize ETA.
+                if ema_speed_bps is None:
+                    ema_speed_bps = inst_speed
+                else:
+                    alpha = 0.2
+                    ema_speed_bps = alpha * inst_speed + (1 - alpha) * ema_speed_bps
+                last_bytes = downloaded
+                last_t = now
+
+            # Map weights download into the pre-40% portion of model_preparation.
+            # tt-inference-server emits pct=40 when host setup completes; stay below that.
+            with progress_lock:
+                cur = progress_store.get(job_id)
+                if not cur:
+                    return
+                status = cur.get("status")
+                stage = cur.get("stage")
+                if status not in {"starting", "running"} or stage in {"container_setup", "finalizing", "complete"}:
+                    pass
+                else:
+                    base = 15  # env+setup emits 15%
+                    max_before_host_setup_done = 39
+                    progress_val = cur.get("progress", 0) or 0
+                    # Without a known total size, we can't compute % completion. Still advance
+                    # slightly so users can tell we're alive (cap below host-setup completion).
+                    progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
+
+                    speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
+                    msg = f"Downloading weights: {_format_bytes(downloaded)} • {speed_txt}"
+
+                    cur.update(
+                        {
+                            "status": "running",
+                            "stage": "model_preparation",
+                            "progress": progress_val,
+                            "message": msg[:200],
+                            "last_updated": time.time(),
+                            "weights_repo": repo_id,
+                            "downloaded_bytes": int(downloaded),
+                            "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
+                        }
+                    )
+
+        time.sleep(1.0)
+
 
 def _extract_from_job_logs(job_id: str) -> Dict[str, Optional[str]]:
     """Best-effort extraction of run outputs from captured run.py logs."""
@@ -225,15 +460,19 @@ class ProgressHandler(logging.Handler):
                 with progress_lock:
                     if self.job_id in progress_store:
                         cur = progress_store[self.job_id]
-                        prev = cur.get("progress", 0)
-                        pct = max(prev, pct)  # monotonic clamp
-                        progress_store[self.job_id].update({
-                            "status": status,
-                            "stage": stage,
-                            "progress": pct,
-                            "message": text[:200],
-                            "last_updated": time.time(),
-                        })
+                        cur_status = cur.get("status", "running")
+                        if cur_status in ("completed", "failed", "cancelled"):
+                            pass
+                        else:
+                            prev = cur.get("progress", 0)
+                            pct = max(prev, pct)  # monotonic clamp
+                            progress_store[self.job_id].update({
+                                "status": status,
+                                "stage": stage,
+                                "progress": pct,
+                                "message": text[:200],
+                                "last_updated": time.time(),
+                            })
                     else:
                         # Initialize if not exists
                         progress_store[self.job_id] = {
@@ -275,26 +514,38 @@ class ProgressHandler(logging.Handler):
                 stage = "complete"
                 progress = 100
                 status = "completed"
-            elif "✅" in message or "completed successfully" in message.lower():
+            elif "deployment completed successfully" in message.lower():
                 stage = "complete"
                 progress = 100
                 status = "completed"
             elif any(keyword in message for keyword in ["⛔", "Error", "Failed", "error"]):
-                status = "error"
-                stage = "error"
+                false_positives = [
+                    "any errors will be in the logs",
+                    "if you encounter any issues",
+                    "see error messages in logs",
+                    "this log file is saved",
+                    "no config file found",
+                    "the output of the workflows is not checked",
+                ]
+                if not any(fp in message.lower() for fp in false_positives):
+                    status = "error"
+                    stage = "error"
                 
             # Update progress store (only if we have meaningful progress)
             if progress > 0 or status in ["error", "completed"]:
                 with progress_lock:
                     if self.job_id in progress_store:
                         current_progress = progress_store[self.job_id].get("progress", 0)
-                        # Only update if progress is moving forward, we hit an error, or deployment is completed
-                        if progress > current_progress or status == "error" or status == "completed":
+                        current_status = progress_store[self.job_id].get("status", "running")
+                        # Never let a log-line override a terminal status
+                        if current_status in ("completed", "failed", "cancelled"):
+                            pass
+                        elif progress > current_progress or status == "error" or status == "completed":
                             progress_store[self.job_id].update({
                                 "status": status,
                                 "stage": stage,
                                 "progress": progress,
-                                "message": message[:200],  # Truncate long messages
+                                "message": message[:200],
                                 "last_updated": time.time()
                             })
                     else:
@@ -346,7 +597,9 @@ def normalize_device_alias(device: str) -> str:
     if not device:
         return device
     alias_map = {
-        "p300cx2": "p150x4",
+        "p300cx2": "p300x2",
+        "p300c*2": "p300x2",
+        "p300*2": "p300x2",
     }
     return alias_map.get(device.strip().lower(), device)
 
@@ -684,17 +937,6 @@ async def run_inference(request: RunRequest):
                 script_dir = Path(__file__).parent.absolute()
                 logger.warning(f"Artifact directory not found, using inference-api directory: {script_dir}")
         
-        original_cwd = Path.cwd()
-        
-        logger.info(f"Current working directory: {original_cwd}")
-        logger.info(f"Script directory: {script_dir}")
-        
-        if original_cwd != script_dir:
-            logger.info(f"Changing working directory from {original_cwd} to {script_dir}")
-            os.chdir(script_dir)
-        else:
-            logger.info("Already in correct working directory")
-        
         # Set required environment variables for automatic setup
         # Note: Since the FastAPI server now runs as the actual user (not root),
         # Path.home() in get_default_hf_home_path() will correctly return the user's home directory
@@ -746,321 +988,304 @@ async def run_inference(request: RunRequest):
         
         # Add optional arguments if they are set
         if request.impl:
-            sys.argv.extend(["--impl", request.impl])
+            argv.extend(["--impl", request.impl])
         if request.local_server:
-            sys.argv.append("--local-server")
+            argv.append("--local-server")
         if request.interactive:
-            sys.argv.append("--interactive")
+            argv.append("--interactive")
         if request.workflow_args:
-            sys.argv.extend(["--workflow-args", request.workflow_args])
+            argv.extend(["--workflow-args", request.workflow_args])
         if request.disable_trace_capture:
-            sys.argv.append("--disable-trace-capture")
+            argv.append("--disable-trace-capture")
         if request.override_docker_image:
             sys.argv.extend(["--override-docker-image", request.override_docker_image])
         if request.device_id:
             sys.argv.extend(["--device-id", request.device_id])
         if request.override_tt_config:
-            sys.argv.extend(["--override-tt-config", request.override_tt_config])
+            argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
-            sys.argv.extend(["--vllm-override-args", request.vllm_override_args])
+            argv.extend(["--vllm-override-args", request.vllm_override_args])
 
-        # Log the command being executed
-        logger.info(f"Executing command: {' '.join(sys.argv)}")
-        
-        # Log current environment variables that might be relevant
-        relevant_env_vars = ["JWT_SECRET", "HF_TOKEN", "AUTOMATIC_HOST_SETUP", "SERVICE_PORT", "HOST_HF_HOME"]
-        for var in relevant_env_vars:
-            value = os.getenv(var)
-            if value:
-                # Don't log the actual secrets, just indicate they're set
-                if var in ["JWT_SECRET", "HF_TOKEN"]:
-                    logger.info(f"Environment variable {var}: [SET]")
-                else:
-                    logger.info(f"Environment variable {var}: {value}")
-            else:
-                logger.info(f"Environment variable {var}: [NOT SET]")
-        
-        try:
-            # Setup run.py logging to also write to FastAPI logger
-            setup_run_logging_to_fastapi()
-            
-            # Create and attach progress handler to capture run.py logs
-            progress_handler = ProgressHandler(job_id)
+        def _run_job_in_background():
+            weights_stop_event = threading.Event()
+            progress_handler = None
+            # Save global state (best-effort; TT Studio typically runs one deployment at a time)
+            prev_argv = list(sys.argv)
+            prev_cwd = Path.cwd()
+            prev_env = os.environ.copy()
             run_logger = logging.getLogger("run_log")
-            run_logger.addHandler(progress_handler)
-            
-            # Run the main function
-            logger.info("Starting run_main()...")
-            run_result = run_main()
-            # Handle both tuple and int return values
-            if isinstance(run_result, tuple):
-                return_code, container_info = run_result
-            else:
-                # If run_main() returns just an integer, use it as return_code
-                return_code = run_result
-                container_info = None
-            logger.info(f"run_main() completed with return code: {return_code}")
-            logger.info(f"container_info:= {container_info}")
-            
-            # Extract and log docker workflow log file path if available
-            if container_info and isinstance(container_info, dict):
-                docker_log_file_path = container_info.get("docker_log_file_path")
-                if docker_log_file_path:
-                    logger.info(f"Docker workflow log file: {docker_log_file_path}")
-            
-            # Remove the progress handler
-            run_logger.removeHandler(progress_handler)
+            try:
+                # Apply env vars (including secrets if provided)
+                for key, value in env_vars_to_set.items():
+                    os.environ[key] = value
 
-            if return_code == 0:
-                # Some tt-inference-server artifacts return only an int return_code (no container_info dict).
-                # Avoid crashing on container_info["container_name"]. Try to infer container name from logs first.
-                if not isinstance(container_info, dict) or not container_info.get("container_name"):
-                    extracted = _extract_from_job_logs(job_id)
-                    inferred_name = extracted.get("container_name")
-                    if inferred_name:
-                        container_info = {
-                            "container_name": inferred_name,
-                            "container_id": None,
-                            "service_port": str(request.service_port or os.getenv("SERVICE_PORT") or ""),
-                            "docker_log_file_path": extracted.get("docker_log_file_path"),
-                            "run_log_file_path": extracted.get("run_log_file_path"),
-                        }
-                        logger.info(
-                            "run_main() returned 0 without container_info; "
-                            f"inferred container_name='{inferred_name}' from logs."
-                        )
+                # Start weights progress monitor (keeps progress moving during long hf downloads)
+                threading.Thread(
+                    target=_weights_progress_monitor,
+                    args=(job_id, weights_stop_event),
+                    daemon=True,
+                ).start()
+
+                # Forward run.py logs and parse TT_PROGRESS
+                setup_run_logging_to_fastapi()
+                progress_handler = ProgressHandler(job_id)
+                run_logger.addHandler(progress_handler)
+
+                # Switch cwd for tt-inference-server execution
+                if prev_cwd != script_dir:
+                    os.chdir(script_dir)
+
+                def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
+                    """Execute run_main() for one attempt and return (code, container_info)."""
+                    sys.argv = argv_for_attempt
+                    logger.info(f"Job {job_id}: Starting run_main(): {' '.join(argv_for_attempt)}")
+                    run_result = run_main()
+                    if isinstance(run_result, tuple):
+                        attempt_return_code, attempt_container_info = run_result
                     else:
-                        msg = (
-                            "Deployment returned success (0) but did not provide container info (container name/id) "
-                            "and it could not be inferred from logs. "
-                            "Check /run/logs/<job_id> for details."
-                        )
-                        with progress_lock:
-                            if job_id in progress_store:
-                                progress_store[job_id].update({
-                                    "status": "error",
-                                    "stage": "error",
-                                    "progress": 0,
-                                    "message": msg[:200],
-                                    "last_updated": time.time(),
-                                })
-                        return JSONResponse(
-                            status_code=500,
-                            content={
-                                "status": "error",
-                                "job_id": job_id,
-                                "message": msg,
-                                "progress_url": f"/run/progress/{job_id}",
-                                "logs_url": f"/run/logs/{job_id}",
-                                "docker_log_file_path": extracted.get("docker_log_file_path"),
-                                "run_log_file_path": extracted.get("run_log_file_path"),
-                            },
-                        )
+                        attempt_return_code = run_result
+                        attempt_container_info = None
+                    logger.info(f"Job {job_id}: run_main() return code: {attempt_return_code}")
+                    logger.info(f"Job {job_id}: container_info:= {attempt_container_info}")
+                    return attempt_return_code, attempt_container_info
 
-                # Update final progress status
-                with progress_lock:
-                    if job_id in progress_store:
-                        progress_store[job_id].update({
-                            "status": "completed",
-                            "stage": "complete",
-                            "progress": 100,
-                            "message": "Deployment completed successfully",
-                            "last_updated": time.time()
-                        })
+                def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
+                    retry_argv = list(argv)
+                    retry_reason_parts: list[str] = []
+                    if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
+                        retry_argv.append("--skip-system-sw-validation")
+                        retry_reason_parts.append("--skip-system-sw-validation")
+                    retry_reason = " and ".join(retry_reason_parts) if retry_reason_parts else "same options"
+                    return retry_argv, retry_reason
 
-                container_name = container_info["container_name"]
-                container_id = container_info.get("container_id")
-                docker_log_file_path = container_info.get("docker_log_file_path")
-                logger.info(f"container_name:= {container_name}")
-                logger.info(f"container_id:= {container_id}")
-                if docker_log_file_path:
-                    logger.info(f"docker_log_file_path:= {docker_log_file_path}")
-                
-                # For docker server workflow, try to get container information from logs
-                response_data = {
-                    "job_id": job_id,
-                    "status": "completed",
-                    "progress_url": f"/run/progress/{job_id}",
-                    "logs_url": f"/run/logs/{job_id}",
-                    "container_name": container_name,
-                    "container_id": container_id,  # Add container_id to response
-                    "docker_log_file_path": docker_log_file_path,  # Add workflow log file path
-                    "message": "Deployment completed successfully"
-                }
-
-                # Change container network to tt_studio_network
                 try:
-                    client = docker.from_env()
-                    
-                    # Set retry parameters
-                    max_retries = 10
-                    retry_interval = 3  # seconds
-                    attempt = 0
-                    
-                   # Extract relevant container information from run.py result
-                    target_container_name = container_info.get("container_name")
-                    target_container_id = container_info.get("container_id")
-                    service_port = container_info.get("service_port")
-                    logger.info(f"Searching for container with name: {target_container_name}, ID: {target_container_id}, port: {service_port}")
-                    
-                    # Find the specific container created by run.py
-                    new_container = None
-                    while attempt < max_retries and not new_container:
-                        # List all running containers
-                        all_containers = client.containers.list()
-                        logger.info(f"all_containers (attempt {attempt+1}/{max_retries}):= {all_containers}")
-                        
-                        # Search priority:
-                        # 1. By exact container ID (most reliable)
-                        # 2. By exact container name
-                        # 3. By port mapping (containers exposing the configured service port)
-                        
-                        # 1. Look by container ID (most reliable)
-                        if target_container_id:
-                            logger.info(f"Looking for container with ID: {target_container_id}")
-                            for container in all_containers:
-                                if container.id.startswith(target_container_id):
-                                    new_container = container
-                                    logger.info(f"Found container by ID: {container.id}")
-                                    break
-                        
-                        # 2. Look by exact container name
-                        if not new_container and target_container_name:
-                            logger.info(f"Looking for container with name: {target_container_name}")
-                            for container in all_containers:
-                                if container.name == target_container_name:
-                                    new_container = container
-                                    logger.info(f"Found container by name: {container.name}")
-                                    break
-                        
-                        # 3. Look by port mapping (if service_port is provided)
-                        if not new_container and service_port:
-                            logger.info(f"Looking for containers exposing port: {service_port}")
-                            for container in all_containers:
-                                container_ports = container.attrs.get('NetworkSettings', {}).get('Ports', {})
-                                for port_config in container_ports.values():
-                                    if port_config and port_config[0].get('HostPort') == service_port:
-                                        new_container = container
-                                        logger.info(f"Found container by port mapping: {container.name} (exposing port {service_port})")
-                                        break
-                                if new_container:
-                                    break
-                        
-                        # If still not found, wait and retry
-                        if not new_container:
-                            attempt += 1
-                            if attempt < max_retries:
-                                logger.info(f"Container not found, retrying in {retry_interval} seconds (attempt {attempt}/{max_retries})...")
-                                time.sleep(retry_interval)
-                            else:
-                                logger.error(f"Container not found after {max_retries} attempts")
-                    
-                    if new_container:
-                        original_name = new_container.name
-                        logger.info(f"Found container: {original_name}")
-                        
-                        # Update response_data with actual container ID if we found it
-                        if new_container.id:
-                            response_data["container_id"] = new_container.id
-                            logger.info(f"Updated response_data with container_id: {new_container.id}")
-                        
-                        # Connect to network
-                        network = client.networks.get("tt_studio_network")
-                        network.connect(new_container)
-                        logger.info(f"Connected container {original_name} to tt_studio_network")
-                        
-                        # Rename the container to the model name for easier identification
-                        model_name = request.model.replace('/', '-')  # Sanitize model name for container naming
-                        if original_name != model_name:
-                            new_container.rename(model_name)
-                            logger.info(f"Renamed container from {original_name} to {model_name}")
-                            # Update response_data with new name
-                            response_data["container_name"] = model_name
-                    else:
-                        logger.error("Failed to find the container created by run.py after multiple attempts")
-                        
-                except Exception as e:
-                    logger.error(f"Failed to connect container to network: {str(e)}")
-                    # Continue execution even if network connection fails
-                
-                # Log the final response_data before sending
-                logger.info(f"Final response_data before sending: {response_data}")
-                logger.info(f"response_data contains docker_log_file_path: {'docker_log_file_path' in response_data}")
-                if 'docker_log_file_path' in response_data:
-                    logger.info(f"response_data['docker_log_file_path'] = {response_data.get('docker_log_file_path')}")
-                
-                return Response(
-                    content=json.dumps(response_data),
-                    media_type="application/json",
-                    status_code=status.HTTP_202_ACCEPTED,
-                    headers={"Location": f"/run/progress/{job_id}"}
-                )
-            else:
-                # Update progress for failure
-                with progress_lock:
-                    if job_id in progress_store:
-                        progress_store[job_id].update({
-                            "status": "failed",
-                            "stage": "error",
-                            "progress": 0,
-                            "message": f"Deployment failed with return code: {return_code}",
-                            "last_updated": time.time()
-                        })
-                
-                # Auto-retry with dev_mode and skip_system_sw_validation if this is the first attempt
-                if not request.is_retry and not request.skip_system_sw_validation:
-                    logger.info(f"Deployment failed with return code {return_code}, auto-retrying with dev_mode=True and skip_system_sw_validation=True")
-
-                    # Update progress to show retry
+                    return_code, container_info = _execute_run(argv)
+                except Exception as first_attempt_error:
+                    # run_main() can raise directly (e.g. local setup validation errors)
+                    # and bypass return-code based retry logic.
+                    retry_argv, retry_reason = _build_retry_argv_and_reason()
+                    logger.warning(
+                        "Job %s: first run raised (%s), retrying once with %s",
+                        job_id,
+                        type(first_attempt_error).__name__,
+                        retry_reason,
+                    )
                     with progress_lock:
                         if job_id in progress_store:
-                            progress_store[job_id].update({
-                                "status": "retrying",
-                                "stage": "retry",
-                                "progress": 0,
-                                "message": "Retrying deployment with dev_mode and skip_system_sw_validation enabled...",
-                                "last_updated": time.time()
-                            })
+                            current_progress = progress_store[job_id].get("progress", 0)
+                            progress_store[job_id].update(
+                                {
+                                    "status": "retrying",
+                                    "stage": "container_setup",
+                                    "progress": max(current_progress, 70),
+                                    "message": f"Retrying deployment with {retry_reason}...",
+                                    "last_updated": time.time(),
+                                }
+                            )
+                    return_code, container_info = _execute_run(retry_argv)
 
-                    # Create a new request with dev_mode=True, skip_system_sw_validation=True, and is_retry=True
-                    retry_request = request.copy(update={"dev_mode": True, "skip_system_sw_validation": True, "is_retry": True})
+                # Retry once when the initial run fails.
+                if return_code != 0:
+                    retry_argv, retry_reason = _build_retry_argv_and_reason()
+                    logger.warning(
+                        "Job %s: first run failed (code %s), retrying once with %s",
+                        job_id,
+                        return_code,
+                        retry_reason,
+                    )
+                    with progress_lock:
+                        if job_id in progress_store:
+                            current_progress = progress_store[job_id].get("progress", 0)
+                            progress_store[job_id].update(
+                                {
+                                    "status": "retrying",
+                                    "stage": "container_setup",
+                                    "progress": max(current_progress, 70),
+                                    "message": f"Retrying deployment with {retry_reason}...",
+                                    "last_updated": time.time(),
+                                }
+                            )
+                    return_code, container_info = _execute_run(retry_argv)
 
-                    # Recursively call run_inference with the retry request
-                    return await run_inference(retry_request)
-                
-                # Return JSONResponse instead of raising HTTPException to include job_id
-                return JSONResponse(
-                    status_code=500,
-                    content={
-                        "status": "error",
+                if return_code == 0:
+                    if not isinstance(container_info, dict) or not container_info.get("container_name"):
+                        extracted = _extract_from_job_logs(job_id)
+                        inferred_name = extracted.get("container_name")
+                        if inferred_name:
+                            container_info = {
+                                "container_name": inferred_name,
+                                "container_id": None,
+                                "service_port": str(os.getenv("SERVICE_PORT") or ""),
+                                "docker_log_file_path": extracted.get("docker_log_file_path"),
+                                "run_log_file_path": extracted.get("run_log_file_path"),
+                            }
+                            logger.info(f"Job {job_id}: inferred container_name='{inferred_name}' from logs.")
+
+                    container_name = container_info.get("container_name") if isinstance(container_info, dict) else None
+                    container_id = container_info.get("container_id") if isinstance(container_info, dict) else None
+                    docker_log_file_path = container_info.get("docker_log_file_path") if isinstance(container_info, dict) else None
+
+                    response_data = {
                         "job_id": job_id,
-                        "message": f"Deployment failed with return code: {return_code}",
+                        "status": "completed",
                         "progress_url": f"/run/progress/{job_id}",
-                        "logs_url": f"/run/logs/{job_id}"
+                        "logs_url": f"/run/logs/{job_id}",
+                        "container_name": container_name,
+                        "container_id": container_id,
+                        "docker_log_file_path": docker_log_file_path,
+                        "message": "Deployment completed successfully",
                     }
-                )
-        finally:
-            # Clean up per-deployment log handler
-            if deployment_log_handler:
+
+                    # Best-effort: connect to tt_studio_network and rename container
+                    try:
+                        client = docker.from_env()
+                        target_container_name = container_name
+                        target_container_id = container_id
+                        service_port = (container_info or {}).get("service_port") if isinstance(container_info, dict) else None
+
+                        max_retries = 10
+                        retry_interval = 3
+                        attempt = 0
+                        new_container = None
+                        while attempt < max_retries and not new_container:
+                            all_containers = client.containers.list()
+                            if target_container_id:
+                                for c in all_containers:
+                                    if c.id.startswith(target_container_id):
+                                        new_container = c
+                                        break
+                            if not new_container and target_container_name:
+                                for c in all_containers:
+                                    if c.name == target_container_name:
+                                        new_container = c
+                                        break
+                            if not new_container and service_port:
+                                for c in all_containers:
+                                    container_ports = c.attrs.get("NetworkSettings", {}).get("Ports", {})
+                                    for port_config in container_ports.values():
+                                        if port_config and port_config[0].get("HostPort") == str(service_port):
+                                            new_container = c
+                                            break
+                                    if new_container:
+                                        break
+                            if not new_container:
+                                attempt += 1
+                                if attempt < max_retries:
+                                    time.sleep(retry_interval)
+
+                        if new_container:
+                            original_name = new_container.name
+                            if new_container.id:
+                                response_data["container_id"] = new_container.id
+                            try:
+                                network = client.networks.get("tt_studio_network")
+                                network.connect(new_container)
+                            except Exception:
+                                pass
+                            # Rename for easier identification
+                            model_name = request.model.replace("/", "-")
+                            if original_name != model_name:
+                                try:
+                                    new_container.rename(model_name)
+                                    response_data["container_name"] = model_name
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        logger.error(f"Job {job_id}: post-run docker ops failed: {e}")
+
+                    with progress_lock:
+                        if job_id in progress_store:
+                            progress_store[job_id].update(
+                                {
+                                    "status": "completed",
+                                    "stage": "complete",
+                                    "progress": 100,
+                                    "message": "Deployment completed successfully",
+                                    "last_updated": time.time(),
+                                    "container_name": response_data.get("container_name"),
+                                    "container_id": response_data.get("container_id"),
+                                    "docker_log_file_path": response_data.get("docker_log_file_path"),
+                                }
+                            )
+                else:
+                    with progress_lock:
+                        if job_id in progress_store:
+                            progress_store[job_id].update(
+                                {
+                                    "status": "failed",
+                                    "stage": "error",
+                                    "progress": 0,
+                                    "message": f"Deployment failed with return code: {return_code}",
+                                    "last_updated": time.time(),
+                                }
+                            )
+            except Exception as e:
+                logger.error(f"Job {job_id}: error: {e}", exc_info=True)
+                with progress_lock:
+                    if job_id in progress_store:
+                        progress_store[job_id].update(
+                            {
+                                "status": "error",
+                                "stage": "error",
+                                "progress": 0,
+                                "message": f"Deployment error: {str(e)[:200]}",
+                                "last_updated": time.time(),
+                            }
+                        )
+            finally:
+                # Stop weights monitor
                 try:
-                    logger.removeHandler(deployment_log_handler)
-                    run_logger = logging.getLogger("run_log")
-                    run_logger.removeHandler(deployment_log_handler)
-                    deployment_log_handler.close()
-                    if 'job_id' in locals():
+                    weights_stop_event.set()
+                except Exception:
+                    pass
+
+                # Remove handlers (progress handler + per-deployment log handler)
+                try:
+                    if progress_handler:
+                        run_logger.removeHandler(progress_handler)
+                except Exception:
+                    pass
+                try:
+                    if deployment_log_handler:
+                        logger.removeHandler(deployment_log_handler)
+                        run_logger.removeHandler(deployment_log_handler)
+                        deployment_log_handler.close()
                         with progress_lock:
                             if job_id in deployment_log_handlers:
                                 del deployment_log_handlers[job_id]
-                        logger.info(f"Cleaned up per-deployment log handler for job {job_id}")
-                    else:
-                        logger.info("Cleaned up per-deployment log handler (job_id not available)")
-                except Exception as e:
-                    logger.error(f"Error cleaning up deployment log handler: {e}")
-            
-            # Always restore the original working directory
-            if original_cwd != script_dir:
-                logger.info(f"Restoring working directory to {original_cwd}")
-                os.chdir(original_cwd)
+                except Exception:
+                    pass
+
+                # Restore globals
+                try:
+                    sys.argv = prev_argv
+                except Exception:
+                    pass
+                try:
+                    if Path.cwd() != prev_cwd:
+                        os.chdir(prev_cwd)
+                except Exception:
+                    pass
+                try:
+                    os.environ.clear()
+                    os.environ.update(prev_env)
+                except Exception:
+                    pass
+
+        threading.Thread(target=_run_job_in_background, daemon=True).start()
+
+        # Return immediately so the frontend can poll progress while model weights download.
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "success",
+                "job_id": job_id,
+                "message": "Deployment started",
+                "progress_url": f"/run/progress/{job_id}",
+                "logs_url": f"/run/logs/{job_id}",
+            },
+            headers={"Location": f"/run/progress/{job_id}"},
+        )
             
     except Exception as e:
         logger.error(f"Error in run_inference: {str(e)}", exc_info=True)
@@ -1094,28 +1319,6 @@ async def run_inference(request: RunRequest):
         # Restore working directory in case of exception
         if 'original_cwd' in locals() and 'script_dir' in locals() and original_cwd != script_dir:
             os.chdir(original_cwd)
-        
-        # Auto-retry with dev_mode and skip_system_sw_validation if this is the first attempt
-        if not request.is_retry and not request.skip_system_sw_validation:
-            logger.info(f"Deployment failed with exception, auto-retrying with dev_mode=True and skip_system_sw_validation=True")
-
-            # Update progress to show retry
-            if 'job_id' in locals():
-                with progress_lock:
-                    if job_id in progress_store:
-                        progress_store[job_id].update({
-                            "status": "retrying",
-                            "stage": "retry",
-                            "progress": 0,
-                            "message": "Retrying deployment with dev_mode and skip_system_sw_validation enabled...",
-                            "last_updated": time.time()
-                        })
-
-            # Create a new request with dev_mode=True, skip_system_sw_validation=True, and is_retry=True
-            retry_request = request.copy(update={"dev_mode": True, "skip_system_sw_validation": True, "is_retry": True})
-
-            # Recursively call run_inference with the retry request
-            return await run_inference(retry_request)
         
         # Return JSONResponse instead of raising HTTPException to include job_id
         if 'job_id' in locals():

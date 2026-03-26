@@ -9,6 +9,10 @@ interface DeploymentProgress {
   progress: number;
   message: string;
   last_updated?: number;
+  weights_repo?: string;
+  downloaded_bytes?: number;
+  eta_seconds?: number | null;
+  speed_bps?: number | null;
 }
 
 interface UseDeploymentProgressReturn {
@@ -28,9 +32,14 @@ export const useDeploymentProgress = (
   const [error, setError] = useState<string | null>(null);
   const [isSSEConnected, setIsSSEConnected] = useState(false);
   
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const notFoundCountRef = useRef<number>(0);
+  const pollingStartTimeRef = useRef<number>(0);
+
+  const MAX_NOT_FOUND_RETRIES = 10;
+  const NOT_FOUND_GRACE_PERIOD_MS = 30 * 60 * 1000;
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -44,6 +53,7 @@ export const useDeploymentProgress = (
     }
     setIsPolling(false);
     currentJobIdRef.current = null;
+    notFoundCountRef.current = 0;
   }, []);
 
   const fetchProgress = useCallback(async (jobId: string) => {
@@ -57,15 +67,31 @@ export const useDeploymentProgress = (
       
       const progressData = await response.json();
       console.log(`[Progress] Received progress data:`, progressData);
+
+      if (progressData.status === 'not_found') {
+        notFoundCountRef.current += 1;
+        const elapsed = Date.now() - pollingStartTimeRef.current;
+        const withinGracePeriod = elapsed < NOT_FOUND_GRACE_PERIOD_MS;
+        const withinRetryLimit = notFoundCountRef.current <= MAX_NOT_FOUND_RETRIES;
+
+        if (withinGracePeriod && withinRetryLimit) {
+          console.log(`[Progress] Job not found yet (attempt ${notFoundCountRef.current}/${MAX_NOT_FOUND_RETRIES}, ${Math.round(elapsed/1000)}s elapsed) - continuing to poll`);
+          return;
+        }
+        console.log(`[Progress] Job not found after ${notFoundCountRef.current} attempts / ${Math.round(elapsed/1000)}s - treating as terminal`);
+      } else {
+        notFoundCountRef.current = 0;
+      }
+
       setProgress(progressData);
       setError(null);
 
-      // Stop polling only on terminal statuses
-      // Continue polling for 'stalled', 'retrying', 'starting', 'running'
       if (progressData.status === 'completed' ||
           progressData.status === 'failed' ||
           progressData.status === 'error' ||
-          progressData.status === 'timeout') {
+          progressData.status === 'timeout' ||
+          progressData.status === 'cancelled' ||
+          progressData.status === 'not_found') {
         console.log(`[Progress] Stopping polling - final status: ${progressData.status}`);
         stopPolling();
       }
@@ -92,16 +118,27 @@ export const useDeploymentProgress = (
         try {
           const progressData = JSON.parse(event.data);
           console.log(`[Progress] Received SSE progress data:`, progressData);
+
+          if (progressData.status === 'not_found') {
+            notFoundCountRef.current += 1;
+            const elapsed = Date.now() - pollingStartTimeRef.current;
+            if (elapsed < NOT_FOUND_GRACE_PERIOD_MS && notFoundCountRef.current <= MAX_NOT_FOUND_RETRIES) {
+              console.log(`[Progress] SSE got not_found (attempt ${notFoundCountRef.current}) - ignoring`);
+              return;
+            }
+          } else {
+            notFoundCountRef.current = 0;
+          }
+
           setProgress(progressData);
           setError(null);
 
-          // Stop SSE only on terminal statuses
-          // Continue for 'stalled', 'retrying', 'starting', 'running'
           if (progressData.status === 'completed' ||
               progressData.status === 'failed' ||
               progressData.status === 'error' ||
               progressData.status === 'timeout' ||
-              progressData.status === 'cancelled') {
+              progressData.status === 'cancelled' ||
+              progressData.status === 'not_found') {
             console.log(`[Progress] Stopping SSE - final status: ${progressData.status}`);
             stopPolling();
           }
@@ -151,6 +188,8 @@ export const useDeploymentProgress = (
     stopPolling();
     
     currentJobIdRef.current = jobId;
+    notFoundCountRef.current = 0;
+    pollingStartTimeRef.current = Date.now();
     setError(null);
     setProgress(null);
     

@@ -89,16 +89,26 @@ export function DeployModelStep({
   useEffect(() => {
     if (!currentJobId || !shouldPoll) return;
 
+    let notFoundCount = 0;
+    const MAX_NOT_FOUND = 10;
+
     const pollProgress = async () => {
       try {
         const response = await fetch(`/docker-api/deploy/progress/${currentJobId}/`);
         if (response.ok) {
           const progressData = await response.json();
 
-          // Only treat terminal failure statuses as errors
-          // Ignore intermediate statuses like 'stalled', 'retrying', 'starting', 'running'
+          // 'not_found' during active deployment is expected (job may not be registered yet)
+          if (progressData.status === 'not_found') {
+            notFoundCount += 1;
+            if (notFoundCount <= MAX_NOT_FOUND) {
+              return;
+            }
+          } else {
+            notFoundCount = 0;
+          }
+
           if (progressData.status === 'error' || progressData.status === 'failed' || progressData.status === 'timeout') {
-            // Clean the error message (remove "exception:" prefix if present)
             let errorMessage = progressData.message || "Deployment failed";
             if (errorMessage.startsWith("exception: ")) {
               errorMessage = errorMessage.substring("exception: ".length);
@@ -109,18 +119,12 @@ export function DeployModelStep({
               message: errorMessage,
             });
 
-            // Stop polling but keep currentJobId so user can view logs
             setShouldPoll(false);
-            // Reset deployment in progress on error
             setIsDeploymentInProgress(false);
           } else if (progressData.status === 'completed') {
-            // Stop polling on completion
             setShouldPoll(false);
             setCurrentJobId(null);
-            // Keep deployment in progress state until navigation completes
-            // This prevents the blocking UI from showing immediately after success
           }
-          // For 'stalled', 'retrying', 'starting', 'running' - continue polling
         }
       } catch (error) {
         console.error("Error polling deployment progress:", error);
