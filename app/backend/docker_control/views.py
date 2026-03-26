@@ -382,8 +382,9 @@ class DeployView(APIView):
                 }
                 return Response(response, status=status.HTTP_201_CREATED)
             else:
-                # Continue with deployment using allocated device_id
-                response = run_container(impl, weights_id, device_id=device_id)
+                # Continue with deployment using allocated device_id and optional host_port
+                host_port = serializer.validated_data.get("host_port")
+                response = run_container(impl, weights_id, device_id=device_id, host_port=host_port)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
@@ -1863,3 +1864,31 @@ class WorkflowLogStreamView(View):
                 status=500,
                 content=str(e)
             )
+
+
+class AvailableDevicesView(APIView):
+    """Get list of available Tenstorrent devices on the system"""
+
+    def get(self, request, *args, **kwargs):
+        import glob
+
+        devices = []
+
+        # Check for Tenstorrent devices in /dev/tenstorrent/ (devices 0-3)
+        device_paths = sorted(glob.glob("/dev/tenstorrent/[0-3]"))
+
+        for device_path in device_paths:
+            try:
+                device_id = int(os.path.basename(device_path))
+                devices.append({
+                    "id": device_id,
+                    "path": device_path,
+                    "available": os.access(device_path, os.R_OK | os.W_OK)
+                })
+            except (ValueError, OSError) as e:
+                logger.warning(f"Error checking device {device_path}: {e}")
+
+        return Response({
+            "devices": devices,
+            "count": len(devices)
+        }, status=status.HTTP_200_OK)

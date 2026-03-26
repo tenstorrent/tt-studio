@@ -68,6 +68,7 @@ export const ModelType = {
   VideoGeneration: "VideoGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
+  FaceRecognitionModel: "FaceRecognitionModel",
   TTS: "TTS",
   Embedding: "Embedding",
   CNN: "CNN",
@@ -93,6 +94,8 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
       return ModelType.ObjectDetectionModel;
     case "speech_recognition":
       return ModelType.SpeechRecognitionModel;
+    case "face_recognition":
+      return ModelType.FaceRecognitionModel;
     case "tts":
       return ModelType.TTS;
     case "embedding":
@@ -287,6 +290,8 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
       return "/speech-to-text";
+    case ModelType.FaceRecognitionModel:
+      return "/face-recognition";
     case ModelType.TTS:
       return "/tts";
     case ModelType.Embedding:
@@ -418,6 +423,9 @@ export const getModelTypeFromName = (
 
   if (combined.includes("yolo")) {
     return ModelType.ObjectDetectionModel;
+  }
+  if (combined.includes("face") && combined.includes("recognition")) {
+    return ModelType.FaceRecognitionModel;
   }
   if (combined.includes("diffusion")) {
     return ModelType.ImageGeneration;

@@ -10,6 +10,7 @@ class ModelTypes(Enum):
     OBJECT_DETECTION = "object_detection"
     IMAGE_GENERATION = "image_generation"
     SPEECH_RECOGNITION = "speech_recognition"
+    FACE_RECOGNITION = "face_recognition"
     VLM = "vlm"
     TTS = "tts"
     VIDEO = "video_generation"

@@ -154,8 +154,141 @@ def map_board_type_to_device_name(board_type):
     logger.info(f"Mapped board type '{board_type}' to device name '{device_name}'")
     return device_name
 
-def run_container(impl, weights_id, device_id=0):
-    """Run a docker container via TT Inference Server API"""
+def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
+    """Run a docker container directly via docker-control-service (bypasses TT Inference Server).
+
+    Used for model types that are not managed by TT Inference Server (e.g. FACE_RECOGNITION).
+    """
+    try:
+        logger.info(f"run_container (direct) called for {impl.model_name} with device_id={device_id}, host_port={host_port}")
+
+        run_kwargs = copy.deepcopy(impl.docker_config)
+
+        # Device mounts
+        device_mounts = get_devices_mounts(impl, device_id=device_id)
+        if device_mounts:
+            run_kwargs.update({"devices": device_mounts})
+
+        # Port mounts (use provided host_port or auto-assign)
+        run_kwargs.update({"ports": get_port_mounts(impl, host_port=host_port)})
+
+        # Bridge network
+        run_kwargs.update({"network": backend_config.docker_bridge_network_name})
+
+        # Unique container name using host port
+        actual_host_port = list(run_kwargs["ports"].values())[0]
+        logger.info(f"host_port for container naming: {actual_host_port}")
+        run_kwargs.update({"name": f"{impl.container_base_name}_p{actual_host_port}"})
+        run_kwargs.update({"hostname": f"{impl.container_base_name}_p{actual_host_port}"})
+
+        # Environment variables
+        run_kwargs["environment"]["DEVICE_ID"] = str(device_id)
+        run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
+
+        # Convert volumes: {host_path: {"bind": container_path, "mode": "rw"}}
+        # → {host_path_str: container_path_str} for docker-control-service API
+        volumes_raw = run_kwargs.get("volumes", {})
+        volumes = {}
+        if volumes_raw:
+            for h_path, mount_config in volumes_raw.items():
+                h_path_str = str(h_path)
+                if isinstance(mount_config, dict):
+                    volumes[h_path_str] = mount_config.get("bind", str(mount_config))
+                else:
+                    volumes[h_path_str] = str(mount_config)
+
+        # Convert ports to int values
+        ports_raw = run_kwargs.get("ports", {})
+        ports = {}
+        if ports_raw:
+            for container_port, h_port in ports_raw.items():
+                ports[str(container_port)] = int(h_port) if isinstance(h_port, (int, str)) else h_port
+
+        # Stringify all environment variable values (PosixPath → str)
+        environment = run_kwargs.get("environment", {})
+        if environment:
+            environment = {str(k): str(v) if v is not None else "" for k, v in environment.items()}
+
+        api_kwargs = {
+            "image": impl.image_version,
+            "name": run_kwargs.get("name"),
+            "command": run_kwargs.get("command"),
+            "environment": environment,
+            "ports": ports,
+            "volumes": volumes,
+            "network": run_kwargs.get("network"),
+            "detach": run_kwargs.get("detach", True),
+        }
+
+        if run_kwargs.get("devices"):
+            api_kwargs["devices"] = run_kwargs["devices"]
+        if "hostname" in run_kwargs:
+            api_kwargs["hostname"] = run_kwargs["hostname"]
+
+        # cap_add for hugepages memory pinning
+        if "cap_add" in run_kwargs:
+            cap_add = run_kwargs["cap_add"]
+            if isinstance(cap_add, str):
+                cap_add = [cap_add]
+            api_kwargs["cap_add"] = cap_add
+
+        # shm_size for shared memory
+        if "shm_size" in run_kwargs:
+            api_kwargs["shm_size"] = run_kwargs["shm_size"]
+
+        docker_client = get_docker_client()
+        container_result = docker_client.run_container(**api_kwargs)
+        logger.info(f"Container started via docker-control-service: {container_result}")
+
+        if isinstance(container_result, dict) and container_result.get("status") == "error":
+            return {"status": "error", "message": container_result.get("message", "Unknown error")}
+
+        container_id = container_result.get("container_id") or container_result.get("id")
+        container_name = container_result.get("container_name") or container_result.get("name")
+
+        # Save deployment record
+        try:
+            if container_id:
+                ModelDeployment.objects.create(
+                    container_id=container_id,
+                    container_name=container_name or run_kwargs.get("name"),
+                    model_name=impl.model_name,
+                    device=f"device_{device_id}",
+                    device_id=device_id,
+                    status="running",
+                    stopped_by_user=False,
+                    port=actual_host_port,
+                )
+                logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+        except Exception as e:
+            logger.error(f"Failed to save deployment record: {e}")
+
+        update_deploy_cache()
+
+        return {
+            "status": "success",
+            "container_name": container_name,
+            "container_id": container_id,
+            "job_id": None,
+            "api_response": container_result,
+        }
+
+    except Exception as e:
+        error_msg = f"Unexpected error in _run_direct_container: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
+
+
+def run_container(impl, weights_id, device_id=0, host_port=None):
+    """Run a docker container.
+
+    For FACE_RECOGNITION model type, uses docker-control-service directly.
+    For all other model types, uses TT Inference Server API.
+    """
+    # Face recognition bypasses TT Inference Server — deploy via docker-control-service
+    if impl.model_type == ModelTypes.FACE_RECOGNITION:
+        return _run_direct_container(impl, weights_id, device_id=device_id, host_port=host_port)
+
     try:
         logger.info(f"Calling TT Inference Server API")
         logger.info(f"run_container called for {impl.model_name}")
@@ -372,10 +505,20 @@ def run_agent_container(container_name, port_bindings, impl):
     )
 
 def stop_container(container_id):
-    """Stop a specific docker container"""
+    """Stop and remove a specific docker container"""
     try:
         docker_client = get_docker_client()
         result = docker_client.stop_container(container_id)
+        logger.info(f"Stop container result: {result}")
+
+        # Remove container after stopping to prevent name conflicts on redeploy
+        try:
+            remove_result = docker_client.remove_container(container_id, force=True)
+            logger.info(f"Remove container result: {remove_result}")
+        except Exception as remove_error:
+            logger.warning(f"Failed to remove container {container_id}: {remove_error}")
+            # Continue even if remove fails — container may already be removed
+
         # on changes to containers, update deploy cache
         update_deploy_cache()
         return result
@@ -432,22 +575,33 @@ def get_devices_mounts(impl, device_id=0):
     return None
 
 
-def get_port_mounts(impl):
-    host_port = get_host_port(impl)
+def get_port_mounts(impl, host_port=None):
+    """Get port mappings for a container.
+
+    Args:
+        impl: ModelImpl configuration
+        host_port: Specific host port to use, or None for auto-assignment
+    """
+    if host_port is None:
+        host_port = get_host_port(impl)
     return {f"{impl.service_port}/tcp": host_port}
 
 
 def get_host_port(impl):
-    # use a fixed block of ports starting at 8001 for models
+    # Reserve ports used by TT-Studio services on the host:
+    #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
+    # Model containers start at 8003.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
+    RESERVED_PORTS = ["8000", "8001", "8002"]
+    used_host_ports.extend(RESERVED_PORTS)
     logger.info(f"used_host_ports={used_host_ports}")
-    BASE_MODEL_PORT = 8002
+    BASE_MODEL_PORT = 8003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
             return port
-    logger.warning("Could not find an unused port in block: 8001-8100")
+    logger.warning("Could not find an unused port in block: 8003-8102")
     return None
 
 

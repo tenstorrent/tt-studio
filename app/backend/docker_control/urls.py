@@ -26,6 +26,7 @@ from .views import (
     WorkflowLogStreamView,
     DiscoverContainersView,
     RegisterExternalModelView,
+    AvailableDevicesView,
 )
 
 urlpatterns = [
@@ -49,4 +50,5 @@ urlpatterns = [
     path("workflow-logs/<int:deployment_id>/", views.WorkflowLogStreamView.as_view(), name="workflow-logs"),
     path("discover-containers/", views.DiscoverContainersView.as_view(), name="discover-containers"),
     path("register-external/", views.RegisterExternalModelView.as_view(), name="register-external"),
+    path("available-devices/", views.AvailableDevicesView.as_view(), name="available-devices"),
 ]
