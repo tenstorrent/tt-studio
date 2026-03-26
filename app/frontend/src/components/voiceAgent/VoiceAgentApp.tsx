@@ -242,7 +242,7 @@ export default function VoiceAgentApp() {
 
       try {
         const userContext = recognizedUserRef.current
-          ? `You are speaking with ${recognizedUserRef.current}. Address them by name naturally when appropriate. `
+          ? `You are speaking with ${recognizedUserRef.current}. Always address them as ${recognizedUserRef.current} in your response. `
           : "";
         await runInference(
           {

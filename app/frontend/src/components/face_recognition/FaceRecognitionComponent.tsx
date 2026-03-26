@@ -346,12 +346,21 @@ export default function FaceRecognitionComponent() {
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold">Live Face Recognition</h2>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
               {inferenceMs && isLiveMode && (
                 <div className="bg-black text-green-400 px-3 py-1 rounded font-mono text-sm">
                   {(1000 / inferenceMs).toFixed(1)} FPS ({inferenceMs.toFixed(0)}ms)
                 </div>
               )}
+              <Button
+                onClick={() => navigate("/voice-agent")}
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Skip
+                <ArrowRight className="w-4 h-4 ml-1" />
+              </Button>
               {isCameraOn ? (
                 <Button onClick={stopCamera} variant="destructive" size="sm">
                   <CameraOff className="w-4 h-4 mr-2" />
@@ -382,6 +391,16 @@ export default function FaceRecognitionComponent() {
                   <Camera className="w-6 h-6 mr-2" />
                   Start Camera
                 </Button>
+              </div>
+            )}
+            {/* "Look at camera to unlock" instruction */}
+            {isCameraOn && isLiveMode && detections.length === 0 && !verifiedUser && (
+              <div className="absolute bottom-0 inset-x-0 flex items-center justify-center gap-2 bg-black/60 backdrop-blur-sm py-3 px-4 pointer-events-none">
+                <svg className="w-4 h-4 text-green-400 shrink-0 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                <span className="text-white text-sm font-medium tracking-wide">Look at the camera to unlock</span>
               </div>
             )}
             {/* Verified face overlay */}
