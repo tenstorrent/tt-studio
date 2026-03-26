@@ -101,6 +101,13 @@ export default function VoiceAgentApp() {
     }
   }, [location.state]);
 
+  // Auto-dismiss the welcome banner after 45 seconds
+  useEffect(() => {
+    if (!showWelcomeBanner) return;
+    const timer = setTimeout(() => setShowWelcomeBanner(false), 15000);
+    return () => clearTimeout(timer);
+  }, [showWelcomeBanner]);
+
   // Auto-discover deployed models
   useEffect(() => {
     const discoverModels = async () => {
