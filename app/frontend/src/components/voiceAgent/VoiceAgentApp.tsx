@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { MainContent } from "@/src/components/voiceAgent/mainContent";
 import { StatusPanel } from "@/src/components/voiceAgent/StatusPanel";
 import { MetricsPanel } from "@/src/components/voiceAgent/MetricsPanel";
 import { AudioRecorderWithVisualizer } from "@/src/components/voiceAgent/AudioRecorderWithVisualizer";
-import { Activity, BarChart3 } from "lucide-react";
+import { Activity, BarChart3, UserCheck, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
 import { useLocation } from "react-router-dom";
@@ -75,6 +75,11 @@ export default function VoiceAgentApp() {
     tts: null,
   });
 
+  const [recognizedUser, setRecognizedUser] = useState<string | null>(null);
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
+  const recognizedUserRef = useRef<string | null>(null);
+  const autoGreetedRef = useRef(false);
+
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsAudioUrlRef = useRef<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -87,6 +92,12 @@ export default function VoiceAgentApp() {
   useEffect(() => {
     if (location.state?.containerID) {
       setModelID(location.state.containerID);
+    }
+    if (location.state?.recognizedUser) {
+      const name = location.state.recognizedUser as string;
+      recognizedUserRef.current = name;
+      setRecognizedUser(name);
+      setShowWelcomeBanner(true);
     }
   }, [location.state]);
 
@@ -109,6 +120,30 @@ export default function VoiceAgentApp() {
     };
     discoverModels();
   }, []);
+
+  // Auto-greet the recognized user via TTS once models are ready
+  useEffect(() => {
+    if (!recognizedUser || !models.tts || autoGreetedRef.current) return;
+    autoGreetedRef.current = true;
+    const greetText = `Welcome, ${recognizedUser}! How can I help you today?`;
+    setStage("speaking");
+    setIsTTSGenerating(true);
+    runTTSInference(models.tts.id, greetText)
+      .then((audioBlob) => {
+        const audioUrl = URL.createObjectURL(audioBlob);
+        ttsAudioUrlRef.current = audioUrl;
+        if (!ttsAudioRef.current) ttsAudioRef.current = new Audio();
+        ttsAudioRef.current.src = audioUrl;
+        ttsAudioRef.current.load();
+        ttsAudioRef.current.play().catch((e) => console.warn("TTS autoplay blocked:", e));
+        ttsAudioRef.current.onended = () => setStage("idle");
+      })
+      .catch((e) => console.error("Auto-greet TTS failed:", e))
+      .finally(() => {
+        setIsTTSGenerating(false);
+        setStage("idle");
+      });
+  }, [recognizedUser, models.tts]);
 
   const handleNewConversation = useCallback(() => {
     const id = Date.now().toString();
@@ -206,6 +241,9 @@ export default function VoiceAgentApp() {
       const pipelineStart = performance.now();
 
       try {
+        const userContext = recognizedUserRef.current
+          ? `You are speaking with ${recognizedUserRef.current}. Address them by name naturally when appropriate. `
+          : "";
         await runInference(
           {
             deploy_id: models.llm.id,
@@ -222,11 +260,11 @@ export default function VoiceAgentApp() {
           false,
           0,
           undefined,
-          "Role: You are a concise, witty AI assistant for a live demo. \
+          `${userContext}Role: You are a concise, witty AI assistant for a live demo. \
           Constraint 1: Keep responses extremely short. Aim for 1-2 sentences maximum (under 30 words). \
           Constraint 2: Use natural, conversational language. Avoid bullet points, bolding, or markdown. \
           Constraint 3: Do not repeat the user's question. Get straight to the answer or a clever quip. \
-          Goal: Minimize text output to ensure the Text-to-Speech (TTS) engine can process and play audio instantly."
+          Goal: Minimize text output to ensure the Text-to-Speech (TTS) engine can process and play audio instantly.`
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
@@ -466,6 +504,42 @@ export default function VoiceAgentApp() {
             </Sheet>
           </div>
         </motion.header>
+
+        {/* Recognized user welcome banner */}
+        {showWelcomeBanner && recognizedUser && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.3 }}
+            className={cn(
+              "flex items-center justify-between px-5 py-2 shrink-0 border-b",
+              theme === "dark"
+                ? "bg-green-950/60 border-green-500/30"
+                : "bg-green-50 border-green-200"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-green-500 shrink-0" />
+              <span className={cn("text-sm font-medium", theme === "dark" ? "text-green-300" : "text-green-800")}>
+                Welcome back,{" "}
+                <span className="font-bold">{recognizedUser}</span>! The voice agent is ready for you.
+              </span>
+            </div>
+            <button
+              onClick={() => setShowWelcomeBanner(false)}
+              className={cn(
+                "ml-3 shrink-0 rounded p-0.5 transition-colors",
+                theme === "dark"
+                  ? "text-green-400 hover:text-green-200 hover:bg-green-800/40"
+                  : "text-green-600 hover:text-green-900 hover:bg-green-100"
+              )}
+              aria-label="Dismiss welcome banner"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
 
         {/* Transcript area */}
         <motion.div

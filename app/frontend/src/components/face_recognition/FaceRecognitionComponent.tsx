@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { customToast } from "../CustomToaster";
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Card } from "../ui/card";
@@ -15,8 +15,14 @@ import {
   Users,
   RefreshCw,
   Upload,
+  ArrowRight,
+  Mic,
+  X,
 } from "lucide-react";
 import axios from "axios";
+
+const RECOGNITION_THRESHOLD = 0.65;
+const REDIRECT_DELAY_SECONDS = 5;
 
 interface Detection {
   box?: number[];
@@ -28,6 +34,7 @@ interface Detection {
 
 export default function FaceRecognitionComponent() {
   const location = useLocation();
+  const navigate = useNavigate();
   const modelID = (location.state?.containerID || location.state?.modelID) as string | undefined;
   // Camera & recognition state
   const [isCameraOn, setIsCameraOn] = useState(false);
@@ -39,6 +46,10 @@ export default function FaceRecognitionComponent() {
   const [newFaceName, setNewFaceName] = useState("");
   const [isRegistering, setIsRegistering] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Verified face & auto-redirect state
+  const [verifiedUser, setVerifiedUser] = useState<{ name: string; similarity: number } | null>(null);
+  const [autoRedirectCountdown, setAutoRedirectCountdown] = useState<number | null>(null);
+  const verifiedUserRef = useRef<{ name: string; similarity: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -105,6 +116,20 @@ export default function FaceRecognitionComponent() {
       };
     }
   }, [modelID, startCamera, stopCamera]);
+  // Dismiss the verified-user overlay and cancel auto-redirect
+  const dismissVerification = useCallback(() => {
+    verifiedUserRef.current = null;
+    setVerifiedUser(null);
+    setAutoRedirectCountdown(null);
+  }, []);
+
+  // Navigate immediately to voice agent
+  const goToVoiceAgent = useCallback((user: { name: string; similarity: number }) => {
+    navigate("/voice-agent", {
+      state: { recognizedUser: user.name, recognizedSimilarity: user.similarity },
+    });
+  }, [navigate]);
+
   // Run recognition
   const runRecognition = useCallback(async (imageBlob: Blob) => {
     if (!modelID) return;
@@ -115,8 +140,20 @@ export default function FaceRecognitionComponent() {
       const response = await axios.post("/models-api/face-recognition/recognize/", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setDetections(response.data.faces || []);
+      const faces: Detection[] = response.data.faces || [];
+      setDetections(faces);
       setInferenceMs(response.data.inference_ms);
+      // Trigger verified-user flow on first high-confidence known face
+      if (!verifiedUserRef.current) {
+        const verified = faces.find(
+          (d) => d.identity && d.identity !== "Unknown" && d.similarity >= RECOGNITION_THRESHOLD
+        );
+        if (verified) {
+          const user = { name: verified.identity, similarity: verified.similarity };
+          verifiedUserRef.current = user;
+          setVerifiedUser(user);
+        }
+      }
     } catch (error) {
       console.error("Recognition failed:", error);
     }
@@ -155,6 +192,29 @@ export default function FaceRecognitionComponent() {
       processFrame();
     }
   }, [isLiveMode, isCameraOn, processFrame]);
+
+  // Start countdown when a verified user is detected
+  useEffect(() => {
+    if (!verifiedUser) return;
+    setAutoRedirectCountdown(REDIRECT_DELAY_SECONDS);
+    const interval = setInterval(() => {
+      setAutoRedirectCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [verifiedUser]);
+
+  // Auto-navigate when countdown reaches zero
+  useEffect(() => {
+    if (autoRedirectCountdown === 0 && verifiedUser) {
+      goToVoiceAgent(verifiedUser);
+    }
+  }, [autoRedirectCountdown, verifiedUser, goToVoiceAgent]);
   // Register face from file
   const registerFace = async () => {
     if (!modelID || !newFaceName.trim() || !selectedFile) {
@@ -322,6 +382,55 @@ export default function FaceRecognitionComponent() {
                   <Camera className="w-6 h-6 mr-2" />
                   Start Camera
                 </Button>
+              </div>
+            )}
+            {/* Verified face overlay */}
+            {verifiedUser && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm z-10">
+                <div className="bg-gray-900 border border-green-500/50 rounded-2xl p-8 mx-6 text-center shadow-2xl max-w-sm w-full">
+                  <div className="w-16 h-16 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center mx-auto mb-4">
+                    <span className="text-2xl font-bold text-green-400">
+                      {verifiedUser.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <h3 className="text-white text-2xl font-bold mb-1">
+                    Welcome, {verifiedUser.name}!
+                  </h3>
+                  <p className="text-green-400 text-sm mb-1">
+                    Identity confirmed &mdash; {(verifiedUser.similarity * 100).toFixed(0)}% match
+                  </p>
+                  <p className="text-gray-400 text-sm mb-6">
+                    Redirecting to Voice Agent in{" "}
+                    <span className="text-white font-bold">{autoRedirectCountdown}s</span>
+                  </p>
+                  {/* Countdown progress bar */}
+                  <div className="w-full bg-gray-700 rounded-full h-1.5 mb-6">
+                    <div
+                      className="bg-green-500 h-1.5 rounded-full transition-all duration-1000"
+                      style={{
+                        width: `${autoRedirectCountdown !== null ? ((autoRedirectCountdown / REDIRECT_DELAY_SECONDS) * 100) : 100}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => goToVoiceAgent(verifiedUser)}
+                      className="flex-1 bg-green-600 hover:bg-green-500 text-white"
+                    >
+                      <Mic className="w-4 h-4 mr-2" />
+                      Go Now
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                    <Button
+                      onClick={dismissVerification}
+                      variant="outline"
+                      className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-800"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Stay
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
