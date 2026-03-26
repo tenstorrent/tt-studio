@@ -35,7 +35,7 @@ class ErrorBoundary extends React.Component<
 const FaceRecognitionPage = () => {
   return (
     <ErrorBoundary>
-      <div className="h-screen w-full overflow-hidden">
+      <div className="h-[calc(100vh-9rem)] w-full overflow-hidden flex justify-center p-2 sm:p-3 lg:p-4">
         <FaceRecognitionComponent />
       </div>
     </ErrorBoundary>

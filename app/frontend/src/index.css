@@ -486,3 +486,72 @@ audio::-webkit-media-controls-timeline {
     0 0 60px rgba(124,104,250,0.06);
   transform: translateZ(0);
 }
+
+/* ── Face Recognition HUD ── */
+
+@keyframes hud-scanline {
+  0% { top: -2px; }
+  100% { top: 100%; }
+}
+
+.hud-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #7C68FA, #6552E0, #7C68FA, transparent);
+  box-shadow: 0 0 8px #7C68FA, 0 0 20px rgba(124, 104, 250, 0.4);
+  animation: hud-scanline 3s linear infinite;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.hud-corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  z-index: 5;
+}
+.hud-corner--tl { top: 8px; left: 8px; border-top: 2px solid #7C68FA; border-left: 2px solid #7C68FA; }
+.hud-corner--tr { top: 8px; right: 8px; border-top: 2px solid #7C68FA; border-right: 2px solid #7C68FA; }
+.hud-corner--bl { bottom: 8px; left: 8px; border-bottom: 2px solid #7C68FA; border-left: 2px solid #7C68FA; }
+.hud-corner--br { bottom: 8px; right: 8px; border-bottom: 2px solid #7C68FA; border-right: 2px solid #7C68FA; }
+
+@keyframes hud-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.hud-blink {
+  animation: hud-blink 1.5s ease-in-out infinite;
+}
+
+.hud-crt-lines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 4;
+}
+
+.hud-glass {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(124, 104, 250, 0.08);
+  border: 1px solid rgba(124, 104, 250, 0.15);
+}
+
+@keyframes hud-confirm-flash {
+  0% { opacity: 0; transform: scale(0.95); }
+  10% { opacity: 1; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.hud-confirm-enter {
+  animation: hud-confirm-flash 0.5s ease-out forwards;
+}

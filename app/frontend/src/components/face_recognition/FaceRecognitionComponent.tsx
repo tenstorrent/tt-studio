@@ -4,7 +4,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { customToast } from "../CustomToaster";
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -48,6 +47,7 @@ export default function FaceRecognitionComponent() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   // Verified face & auto-redirect state
   const [verifiedUser, setVerifiedUser] = useState<{ name: string; similarity: number } | null>(null);
+  const [verifiedSnapshot, setVerifiedSnapshot] = useState<string | null>(null);
   const [autoRedirectCountdown, setAutoRedirectCountdown] = useState<number | null>(null);
   const verifiedUserRef = useRef<{ name: string; similarity: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -120,6 +120,7 @@ export default function FaceRecognitionComponent() {
   const dismissVerification = useCallback(() => {
     verifiedUserRef.current = null;
     setVerifiedUser(null);
+    setVerifiedSnapshot(null);
     setAutoRedirectCountdown(null);
   }, []);
 
@@ -151,6 +152,18 @@ export default function FaceRecognitionComponent() {
         if (verified) {
           const user = { name: verified.identity, similarity: verified.similarity };
           verifiedUserRef.current = user;
+          // Capture face snapshot from current video frame
+          if (videoRef.current && canvasRef.current) {
+            const snapCanvas = canvasRef.current;
+            const video = videoRef.current;
+            snapCanvas.width = video.videoWidth;
+            snapCanvas.height = video.videoHeight;
+            const ctx = snapCanvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(video, 0, 0);
+              setVerifiedSnapshot(snapCanvas.toDataURL("image/jpeg", 0.85));
+            }
+          }
           setVerifiedUser(user);
         }
       }
@@ -290,7 +303,7 @@ export default function FaceRecognitionComponent() {
       customToast.error("Failed to delete face");
     }
   };
-  // Render detection boxes
+  // Render detection boxes — tactical targeting brackets
   const renderDetectionBoxes = () => {
     if (!videoRef.current || !Array.isArray(detections) || detections.length === 0) return null;
 
@@ -298,7 +311,6 @@ export default function FaceRecognitionComponent() {
     const scaleX = video.clientWidth / (video.videoWidth || 1);
     const scaleY = video.clientHeight / (video.videoHeight || 1);
     return detections.map((det, idx) => {
-      // Safety check - skip invalid detections (API returns "box" not "bbox")
       const box = det.box || det.bbox;
       if (!det || !box || !Array.isArray(box) || box.length < 4) {
         return null;
@@ -307,22 +319,55 @@ export default function FaceRecognitionComponent() {
       const [x1, y1, x2, y2] = box;
       const isKnown = det.identity && det.identity !== "Unknown";
       const similarity = typeof det.similarity === "number" ? det.similarity : 0;
+      const color = isKnown ? "#7C68FA" : "#FA512E";
+      const bracketSize = 14;
+      const bw = isKnown ? 2 : 3;
+
       return (
         <div
           key={idx}
-          className={`absolute ${isKnown ? "border-green-500" : "border-red-500"} pointer-events-none`}
+          className="absolute pointer-events-none"
           style={{
             left: x1 * scaleX,
             top: y1 * scaleY,
             width: (x2 - x1) * scaleX,
             height: (y2 - y1) * scaleY,
-            borderWidth: "3px",
-            borderStyle: "solid",
           }}
         >
-          <div className={`absolute -top-7 left-0 ${isKnown ? "bg-green-600" : "bg-red-600"} text-white text-sm px-2 py-0.5 rounded font-medium whitespace-nowrap`}>
-            {det.identity || "Unknown"} ({(similarity * 100).toFixed(0)}%)
-          </div>
+          {/* Corner brackets */}
+          <div style={{ position: "absolute", top: 0, left: 0, width: bracketSize, height: bracketSize, borderTop: `${bw}px solid ${color}`, borderLeft: `${bw}px solid ${color}` }} />
+          <div style={{ position: "absolute", top: 0, right: 0, width: bracketSize, height: bracketSize, borderTop: `${bw}px solid ${color}`, borderRight: `${bw}px solid ${color}` }} />
+          <div style={{ position: "absolute", bottom: 0, left: 0, width: bracketSize, height: bracketSize, borderBottom: `${bw}px solid ${color}`, borderLeft: `${bw}px solid ${color}` }} />
+          <div style={{ position: "absolute", bottom: 0, right: 0, width: bracketSize, height: bracketSize, borderBottom: `${bw}px solid ${color}`, borderRight: `${bw}px solid ${color}` }} />
+          {/* Thin dashed tracking border */}
+          <div style={{ position: "absolute", inset: 0, border: `1px dashed ${color}${isKnown ? "33" : "66"}` }} />
+          {/* Data readout label */}
+          {isKnown ? (
+            <div
+              className="absolute -top-6 left-0 flex items-center gap-1.5 whitespace-nowrap font-mono"
+              style={{ color, fontSize: "10px" }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full hud-blink" style={{ backgroundColor: color }} />
+              <span className="uppercase tracking-wider">{det.identity}</span>
+              <span style={{ opacity: 0.5 }}>|</span>
+              <span>{(similarity * 100).toFixed(1)}%</span>
+            </div>
+          ) : (
+            <div
+              className="absolute -top-7 left-0 flex items-center gap-1.5 whitespace-nowrap font-mono"
+              style={{ fontSize: "11px" }}
+            >
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded"
+                style={{ backgroundColor: "rgba(250, 81, 46, 0.85)", color: "#fff" }}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-white hud-blink" />
+                <span className="uppercase tracking-wider font-bold">Unidentified</span>
+                <span style={{ opacity: 0.6 }}>|</span>
+                <span>{(similarity * 100).toFixed(1)}%</span>
+              </div>
+            </div>
+          )}
         </div>
       );
     });
@@ -330,253 +375,234 @@ export default function FaceRecognitionComponent() {
   // No model deployed message
   if (!modelID) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Card className="p-8 text-center">
-          <h2 className="text-xl font-semibold mb-2">No Model Deployed</h2>
-          <p className="text-muted-foreground">Please deploy the Face Recognition model first.</p>
-        </Card>
+      <div className="max-w-2xl w-full flex flex-col items-center justify-center h-full voice-glass voice-tile-3d rounded-2xl p-8">
+        <h2 className="font-mono text-TT-purple-accent text-lg uppercase tracking-widest mb-2">System Offline</h2>
+        <p className="font-mono text-TT-purple-accent/50 text-xs uppercase tracking-wider">
+          Deploy Face Recognition model to initialize
+        </p>
       </div>
     );
   }
   return (
-    <div className="flex h-full w-full gap-4 p-4">
-      {/* Main Video Area */}
-      <div className="flex-1 flex flex-col">
-        <Card className="flex-1 flex flex-col p-4">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold">Live Face Recognition</h2>
-            <div className="flex items-center gap-2">
-              {inferenceMs && isLiveMode && (
-                <div className="bg-black text-green-400 px-3 py-1 rounded font-mono text-sm">
-                  {(1000 / inferenceMs).toFixed(1)} FPS ({inferenceMs.toFixed(0)}ms)
-                </div>
-              )}
-              <Button
-                onClick={() => navigate("/voice-agent")}
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Skip
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-              {isCameraOn ? (
-                <Button onClick={stopCamera} variant="destructive" size="sm">
-                  <CameraOff className="w-4 h-4 mr-2" />
-                  Stop
-                </Button>
-              ) : (
-                <Button onClick={startCamera} size="sm">
-                  <Camera className="w-4 h-4 mr-2" />
-                  Start
-                </Button>
-              )}
-            </div>
+    <div className="max-w-2xl w-full flex flex-col rounded-2xl overflow-hidden h-full voice-glass voice-tile-3d">
+      {/* Header — matches Voice Agent */}
+      <header className="flex items-center justify-between px-5 py-3 shrink-0 border-b border-white/[0.06]">
+        <div className="flex items-center gap-3">
+          <h1 className="text-base font-semibold font-['Bricolage_Grotesque'] tracking-tight" style={{ color: "#e4e4e7" }}>
+            Face Recognition
+          </h1>
+          <div className="flex items-center gap-1.5">
+            <div className={`w-2 h-2 rounded-full ${isLiveMode ? "bg-TT-purple-accent hud-blink" : "bg-gray-500"}`} />
+            <span className="text-xs font-mono font-medium tracking-wide text-TT-purple-accent">
+              {isLiveMode ? "Scanning" : "Ready"}
+            </span>
           </div>
-          {/* Video Feed */}
-          <div className="relative flex-1 bg-black rounded-lg overflow-hidden">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-contain"
-            />
-            {isLiveMode && isCameraOn && renderDetectionBoxes()}
-            <canvas ref={canvasRef} className="hidden" />
-            {!isCameraOn && (
-              <div className="absolute inset-0 flex items-center justify-center text-white">
-                <Button onClick={startCamera} size="lg" className="bg-green-600 hover:bg-green-700">
-                  <Camera className="w-6 h-6 mr-2" />
-                  Start Camera
-                </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          {inferenceMs && isLiveMode && (
+            <span className="font-mono text-xs text-TT-purple/60">
+              {(1000 / inferenceMs).toFixed(1)} fps
+            </span>
+          )}
+          <Button
+            onClick={() => navigate("/voice-agent")}
+            variant="ghost"
+            size="sm"
+            className="text-xs text-white/50 hover:text-white/80 hover:bg-white/5"
+          >
+            Skip <ArrowRight className="w-3 h-3 ml-1" />
+          </Button>
+          {isCameraOn ? (
+            <Button onClick={stopCamera} size="sm" className="text-xs bg-TT-red-accent/20 text-TT-red-accent border border-TT-red-accent/30 hover:bg-TT-red-accent/30">
+              <CameraOff className="w-3 h-3 mr-1" /> Stop
+            </Button>
+          ) : (
+            <Button onClick={startCamera} size="sm" className="text-xs bg-TT-purple-accent/20 text-TT-purple-accent border border-TT-purple-accent/30 hover:bg-TT-purple-accent/30">
+              <Camera className="w-3 h-3 mr-1" /> Start
+            </Button>
+          )}
+        </div>
+      </header>
+
+      {/* Video Feed */}
+      <div className="flex-1 min-h-0 relative bg-black overflow-hidden">
+        {/* Corner bracket reticles */}
+        <div className="hud-corner hud-corner--tl" />
+        <div className="hud-corner hud-corner--tr" />
+        <div className="hud-corner hud-corner--bl" />
+        <div className="hud-corner hud-corner--br" />
+        {/* Animated scan line */}
+        {isLiveMode && isCameraOn && <div className="hud-scanline" />}
+        {/* CRT scan lines overlay */}
+        {isCameraOn && <div className="hud-crt-lines" />}
+        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+        {isLiveMode && isCameraOn && renderDetectionBoxes()}
+        <canvas ref={canvasRef} className="hidden" />
+        {!isCameraOn && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 rounded-full border-2 border-TT-purple-accent/30 flex items-center justify-center">
+              <Camera className="w-7 h-7 text-TT-purple-accent/50" />
+            </div>
+            <p className="font-mono text-xs text-white/30 uppercase tracking-widest">Feed Offline</p>
+            <Button onClick={startCamera} className="font-mono text-xs bg-TT-purple-accent/20 text-TT-purple-accent border border-TT-purple-accent/30 hover:bg-TT-purple-accent/30 uppercase tracking-wider">
+              <Camera className="w-4 h-4 mr-2" /> Initialize Feed
+            </Button>
+          </div>
+        )}
+        {/* "Look at camera" instruction */}
+        {isCameraOn && isLiveMode && detections.length === 0 && !verifiedUser && (
+          <div className="absolute bottom-0 inset-x-0 flex items-center justify-center gap-2 bg-black/70 backdrop-blur-sm py-3 px-4 pointer-events-none border-t border-TT-purple-accent/20">
+            <div className="w-2 h-2 rounded-full bg-TT-purple-accent hud-blink" />
+            <span className="font-mono text-TT-purple-accent text-xs uppercase tracking-widest">
+              Awaiting subject // Position face in frame
+            </span>
+          </div>
+        )}
+        {/* Verified face overlay */}
+        {verifiedUser && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm z-10 hud-confirm-enter">
+            <div className="voice-glass rounded-lg p-6 mx-6 text-center max-w-xs w-full border border-TT-purple-accent/30"
+              style={{ boxShadow: "0 0 40px rgba(124, 104, 250, 0.15), 0 0 80px rgba(124, 104, 250, 0.08)" }}>
+              <div className="font-mono text-TT-purple-accent/50 uppercase mb-3" style={{ fontSize: "10px", letterSpacing: "0.3em" }}>
+                // Classified // Biometric Verification
               </div>
-            )}
-            {/* "Look at camera to unlock" instruction */}
-            {isCameraOn && isLiveMode && detections.length === 0 && !verifiedUser && (
-              <div className="absolute bottom-0 inset-x-0 flex items-center justify-center gap-2 bg-black/60 backdrop-blur-sm py-3 px-4 pointer-events-none">
-                <svg className="w-4 h-4 text-green-400 shrink-0 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span className="text-white text-sm font-medium tracking-wide">Look at the camera to unlock</span>
-              </div>
-            )}
-            {/* Verified face overlay */}
-            {verifiedUser && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm z-10">
-                <div className="bg-gray-900 border border-green-500/50 rounded-2xl p-8 mx-6 text-center shadow-2xl max-w-sm w-full">
-                  <div className="w-16 h-16 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center mx-auto mb-4">
-                    <span className="text-2xl font-bold text-green-400">
+              <div className="w-20 h-20 rounded-full border-2 border-TT-purple-accent mx-auto mb-3 overflow-hidden"
+                style={{ boxShadow: "0 0 20px rgba(124, 104, 250, 0.3)" }}>
+                {verifiedSnapshot ? (
+                  <img src={verifiedSnapshot} alt="Captured face" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-black/40">
+                    <span className="text-3xl font-mono font-bold text-TT-purple-accent">
                       {verifiedUser.name.charAt(0).toUpperCase()}
                     </span>
                   </div>
-                  <h3 className="text-white text-2xl font-bold mb-1">
-                    Welcome, {verifiedUser.name}!
-                  </h3>
-                  <p className="text-green-400 text-sm mb-1">
-                    Identity confirmed &mdash; {(verifiedUser.similarity * 100).toFixed(0)}% match
-                  </p>
-                  <p className="text-gray-400 text-sm mb-6">
-                    Redirecting to Voice Agent in{" "}
-                    <span className="text-white font-bold">{autoRedirectCountdown}s</span>
-                  </p>
-                  {/* Countdown progress bar */}
-                  <div className="w-full bg-gray-700 rounded-full h-1.5 mb-6">
-                    <div
-                      className="bg-green-500 h-1.5 rounded-full transition-all duration-1000"
-                      style={{
-                        width: `${autoRedirectCountdown !== null ? ((autoRedirectCountdown / REDIRECT_DELAY_SECONDS) * 100) : 100}%`,
-                      }}
-                    />
-                  </div>
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={() => goToVoiceAgent(verifiedUser)}
-                      className="flex-1 bg-green-600 hover:bg-green-500 text-white"
-                    >
-                      <Mic className="w-4 h-4 mr-2" />
-                      Go Now
-                      <ArrowRight className="w-4 h-4 ml-2" />
-                    </Button>
-                    <Button
-                      onClick={dismissVerification}
-                      variant="outline"
-                      className="flex-1 border-gray-600 text-gray-300 hover:bg-gray-800"
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Stay
-                    </Button>
-                  </div>
-                </div>
+                )}
               </div>
-            )}
-          </div>
-          {/* Detection Results */}
-          <div className="mt-4 p-3 bg-muted rounded-lg">
-            <h3 className="font-semibold mb-2">
-              {!Array.isArray(detections) || detections.length === 0
-                ? "No faces detected"
-                : `Detected ${detections.length} face${detections.length !== 1 ? "s" : ""}:`}
-            </h3>
-            {Array.isArray(detections) && detections.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {detections.map((det, idx) => {
-                  if (!det) return null;
-                  const identity = det.identity || "Unknown";
-                  const similarity = typeof det.similarity === "number" ? det.similarity : 0;
-                  const isKnown = identity !== "Unknown";
-                  return (
-                    <span
-                      key={idx}
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        isKnown
-                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                          : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                      }`}
-                    >
-                      {identity} ({(similarity * 100).toFixed(0)}%)
-                    </span>
-                  );
-                })}
+              <h3 className="font-mono text-TT-purple-accent text-base uppercase tracking-widest mb-1">
+                Identity Confirmed
+              </h3>
+              <p className="font-mono text-TT-purple-tint1 text-sm mb-1">{verifiedUser.name}</p>
+              <p className="font-mono text-TT-purple-accent/60 text-xs mb-1">
+                Match Confidence: {(verifiedUser.similarity * 100).toFixed(1)}%
+              </p>
+              <p className="font-mono text-white/30 text-xs mb-4">
+                Redirecting in <span className="text-TT-purple-accent font-bold">{autoRedirectCountdown}s</span>
+              </p>
+              <div className="w-full rounded-full h-1 mb-5" style={{ backgroundColor: "rgba(124, 104, 250, 0.15)" }}>
+                <div className="bg-TT-purple-accent h-1 rounded-full transition-all duration-1000"
+                  style={{
+                    width: `${autoRedirectCountdown !== null ? ((autoRedirectCountdown / REDIRECT_DELAY_SECONDS) * 100) : 100}%`,
+                    boxShadow: "0 0 8px rgba(124, 104, 250, 0.5)",
+                  }}
+                />
               </div>
-            )}
-          </div>
-        </Card>
-      </div>
-      {/* Right Sidebar - Registration */}
-      <div className="w-80 flex flex-col gap-4">
-        {/* Register New Face */}
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3 flex items-center gap-2">
-            <UserPlus className="w-4 h-4" />
-            Register Face
-          </h3>
-
-          <div className="space-y-3">
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Name:</label>
-              <Input
-                placeholder="Enter person's name"
-                value={newFaceName}
-                onChange={(e) => setNewFaceName(e.target.value)}
-                disabled={isRegistering}
-              />
-            </div>
-            <div className="border-t pt-3">
-              <p className="text-xs text-muted-foreground mb-2">Option 1: Capture from camera</p>
-              <Button
-                onClick={registerFromCamera}
-                disabled={isRegistering || !newFaceName.trim() || !isCameraOn}
-                className="w-full"
-                variant={isCameraOn && newFaceName.trim() ? "default" : "outline"}
-              >
-                <Camera className="w-4 h-4 mr-2" />
-                {isRegistering ? "Registering..." : !isCameraOn ? "Start camera first" : !newFaceName.trim() ? "Enter name above" : "Capture & Register"}
-              </Button>
-            </div>
-            <div className="border-t pt-3">
-              <p className="text-xs text-muted-foreground mb-2">Option 2: Upload image file</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                className="hidden"
-              />
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                {selectedFile ? selectedFile.name.substring(0, 20) : "Choose Image File"}
-              </Button>
-              {selectedFile && (
-                <Button
-                  onClick={registerFace}
-                  disabled={isRegistering || !newFaceName.trim()}
-                  className="w-full mt-2"
-                >
-                  <UserPlus className="w-4 h-4 mr-2" />
-                  {isRegistering ? "Registering..." : !newFaceName.trim() ? "Enter name above" : `Register "${newFaceName}"`}
+              <div className="flex gap-3">
+                <Button onClick={() => goToVoiceAgent(verifiedUser)}
+                  className="flex-1 text-xs bg-TT-purple-accent/20 text-TT-purple-accent border border-TT-purple-accent/40 hover:bg-TT-purple-accent/30">
+                  <Mic className="w-4 h-4 mr-2" /> Proceed <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
-              )}
+                <Button onClick={dismissVerification}
+                  className="flex-1 text-xs bg-transparent text-white/40 border border-white/10 hover:bg-white/5 hover:text-white/60">
+                  <X className="w-4 h-4 mr-2" /> Dismiss
+                </Button>
+              </div>
             </div>
           </div>
-        </Card>
-        {/* Registered Faces List */}
-        <Card className="p-4 flex-1 overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Registered ({registeredFaces.length})
-            </h3>
-            <Button variant="ghost" size="sm" onClick={fetchRegisteredFaces}>
-              <RefreshCw className="w-4 h-4" />
+        )}
+      </div>
+
+      {/* Bottom Panel — Detection results + Registration */}
+      <div className="shrink-0 border-t border-white/[0.06] px-4 py-3 space-y-3 overflow-y-auto" style={{ maxHeight: "220px" }}>
+        {/* Detection Results */}
+        <div className="font-mono">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className={`w-1.5 h-1.5 rounded-full ${detections.length > 0 ? "bg-TT-purple-accent hud-blink" : "bg-gray-600"}`} />
+            <span className="text-xs text-white/40 uppercase tracking-widest">
+              {!Array.isArray(detections) || detections.length === 0
+                ? "No Subjects Detected"
+                : `${detections.length} Subject${detections.length !== 1 ? "s" : ""} Identified`}
+            </span>
+          </div>
+          {Array.isArray(detections) && detections.length > 0 && (
+            <div className="space-y-1">
+              {detections.map((det, idx) => {
+                if (!det) return null;
+                const identity = det.identity || "Unknown";
+                const similarity = typeof det.similarity === "number" ? det.similarity : 0;
+                const isKnown = identity !== "Unknown";
+                return (
+                  <div key={idx} className={`flex items-center gap-2 text-xs py-1 px-2 rounded ${isKnown ? "bg-white/[0.03]" : "bg-TT-red-accent/10 border border-TT-red-accent/20"}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${isKnown ? "bg-TT-purple-accent" : "bg-TT-red-accent hud-blink"}`} />
+                    <span className={isKnown ? "text-TT-purple-accent" : "text-TT-red-accent font-bold"}>
+                      {isKnown ? identity : "UNIDENTIFIED"}
+                    </span>
+                    <span className="text-white/20">--</span>
+                    <span className={isKnown ? "text-white/50" : "text-TT-red-accent/70"}>{(similarity * 100).toFixed(1)}%</span>
+                    <span className={`ml-auto uppercase tracking-wider ${isKnown ? "text-TT-purple-accent/50" : "text-TT-red-accent/70 font-bold"}`} style={{ fontSize: "10px" }}>
+                      {isKnown ? "[MATCH]" : "[NO MATCH]"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Registration — compact inline */}
+        <div className="border-t border-white/[0.06] pt-3">
+          <div className="flex items-center gap-2 mb-2">
+            <UserPlus className="w-3.5 h-3.5 text-TT-purple-accent/70" />
+            <span className="text-xs font-mono text-white/40 uppercase tracking-widest">Register</span>
+            <div className="flex-1" />
+            <div className="flex items-center gap-1.5">
+              <Users className="w-3 h-3 text-TT-purple-accent/50" />
+              <span className="text-xs font-mono text-white/30">{registeredFaces.length} enrolled</span>
+              <Button variant="ghost" size="sm" onClick={fetchRegisteredFaces} className="text-white/30 hover:text-white/60 hover:bg-white/5 h-5 w-5 p-0">
+                <RefreshCw className="w-2.5 h-2.5" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Name"
+              value={newFaceName}
+              onChange={(e) => setNewFaceName(e.target.value)}
+              disabled={isRegistering}
+              className="flex-1 font-mono text-xs h-8 bg-white/[0.03] border-white/10 text-white/80 placeholder:text-white/20 focus:border-TT-purple-accent/50"
+            />
+            <Button onClick={registerFromCamera} disabled={isRegistering || !newFaceName.trim() || !isCameraOn} size="sm"
+              className="h-8 text-xs bg-TT-purple-accent/20 text-TT-purple-accent border border-TT-purple-accent/30 hover:bg-TT-purple-accent/30 disabled:opacity-30">
+              <Camera className="w-3 h-3 mr-1" /> Capture
+            </Button>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} className="hidden" />
+            <Button onClick={() => fileInputRef.current?.click()} variant="ghost" size="sm" className="h-8 text-xs text-white/40 hover:text-white/60 hover:bg-white/5 border border-white/10">
+              <Upload className="w-3 h-3" />
             </Button>
           </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {!Array.isArray(registeredFaces) || registeredFaces.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No faces registered yet
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {registeredFaces.map((name) => (
-                  <li key={name} className="flex items-center justify-between p-2 bg-muted rounded">
-                    <span className="text-sm font-medium">{name}</span>
-                    <Button variant="ghost" size="sm" onClick={() => deleteFace(name)}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </Card>
+          {selectedFile && (
+            <div className="flex gap-2 mt-2 items-center">
+              <span className="text-xs font-mono text-white/30 truncate flex-1">{selectedFile.name}</span>
+              <Button onClick={registerFace} disabled={isRegistering || !newFaceName.trim()} size="sm"
+                className="h-7 text-xs bg-TT-purple-accent/20 text-TT-purple-accent border border-TT-purple-accent/30 hover:bg-TT-purple-accent/30 disabled:opacity-30">
+                <UserPlus className="w-3 h-3 mr-1" /> Enroll
+              </Button>
+            </div>
+          )}
+          {/* Registered faces list */}
+          {Array.isArray(registeredFaces) && registeredFaces.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {registeredFaces.map((name) => (
+                <div key={name} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06]">
+                  <div className="w-1 h-1 rounded-full bg-TT-purple-accent" />
+                  <span className="text-xs font-mono text-white/50">{name}</span>
+                  <button onClick={() => deleteFace(name)} className="text-white/20 hover:text-TT-red-accent ml-0.5">
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

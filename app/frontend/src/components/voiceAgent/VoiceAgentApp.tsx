@@ -248,9 +248,13 @@ export default function VoiceAgentApp() {
       const pipelineStart = performance.now();
 
       try {
-        const userContext = recognizedUserRef.current
-          ? `You are speaking with ${recognizedUserRef.current}. Always address them as ${recognizedUserRef.current} in your response. `
-          : "";
+        // priorMessages already includes the current user message (pushed at line 223),
+        // so length === 1 means this is the very first exchange in the conversation.
+        const isFirstMessage = priorMessages.length === 1;
+        const userContext =
+          recognizedUserRef.current && isFirstMessage
+            ? `Greet the person warmly by their name "${recognizedUserRef.current}" at the start of your response. `
+            : "";
         await runInference(
           {
             deploy_id: models.llm.id,
