@@ -3,7 +3,8 @@
 
 import React, { useCallback, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Card } from "../ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import ElevatedCard from "../ui/elevated-card";
 import { customToast } from "../CustomToaster";
 import { Upload, ImageIcon, Loader2, ScanSearch, BarChart3 } from "lucide-react";
 
@@ -156,21 +157,21 @@ export const ImageClassificationComponent: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col gap-6 p-4">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <ScanSearch className="w-8 h-8 text-TT-purple-accent" />
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Image Classification
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {modelName} — Powered by TT-Forge on Tenstorrent hardware
-          </p>
+    <ElevatedCard accent="neutral" depth="lg" className="w-full h-full flex flex-col overflow-hidden">
+      <CardHeader className="pb-4 shrink-0">
+        <div className="flex items-center gap-3">
+          <ScanSearch className="w-7 h-7 text-TT-purple-accent" />
+          <div>
+            <CardTitle className="text-xl">Image Classification</CardTitle>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+              {modelName} — Powered by TT-Forge on Tenstorrent hardware
+            </p>
+          </div>
         </div>
-      </div>
+      </CardHeader>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
+      <CardContent className="flex-1 flex flex-col min-h-0 pb-6">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
         {/* Left: Image Upload */}
         <Card className="flex flex-col p-6 overflow-hidden">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-800 dark:text-gray-200">
@@ -301,7 +302,8 @@ export const ImageClassificationComponent: React.FC = () => {
             </div>
           )}
         </Card>
-      </div>
-    </div>
+        </div>
+      </CardContent>
+    </ElevatedCard>
   );
 };
