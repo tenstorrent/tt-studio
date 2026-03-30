@@ -2985,7 +2985,7 @@ def setup_fastapi_environment():
     finally:
         os.chdir(original_dir)
 
-def start_fastapi_server(no_sudo=False):
+def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
     print(f"🔧 Starting FastAPI server...")
 
@@ -3059,15 +3059,30 @@ def start_fastapi_server(no_sudo=False):
             if os.path.exists(INFERENCE_ARTIFACT_DIR):
                 pythonpath_export = f'export PYTHONPATH="{INFERENCE_ARTIFACT_DIR}:$PYTHONPATH"\n'
             
-            temp_script.write(f'''#!/bin/bash
-set -e
-cd "$1"
-{artifact_path_export}{benchmark_targets_export}{pythonpath_export}echo $$ > "$2"
+            if dev_mode:
+                uvicorn_block = f'''\
+echo $$ > "$2"
+RESTART_COUNT=0
+while true; do
+    "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1
+    EXIT_CODE=$?
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+    echo "[$(date)] FastAPI exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
+    sleep 3
+done
+'''
+            else:
+                uvicorn_block = f'''\
+echo $$ > "$2"
 if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
     echo "Failed to start inference-api server. Check logs at $4"
     exit 1
 fi
-''')
+'''
+            temp_script.write(f'''#!/bin/bash
+set -e
+cd "$1"
+{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
             temp_script_path = temp_script.name
         
         # Make the script executable
@@ -3191,9 +3206,10 @@ def cleanup_fastapi_server(no_sudo=False):
         except Exception:
             pass
 
-def start_docker_control_service(no_sudo=False):
+def start_docker_control_service(no_sudo=False, dev_mode=False):
     """Start the Docker Control Service on port 8002."""
-    print(f"🔧 Starting Docker Control Service...")
+    mode_label = " (dev/reload)" if dev_mode else ""
+    print(f"🔧 Starting Docker Control Service{mode_label}...")
 
     # Check if user has Docker access
     if not check_docker_access():
@@ -3291,13 +3307,14 @@ def start_docker_control_service(no_sudo=False):
     try:
         # Create a temporary wrapper script similar to FastAPI
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as temp_script:
-            temp_script.write('''#!/bin/bash
+            reload_flag = "--reload" if dev_mode else ""
+            temp_script.write(f'''#!/bin/bash
 set -e
 cd "$1"
 # Save PID to file
 echo $$ > "$2"
 # Start the service
-if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 > "$4" 2>&1; then
+if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 {reload_flag} > "$4" 2>&1; then
     echo "Failed to start Docker Control Service. Check logs at $4"
     exit 1
 fi
@@ -4278,7 +4295,7 @@ def main():
         # This ensures the backend can connect to it when it starts
         startup_log.step("docker_control_service", "START")
         if not args.skip_docker_control:
-            if not start_docker_control_service(no_sudo=args.no_sudo):
+            if not start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev):
                 startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
                 print(f"{C_RED}⛔ Failed to start Docker Control Service. Continuing without it.{C_RESET}")
                 print(f"{C_YELLOW}Note: Backend will not be able to manage Docker containers.{C_RESET}")
@@ -4356,7 +4373,7 @@ def main():
                     startup_log.close()
                     sys.exit(1)
 
-                if not start_fastapi_server(no_sudo=args.no_sudo):
+                if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
                     startup_log.step("fastapi_server", "FAIL", f"see {FASTAPI_LOG_FILE}")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
                     print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
