@@ -1305,6 +1305,30 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     else:
         print(f"✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
 
+    # TTS_API_KEY
+    current_tts_api_key = get_env_var("TTS_API_KEY")
+    if easy_mode:
+        if should_configure_var("TTS_API_KEY", current_tts_api_key):
+            write_env_var("TTS_API_KEY", "your-secret-key")
+    elif should_configure_var("TTS_API_KEY", current_tts_api_key):
+        if is_placeholder(current_tts_api_key):
+            print(f"🔄 TTS_API_KEY has placeholder value '{current_tts_api_key}' - configuring...")
+        dev_default = "your-secret-key" if dev_mode else ""
+        prompt_text = f"🔑 Enter TTS_API_KEY (for TTS inference server authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+
+        while True:
+            val = getpass.getpass(prompt_text)
+            if not val and dev_mode:
+                val = dev_default
+            if val and val.strip():
+                write_env_var("TTS_API_KEY", val)
+                print("✅ TTS_API_KEY saved.")
+                break
+            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+    else:
+        if not easy_mode:
+            print(f"✅ TTS_API_KEY already configured (keeping existing value).")
+
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
     if easy_mode:
@@ -2341,6 +2365,47 @@ def validate_artifact_structure(artifact_dir):
     return True
 
 
+def _sync_model_catalog():
+    """
+    Sync model catalog from the TT Inference Server artifact.
+    Runs sync_models_from_inference_server.py to generate models_from_inference_server.json.
+    """
+    sync_script = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config",
+        "sync_models_from_inference_server.py",
+    )
+
+    if not os.path.exists(sync_script):
+        print(f"{C_YELLOW}⚠️  Model catalog sync script not found: {sync_script}{C_RESET}")
+        return False
+
+    try:
+        env = os.environ.copy()
+        if os.path.exists(INFERENCE_ARTIFACT_DIR):
+            env["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
+
+        result = subprocess.run(
+            [sys.executable, sync_script],
+            capture_output=True, text=True, check=False, env=env,
+        )
+
+        if result.returncode == 0:
+            print(f"{C_GREEN}✅ Model catalog synced successfully{C_RESET}")
+            if result.stdout.strip():
+                for line in result.stdout.strip().splitlines():
+                    print(f"   {line}")
+            return True
+        else:
+            print(f"{C_YELLOW}⚠️  Model catalog sync returned exit code {result.returncode}{C_RESET}")
+            if result.stderr.strip():
+                for line in result.stderr.strip().splitlines()[-5:]:
+                    print(f"   {line}")
+            return False
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Model catalog sync failed: {e}{C_RESET}")
+        return False
+
+
 def setup_tt_inference_server(pull_branch=False):
     """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
     # Artifact setup — quiet unless downloading or encountering issues
@@ -3009,6 +3074,7 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
     # Get environment variables for the server
     jwt_secret = get_env_var("JWT_SECRET")
     hf_token = get_env_var("HF_TOKEN")
+    tts_api_key = get_env_var("TTS_API_KEY")
     
     # Export the environment variables
     env = os.environ.copy()
@@ -3016,6 +3082,8 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         env["JWT_SECRET"] = jwt_secret
     if hf_token:
         env["HF_TOKEN"] = hf_token
+    if tts_api_key:
+        env["TTS_API_KEY"] = tts_api_key
     
     # Set artifact path and version/branch so inference-api uses the version-resolved artifact
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -4364,6 +4432,18 @@ def main():
                         print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
                     startup_log.close()
                     sys.exit(1)
+
+                # Sync model catalog from artifact on success path
+                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
+                should_sync = (
+                    args.resync or
+                    args.reconfigure_inference_server or
+                    args.pull_branch or
+                    not os.path.exists(models_json_path)
+                )
+                if should_sync:
+                    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
+                    _sync_model_catalog()
 
                 if not setup_fastapi_environment():
                     startup_log.step("fastapi_server", "FAIL", "environment setup failed")
