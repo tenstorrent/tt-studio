@@ -55,10 +55,18 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         setDisplayText(<span>Deployment Failed</span>);
         safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
         stopPolling();
+      } else if (progress.status === 'not_found') {
+        // Job no longer tracked — server may have restarted and wiped in-memory state.
+        // Reset to initial state rather than showing "failed", since the model may actually
+        // be running. The user can check the Deployed Models page to confirm.
+        safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
+        setIsDeploying(false);
+        setIsRocketFlying(false);
+        setDisplayText(initialText);
+        stopPolling();
       }
-      // 'not_found' is NOT treated as failure here — the hook handles retry logic
     }
-  }, [progress, stopPolling]);
+  }, [progress, initialText, stopPolling]);
 
   // Resume any in-flight deployment after navigation/reload.
   useEffect(() => {
@@ -69,7 +77,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     );
     if (!stored?.jobId) return;
 
-    const MAX_RESUME_AGE_MS = 60 * 60 * 1000;
+    const MAX_RESUME_AGE_MS = 5 * 60 * 1000; // 5 minutes — short enough to avoid resuming after a server restart
     const age = Date.now() - (stored.startedAt ?? 0);
     if (age > MAX_RESUME_AGE_MS) {
       safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
@@ -111,12 +119,12 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
           safeSetItem(ACTIVE_DEPLOYMENT_KEY, { jobId: result.job_id, startedAt: Date.now() });
           startPolling(result.job_id);
         } else {
-          console.log('[Deploy] No job_id received - deployment succeeded but progress tracking unavailable');
-          // Deployment succeeded - mark as complete immediately
-          setIsDeployed(true);
-          setDisplayText(<span>Model Deployed!</span>);
+          console.warn('[Deploy] No job_id received despite success response - treating as failure');
+          setDeploymentFailed(true);
+          setDisplayText(<span>Deployment Failed</span>);
           setIsDeploying(false);
           setIsRocketFlying(false);
+          safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
         }
         // Keep the rocket animation going while we wait
       } else {

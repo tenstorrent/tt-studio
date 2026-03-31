@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,12 +67,31 @@ def start_chat_deployment(
     api_result: Dict[str, Any] = {}
     try:
         api_result = r.json() if r.content else {}
-    except Exception:
-        api_result = {}
+    except Exception as e:
+        logger.error(
+            f"Failed to parse JSON from TT Inference Server /run response "
+            f"(HTTP {r.status_code}): {e}. Body: {r.text[:300]}"
+        )
+        return TTInferenceRunResult(
+            status="error",
+            message=f"Bad response from TT Inference Server: {e}",
+        )
+
+    job_id = api_result.get("job_id")
+    if not job_id:
+        logger.error(
+            f"TT Inference Server returned HTTP {r.status_code} but no job_id in response. "
+            f"Full response: {api_result}"
+        )
+        return TTInferenceRunResult(
+            status="error",
+            message="TT Inference Server did not return a job_id — deployment may not have started",
+            api_response=api_result,
+        )
 
     return TTInferenceRunResult(
         status="success",
-        job_id=api_result.get("job_id"),
+        job_id=job_id,
         message=api_result.get("message", "Deployment started"),
         api_response=api_result,
     )

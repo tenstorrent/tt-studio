@@ -356,6 +356,18 @@ class DeployView(APIView):
                         {"status": "error", "message": result.message},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
+                if not result.job_id:
+                    logger.error(
+                        f"start_chat_deployment returned status='success' but job_id is None/empty. "
+                        f"api_response={result.api_response!r}"
+                    )
+                    return Response(
+                        {
+                            "status": "error",
+                            "message": "Deployment started but no job_id was returned from TT Inference Server",
+                        },
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
                 # Create a ModelDeployment record immediately so the chip slot
                 # shows IN USE and the allocator tracks this deployment.
                 # Use job_id as a placeholder container_id until the real Docker
@@ -482,12 +494,12 @@ class DeploymentProgressView(APIView):
                     progress_data = response.json()
                     logger.info(f"Got progress from FastAPI: {progress_data}")
 
-                    # FastAPI explicitly reports job_id doesn't exist (common after cleanup/restart).
-                    # In that case, do not fall back to container heuristics which can be misleading.
+                    # FastAPI reports job_id doesn't exist.
+                    # For directly-deployed models (e.g. face-recognition), the job_id IS the
+                    # container ID and FastAPI never tracked the job. Fall through to the
+                    # container-based tracking below so those deployments can reach "completed".
                     if progress_data.get("status") == "not_found":
-                        if job_id in deployment_start_times:
-                            del deployment_start_times[job_id]
-                        return Response(progress_data, status=status.HTTP_200_OK)
+                        pass  # Fall through to container-based tracking
 
                     # Normalize 'stalled' status to 'running' with appropriate message
                     # 'stalled' typically means downloading weights, which can take hours
@@ -522,7 +534,9 @@ class DeploymentProgressView(APIView):
                     _sync_chat_deployment_record(job_id, progress_data)
 
                     # Add support for new status types
-                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying", "not_found"]:
+                    # Note: "not_found" is intentionally excluded here so direct-deploy models
+                    # (e.g. face-recognition) fall through to container-based tracking below.
+                    if progress_data.get("status") in ["starting", "running", "completed", "error", "failed", "timeout", "cancelled", "retrying"]:
                         return Response(progress_data, status=status.HTTP_200_OK)
 
                 logger.info(f"FastAPI progress not available (status: {response.status_code}), falling back to container-based progress")
@@ -540,7 +554,9 @@ class DeploymentProgressView(APIView):
                 # Try to get container via docker-control-service
                 docker_client = get_docker_client()
                 container_data = docker_client.get_container(job_id)
-                if container_data.get("status") == "success":
+                # The response status is the Docker container status (e.g. "running", "exited"),
+                # or "error" if the container was not found. A valid container has an "id" field.
+                if container_data.get("status") != "error" and container_data.get("id"):
                     # Create container-like object for compatibility
                     class ContainerWrapper:
                         def __init__(self, data):
@@ -641,23 +657,34 @@ class DeploymentProgressView(APIView):
             elif container_status == "running":
                 # Container is running - check network and finalization status
                 if "tt_studio_network" in networks:
-                    # Container is on the network - check if it's been renamed (final step)
-                    # Based on fastapi.log (178-179) - rename is the final step
-                    expected_model_name = container_name  # The job_id should match final name
-                    
-                    # If container name looks like it's been properly renamed to model name
-                    # (not a random Docker name like "romantic_khorana")
-                    if any(model_part in container_name.lower() for model_part in ['llama', 'instruct', 'model']) or '-' not in container_name:
-                        # Container renamed and finalized - deployment complete
+                    # Detect direct-deploy: job_id IS the container's own Docker ID.
+                    # This applies to models like face-recognition that bypass FastAPI and
+                    # are launched synchronously via docker-control-service. Their container
+                    # is fully up by the time the first progress poll arrives.
+                    container_id_str = container.id or ""
+                    is_direct_deploy_by_id = (
+                        job_id == container_id_str
+                        or container_id_str.startswith(job_id)
+                        or (len(job_id) >= 12 and container_id_str.startswith(job_id[:12]))
+                    )
+
+                    # FastAPI-deployed LLM containers start with a random Docker name
+                    # (e.g. "romantic_khorana") and get renamed to the model name as the
+                    # final step. The name-based check detects that rename for those models.
+                    is_fastapi_deploy_complete = (
+                        any(part in container_name.lower() for part in ['llama', 'instruct', 'model'])
+                        or '-' not in container_name
+                    )
+
+                    if is_direct_deploy_by_id or is_fastapi_deploy_complete:
                         progress = 100
                         stage = "complete"
-                        message = "Deployment complete!"  # fastapi.log (169, 178-179)
+                        message = "Deployment complete!"
                         status_value = "completed"
-                        # Clean up start time tracking
                         if job_id in deployment_start_times:
                             del deployment_start_times[job_id]
                     else:
-                        # On network but not renamed yet - almost done
+                        # On network but not renamed yet (FastAPI LLM deploy in progress)
                         progress = 95
                         stage = "finalizing"
                         message = "Finalizing container setup..."

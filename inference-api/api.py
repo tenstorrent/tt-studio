@@ -500,6 +500,22 @@ class ProgressHandler(logging.Handler):
             elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download", "setup already completed"]):
                 stage = "model_preparation"
                 progress = 40
+            # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
+            elif "fetching" in message.lower() and "files" in message.lower():
+                stage = "model_preparation"
+                progress = 20
+                message = "Downloading model configuration files..."
+            # Docker image layer pull (e.g. "abc123: Download complete", "Pulling from ...")
+            elif any(keyword in message.lower() for keyword in [
+                "pulling from",
+                ": download complete",
+                ": verifying checksum",
+                ": pull complete",
+                ": already exists",
+            ]):
+                stage = "container_setup"
+                progress = 50
+                message = "Pulling container image layers..."
             elif any(keyword in message.lower() for keyword in ["docker run command", "running docker container"]):
                 stage = "container_setup"
                 progress = 70
