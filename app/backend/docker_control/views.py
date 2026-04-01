@@ -58,8 +58,9 @@ except Exception:
     logger.warning(f"Could not load model catalog from {_CATALOG_PATH}; status will be null for all models")
     _status_lookup = {}
 
-# Manual compatibility overrides: model names that are always shown as compatible
-# (e.g. when sync JSON device_configurations don't match detected board)
+# Manual compatibility overrides: model names always shown as compatible regardless of board.
+# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for qb2 (P300Cx2)
+# until proper board support is confirmed. Edit model_compatibility_overrides.json to re-enable.
 _OVERRIDE_PATH = Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
 try:
     _override_data = json.loads(_OVERRIDE_PATH.read_text())
