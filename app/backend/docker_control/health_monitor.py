@@ -17,28 +17,51 @@ _stop_monitoring = False
 
 
 def _cleanup_stale_starting_records():
-    """Remove pending 'starting' records older than 10 minutes.
+    """Remove stale 'starting' records that permanently block chip slots.
 
-    These are left behind when a deployment API call fails after the
-    pending record was already created.  They permanently block their
-    chip slot if not cleaned up.
+    Two categories are handled:
+
+    1. pending_* records (created before the FastAPI /run call is made, e.g.
+       when a non-CHAT deployment fails early): cleaned up after 10 minutes.
+
+    2. FastAPI job_id records (CHAT models): the deployment_sync background
+       thread normally transitions these to 'running' or 'stopped' within
+       seconds.  As a final safety net, any that survive 35 minutes are marked
+       'failed' here.  35 minutes gives the sync thread ample time to retry
+       and avoids racing with legitimate long-running weight downloads.
     """
     try:
-        stale_cutoff = timezone.now() - timezone.timedelta(minutes=10)
+        now = timezone.now()
+        pending_cutoff = now - timezone.timedelta(minutes=10)
+        jobid_cutoff = now - timezone.timedelta(minutes=35)
+
         starting_deployments = ModelDeployment.objects.filter(status="starting")
         for dep in starting_deployments:
-            if (
-                dep.container_id.startswith("pending_")
-                and dep.deployed_at is not None
-                and dep.deployed_at < stale_cutoff
-            ):
-                logger.info(
-                    f"Cleaning up stale 'starting' record: {dep.model_name} "
-                    f"(id={dep.id}, deployed_at={dep.deployed_at})"
-                )
-                dep.status = "failed"
-                dep.stopped_at = timezone.now()
-                dep.save()
+            if dep.deployed_at is None:
+                continue
+
+            if dep.container_id.startswith("pending_"):
+                # Legacy pending placeholder — clean up after 10 minutes
+                if dep.deployed_at < pending_cutoff:
+                    logger.info(
+                        f"Cleaning up stale pending 'starting' record: {dep.model_name} "
+                        f"(id={dep.id}, deployed_at={dep.deployed_at})"
+                    )
+                    dep.status = "failed"
+                    dep.stopped_at = now
+                    dep.save()
+            else:
+                # FastAPI job_id record that the sync thread did not resolve —
+                # mark failed after 35 minutes as a last-resort safety net.
+                if dep.deployed_at < jobid_cutoff:
+                    logger.warning(
+                        f"Cleaning up long-stale CHAT 'starting' record: {dep.model_name} "
+                        f"(id={dep.id}, container_id={dep.container_id}, "
+                        f"deployed_at={dep.deployed_at})"
+                    )
+                    dep.status = "failed"
+                    dep.stopped_at = now
+                    dep.save()
     except Exception as e:
         logger.error(f"Error cleaning up stale starting records: {e}")
 

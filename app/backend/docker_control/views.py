@@ -402,6 +402,16 @@ class DeployView(APIView):
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
+                # Spawn a background thread to poll FastAPI and transition the
+                # 'starting' record to 'running' (or 'stopped' on failure).
+                # This makes the lifecycle backend-owned so frontends that do
+                # not poll DeploymentProgressView (e.g. Voice Agent) still get
+                # correct records.
+                try:
+                    from docker_control.deployment_sync import start_deployment_sync
+                    start_deployment_sync(result.job_id)
+                except Exception as e:
+                    logger.warning(f"Could not start deployment sync for job {result.job_id}: {e}")
                 response = {
                     "status": "success",
                     "job_id": result.job_id,
