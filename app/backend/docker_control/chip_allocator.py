@@ -14,6 +14,7 @@ Manages automatic chip slot allocation based on:
 import re
 import threading
 from datetime import timedelta
+from datetime import timezone
 from typing import Dict, List, Optional, Set
 
 from django.utils import timezone
