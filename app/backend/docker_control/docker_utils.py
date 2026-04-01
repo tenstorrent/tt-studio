@@ -932,7 +932,7 @@ def perform_reset():
                 )
 
                 try:
-                    stdout, _ = process.communicate(timeout=30)
+                    stdout, _ = process.communicate(timeout=90)
                     last_output = stdout
                     logger.info(f"tt-smi -r attempt {attempt} output: {stdout.strip()!r:.200}")
 
@@ -952,7 +952,7 @@ def perform_reset():
                     )
 
                 except subprocess.TimeoutExpired:
-                    logger.warning(f"Reset attempt {attempt} timed out after 30s")
+                    logger.warning(f"Reset attempt {attempt} timed out after 90s")
                     try:
                         os.killpg(os.getpgid(process.pid), signal.SIGTERM)
                         process.wait(timeout=2)
