@@ -103,7 +103,7 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Blackhole boards → constituent single-chip device
     "P150X4":  "p150",
     "P150X8":  "p150",
-    "P300Cx2": "p300c",
+    "P300Cx2": "p300x2",  # QB2: inference server always wants p300x2; device_id selects the chip
     "P300Cx4": "p300c",
     # Galaxy (N300-based)
     "GALAXY":     "n300",

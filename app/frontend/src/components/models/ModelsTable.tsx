@@ -48,6 +48,7 @@ interface Props {
   onHealthChange: (id: string, h: HealthStatus) => void;
   refreshHealthById?: (id: string) => void;
   density?: "compact" | "normal" | "comfortable";
+  hideDeviceId?: boolean;
 }
 
 export default function ModelsTable({
@@ -63,6 +64,7 @@ export default function ModelsTable({
   onHealthChange,
   refreshHealthById,
   density = "normal",
+  hideDeviceId = false,
 }: Props): JSX.Element {
   const { containerId, image, ports } = visibleMap;
 
@@ -130,13 +132,15 @@ export default function ModelsTable({
             />
             Model Name
           </TableHead>
-          <TableHead className="text-right font-semibold">
-            <Cpu
-              className="inline-block mr-2 text-TT-purple-accent"
-              size={16}
-            />
-            Chip
-          </TableHead>
+          {!hideDeviceId && (
+            <TableHead className="text-right font-semibold">
+              <Cpu
+                className="inline-block mr-2 text-TT-purple-accent"
+                size={16}
+              />
+              Chip
+            </TableHead>
+          )}
           {image && (
             <TableHead className="text-right font-semibold">
               <div className="flex items-center">
@@ -186,7 +190,7 @@ export default function ModelsTable({
           const isExpanded = !!expanded[row.id];
           const colCount =
             1 /* name */ +
-            1 /* chip */ +
+            (hideDeviceId ? 0 : 1) /* chip */ +
             1 /* status */ +
             1 /* health */ +
             1 /* manage */ +
@@ -215,16 +219,18 @@ export default function ModelsTable({
                     <ModelNameCell name={row.name} />
                   </button>
                 </TableCell>
-                <TableCell className="text-right">
-                  {row.device_id != null ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-full bg-TT-purple-shade/40 text-TT-purple border border-TT-purple-accent/30">
-                      <Cpu className="w-3 h-3" />
-                      Device {String(row.device_id).padStart(2, "0")}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-gray-500">—</span>
-                  )}
-                </TableCell>
+                {!hideDeviceId && (
+                  <TableCell className="text-right">
+                    {row.device_id != null ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-full bg-TT-purple-shade/40 text-TT-purple border border-TT-purple-accent/30">
+                        <Cpu className="w-3 h-3" />
+                        Device {String(row.device_id).padStart(2, "0")}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">—</span>
+                    )}
+                  </TableCell>
+                )}
                 {image ? (
                   <TableCell className="text-right">
                     <ImageCell image={row.image} />
@@ -279,10 +285,12 @@ export default function ModelsTable({
                         </div>
                         <CopyableText text={row.image ?? ""} />
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-xs text-stone-500 mb-1">Device</div>
-                        <CopyableText text={row.device_id != null ? `Device ${row.device_id}` : "N/A"} />
-                      </div>
+                      {!hideDeviceId && (
+                        <div className="min-w-0">
+                          <div className="text-xs text-stone-500 mb-1">Device</div>
+                          <CopyableText text={row.device_id != null ? `Device ${row.device_id}` : "N/A"} />
+                        </div>
+                      )}
                       <div className="min-w-0">
                         <div className="text-xs text-stone-500 mb-1">Ports</div>
                         <CopyableText text={row.ports ?? ""} />

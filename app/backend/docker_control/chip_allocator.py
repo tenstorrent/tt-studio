@@ -340,10 +340,16 @@ class ChipSlotAllocator:
         """
         Get number of chips required for a model.
 
+        On P300Cx2 (QB2), every deployment uses --device p300x2 which occupies
+        the entire board, so always return the total slot count regardless of
+        the model's own chip requirement.
+
         Args:
             model_name: Name of the model
 
         Returns:
             Number of chips required (1 or 4)
         """
+        if self.board_type == "P300Cx2":
+            return self.total_slots  # QB2: p300x2 always uses the whole board
         return get_model_chip_requirement(model_name)

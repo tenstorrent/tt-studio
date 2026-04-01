@@ -26,6 +26,34 @@ interface ChipConfigStepProps {
   onConfirm: (mode: "single" | "multi", slotId: number) => void;
 }
 
+// Board-specific labels and example models for the chip config cards.
+const BOARD_LABELS: Record<
+  string,
+  {
+    singleChipSubtitle: string;
+    multiChipTitle: string;
+    multiChipSubtitle: string;
+    singleChipExamples: string[];
+    multiChipExamples: string[];
+  }
+> = {
+  P300Cx2: {
+    singleChipSubtitle: "P300c",
+    multiChipTitle: "All Chips (P300Cx2)",
+    multiChipSubtitle: "4 × chips",
+    singleChipExamples: ["Llama-3.1-8B"],
+    multiChipExamples: ["Llama-3.3-70B", "Qwen3-32B"],
+  },
+};
+
+const DEFAULT_BOARD_LABELS = {
+  singleChipSubtitle: "N150 / N300",
+  multiChipTitle: "All Chips (T3K)",
+  multiChipSubtitle: "4 × chips",
+  singleChipExamples: ["Llama-3.1-8B", "Mistral-7B", "Qwen-2.5"],
+  multiChipExamples: ["Llama-3.1-70B", "DeepSeek-R1-70B", "FLUX.1"],
+};
+
 export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
   const { nextStep } = useStepper();
   const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
@@ -49,6 +77,9 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
     const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const boardLabels =
+    (chipStatus && BOARD_LABELS[chipStatus.board_type]) || DEFAULT_BOARD_LABELS;
 
   const handleModeSelect = (mode: "single" | "multi") => {
     setSelectedMode(mode);
@@ -118,7 +149,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
                 1 Chip
               </div>
               <div className="text-xs text-gray-500 font-mono">
-                N150 / N300
+                {boardLabels.singleChipSubtitle}
               </div>
             </div>
           </div>
@@ -126,7 +157,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
             Deploy on a single chip. Best for 8B–13B parameter models.
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
-            {["Llama-3.1-8B", "Mistral-7B", "Qwen-2.5"].map((tag) => (
+            {boardLabels.singleChipExamples.map((tag) => (
               <span
                 key={tag}
                 className="text-xs px-2 py-0.5 bg-gray-800 text-gray-400 rounded font-mono"
@@ -165,16 +196,18 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
               <div
                 className={`font-mono font-bold text-base ${selectedMode === "multi" ? "text-TT-purple" : "text-gray-200"}`}
               >
-                All Chips (T3K)
+                {boardLabels.multiChipTitle}
               </div>
-              <div className="text-xs text-gray-500 font-mono">4 × chips</div>
+              <div className="text-xs text-gray-500 font-mono">
+                {boardLabels.multiChipSubtitle}
+              </div>
             </div>
           </div>
           <p className="text-sm text-gray-400 leading-relaxed">
             Deploy across all 4 chips. Required for 70B+ large models.
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
-            {["Llama-3.1-70B", "DeepSeek-R1-70B", "FLUX.1"].map((tag) => (
+            {boardLabels.multiChipExamples.map((tag) => (
               <span
                 key={tag}
                 className="text-xs px-2 py-0.5 bg-gray-800 text-gray-400 rounded font-mono"

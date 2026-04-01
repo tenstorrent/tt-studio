@@ -28,6 +28,9 @@ export interface Model {
   chips_required?: number; // Number of chips required (1 or 4)
 }
 
+// QB2 (P300Cx2) uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
+const QB2_BOARD_TYPES = new Set(["P300Cx2"]);
+
 export default function StepperDemo() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -40,6 +43,10 @@ export default function StepperDemo() {
   } | null>(null);
   const [totalSlots, setTotalSlots] = useState<number | null>(null);
   const isMultiChipBoard = totalSlots !== null && totalSlots > 1;
+
+  // For QB2 boards, hide the hardware config step by default and show a toggle instead.
+  const isQB2 = chipStatus !== null && QB2_BOARD_TYPES.has(chipStatus.board_type);
+  const [showHardwareConfig, setShowHardwareConfig] = useState(false);
 
   // Fetch chip status on mount and poll every 7 minutes
   useEffect(() => {
@@ -60,7 +67,11 @@ export default function StepperDemo() {
     return () => clearInterval(interval);
   }, []);
 
-  const steps = isMultiChipBoard
+  // showHardwareConfig drives the 3-step flow only for non-QB2 multi-chip boards by default,
+  // or when the user explicitly enables it via the toggle on QB2.
+  const useHardwareConfigStep = isMultiChipBoard && (!isQB2 || showHardwareConfig);
+
+  const steps = useHardwareConfigStep
     ? [
         { label: "Step 1", description: "Hardware Configuration" },
         { label: "Step 2", description: "Model Selection" },
@@ -179,12 +190,17 @@ export default function StepperDemo() {
     const model_id = selectedModel || "0";
     const weights_id = ""; // Always use default weights
 
-    const payload = JSON.stringify({
+    // Only include device_id when explicitly provided — omitting it lets the backend
+    // auto-allocate the best slot (required for QB2 simplified flow).
+    const payloadObj: Record<string, unknown> = {
       model_id,
       weights_id,
-      device_id: options?.device_id ?? 0,
       host_port: options?.host_port ?? null,
-    });
+    };
+    if (options?.device_id !== undefined) {
+      payloadObj.device_id = options.device_id;
+    }
+    const payload = JSON.stringify(payloadObj);
 
     console.log("📦 Deploying with options:", { model_id, weights_id, ...options });
 
@@ -294,6 +310,38 @@ export default function StepperDemo() {
         hover
         className="h-auto py-4 px-8 md:px-12 lg:px-16"
       >
+        {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
+        {isQB2 && (
+          <div className="flex items-center justify-end gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
+            <span className="text-xs font-mono text-gray-500 select-none">
+              Advanced: Configure Hardware
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showHardwareConfig}
+              onClick={() => {
+                setShowHardwareConfig((v: boolean) => !v);
+                // Reset chip mode when toggling off
+                if (showHardwareConfig) setChipMode(null);
+              }}
+              className={`
+                relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent
+                transition-colors duration-200 focus:outline-none
+                ${showHardwareConfig ? "bg-TT-purple-accent" : "bg-gray-700"}
+              `}
+            >
+              <span
+                className={`
+                  pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform
+                  transition-transform duration-200
+                  ${showHardwareConfig ? "translate-x-4" : "translate-x-0"}
+                `}
+              />
+            </button>
+          </div>
+        )}
+
         <Stepper
           variant="circle-alt"
           initialStep={0}
@@ -307,8 +355,8 @@ export default function StepperDemo() {
               description={step.description}
               className="mb-4"
             >
-              {/* Multi-chip flow: Step 1 = Hardware Config */}
-              {isMultiChipBoard && step.label === "Step 1" && (
+              {/* Hardware config step — only in full multi-chip flow */}
+              {useHardwareConfigStep && step.label === "Step 1" && (
                 <ChipConfigStep
                   onConfirm={(mode, slotId) => {
                     setChipMode(mode);
@@ -316,8 +364,8 @@ export default function StepperDemo() {
                   }}
                 />
               )}
-              {/* Multi-chip flow: Step 2 = Model Selection (with chipMode filter) */}
-              {isMultiChipBoard && step.label === "Step 2" && (
+              {/* Model selection with chipMode filter — full multi-chip flow */}
+              {useHardwareConfigStep && step.label === "Step 2" && (
                 <FirstStepForm
                   setSelectedModel={(modelId: string) => {
                     console.log("🔄 setSelectedModel called with:", modelId);
@@ -330,8 +378,8 @@ export default function StepperDemo() {
                   chipMode={chipMode ?? undefined}
                 />
               )}
-              {/* Single-chip flow: Step 1 = Model Selection (no chipMode filter) */}
-              {!isMultiChipBoard && step.label === "Step 1" && (
+              {/* Model selection without chipMode filter — simplified flow (single-chip boards + QB2 default) */}
+              {!useHardwareConfigStep && step.label === "Step 1" && (
                 <FirstStepForm
                   setSelectedModel={(modelId: string) => {
                     console.log("🔄 setSelectedModel called with:", modelId);
@@ -343,12 +391,12 @@ export default function StepperDemo() {
                   isAutoDeploying={isAutoDeploying}
                 />
               )}
-              {/* Both flows: Final Step = Deploy */}
+              {/* Deploy step — pass selectedDeviceId only when hardware config was shown */}
               {step.label === "Final Step" && (
                 <DeployModelStep
                   selectedModel={selectedModel}
                   handleDeploy={handleDeploy}
-                  selectedDeviceId={isMultiChipBoard ? selectedDeviceId : undefined}
+                  selectedDeviceId={useHardwareConfigStep ? selectedDeviceId : undefined}
                 />
               )}
             </Step>

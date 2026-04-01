@@ -243,6 +243,9 @@ _CATALOG_DEVICE_MAP = {
     "P150X8": "P150X8",
     "GALAXY": "GALAXY",
     "GALAXY_T3K": "GALAXY_T3K",
+    # Blackhole P300 family
+    "P300c": "P300c",
+    "P300Cx2": "P300Cx2",
 }
 
 

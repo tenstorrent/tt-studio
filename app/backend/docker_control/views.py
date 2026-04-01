@@ -343,10 +343,14 @@ class DeployView(APIView):
                     device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                 else:
                     device = map_board_type_to_device_name(board_type)
+                # P300Cx2 (QB2): the inference server selects the physical chip from the
+                # p300x2 device itself — do not pass device_id so it is omitted from the
+                # run.py invocation entirely.
+                inference_device_id = None if board_type == "P300Cx2" else device_id
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
-                    device_id=device_id,
+                    device_id=inference_device_id,
                     service_port=service_port,
                     timeout_seconds=30,
                     skip_system_sw_validation=True,

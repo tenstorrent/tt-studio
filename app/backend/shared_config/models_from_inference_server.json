@@ -231,6 +231,7 @@
         "P150",
         "P150X4",
         "P150X8",
+        "P300c",
         "T3K"
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
@@ -262,6 +263,7 @@
         "GALAXY_T3K",
         "P150X4",
         "P150X8",
+        "P300Cx2",
         "T3K"
       ],
       "hf_model_id": "meta-llama/Llama-3.3-70B-Instruct",
@@ -378,6 +380,7 @@
         "GALAXY",
         "GALAXY_T3K",
         "P150X8",
+        "P300Cx2",
         "T3K"
       ],
       "hf_model_id": "Qwen/Qwen3-32B",
