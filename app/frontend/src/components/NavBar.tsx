@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useRef, useEffect, forwardRef } from "react";
+import React, { useState, useRef, useEffect, forwardRef, useMemo } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -9,7 +9,6 @@ import {
   Boxes,
   BotMessageSquare,
   Notebook,
-  FileText,
   Image,
   Eye,
   AudioLines,
@@ -295,6 +294,23 @@ export default function NavBar() {
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
+  // Voice agent requires all three model types: LLM/VLM, speech recognition (Whisper), and TTS
+  const isVoiceAgentReady = useMemo(() => {
+    const getType = (m: (typeof models)[number]) =>
+      m.model_type
+        ? getModelTypeFromBackendType(m.model_type)
+        : getModelTypeFromName(m.name, m.image);
+    const hasLlm = models.some((m) => {
+      const t = getType(m);
+      return t === ModelType.ChatModel || t === ModelType.VLM;
+    });
+    const hasStt = models.some(
+      (m) => getType(m) === ModelType.SpeechRecognitionModel
+    );
+    const hasTts = models.some((m) => getType(m) === ModelType.TTS);
+    return hasLlm && hasStt && hasTts;
+  }, [models]);
+
   // Check if we're in Chat UI or Image Generation mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
@@ -490,20 +506,18 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
-    {
-      type: "link",
-      to: "/logs",
-      icon: FileText,
-      label: "Logs",
-      tooltip: "View system logs",
-    },
-    {
-      type: "link",
-      to: "/voice-agent",
-      icon: Mic,
-      label: "Voice Agent",
-      tooltip: "Full conversational AI interface with voice chat",
-    },
+    // Voice Agent is only shown when all three voice-stack models are deployed
+    ...(isVoiceAgentReady
+      ? [
+          {
+            type: "link" as const,
+            to: "/voice-agent",
+            icon: Mic,
+            label: "Voice Agent",
+            tooltip: "Full conversational AI interface with voice chat",
+          },
+        ]
+      : []),
   ];
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
