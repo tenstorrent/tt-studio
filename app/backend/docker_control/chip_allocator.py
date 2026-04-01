@@ -310,6 +310,16 @@ class ChipSlotAllocator:
         Cross-references DB records against live Docker containers so that stale
         'running' records from previously stopped/crashed containers don't block
         new deployments.
+
+        For 'starting' records (CHAT models awaiting FastAPI completion):
+          - A background deployment_sync thread owns the starting->running
+            transition and typically completes within seconds.
+          - We trust 'starting' records that are less than 60 seconds old so
+            the allocator never blocks a slot during the brief launch window.
+          - Records older than 60 s are cross-referenced against Docker like
+            'running' records; if the container is gone the slot is freed.
+          - No per-request FastAPI calls are made here — that would add network
+            latency to every allocation and is redundant with the sync thread.
         """
         db_records = list(ModelDeployment.objects.filter(status__in=['starting', 'running']))
         if not db_records:
@@ -331,12 +341,12 @@ class ChipSlotAllocator:
             logger.warning(f"Could not query Docker for live containers; using DB records as-is: {e}")
             return db_records
 
-        _STARTING_GRACE_SECONDS = 10 * 60  # 10 minutes
-        _FASTAPI_BASE_URL = "http://172.18.0.1:8001"
-        _TERMINAL_JOB_STATUSES = {"error", "failed", "timeout", "cancelled", "not_found"}
+        # Short grace window for 'starting' records.  The deployment_sync
+        # thread transitions them to 'running' in seconds; 60 s is a generous
+        # buffer that still catches truly abandoned records quickly.
+        _STARTING_GRACE_SECONDS = 60
 
         from datetime import datetime as _dt
-        import requests as _requests
         now_utc = _dt.now(timezone.utc)
 
         def _mark_stopped(dep: ModelDeployment, reason: str) -> None:
@@ -344,44 +354,27 @@ class ChipSlotAllocator:
             try:
                 dep.status = "stopped"
                 dep.save()
-                logger.info(f"Auto-marked stale deployment {dep.container_id} ({dep.model_name}) as stopped: {reason}")
+                logger.info(
+                    f"Auto-marked stale deployment {dep.container_id} "
+                    f"({dep.model_name}) as stopped: {reason}"
+                )
             except Exception as upd_err:
-                logger.warning(f"Could not update stale deployment status for {dep.model_name}: {upd_err}")
-
-        def _is_fastapi_job_terminal(job_id: str) -> bool:
-            """
-            Query the FastAPI progress endpoint for a job_id.
-            Returns True if the job is in a terminal/unknown state (safe to clean up).
-            Returns False if the job is still active or FastAPI is unreachable.
-            """
-            try:
-                resp = _requests.get(f"{_FASTAPI_BASE_URL}/run/progress/{job_id}", timeout=3)
-                if resp.status_code == 200:
-                    job_status = resp.json().get("status", "")
-                    return job_status in _TERMINAL_JOB_STATUSES
-            except Exception:
-                pass
-            return False
+                logger.warning(
+                    f"Could not update stale deployment status for {dep.model_name}: {upd_err}"
+                )
 
         active = []
         for dep in db_records:
             if dep.status == "starting":
-                # Always check FastAPI first for 'starting' records — the container_id
-                # is a FastAPI job_id for CHAT models and can be verified immediately.
-                # If FastAPI confirms the job is terminal, clean up regardless of age.
-                if _is_fastapi_job_terminal(dep.container_id or ""):
-                    _mark_stopped(dep, "FastAPI job is in terminal state")
-                    continue
-
-                # FastAPI didn't confirm terminal (job still active, or unreachable).
-                # For recently-created records, trust them — the container may not be
-                # in Docker yet (e.g. non-CHAT models still launching).
+                # Trust recently-created records — the container may not be in
+                # Docker yet and the sync thread will handle the transition.
                 age = (now_utc - dep.deployed_at).total_seconds() if dep.deployed_at else 0
                 if age < _STARTING_GRACE_SECONDS:
                     active.append(dep)
                     continue
-                # Past grace period and FastAPI didn't confirm active — fall through
-                # to Docker check below as a final verification.
+                # Past the grace window — fall through to the Docker check.
+                # If the real Docker container is running (sync thread already
+                # updated container_id to the real one), it will be in live_ids.
 
             short = (dep.container_id or "")[:12]
             full = dep.container_id or ""

@@ -427,6 +427,12 @@ class ProgressHandler(logging.Handler):
     def __init__(self, job_id: str):
         super().__init__()
         self.job_id = job_id
+        # Record the thread that spawned this handler so we only capture
+        # log records emitted by that thread.  Multiple concurrent jobs share
+        # the same 'run_log' logger; without this filter every handler would
+        # receive every other job's messages and _extract_from_job_logs()
+        # would pick up the wrong container name.
+        self._owner_thread = threading.current_thread().ident
         
         # Initialize log store for this job
         with progress_lock:
@@ -434,6 +440,10 @@ class ProgressHandler(logging.Handler):
                 log_store[job_id] = deque(maxlen=MAX_LOG_MESSAGES)
         
     def emit(self, record):
+        # Ignore records from other job threads to prevent cross-contamination
+        # of log stores when multiple models are deployed concurrently.
+        if record.thread != self._owner_thread:
+            return
         message = record.getMessage()
         
         # Store raw log message
@@ -652,30 +662,39 @@ def create_deployment_log_handler(job_id: str, model: str, device: str):
     logger.info(f"Created per-deployment log file: {log_file_path}")
     return file_handler, log_file_path
 
+class _RunLogForwarder(logging.Handler):
+    """Module-level singleton handler that forwards run_log records to the
+    FastAPI logger.  Defined at module scope so isinstance() checks work
+    correctly across calls and only one instance is ever installed."""
+
+    def emit(self, record):
+        logger.info(f"[RUN.PY] {record.getMessage()}")
+
+
+_run_log_forwarder_installed: bool = False
+
+
 def setup_run_logging_to_fastapi():
-    """Configure run.py logging to also write to FastAPI logger"""
-    # Get the run_log logger that run.py uses
+    """Install the run_log → FastAPI forwarder exactly once per process.
+
+    Previous implementation defined FastAPIHandler inside the function body,
+    which gave every call a *new* class object.  The isinstance-based dedup
+    check therefore never matched, so a fresh handler was appended for every
+    concurrent job — causing log lines to be emitted N times after N jobs.
+    Using a module-level class fixes isinstance() and the global flag prevents
+    any double-installation race.
+    """
+    global _run_log_forwarder_installed
+    if _run_log_forwarder_installed:
+        return
     run_logger = logging.getLogger("run_log")
-    
-    # Create a custom handler that forwards to FastAPI logger
-    class FastAPIHandler(logging.Handler):
-        def emit(self, record):
-            # Forward the log record to FastAPI logger
-            logger.info(f"[RUN.PY] {record.getMessage()}")
-    
-    # Add the FastAPI handler to run_logger
-    fastapi_handler = FastAPIHandler()
-    fastapi_handler.setLevel(logging.DEBUG)  # Capture DEBUG messages too
-    
-    # Check if this handler is already added to avoid duplicates
-    handler_exists = any(isinstance(h, type(fastapi_handler)) and 
-                        hasattr(h, 'emit') and 
-                        h.emit.__func__ == fastapi_handler.emit.__func__ 
-                        for h in run_logger.handlers)
-    
-    if not handler_exists:
-        run_logger.addHandler(fastapi_handler)
+    # Guard against duplicate installation even if the flag races
+    if not any(isinstance(h, _RunLogForwarder) for h in run_logger.handlers):
+        handler = _RunLogForwarder()
+        handler.setLevel(logging.DEBUG)
+        run_logger.addHandler(handler)
         logger.info("Added FastAPI logging handler to run_log logger")
+    _run_log_forwarder_installed = True
 
 @app.get("/")
 async def root():
