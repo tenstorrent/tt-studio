@@ -13,12 +13,6 @@ import {
   Zap,
   FlaskConical,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
 
 import {
   Select,
@@ -70,14 +64,14 @@ const STATUS_CONFIG = {
 
 // Model type configuration for grouping by inference server type
 const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
-  LLM:            { label: "LLM Models",       order: 1 },
-  VLM:            { label: "VLM Models",        order: 2 },
-  VIDEO:          { label: "Video Models",      order: 3 },
-  IMAGE:          { label: "Image Models",      order: 4 },
-  AUDIO:          { label: "Audio Models",      order: 5 },
-  TEXT_TO_SPEECH: { label: "TTS Models",        order: 6 },
-  EMBEDDING:      { label: "Embedding Models",  order: 7 },
-  CNN:            { label: "CNN Models",         order: 8 },
+  LLM: { label: "LLM Models", order: 1 },
+  VLM: { label: "VLM Models", order: 2 },
+  VIDEO: { label: "Video Models", order: 3 },
+  IMAGE: { label: "Image Models", order: 4 },
+  AUDIO: { label: "Audio Models", order: 5 },
+  TEXT_TO_SPEECH: { label: "TTS Models", order: 6 },
+  EMBEDDING: { label: "Embedding Models", order: 7 },
+  CNN: { label: "CNN Models", order: 8 },
 };
 
 const FirstFormSchema = z.object({
@@ -262,17 +256,18 @@ export function FirstStepForm({
     EXPERIMENTAL: 1,
   };
 
-  // Filter models by chip mode
-  const filteredModels = chipMode
+  // Filter models by chip mode, and exclude incompatible models entirely
+  const filteredModels = (chipMode
     ? models.filter((m) =>
-        chipMode === "single"
-          ? (m.chips_required ?? 1) === 1
-          : (m.chips_required ?? 1) > 1
-      )
-    : models;
+      chipMode === "single"
+        ? (m.chips_required ?? 1) === 1
+        : (m.chips_required ?? 1) > 1
+    )
+    : models
+  ).filter((m) => m.is_compatible !== false);
 
   // Group models by display type, then by status, then by hardware compatibility
-  type CompatibilityGroup = { compatible: Model[]; incompatible: Model[]; unknown: Model[] };
+  type CompatibilityGroup = { compatible: Model[]; unknown: Model[] };
   const groupModelsByType = () => {
     const grouped: Record<string, Record<string, CompatibilityGroup>> = {};
 
@@ -282,12 +277,10 @@ export function FirstStepForm({
 
       if (!grouped[displayType]) grouped[displayType] = {};
       if (!grouped[displayType][modelStatus])
-        grouped[displayType][modelStatus] = { compatible: [], incompatible: [], unknown: [] };
+        grouped[displayType][modelStatus] = { compatible: [], unknown: [] };
 
       if (model.is_compatible === true) {
         grouped[displayType][modelStatus].compatible.push(model);
-      } else if (model.is_compatible === false) {
-        grouped[displayType][modelStatus].incompatible.push(model);
       } else {
         grouped[displayType][modelStatus].unknown.push(model);
       }
@@ -400,7 +393,6 @@ export function FirstStepForm({
                                 STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
                               const hasModels =
                                 modelsByCompatibility.compatible.length +
-                                modelsByCompatibility.incompatible.length +
                                 modelsByCompatibility.unknown.length > 0;
 
                               if (!hasModels) return null;
@@ -427,26 +419,10 @@ export function FirstStepForm({
                                       <div className="flex items-center w-full">
                                         <span className="text-green-500 mr-2 text-xs">●</span>
                                         <span className="flex-1">{model.name}</span>
-                                        <span className="text-xs text-green-600 ml-2">Compatible</span>
                                       </div>
                                     </SelectItem>
                                   ))}
 
-                                  {/* Incompatible Models */}
-                                  {modelsByCompatibility.incompatible.map((model: Model) => (
-                                    <SelectItem
-                                      key={model.id}
-                                      value={model.name}
-                                      disabled={true}
-                                      className="pl-8 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                                    >
-                                      <div className="flex items-center w-full">
-                                        <span className="text-red-500 mr-2 text-xs">●</span>
-                                        <span className="text-gray-500 flex-1">{model.name}</span>
-                                        <span className="text-xs text-red-500 ml-2">Incompatible</span>
-                                      </div>
-                                    </SelectItem>
-                                  ))}
 
                                   {/* Unknown Compatibility Models */}
                                   {modelsByCompatibility.unknown.map((model: Model) => (
@@ -458,7 +434,6 @@ export function FirstStepForm({
                                       <div className="flex items-center w-full">
                                         <span className="text-yellow-500 mr-2 text-xs">●</span>
                                         <span className="flex-1">{model.name}</span>
-                                        <span className="text-xs text-yellow-600 ml-2">Unknown</span>
                                       </div>
                                     </SelectItem>
                                   ))}
@@ -521,88 +496,6 @@ export function FirstStepForm({
                       )}
                     </div>
                   </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-gray-600 dark:text-gray-300">
-                            Board compatibility:
-                          </span>
-                          <div className="flex items-center gap-4">
-                            <span className="flex items-center gap-1">
-                              <span className="text-green-500 text-xs">●</span>
-                              <span className="text-gray-700 dark:text-gray-200">
-                                {
-                                  filteredModels.filter(
-                                    (model) => model.is_compatible === true
-                                  ).length
-                                }{" "}
-                                compatible
-                              </span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="text-red-500 text-xs">●</span>
-                              <span className="text-gray-700 dark:text-gray-200">
-                                {
-                                  filteredModels.filter(
-                                    (model) => model.is_compatible === false
-                                  ).length
-                                }{" "}
-                                incompatible
-                              </span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="text-yellow-500 text-xs">●</span>
-                              <span className="text-gray-700 dark:text-gray-200">
-                                {
-                                  filteredModels.filter(
-                                    (model) => model.is_compatible === null
-                                  ).length
-                                }{" "}
-                                unknown
-                              </span>
-                            </span>
-                          </div>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="bottom"
-                        align="start"
-                        sideOffset={4}
-                        className="max-w-sm text-xs text-left leading-relaxed"
-                      >
-                        <div className="font-semibold mb-1">
-                          Board Compatibility
-                        </div>
-                        {chipMode === "single" && displayBoard !== currentBoard && (
-                          <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-blue-700 dark:text-blue-300">
-                            <strong>Single-chip mode:</strong> Models shown are compatible with individual {displayBoard} chips on your {currentBoard} board.
-                          </div>
-                        )}
-                        <div>
-                          <span className="text-green-500 font-bold">
-                            Compatible
-                          </span>
-                          <span>: Model will run on your detected board.</span>
-                        </div>
-                        <div>
-                          <span className="text-red-500 font-bold">
-                            Incompatible
-                          </span>
-                          <span>: Model will not run on your board.</span>
-                        </div>
-                        <div>
-                          <span className="text-yellow-500 font-bold">
-                            Unknown
-                          </span>
-                          <span>
-                            : Board detection failed; compatibility cannot be
-                            determined.
-                          </span>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </div>
               )}
 
@@ -614,7 +507,7 @@ export function FirstStepForm({
         />
         <StepperFormActions
           form={form}
-          removeDynamicSteps={() => {}}
+          removeDynamicSteps={() => { }}
           isSubmitting={isSubmitting}
         />
       </form>
