@@ -12,6 +12,7 @@ Manages automatic chip slot allocation based on:
 """
 
 import threading
+from datetime import timezone
 from typing import Dict, List, Optional, Set
 
 from shared_config.logger_config import get_logger
@@ -304,12 +305,93 @@ class ChipSlotAllocator:
 
     def _get_active_deployments(self) -> List[ModelDeployment]:
         """
-        Get list of active deployments (starting or running status).
+        Get list of active deployments whose containers are actually running in Docker.
 
-        Returns:
-            List of ModelDeployment objects
+        Cross-references DB records against live Docker containers so that stale
+        'running' records from previously stopped/crashed containers don't block
+        new deployments.
         """
-        return list(ModelDeployment.objects.filter(status__in=['starting', 'running']))
+        db_records = list(ModelDeployment.objects.filter(status__in=['starting', 'running']))
+        if not db_records:
+            return []
+
+        # Get the set of currently running container IDs from Docker
+        try:
+            from docker_control.docker_control_client import get_docker_client
+            client = get_docker_client()
+            response = client.list_containers(all=False)
+            containers_list = response.get("containers", []) if isinstance(response, dict) else (response or [])
+            live_ids: Set[str] = set()
+            for c in containers_list:
+                cid = c.get("id") or c.get("Id") or ""
+                if cid:
+                    live_ids.add(cid[:12])  # short ID
+                    live_ids.add(cid)       # full ID
+        except Exception as e:
+            logger.warning(f"Could not query Docker for live containers; using DB records as-is: {e}")
+            return db_records
+
+        _STARTING_GRACE_SECONDS = 10 * 60  # 10 minutes
+        _FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+        _TERMINAL_JOB_STATUSES = {"error", "failed", "timeout", "cancelled", "not_found"}
+
+        from datetime import datetime as _dt
+        import requests as _requests
+        now_utc = _dt.now(timezone.utc)
+
+        def _mark_stopped(dep: ModelDeployment, reason: str) -> None:
+            """Mark a deployment as stopped in-place so the slot is freed."""
+            try:
+                dep.status = "stopped"
+                dep.save()
+                logger.info(f"Auto-marked stale deployment {dep.container_id} ({dep.model_name}) as stopped: {reason}")
+            except Exception as upd_err:
+                logger.warning(f"Could not update stale deployment status for {dep.model_name}: {upd_err}")
+
+        def _is_fastapi_job_terminal(job_id: str) -> bool:
+            """
+            Query the FastAPI progress endpoint for a job_id.
+            Returns True if the job is in a terminal/unknown state (safe to clean up).
+            Returns False if the job is still active or FastAPI is unreachable.
+            """
+            try:
+                resp = _requests.get(f"{_FASTAPI_BASE_URL}/run/progress/{job_id}", timeout=3)
+                if resp.status_code == 200:
+                    job_status = resp.json().get("status", "")
+                    return job_status in _TERMINAL_JOB_STATUSES
+            except Exception:
+                pass
+            return False
+
+        active = []
+        for dep in db_records:
+            if dep.status == "starting":
+                # Always check FastAPI first for 'starting' records — the container_id
+                # is a FastAPI job_id for CHAT models and can be verified immediately.
+                # If FastAPI confirms the job is terminal, clean up regardless of age.
+                if _is_fastapi_job_terminal(dep.container_id or ""):
+                    _mark_stopped(dep, "FastAPI job is in terminal state")
+                    continue
+
+                # FastAPI didn't confirm terminal (job still active, or unreachable).
+                # For recently-created records, trust them — the container may not be
+                # in Docker yet (e.g. non-CHAT models still launching).
+                age = (now_utc - dep.deployed_at).total_seconds() if dep.deployed_at else 0
+                if age < _STARTING_GRACE_SECONDS:
+                    active.append(dep)
+                    continue
+                # Past grace period and FastAPI didn't confirm active — fall through
+                # to Docker check below as a final verification.
+
+            short = (dep.container_id or "")[:12]
+            full = dep.container_id or ""
+            if short in live_ids or full in live_ids:
+                active.append(dep)
+            else:
+                # Container is gone — free the slot immediately.
+                _mark_stopped(dep, "container not found in Docker")
+
+        return active
 
     def _get_occupied_slots(self) -> Set[int]:
         """
