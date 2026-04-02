@@ -38,6 +38,7 @@ interface SettingsProps {
     systemPrompt: string;
   };
   onSettingsChange: (key: string, value: number | boolean | string) => void;
+  defaultSystemPrompt: string;
 }
 
 // Parameter validation ranges
@@ -217,6 +218,7 @@ export default function Settings({
   onClose,
   settings,
   onSettingsChange,
+  defaultSystemPrompt,
 }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
@@ -286,10 +288,26 @@ export default function Settings({
                   </TooltipProvider>
                 </div>
               </div>
+              {/* Active prompt status */}
+              {settings.systemPrompt ? (
+                <div className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md bg-[#7C68FA]/10 text-[#7C68FA] w-fit">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#7C68FA] inline-block" />
+                  Custom override active
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Active (auto-generated):
+                  </p>
+                  <p className="text-xs font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded px-2 py-1.5 break-words">
+                    {defaultSystemPrompt}
+                  </p>
+                </div>
+              )}
               <textarea
                 value={settings.systemPrompt}
                 onChange={(e) => onSettingsChange("systemPrompt", e.target.value)}
-                placeholder="You are a helpful assistant..."
+                placeholder="Leave blank to use auto-generated prompt above…"
                 rows={4}
                 className="w-full rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#7C68FA] resize-y"
               />
@@ -318,7 +336,7 @@ export default function Settings({
                 })}
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Custom instructions that define how the model should behave
+                Custom instructions fully replace the auto-generated prompt
               </p>
             </div>
 
