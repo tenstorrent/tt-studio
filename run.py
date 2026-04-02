@@ -48,6 +48,8 @@ except ImportError:
     import urllib.request
     HAS_REQUESTS = False
 
+from venv_utils import recreate_venv_if_stale, print_manual_fix_steps
+
 # --- Color Definitions ---
 C_RESET = '\033[0m'
 C_RED = '\033[0;31m'
@@ -3006,12 +3008,13 @@ def setup_fastapi_environment():
             print(f"{C_RED}⛔ Error: requirements.txt not found{C_RESET}")
             return False
 
-        # Create virtual environment if it doesn't exist
-        if not os.path.exists(".venv"):
+        # Create virtual environment if it doesn't exist or is stale (e.g. repo moved)
+        if not os.path.exists(".venv") or recreate_venv_if_stale(".venv", C_YELLOW, C_RESET):
             try:
                 run_command(["python3", "-m", "venv", ".venv"], check=True, capture_output=True)
             except (subprocess.CalledProcessError, SystemExit) as e:
                 print(f"{C_RED}⛔ Failed to create virtual environment: {e}{C_RESET}")
+                print_manual_fix_steps(INFERENCE_API_DIR, "requirements.txt", C_YELLOW, C_RESET)
                 return False
 
         venv_pip = ".venv/bin/pip"
@@ -3324,7 +3327,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
         venv_python = os.path.join(venv_dir, "Scripts", "python.exe")
 
     # Create virtual environment and install dependencies if needed
-    if not os.path.exists(venv_dir):
+    if not os.path.exists(venv_dir) or recreate_venv_if_stale(venv_dir, C_YELLOW, C_RESET):
         try:
             subprocess.run(
                 ["python3", "-m", "venv", ".venv"],
@@ -3333,6 +3336,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
             )
         except Exception as e:
             print(f"{C_RED}⛔ Error creating virtual environment: {e}{C_RESET}")
+            print_manual_fix_steps(DOCKER_CONTROL_SERVICE_DIR, "requirements-api.txt", C_YELLOW, C_RESET)
             return False
 
     # Check if requirements are installed
