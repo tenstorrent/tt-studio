@@ -2,6 +2,7 @@
 #
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
+import json
 import os
 from dataclasses import dataclass, asdict
 from typing import Set, Dict, Any, Union
@@ -10,7 +11,6 @@ from pathlib import Path
 from shared_config.device_config import DeviceConfigurations
 from shared_config.backend_config import backend_config
 from shared_config.setup_config import SetupTypes
-from shared_config.model_type_config import ModelTypes
 from shared_config.model_type_config import ModelTypes
 from shared_config.logger_config import get_logger
 
@@ -62,6 +62,8 @@ class ModelImpl:
     service_port: int = 7000
     env_file: str = ""
     health_route: str = "/health"
+    display_model_type: str = "LLM"
+    inference_engine: str = "vllm"
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -168,8 +170,14 @@ class ModelImpl:
         # use type=volume for persistent storage with a Docker managed named volume
         # target: this should be set to same location as the CACHE_ROOT environment var
         host_hugepages_path = "/dev/hugepages-1G"
+
+        # Ensure host_path exists with proper permissions before Docker creates it as root
+        host_path = self.host_path
+        if not host_path.exists():
+            host_path.mkdir(parents=True, exist_ok=True, mode=0o777)
+
         volume_mounts = {
-            self.host_path: {
+            host_path: {
                 "bind": backend_config.model_container_cache_root,
                 "mode": "rw",
             },
@@ -216,54 +224,126 @@ def base_docker_config():
     }
 
 
-# model_ids are unique strings to define a model, they could be uuids but
-# using friendly strings prefixed with id_ is more helpful for debugging
+# ---------------------------------------------------------------------------
+# JSON-based model loader
+# ---------------------------------------------------------------------------
 
-# Helper device configuration sets for easier management
-N150_N300 = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML}
-ALL_BOARDS = {DeviceConfigurations.N150, DeviceConfigurations.N150_WH_ARCH_YAML, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML, DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
-T3000_ONLY = {DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML}
+CATALOG_JSON = Path(__file__).parent / "models_from_inference_server.json"
 
-model_implmentations_list = [
-    # Speech Recognition - Can run on N150 and N300
+# device_type strings in the catalog → DeviceConfigurations member names
+# (only names that actually exist in the enum; others are skipped)
+_CATALOG_DEVICE_MAP = {
+    "N150": "N150",
+    "N300": "N300",
+    "T3K": "T3K",
+    "N150X4": "N150X4",
+    "P100": "P100",
+    "P150": "P150",
+    "P150X4": "P150X4",
+    "P150X8": "P150X8",
+    "GALAXY": "GALAXY",
+    "GALAXY_T3K": "GALAXY_T3K",
+    # Blackhole P300 family
+    "P300c": "P300c",
+    "P300Cx2": "P300Cx2",
+}
+
+
+def load_model_implementations_from_json(json_path: Path) -> list:
+    with open(json_path) as f:
+        catalog = json.load(f)
+    impls = []
+    for entry in catalog["models"]:
+        docker_image = entry.get("docker_image") or ""
+        if ":" in docker_image:
+            image_name, image_tag = docker_image.rsplit(":", 1)
+        else:
+            image_name, image_tag = docker_image, "latest"
+
+        device_configs = {
+            DeviceConfigurations[_CATALOG_DEVICE_MAP[d]]
+            for d in entry.get("device_configurations", [])
+            if d in _CATALOG_DEVICE_MAP
+        }
+
+        try:
+            model_type = ModelTypes[entry["model_type"]]
+        except KeyError:
+            model_type = ModelTypes.CHAT
+
+        try:
+            setup_type = SetupTypes[entry["setup_type"]]
+        except KeyError:
+            setup_type = SetupTypes.TT_INFERENCE_SERVER
+
+        cfg = base_docker_config()
+        cfg["environment"].update(entry.get("env_vars") or {})
+
+        impl = ModelImpl(
+            model_name=entry["model_name"],
+            hf_model_id=entry.get("hf_model_id"),
+            image_name=image_name,
+            image_tag=image_tag,
+            device_configurations=device_configs,
+            docker_config=cfg,
+            service_route=entry["service_route"],
+            health_route=entry.get("health_route", "/health"),
+            setup_type=setup_type,
+            model_type=model_type,
+            version=entry.get("version", "0.0.1"),
+            shm_size=entry.get("shm_size", "32G"),
+            display_model_type=entry.get("display_model_type", "LLM"),
+            inference_engine=entry.get("inference_engine", "vllm"),
+        )
+        impls.append(impl)
+    return impls
+
+
+# ---------------------------------------------------------------------------
+# Hardcoded models NOT present in tt-inference-server catalog
+# ---------------------------------------------------------------------------
+
+_ALL_WH_BOARDS = {
+    DeviceConfigurations.N150,
+    DeviceConfigurations.N150_WH_ARCH_YAML,
+    DeviceConfigurations.N300,
+    DeviceConfigurations.N300_WH_ARCH_YAML,
+    DeviceConfigurations.N300x4,
+    DeviceConfigurations.N300x4_WH_ARCH_YAML,
+}
+
+# All supported boards including Blackhole - for models that run on any hardware
+_ALL_BOARDS = _ALL_WH_BOARDS | {
+    DeviceConfigurations.E150,
+    DeviceConfigurations.P100,
+    DeviceConfigurations.P150,
+    DeviceConfigurations.P150X4,
+    DeviceConfigurations.P150X8,
+}
+
+_hardcoded_impls = [
+    # Object Detection - legacy YOLOv4 (not in tt-inference-server catalog)
     ModelImpl(
-        model_name="Whisper-Distil-Large-v3",
-        model_id="id_whisper_distil_large_v3_v0.1.0",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-whisper-distil-large-v3-dev",
-        image_tag="v0.0.1-tt-metal-1a1a9e2bb102",
-        device_configurations=ALL_BOARDS,  # Can run on N150 and N300
+        model_name="YOLOv4",
+        model_id="id_yolov4v0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
+        image_tag="v0.0.1-tt-metal-65d246482b3f",
+        device_configurations=_ALL_WH_BOARDS,
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
-        service_route="/inference",
-        health_route="/",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.SPEECH_RECOGNITION,
+        service_route="/objdetection_v2",
+        setup_type=SetupTypes.NO_SETUP,
+        model_type=ModelTypes.OBJECT_DETECTION,
+        display_model_type="CNN",
     ),
-    # TODO: add this model back in when its in tt-inference-server-main branch
-    # Image Generation - Can run on N150 and N300
-    # ModelImpl(
-    #     model_name="Stable-Diffusion-3.5-medium",
-    #     model_id="id_stable_diffusion_3.5_mediumv0.1.0",
-    #     image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-3.5-src-base",
-    #     image_tag="v0.0.1-tt-metal-a0560feb3eed",
-    #     device_configurations=ALL_BOARDS,  # Can run on N150 and N300
-    #     docker_config=base_docker_config(),
-    #     shm_size="32G",
-    #     service_port=7000,
-    #     service_route="/enqueue",
-    #     health_route="/",
-    #     setup_type=SetupTypes.TT_INFERENCE_SERVER,
-    #     model_type=ModelTypes.IMAGE_GENERATION,
-    # ),
-
-    # Image Generation - Can run on N150 and N300
+    # Legacy Stable-Diffusion-1.4 (not in tt-inference-server catalog)
     ModelImpl(
         model_name="Stable-Diffusion-1.4",
         model_id="id_stable_diffusionv0.1.0",
         image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-stable-diffusion-1.4-src-base",
         image_tag="v0.0.1-tt-metal-cc8b4e1dac99",
-        device_configurations=ALL_BOARDS,  # Can run on N150 and N300
+        device_configurations=_ALL_WH_BOARDS,
         docker_config=base_docker_config(),
         shm_size="32G",
         service_port=7000,
@@ -271,148 +351,112 @@ model_implmentations_list = [
         health_route="/",
         setup_type=SetupTypes.TT_INFERENCE_SERVER,
         model_type=ModelTypes.IMAGE_GENERATION,
+        display_model_type="IMAGE",
     ),
-
-    # Object Detection - Can run on all boards
+    # Face Recognition - YuNet (detection) + SFace (recognition) on Tenstorrent
     ModelImpl(
-        model_name="YOLOv4",
-        model_id="id_yolov4v0.0.1",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/tt-metal-yolov4-src-base",
-        image_tag="v0.0.1-tt-metal-65d246482b3f",
-        device_configurations=ALL_BOARDS,  # Can run on all boards
+        model_name="Face-Recognition",
+        model_id="id_face_recognition_v0.0.1",
+        image_name="ghcr.io/tenstorrent/tt-inference-server/face-recognition-docker-ttstudio",
+        image_tag="latest",
+        device_configurations=_ALL_BOARDS,
         docker_config=base_docker_config(),
         shm_size="32G",
-        service_port=7000,
-        service_route="/objdetection_v2",
+        service_port=7070,
+        service_route="/recognize-face",
+        health_route="/health",
         setup_type=SetupTypes.NO_SETUP,
-        model_type=ModelTypes.OBJECT_DETECTION
+        model_type=ModelTypes.FACE_RECOGNITION,
+        display_model_type="CNN",
     ),
-
-    # Mock Chat 
-    # TODO: currently not working.
-    # remove this model for now until its in tt-inference-server-main branch
-    #  TODO: add / make a new mock model
-    # ModelImpl(
-    #     hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
-    #     model_name="Mock-Llama-3.1-70B-Instruct",
-    #     model_id="id_mock_vllm_modelv0.0.1",
-    #     image_name="ghcr.io/tenstorrent/tt-inference-server/mock.vllm.openai.api",
-    #     image_tag="v0.0.1-tt-metal-385904186f81-384f1790c3be",
-    #     device_configurations={DeviceConfigurations.CPU},
-    #     docker_config=base_docker_config(),
-    #     shm_size="1G",
-    #     service_port=7000,
-    #     service_route="/v1/chat/completions",
-    #     setup_type=SetupTypes.MAKE_VOLUMES,
-    #     model_type=ModelTypes.MOCK
-    # ),
-
-    # --- Chat Models ---
-
-    # 1B, 3B, 8B, 11B models - Can run on all boards
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.2-1B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=ALL_BOARDS,  # Can run on all boards
-        docker_config=base_docker_config(),
-        service_route="/v1/chat/completions",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
-
-    ),
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.2-3B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=ALL_BOARDS,  # Can run on all boards
-        docker_config=base_docker_config(),
-        service_route="/v1/chat/completions",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
-  
-    ),
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.1-8B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=ALL_BOARDS | {DeviceConfigurations.P300Cx2},
-        docker_config=base_docker_config(),
-        service_route="/v1/chat/completions",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
-
-    ),
-    # TODO: add this model back in when its in tt-inference-server-main branch
-    # ModelImpl(
-    #     hf_model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
-    #     image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-    #     image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-    #     device_configurations=ALL_BOARDS,  # Can run on all boards
-    #     docker_config=base_docker_config(),
-    #     service_route="/v1/chat/completions",
-    #     setup_type=SetupTypes.TT_INFERENCE_SERVER,
-    #     model_type=ModelTypes.CHAT
- 
-    # ),
-
-    # 32B models - T3000 and P300Cx2
-    ModelImpl(
-        hf_model_id="Qwen/Qwen3-32B",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations={DeviceConfigurations.N300x4, DeviceConfigurations.N300x4_WH_ARCH_YAML, DeviceConfigurations.P300Cx2},
-        docker_config=base_docker_config(),
-        service_route="/v1/chat/completions",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
-    ),
-
-    # 70B models - Only T3000
-
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=T3000_ONLY,  # Only T3000
-        docker_config=base_docker_config(),
-        shm_size="32G",
-        service_port=7000,
-        service_route="/v1/chat/completions",
-        env_file=os.environ.get("VLLM_LLAMA31_ENV_FILE"),
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
-    ),
-    # ModelImpl(
-    #     hf_model_id="meta-llama/Llama-3.1-70B-Instruct",
-    #     image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-    #     image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-    #     device_configurations=T3000_ONLY,  # Only T3000
-    #     docker_config=base_docker_config(),
-    #     service_route="/v1/chat/completions",
-    #     setup_type=SetupTypes.TT_INFERENCE_SERVER,
-    #     model_type=ModelTypes.CHAT
-    # ),
-    ModelImpl(
-        hf_model_id="meta-llama/Llama-3.3-70B-Instruct",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-20.04-amd64",
-        image_tag="0.0.4-v0.56.0-rc47-e2e0002ac7dc",
-        device_configurations=T3000_ONLY | {DeviceConfigurations.P300Cx2},
-        docker_config=base_docker_config(),
-        service_route="/v1/chat/completions",
-        setup_type=SetupTypes.TT_INFERENCE_SERVER,
-        model_type=ModelTypes.CHAT
-    ),
-    #! Add new model vLLM model implementations here
 ]
+
 
 def validate_model_implemenation_config(impl):
     # no / in model_id strings, model_id will be used in path names
-    assert not "/" in impl.model_id
+    assert "/" not in impl.model_id
 
 
-# build and validate the model_implmentations config
+# ---------------------------------------------------------------------------
+# Build final model_implmentations dict
+# ---------------------------------------------------------------------------
+
+_json_impls = load_model_implementations_from_json(CATALOG_JSON)
+
 model_implmentations = {}
-for impl in model_implmentations_list:
+for impl in _json_impls + _hardcoded_impls:
     validate_model_implemenation_config(impl)
     model_implmentations[impl.model_id] = impl
+
+
+# ---------------------------------------------------------------------------
+# Chip Requirement Inference
+# ---------------------------------------------------------------------------
+
+# Board type classifications for chip allocation
+SINGLE_CHIP_BOARDS_STR = {"N150", "N300", "E150", "P100", "P150", "P300c"}
+MULTI_CHIP_ONLY_BOARDS_STR = {
+    "T3K", "GALAXY", "GALAXY_T3K", "P150X4", "P150X8",
+    "N150X4", "N300x4", "P300Cx2", "P300Cx4"
+}
+
+
+def infer_chips_required(device_configurations: Set[DeviceConfigurations]) -> int:
+    """
+    Infer chip requirements from device_configurations set.
+
+    Logic:
+    - If model supports ANY single-chip board → requires 1 chip
+    - If model ONLY supports multi-chip boards → requires 4 chips
+    - Default to 1 chip for unknown configurations
+
+    Args:
+        device_configurations: Set of DeviceConfigurations enum values
+
+    Returns:
+        Number of chips required (1 or 4)
+
+    Examples:
+        Single-chip model (supports N150, N300, etc.):
+            infer_chips_required({DeviceConfigurations.N150, DeviceConfigurations.T3K}) → 1
+
+        Multi-chip only model (only T3K, Galaxy, P150X4):
+            infer_chips_required({DeviceConfigurations.T3K, DeviceConfigurations.GALAXY}) → 4
+    """
+    if not device_configurations:
+        return 1  # Default to single chip
+
+    # Convert DeviceConfigurations to string names for comparison
+    config_names = {cfg.name for cfg in device_configurations}
+
+    # If ANY single-chip board is supported → 1 chip
+    if config_names.intersection(SINGLE_CHIP_BOARDS_STR):
+        return 1
+
+    # If ONLY multi-chip boards supported → 4 chips
+    if config_names.intersection(MULTI_CHIP_ONLY_BOARDS_STR):
+        return 4
+
+    return 1  # Default to single chip for unknown boards
+
+
+def get_model_chip_requirement(model_name: str) -> int:
+    """
+    Get chip requirement for a specific model by name.
+
+    Searches through model_implmentations and infers chip requirement
+    based on device_configurations.
+
+    Args:
+        model_name: Name of the model (e.g., "Llama-3.1-70B-Instruct")
+
+    Returns:
+        Number of chips required (1 or 4)
+    """
+    for impl in model_implmentations.values():
+        if impl.model_name == model_name:
+            return infer_chips_required(impl.device_configurations)
+
+    # Model not found, default to 1 chip
+    logger.warning(f"Model {model_name} not found in model_implmentations, defaulting to 1 chip")
+    return 1

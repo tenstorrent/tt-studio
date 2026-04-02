@@ -76,6 +76,7 @@ export interface InferenceRequest {
   max_tokens?: number; // 1-2048, default 512
   top_p?: number; // 0-1, default 0.9
   top_k?: number; // 1-100, default 20
+  seed?: number; // 0 = random, >0 = reproducible
   stream_options?: {
     include_usage: boolean;
     continuous_usage_stats: boolean;

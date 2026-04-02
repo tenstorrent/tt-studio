@@ -16,15 +16,19 @@ logger = get_logger(__name__)
 
 class SystemResourceService:
     """Service for monitoring system resources and TT device telemetry"""
-    
+
     # Cache keys and timeout
     TT_SMI_CACHE_KEY = "tt_smi_data"
     TT_SMI_CACHE_TIMEOUT = 3600  # Cache for 1 hour (since we'll refresh on events only)
     BOARD_TYPE_CACHE_KEY = "board_type_data"
     BOARD_TYPE_CACHE_TIMEOUT = 3600  # Cache board type for 1 hour (since it rarely changes)
+
+    # Device state cache keys
+    DEVICE_STATE_CACHE_KEY = "device_state_v2"
+    DEVICE_RESETTING_KEY = "device_resetting"
     
     @staticmethod
-    def get_tt_smi_data(timeout=10):
+    def get_tt_smi_data(timeout=30):
         """Get raw tt-smi data with caching to reduce expensive calls"""
         # Check cache first
         cached_data = cache.get(SystemResourceService.TT_SMI_CACHE_KEY)
@@ -412,9 +416,245 @@ class SystemResourceService:
         # Clear the existing cache
         cache.delete(SystemResourceService.TT_SMI_CACHE_KEY)
         cache.delete(SystemResourceService.BOARD_TYPE_CACHE_KEY)
-        
+
         # Fetch fresh data
         SystemResourceService.get_tt_smi_data()
         SystemResourceService.get_board_type()
-        
-        logger.info("tt-smi cache refreshed successfully") 
+
+        logger.info("tt-smi cache refreshed successfully")
+
+    # -------------------------------------------------------------------------
+    # Device State Machine — single source of truth
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_board_type_from_data(data):
+        """Extract canonical board-type string from tt-smi JSON data."""
+        if not data or "device_info" not in data or not data["device_info"]:
+            return "unknown"
+
+        board_types = []
+        for info in data["device_info"]:
+            board_info = info.get("board_info", {})
+            board_types.append(board_info.get("board_type", "unknown"))
+
+        if not board_types:
+            return "unknown"
+
+        # Strip "local"/"remote" suffix if present
+        filtered = [bt.rsplit(" ", 1)[0] for bt in board_types]
+        unique = set(filtered)
+
+        if len(unique) > 1:
+            logger.warning(f"Mixed board types detected: {unique}")
+            return "unknown"
+
+        raw = unique.pop()
+        num_devices = len(data["device_info"])
+        raw_lower = raw.lower()
+
+        if "n150" in raw_lower:
+            return "N150X4" if num_devices >= 4 else "N150"
+        if "n300" in raw_lower:
+            return "T3K" if num_devices >= 4 else "N300"
+        if "p300" in raw_lower:
+            if num_devices >= 8:
+                return "P300Cx4"
+            if num_devices >= 4:
+                return "P300Cx2"
+            return "P300c"
+        if "p150" in raw_lower:
+            if num_devices >= 8:
+                return "P150X8"
+            if num_devices >= 4:
+                return "P150X4"
+            return "P150"
+        if "p100" in raw_lower:
+            return "P100"
+        if "e150" in raw_lower:
+            return "E150"
+        if "galaxy" in raw_lower:
+            return "GALAXY_T3K" if "t3k" in raw_lower else "GALAXY"
+
+        logger.warning(f"Unknown board type string: {raw!r}")
+        return "unknown"
+
+    @staticmethod
+    def _extract_devices_from_data(data):
+        """Extract device summary list from tt-smi JSON data."""
+        devices = []
+        if not data or "device_info" not in data:
+            return devices
+
+        for idx, device in enumerate(data["device_info"]):
+            board_info = device.get("board_info", {})
+            telemetry = device.get("telemetry", {})
+
+            def _f(v):
+                try:
+                    return float(v) if v is not None else 0.0
+                except (TypeError, ValueError):
+                    return 0.0
+
+            devices.append({
+                "index": idx,
+                "board_type": board_info.get("board_type", "Unknown"),
+                "bus_id": board_info.get("bus_id", "N/A"),
+                "temperature": _f(telemetry.get("asic_temperature")),
+                "power": _f(telemetry.get("power")),
+                "voltage": _f(telemetry.get("voltage")),
+            })
+        return devices
+
+    @staticmethod
+    def get_device_state():
+        """
+        Single authoritative device state resolver.
+
+        States:
+          HEALTHY     — tt-smi -s succeeded, devices visible
+          BAD_STATE   — /dev/tenstorrent present but tt-smi timed out / errored
+          RESETTING   — tt-smi -r is actively running
+          NOT_PRESENT — /dev/tenstorrent path does not exist
+          UNKNOWN     — can't determine (startup / tt-smi missing)
+        """
+        # RESETTING takes priority — check before cache
+        if cache.get(SystemResourceService.DEVICE_RESETTING_KEY):
+            return {
+                "state": "RESETTING",
+                "board_type": "unknown",
+                "board_name": "Resetting…",
+                "devices": [],
+                "last_updated": timezone.now().isoformat(),
+                "reset_suggested": False,
+            }
+
+        # Return cached result if still fresh
+        cached = cache.get(SystemResourceService.DEVICE_STATE_CACHE_KEY)
+        if cached is not None:
+            return cached
+
+        # Check physical device presence
+        if not os.path.exists("/dev/tenstorrent"):
+            result = {
+                "state": "NOT_PRESENT",
+                "board_type": "unknown",
+                "board_name": "Not Present",
+                "devices": [],
+                "last_updated": timezone.now().isoformat(),
+                "reset_suggested": False,
+            }
+            cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=15)
+            return result
+
+        # Try tt-smi -s with 30-second timeout (Docker cold-start can be slower than host)
+        try:
+            logger.info("Running tt-smi -s for device state check")
+            process = subprocess.Popen(
+                ["tt-smi", "-s"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                preexec_fn=os.setsid,
+            )
+
+            try:
+                stdout, stderr = process.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                logger.error("tt-smi -s timed out after 30s — board in BAD_STATE")
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                    process.wait(timeout=2)
+                except Exception:
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except Exception:
+                        pass
+                result = {
+                    "state": "BAD_STATE",
+                    "board_type": "unknown",
+                    "board_name": "Bad State",
+                    "devices": [],
+                    "last_updated": timezone.now().isoformat(),
+                    "reset_suggested": True,
+                }
+                cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10)
+                return result
+
+            if process.returncode != 0:
+                logger.error(f"tt-smi -s exit code {process.returncode}: {stderr.strip()!r}")
+                result = {
+                    "state": "BAD_STATE",
+                    "board_type": "unknown",
+                    "board_name": "Bad State",
+                    "devices": [],
+                    "last_updated": timezone.now().isoformat(),
+                    "reset_suggested": True,
+                }
+                cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10)
+                return result
+
+            try:
+                data = json.loads(stdout)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse tt-smi JSON: {e}")
+                result = {
+                    "state": "BAD_STATE",
+                    "board_type": "unknown",
+                    "board_name": "Bad State",
+                    "devices": [],
+                    "last_updated": timezone.now().isoformat(),
+                    "reset_suggested": True,
+                }
+                cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=10)
+                return result
+
+            board_type = SystemResourceService._extract_board_type_from_data(data)
+            devices = SystemResourceService._extract_devices_from_data(data)
+            result = {
+                "state": "HEALTHY",
+                "board_type": board_type,
+                "board_name": board_type,
+                "devices": devices,
+                "last_updated": timezone.now().isoformat(),
+                "reset_suggested": False,
+            }
+            cache.set(SystemResourceService.DEVICE_STATE_CACHE_KEY, result, timeout=30)
+            return result
+
+        except FileNotFoundError:
+            logger.error("tt-smi command not found")
+            # Don't cache UNKNOWN so each call re-checks (tt-smi may be installed later)
+            return {
+                "state": "UNKNOWN",
+                "board_type": "unknown",
+                "board_name": "Unknown",
+                "devices": [],
+                "last_updated": timezone.now().isoformat(),
+                "reset_suggested": False,
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error in get_device_state: {e}")
+            return {
+                "state": "UNKNOWN",
+                "board_type": "unknown",
+                "board_name": "Unknown",
+                "devices": [],
+                "last_updated": timezone.now().isoformat(),
+                "reset_suggested": False,
+            }
+
+    @staticmethod
+    def set_resetting_state():
+        """Mark the device as actively resetting (clears state cache)."""
+        cache.set(SystemResourceService.DEVICE_RESETTING_KEY, True, timeout=120)
+        cache.delete(SystemResourceService.DEVICE_STATE_CACHE_KEY)
+        logger.info("Device state set to RESETTING")
+
+    @staticmethod
+    def clear_device_state_cache():
+        """Clear device state cache and resetting flag after reset completes."""
+        cache.delete(SystemResourceService.DEVICE_STATE_CACHE_KEY)
+        cache.delete(SystemResourceService.DEVICE_RESETTING_KEY)
+        logger.info("Device state cache cleared")
