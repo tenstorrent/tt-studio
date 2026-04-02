@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -88,12 +88,26 @@ export function useLogStream(
         connectionEstablished();
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "log") {
-            setLogs((prev) => [...prev, data.message]);
-          } else if (data.type === "event") {
-            setEvents((prev) => [...prev, data.message]);
-          } else if (data.type === "metric") {
-            setMetrics((prev) => ({ ...prev, [data.name]: data.value }));
+          const msg = data.message;
+          switch (data.type) {
+            case "log":
+              setLogs((prev) => [...prev, msg]);
+              break;
+            case "event":
+              setEvents((prev) => [...prev, msg]);
+              break;
+            case "error":
+            case "warning":
+              // Errors and warnings appear in both logs and events
+              setLogs((prev) => [...prev, msg]);
+              setEvents((prev) => [...prev, msg]);
+              break;
+            case "metric":
+              setMetrics((prev) => ({ ...prev, [data.name]: data.value }));
+              break;
+            default:
+              setLogs((prev) => [...prev, msg]);
+              break;
           }
         } catch {
           setLogs((prev) => [...prev, event.data]);

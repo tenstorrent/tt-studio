@@ -25,6 +25,20 @@ class InferenceMetricsTracker:
         self.prompt_tokens: int = 0
         self.last_token_count: int = 0
 
+    def record_content_token(self) -> None:
+        """Record arrival of a single content token (from delta chunks)"""
+        current_time = time.time()
+        if self.first_token_time is None:
+            self.first_token_time = current_time
+        self.token_times.append(current_time)
+        self.num_tokens += 1
+        self.last_token_count = self.num_tokens
+
+    def set_prompt_tokens(self, prompt_tokens: int) -> None:
+        """Set prompt token count from usage data"""
+        if self.prompt_tokens == 0:
+            self.prompt_tokens = prompt_tokens
+
     def record_token(self, completion_tokens: int, prompt_tokens: int = 0) -> None:
         """
         Record token arrival from usage data

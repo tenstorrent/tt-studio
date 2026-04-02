@@ -34,7 +34,7 @@ RUN if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then \
     . "$HOME/.cargo/env" && \
     # Clone and install tt-smi
     mkdir -p /opt/tenstorrent-tools && \
-    git clone https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
+    git clone --branch v4.0.0 --depth 1 https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
     cd /opt/tenstorrent-tools/tt-smi && \
     pip3 install --upgrade pip && \
     pip3 install . && \

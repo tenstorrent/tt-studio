@@ -152,6 +152,11 @@ class DockerControlClient:
         response = self._request("POST", f"/api/v1/containers/{container_id}/remove", json=payload)
         return response.json()
 
+    def rename_container(self, container_id: str, new_name: str) -> Dict:
+        """Rename a container"""
+        response = self._request("POST", f"/api/v1/containers/{container_id}/rename", params={"new_name": new_name})
+        return response.json()
+
     def inspect_container(self, container_id: str) -> Dict:
         """Inspect a container (alias for get_container)"""
         return self.get_container(container_id)

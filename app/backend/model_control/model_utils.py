@@ -26,6 +26,53 @@ json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
 AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
 
+def messages_to_prompt(messages: list) -> str:
+    """Convert chat messages list to a plain text prompt for base/completion models."""
+    parts = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            parts.append(content)
+        elif role == "user":
+            parts.append(f"User: {content}")
+        elif role == "assistant":
+            parts.append(f"Assistant: {content}")
+    parts.append("Assistant:")
+    return "\n\n".join(parts)
+
+
+def get_model_name_from_container(internal_url: str, fallback: str) -> str:
+    """Query vLLM /v1/models to get the exact model name loaded in the container.
+
+    Args:
+        internal_url: Raw internal URL from deploy cache (e.g. "container:7000/v1/chat/completions")
+        fallback: Value to return if the query fails (typically hf_model_id)
+
+    Returns:
+        The actual model name reported by vLLM, or fallback on any error.
+    """
+    try:
+        # Strip the route path to get just host:port
+        # e.g. "container:7000/v1/chat/completions" -> "container:7000"
+        base = internal_url.split("/")[0]
+        models_url = f"http://{base}/v1/models"
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        response = requests.get(models_url, headers=headers, timeout=3)
+        if response.status_code == 200:
+            model_id = response.json()["data"][0]["id"]
+            logger.info(f"Resolved actual model name from /v1/models: {model_id}")
+            return model_id
+        else:
+            logger.warning(
+                f"GET {models_url} returned {response.status_code}, using fallback: {fallback}"
+            )
+            return fallback
+    except Exception as e:
+        logger.warning(f"Failed to query /v1/models ({e}), using fallback: {fallback}")
+        return fallback
+
+
 def get_deploy_cache():
     # the cache is initialized when by docker_control is imported
     def get_all_records():
@@ -45,12 +92,31 @@ def health_check(url, json_data, timeout=5):
     try:
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         response = requests.get(url, json=json_data, headers=headers, timeout=5)
-        response.raise_for_status()
+    except requests.exceptions.ConnectionError as e:
+        # Port not yet listening — container is still starting up
+        logger.info(f"Health check: connection refused (starting): {e}")
+        return None, str(e)
+    except requests.RequestException as e:
+        logger.error(f"Health check failed (network error): {str(e)}")
+        return False, str(e)
+
+    if response.status_code == 200:
         logger.info(f"Health check passed: {response.status_code}")
         return True, response.json() if response.content else {}
-    except requests.RequestException as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return False, str(e)
+
+    # 503 with "not ready" means model is still loading (media-server models)
+    if response.status_code == 503:
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        detail = body.get("detail", "")
+        if "not ready" in detail.lower():
+            logger.info(f"Health check: model not ready yet (starting): {detail}")
+            return None, detail
+
+    logger.error(f"Health check failed: {response.status_code} {response.text[:200]}")
+    return False, response.text[:200]
 
 def stream_response_from_agent_api(url, json_data):
     logger.info('[TRACE_FLOW_STEP_3_BACKEND_TO_AGENT] stream_response_from_agent_api called', extra={'url': url, 'json_data': json_data})
@@ -173,7 +239,7 @@ def stream_to_cloud_model(url, json_data):
         json_data["top_k"] = int(top_k) if top_k is not None else 20
         json_data["top_p"] = float(top_p) if top_p is not None else 0.9
         json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
-        json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
+        json_data["stream_options"] = {"include_usage": True}
 
         # Log final parameters being used
         logger.info("=== Final Model Parameters ===")
@@ -231,7 +297,7 @@ def stream_to_cloud_model(url, json_data):
                                     chunk_dict = json.loads(sub_chunk)
                                     logger.info(f"Successfully parsed JSON: {chunk_dict}")
 
-                                    usage = chunk_dict.get("usage", {})
+                                    usage = chunk_dict.get("usage") or {}
                                     completion_tokens = usage.get("completion_tokens", 0)
                                     prompt_tokens = usage.get("prompt_tokens", 0)
                                     logger.info(f"Usage info: {usage}, completion tokens: {completion_tokens}")
@@ -314,7 +380,14 @@ def stream_response_from_external_api(url, json_data):
     json_data["top_k"] = int(top_k) if top_k is not None else 20
     json_data["top_p"] = float(top_p) if top_p is not None else 0.9
     json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
-    json_data["stream_options"] = {"include_usage": True, "continuous_usage_stats": True}
+    json_data["stream_options"] = {"include_usage": True}
+
+    # Forward seed if provided (0 or absent means random)
+    seed = json_data.get("seed")
+    if seed is not None and int(seed) > 0:
+        json_data["seed"] = int(seed)
+    else:
+        json_data.pop("seed", None)
 
     # Log final parameters being used
     logger.info("=== Final Model Parameters ===")
@@ -322,6 +395,7 @@ def stream_response_from_external_api(url, json_data):
     logger.info(f"Top K: {json_data['top_k']} (type: {type(json_data['top_k'])})")
     logger.info(f"Top P: {json_data['top_p']} (type: {type(json_data['top_p'])})")
     logger.info(f"Max Tokens: {json_data['max_tokens']} (type: {type(json_data['max_tokens'])})")
+    logger.info(f"Seed: {json_data.get('seed', 'random')}")
     logger.info("=============================")
     # log the payload request
     logger.info(f"stream_response_from_external_api payload request:={json_data}")
@@ -366,23 +440,30 @@ def stream_response_from_external_api(url, json_data):
 
                     elif new_chunk != "":
                         chunk_dict = json.loads(new_chunk)
-                        usage = chunk_dict.get("usage", {})
-                        completion_tokens = usage.get("completion_tokens", 0)
-                        prompt_tokens = usage.get("prompt_tokens", 0)
 
-                        # Record token arrival using metrics tracker
-                        if completion_tokens > 0:
-                            tracker.record_token(
-                                completion_tokens=completion_tokens,
-                                prompt_tokens=prompt_tokens
-                            )
-                            logger.info(f"Recorded token: completion={completion_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+                        # Track TTFT/TPOT from content delta chunks (accurate per-token timing)
+                        choices = chunk_dict.get("choices") or []
+                        if choices:
+                            delta_content = choices[0].get("delta", {}).get("content", "")
+                            if delta_content:
+                                tracker.record_content_token()
+                                logger.info(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
+
+                        # Capture prompt_tokens from usage chunk at the end
+                        usage = chunk_dict.get("usage") or {}
+                        prompt_tokens = usage.get("prompt_tokens", 0)
+                        if prompt_tokens > 0:
+                            tracker.set_prompt_tokens(prompt_tokens)
 
                     # Yield the current chunk
                     yield chunk
 
             logger.info("stream_response_from_external done")
 
+    except requests.exceptions.HTTPError as e:
+        body = e.response.text if e.response is not None else "(no body)"
+        logger.error(f"HTTPError {e.response.status_code}: {body}")
+        yield f"error: {str(e)}"
     except requests.RequestException as e:
         logger.error(f"RequestException: {str(e)}")
         yield f"error: {str(e)}"
