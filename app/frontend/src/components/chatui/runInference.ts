@@ -356,6 +356,7 @@ export const runInference = async (
             const backendStats: InferenceStats = {
               user_ttft_s: jsonData.ttft,
               user_tpot: jsonData.tpot,
+              itl: Array.isArray(jsonData.itl) ? jsonData.itl.map((s: number) => s * 1000) : undefined,
               tokens_decoded: jsonData.tokens_decoded,
               tokens_prefilled: jsonData.tokens_prefilled,
               context_length: jsonData.context_length,
@@ -384,7 +385,7 @@ export const runInference = async (
 
           if (reasoning && !thinkingDone) {
             if (!t.firstToken) t.firstToken = performance.now();
-            metricsTracker.recordFirstToken();
+            metricsTracker.recordContentToken();
             thinkingText += reasoning;
             // Incomplete thinking block — no closing tag yet so StreamingMessage shows "Thinking..."
             accumulatedText = `<think>${thinkingText}${contentText}`;
@@ -398,7 +399,7 @@ export const runInference = async (
               thinkingDone = true; // close thinking block once content starts arriving
             }
             if (!t.firstToken) t.firstToken = performance.now();
-            metricsTracker.recordFirstToken();
+            metricsTracker.recordContentToken();
             contentText += content;
             accumulatedText = thinkingText
               ? `<think>${thinkingText}</think>${contentText}`

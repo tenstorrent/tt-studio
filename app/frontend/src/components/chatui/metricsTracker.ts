@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+//
+// Metrics measurement approach adapted from the vLLM project (Apache-2.0):
+// https://github.com/vllm-project/vllm/blob/main/vllm/benchmarks/lib/endpoint_request_func.py
+// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 /**
  * Metrics Tracker for Inference Performance
  *
- * This module provides a clean, structured way to track and measure
- * inference performance metrics including:
- * - Client-side TTFT (Time to First Token)
- * - Per-token timing measurements
- * - Network latency calculations
- * - Progressive statistics during streaming
+ * Tracks TTFT, ITL, and TPOT following vLLM's measurement approach:
+ * - TTFT: time from request start to first content chunk
+ * - ITL: list of intervals between consecutive content chunks (ms)
+ * - TPOT: mean of ITL
+ * - Network latency: client_ttft - backend_ttft
  */
 
 import type { TokenTimestamp, InferenceStats, ProgressiveStats } from "./types";
@@ -18,6 +21,8 @@ export class InferenceMetricsTracker {
   // Timing measurements
   private requestStartTime: number = 0;
   private firstTokenTime: number | undefined;
+  private mostRecentTokenTime: number | undefined;  // vLLM-style: advances per content chunk
+  private itl: number[] = [];                       // inter-token latencies in ms
   private tokenTimestamps: TokenTimestamp[] = [];
 
   // Token counters
@@ -33,18 +38,33 @@ export class InferenceMetricsTracker {
   reset(): void {
     this.requestStartTime = performance.now();
     this.firstTokenTime = undefined;
+    this.mostRecentTokenTime = undefined;
+    this.itl = [];
     this.tokenTimestamps = [];
     this.lastTokenCount = 0;
   }
 
   /**
-   * Record that the first content token has been received
+   * Record arrival of a content chunk, tracking ITL exactly as vLLM does.
+   * Call this once per content delta (reasoning or text) as it arrives.
+   */
+  recordContentToken(): void {
+    const now = performance.now();
+    if (!this.firstTokenTime) {
+      this.firstTokenTime = now;
+      console.log(`[Metrics] First token at ${(now - this.requestStartTime).toFixed(2)}ms`);
+    } else if (this.mostRecentTokenTime !== undefined) {
+      this.itl.push(now - this.mostRecentTokenTime);
+    }
+    this.mostRecentTokenTime = now;
+  }
+
+  /**
+   * Record that the first content token has been received.
+   * @deprecated Use recordContentToken() for accurate ITL tracking.
    */
   recordFirstToken(): void {
-    if (!this.firstTokenTime) {
-      this.firstTokenTime = performance.now();
-      console.log(`[Metrics] First token at ${(this.firstTokenTime - this.requestStartTime).toFixed(2)}ms`);
-    }
+    this.recordContentToken();
   }
 
   /**
@@ -97,7 +117,7 @@ export class InferenceMetricsTracker {
   }
 
   /**
-   * Finalize metrics and attach client-side measurements to backend stats
+   * Finalize metrics and attach client-side measurements to backend stats.
    * @param backendStats - Stats received from backend
    * @returns Enhanced stats with client-side measurements
    */
@@ -115,6 +135,12 @@ export class InferenceMetricsTracker {
       console.log(`[Metrics] Client TTFT: ${clientTtftMs.toFixed(2)}ms`);
       console.log(`[Metrics] Backend TTFT: ${backendTtftMs.toFixed(2)}ms`);
       console.log(`[Metrics] Network Latency: ${enhancedStats.network_latency_ms.toFixed(2)}ms`);
+    }
+
+    // Attach client-side ITL list (ms)
+    if (this.itl.length > 0) {
+      enhancedStats.itl = this.itl;
+      console.log(`[Metrics] ITL samples: ${this.itl.length}, mean: ${(this.itl.reduce((a, b) => a + b, 0) / this.itl.length).toFixed(2)}ms`);
     }
 
     // Attach token timestamps for per-token analysis

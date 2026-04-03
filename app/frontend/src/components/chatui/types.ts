@@ -128,6 +128,7 @@ export interface InferenceStats {
   client_ttft_ms?: number;        // Client-measured TTFT
   network_latency_ms?: number;    // Derived: client_ttft - backend_ttft
   token_timestamps?: TokenTimestamp[];  // Per-token timing data
+  itl?: number[];                 // Inter-token latencies in ms — vLLM-style ITL list
   tps?: number;                   // Tokens/sec — server-reported or client-calculated
   timing?: TimingInfo;
 }

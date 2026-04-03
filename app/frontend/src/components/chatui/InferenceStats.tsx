@@ -11,7 +11,6 @@ import {
   AlignJustify,
   FileText,
   Activity,
-  Network,
   Timer,
 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -151,17 +150,6 @@ export default function Component({
           unit: stats.client_ttft_ms ? "s" : "",
           isSmall: false,
         } as StatItem,
-        {
-          icon: (
-            <Network
-              className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
-            />
-          ),
-          value: stats.network_latency_ms !== undefined ? stats.network_latency_ms.toFixed(0) : "N/A",
-          label: "Network Latency",
-          unit: stats.network_latency_ms !== undefined ? "ms" : "",
-          isSmall: false,
-        } as StatItem,
       ],
     },
     {
@@ -255,9 +243,98 @@ export default function Component({
     }
   };
 
+  // --- Derived values for bar visualization ---
+  const ttftMs: number | null =
+    stats.client_ttft_ms != null
+      ? stats.client_ttft_ms
+      : stats.user_ttft_s != null
+        ? stats.user_ttft_s * 1000
+        : null;
+  const totalMs: number | null = stats.timing?.total ?? null;
+  const generationMs: number | null =
+    ttftMs != null && totalMs != null
+      ? Math.max(0, totalMs - ttftMs)
+      : stats.user_tpot != null && stats.tokens_decoded != null
+        ? stats.user_tpot * stats.tokens_decoded * 1000
+        : null;
+  const displayTotalMs: number | null =
+    totalMs ?? (ttftMs != null && generationMs != null ? ttftMs + generationMs : null);
+  const ttftPct =
+    ttftMs != null && displayTotalMs != null && displayTotalMs > 0
+      ? Math.max(5, Math.min(95, Math.round((ttftMs / displayTotalMs) * 100)))
+      : 30;
+  const genPct = 100 - ttftPct;
+
+  const fmtMs = (ms: number) =>
+    ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
+
   // Reusable stats display component
   const StatsDisplay = ({ className = "" }: { className?: string }) => (
     <div className={`space-y-4 sm:space-y-6 ${className}`}>
+
+      {/* ── Bar + summary ── */}
+      {ttftMs != null && generationMs != null && (
+        <div className="space-y-1.5">
+          {/* Legend */}
+          <div className={`flex items-center justify-between text-xs ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
+            <span className="flex items-center gap-1">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent" : "bg-violet-600"}`} />
+              TTFT
+            </span>
+            <span>→</span>
+            <span className="flex items-center gap-1">
+              Generation
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent/40" : "bg-violet-300"}`} />
+            </span>
+          </div>
+
+          {/* Bar */}
+          <div className="flex h-7 w-full overflow-hidden rounded-md text-xs font-medium">
+            <div
+              className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent" : "bg-violet-600"} text-white`}
+              style={{ width: `${ttftPct}%` }}
+            >
+              {ttftPct > 15 && fmtMs(ttftMs)}
+            </div>
+            <div
+              className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent/40" : "bg-violet-300"} ${isDarkMode ? "text-white/80" : "text-violet-900"}`}
+              style={{ width: `${genPct}%` }}
+            >
+              {genPct > 15 && fmtMs(generationMs)}
+            </div>
+          </div>
+
+          {/* Axis labels */}
+          <div className={`flex justify-between text-xs ${isDarkMode ? "text-white/30" : "text-gray-400"}`}>
+            <span>time to first token</span>
+            <span>token generation</span>
+          </div>
+
+          {/* Compact key-value rows */}
+          <div className={`mt-1 border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-1.5 space-y-0`}>
+            {[
+              { label: "TTFT (client-measured)", value: fmtMs(ttftMs) },
+              { label: "Generation time",         value: fmtMs(generationMs) },
+              { label: "Throughput (estimated)",  value: userTPS !== "N/A" ? `${userTPS} t/s` : null },
+              { label: "Tokens",                  value: (stats.tokens_prefilled || stats.tokens_decoded) ? `${stats.tokens_prefilled ?? 0} in / ${stats.tokens_decoded ?? 0} out` : null },
+            ]
+              .filter((r) => r.value != null)
+              .map((row, idx, arr) => (
+                <div key={idx} className={`flex justify-between py-1 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"}`}>
+                  <span>{row.label}</span>
+                  <span className={isDarkMode ? "text-white/90" : "text-gray-800"}>{row.value}</span>
+                </div>
+              ))}
+            {displayTotalMs != null && (
+              <div className={`flex justify-between py-1 text-xs font-semibold border-t mt-0.5 ${isDarkMode ? "border-zinc-800 text-white" : "border-gray-200 text-gray-900"}`}>
+                <span>Total stream duration</span>
+                <span>{fmtMs(displayTotalMs)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {sections.map((section, i) => (
         <div key={i} className="space-y-2 sm:space-y-3">
           <h3
@@ -392,32 +469,36 @@ export default function Component({
       typeof stats.user_tpot === "number"
         ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(1)
         : "N/A";
-    // Use client TTFT if available, otherwise fall back to backend TTFT
-    const ttftValue = stats.client_ttft_ms
-      ? stats.client_ttft_ms / 1000
-      : stats.user_ttft_s;
-    const ttft = formatValue(ttftValue);
-    const tokens = stats.tokens_decoded || 0;
+    const ttftMs = stats.client_ttft_ms != null ? Math.round(stats.client_ttft_ms) : stats.user_ttft_s != null ? Math.round(stats.user_ttft_s * 1000) : null;
+    const tokensIn = stats.tokens_prefilled ?? 0;
+    const tokensOut = stats.tokens_decoded ?? 0;
 
     return (
       <>
-        <div
-          className={`flex items-center gap-2 px-2 py-1 rounded-md text-xs cursor-pointer transition-colors ${isDarkMode ? "bg-zinc-900/50 text-white/70 hover:bg-zinc-800/50" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-          onClick={() => setOpen(true)}
-        >
-          <Zap
-            className={`h-3 w-3 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
-          />
-          <span className="flex items-center gap-3">
-            <span>
-              {stats.client_ttft_ms ? "Client TTFT" : "TTFT"}: {ttft.value}
-              {ttft.unit}
-            </span>
-            <span>•</span>
-            <span>{userTPS} tok/s</span>
-            <span>•</span>
-            <span>{tokens} tokens</span>
+        <div className="flex items-center gap-2">
+          {/* Stats text */}
+          <span className={`text-xs ${isDarkMode ? "text-white/50" : "text-gray-400"}`}>
+            {[
+              ttftMs != null ? `TTFT ${ttftMs}ms` : null,
+              userTPS !== "N/A" ? `${userTPS} t/s` : null,
+              (tokensIn || tokensOut) ? `${tokensIn} in / ${tokensOut} out` : null,
+            ].filter(Boolean).join("  ")}
           </span>
+
+          {/* Icon button to open modal */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setOpen(true)}
+                  className={`p-0.5 rounded transition-colors ${isDarkMode ? "text-white/30 hover:text-TT-purple-accent" : "text-gray-300 hover:text-violet-600"}`}
+                >
+                  <BarChart2 className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">View inference details</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
 
         {/* Modal dialog for detailed view */}
