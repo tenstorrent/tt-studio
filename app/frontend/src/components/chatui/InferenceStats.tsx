@@ -87,23 +87,14 @@ export default function Component({
 
   if (!stats) return null;
 
+  // Always display time values in ms (input expected in seconds)
   const formatValue = (value: number | undefined) => {
     if (typeof value !== "number")
-      return { value: "N/A", unit: "", isSmall: false };
-
-    // Convert to milliseconds if value is small (less than 0.1 seconds)
-    if (value < 0.1) {
-      return {
-        value: (value * 1000).toFixed(2),
-        unit: "ms",
-        isSmall: true,
-      };
-    }
-
+      return { value: "N/A", unit: "", isSmall: true };
     return {
-      value: value.toFixed(2),
-      unit: "s",
-      isSmall: false,
+      value: Math.round(value * 1000).toString(),
+      unit: "ms",
+      isSmall: true,
     };
   };
 
@@ -145,10 +136,10 @@ export default function Component({
               className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
             />
           ),
-          value: stats.client_ttft_ms ? (stats.client_ttft_ms / 1000).toFixed(3) : "N/A",
+          value: stats.client_ttft_ms ? Math.round(stats.client_ttft_ms).toString() : "N/A",
           label: "Client TTFT",
-          unit: stats.client_ttft_ms ? "s" : "",
-          isSmall: false,
+          unit: stats.client_ttft_ms ? "ms" : "",
+          isSmall: true,
         } as StatItem,
       ],
     },
@@ -209,7 +200,7 @@ export default function Component({
             />
           ),
           value: stats.tokens_prefilled,
-          label: "Tokens Prefilled",
+          label: "Context In",
           unit: "",
           isSmall: false,
         } as StatItem,
@@ -367,6 +358,11 @@ export default function Component({
               </div>
             ))}
           </div>
+          {section.title === "Token Metrics" && (
+            <p className={`text-[11px] leading-relaxed ${isDarkMode ? "text-white/30" : "text-gray-400"}`}>
+              <span className={isDarkMode ? "text-white/50" : "text-gray-500"}>Context In</span> includes your message, system prompt, conversation history, and chat template overhead — not just the words you typed.
+            </p>
+          )}
         </div>
       ))}
 
@@ -465,33 +461,46 @@ export default function Component({
 
   // Return inline display if requested
   if (inline) {
-    const userTPS =
+    const tpsDisplay =
       typeof stats.user_tpot === "number"
         ? (1 / Math.max(stats.user_tpot, 0.000001)).toFixed(1)
-        : "N/A";
-    const ttftMs = stats.client_ttft_ms != null ? Math.round(stats.client_ttft_ms) : stats.user_ttft_s != null ? Math.round(stats.user_ttft_s * 1000) : null;
+        : null;
+    const ttftDisplay =
+      stats.client_ttft_ms != null
+        ? Math.round(stats.client_ttft_ms)
+        : stats.user_ttft_s != null
+          ? Math.round(stats.user_ttft_s * 1000)
+          : null;
     const tokensIn = stats.tokens_prefilled ?? 0;
     const tokensOut = stats.tokens_decoded ?? 0;
 
+    type Segment = { label: string | null; value: string; unit?: string; accent?: boolean };
+    const segments: Segment[] = [
+      ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
+      tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
+      // tokens shown in modal only
+    ].filter((s): s is Segment => s != null);
+
     return (
       <>
-        <div className="flex items-center gap-2">
-          {/* Stats text */}
-          <span className={`text-xs ${isDarkMode ? "text-white/50" : "text-gray-400"}`}>
-            {[
-              ttftMs != null ? `TTFT ${ttftMs}ms` : null,
-              userTPS !== "N/A" ? `${userTPS} t/s` : null,
-              (tokensIn || tokensOut) ? `${tokensIn} in / ${tokensOut} out` : null,
-            ].filter(Boolean).join("  ")}
-          </span>
+        <div className={`flex items-center gap-1.5 font-mono text-[11px] tabular-nums ${isDarkMode ? "text-white/30" : "text-gray-400"}`}>
+          {segments.map((seg, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <span className="opacity-40">·</span>}
+              <span>{seg.label ? `${seg.label} ` : ""}{seg.value}{seg.unit ?? ""}</span>
+            </React.Fragment>
+          ))}
 
-          {/* Icon button to open modal */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setOpen(true)}
-                  className={`p-0.5 rounded transition-colors ${isDarkMode ? "text-white/30 hover:text-TT-purple-accent" : "text-gray-300 hover:text-violet-600"}`}
+                  className={`ml-0.5 cursor-pointer transition-colors duration-150 ${
+                    isDarkMode
+                      ? "text-TT-purple-accent/70 hover:text-TT-purple-accent"
+                      : "text-violet-400 hover:text-violet-600"
+                  }`}
                 >
                   <BarChart2 className="h-3.5 w-3.5" />
                 </button>
