@@ -5,6 +5,8 @@
 # model_control/views.py
 import os
 from pathlib import Path
+import asyncio
+import threading
 import requests
 from PIL import Image
 import io
@@ -1002,7 +1004,7 @@ class ContainerLogsView(View):
         
         return "log"
     
-    def get(self, request, container_id, *args, **kwargs):
+    async def get(self, request, container_id, *args, **kwargs):
         """Stream logs from a Docker container using Server-Sent Events via docker-control-service"""
         logger.info(f"ContainerLogsView received request for container_id: {container_id}")
 
@@ -1013,21 +1015,50 @@ class ContainerLogsView(View):
 
             logger.info(f"Setting up log stream for container: {container_id}")
 
-            def generate_container_data():
-                try:
-                    # Stream logs from docker-control-service
-                    # The docker-control-service already formats logs as SSE, so we just proxy them
-                    for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
-                        yield log_line
+            async def generate_container_data():
+                queue: asyncio.Queue = asyncio.Queue()
+                loop = asyncio.get_running_loop()
 
-                except Exception as e:
-                    logger.error(f"Error in data stream: {str(e)}")
-                    error_data = {
-                        "type": "error",
-                        "message": f"Error streaming data: {str(e)}",
-                        "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                def sync_stream():
+                    try:
+                        for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
+                            loop.call_soon_threadsafe(queue.put_nowait, log_line)
+
+                    except requests.exceptions.ConnectionError as e:
+                        logger.error(f"docker-control-service unreachable: {str(e)}")
+                        error_data = {
+                            "type": "service_unavailable",
+                            "message": "Cannot reach the docker-control-service (port 8002). Make sure it is running on the host.",
+                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                        )
+
+                    except Exception as e:
+                        logger.error(f"Error in data stream: {str(e)}")
+                        error_data = {
+                            "type": "error",
+                            "message": f"Error streaming data: {str(e)}",
+                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                        )
+
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+                thread = threading.Thread(target=sync_stream, daemon=True)
+                thread.start()
+
+                while True:
+                    chunk = await queue.get()
+                    if chunk is None:
+                        break
+                    yield chunk
 
             response = StreamingHttpResponse(
                 generate_container_data(),
@@ -1042,10 +1073,19 @@ class ContainerLogsView(View):
 
         except Exception as e:
             logger.error(f"Error streaming container data: {str(e)}")
-            return HttpResponse(
-                status=500,
-                content=str(e)
-            )
+
+            async def error_stream():
+                error_data = {
+                    "type": "service_unavailable",
+                    "message": f"Failed to initialize log stream: {str(e)}",
+                    "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+
+            response = StreamingHttpResponse(error_stream(), content_type='text/event-stream')
+            response['Cache-Control'] = 'no-cache, no-transform'
+            response['X-Accel-Buffering'] = 'no'
+            return response
 
 
 class ModelAPIInfoView(APIView):
