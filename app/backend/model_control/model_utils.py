@@ -42,6 +42,22 @@ def messages_to_prompt(messages: list) -> str:
     return "\n\n".join(parts)
 
 
+def get_model_context_length(internal_url: str):
+    """Fetch max_model_len from vLLM /v1/models. Returns int or None if unavailable."""
+    try:
+        base = internal_url.split("/")[0]
+        models_url = f"http://{base}/v1/models"
+        headers = {"Authorization": f"Bearer {encoded_jwt}"}
+        response = requests.get(models_url, headers=headers, timeout=3)
+        if response.status_code == 200:
+            data = response.json().get("data", [])
+            if data:
+                return data[0].get("max_model_len")
+    except Exception as e:
+        logger.warning(f"Failed to fetch max_model_len from {internal_url}: {e}")
+    return None
+
+
 def get_model_name_from_container(internal_url: str, fallback: str) -> str:
     """Query vLLM /v1/models to get the exact model name loaded in the container.
 
@@ -84,6 +100,18 @@ def get_deploy_cache():
 
     update_deploy_cache()
     data = get_all_records()
+
+    # Lazily enrich entries with max_model_len from the running vLLM container.
+    # Once fetched it is persisted back into the cache so subsequent calls are free.
+    cache = caches[backend_config.django_deploy_cache_name]
+    for con_id, entry in data.items():
+        if "max_model_len" not in entry and entry.get("internal_url"):
+            max_len = get_model_context_length(entry["internal_url"])
+            if max_len is not None:
+                entry["max_model_len"] = max_len
+                cache.set(con_id, entry, timeout=None)
+                logger.info(f"Cached max_model_len={max_len} for container {con_id[:12]}")
+
     return data
 
 
@@ -163,22 +191,30 @@ def stream_response_from_agent_api(url, json_data):
         logger.error(f"RequestException: {str(e)}")
         yield f"error: {str(e)}"
 
-def validate_model_params(json_data):
+def get_max_tokens_limit(param_count) -> int:
+    """Return max_tokens ceiling based on model parameter count (in billions)."""
+    if param_count is None: return 32768
+    if param_count <= 8:    return 32768
+    if param_count <= 32:   return 65536
+    return 131072
+
+
+def validate_model_params(json_data, max_tokens_limit: int = 32768):
     """Validate and set default values for model parameters."""
     # Default values based on the working curl example
     defaults = {
         'temperature': 0.95,
         'top_p': 0.9,
         'top_k': 40,
-        'max_tokens': 16
+        'max_tokens': 1024
     }
-    
+
     # Parameter ranges
     ranges = {
         'temperature': (0.0, 2.0),
         'top_p': (0.0, 1.0),
         'top_k': (1, 100),
-        'max_tokens': (1, 4096)
+        'max_tokens': (1, max_tokens_limit)  # ceiling is model-size-dependent
     }
     
     validated_params = {}
@@ -238,7 +274,7 @@ def stream_to_cloud_model(url, json_data):
         json_data["temperature"] = float(temperature) if temperature is not None else 1.0
         json_data["top_k"] = int(top_k) if top_k is not None else 20
         json_data["top_p"] = float(top_p) if top_p is not None else 0.9
-        json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
+        json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 1024
         json_data["stream_options"] = {"include_usage": True}
 
         # Log final parameters being used
@@ -379,7 +415,7 @@ def stream_response_from_external_api(url, json_data):
     json_data["temperature"] = float(temperature) if temperature is not None else 1.0
     json_data["top_k"] = int(top_k) if top_k is not None else 20
     json_data["top_p"] = float(top_p) if top_p is not None else 0.9
-    json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 512
+    json_data["max_tokens"] = int(max_tokens) if max_tokens is not None else 1024
     json_data["stream_options"] = {"include_usage": True}
 
     # Forward seed if provided (0 or absent means random)

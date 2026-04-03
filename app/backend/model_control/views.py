@@ -43,6 +43,7 @@ from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
     get_model_name_from_container,
+    get_max_tokens_limit,
     messages_to_prompt,
     stream_response_from_external_api,
     stream_response_from_agent_api,
@@ -91,6 +92,14 @@ class InferenceView(APIView):
             data["model"] = get_model_name_from_container(
                 deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
             )
+
+            # Clamp max_tokens to 75% of the model's context window so there is
+            # always headroom for input tokens (conversation history, system prompt, etc).
+            # Falls back to a param_count-based estimate when max_model_len is not yet cached.
+            raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(deploy["model_impl"].param_count)
+            max_tokens_limit = max(1, raw_limit * 3 // 4)
+            if data.get("max_tokens"):
+                data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
 
             # Route base/completion models to /v1/completions with a plain prompt
             service_route = deploy["model_impl"].service_route
