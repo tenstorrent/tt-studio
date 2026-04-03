@@ -37,6 +37,8 @@ export interface ChatMessage {
   inferenceStats?: InferenceStats;
   ragDatasource?: RagDataSource;
   isStopped?: boolean;
+  finishReason?: string | null;
+  timing?: TimingInfo;
 }
 
 export type MessageContent =
@@ -65,6 +67,17 @@ export interface RagDataSource {
     embedding_func_name?: string;
     last_uploaded_document?: string;
   };
+}
+
+// Timing breakdown for a single inference request
+export interface TimingInfo {
+  httpResponse: number;      // ms: send → HTTP 200
+  firstRead: number | null;  // ms: → first bytes in body
+  firstSSE: number | null;   // ms: → first parseable SSE event
+  firstToken: number | null; // ms: → first content or thinking token
+  total: number;             // ms: → stream complete
+  hasServerTtft: boolean;
+  hasServerTps: boolean;
 }
 
 // Inference Types
@@ -115,6 +128,8 @@ export interface InferenceStats {
   client_ttft_ms?: number;        // Client-measured TTFT
   network_latency_ms?: number;    // Derived: client_ttft - backend_ttft
   token_timestamps?: TokenTimestamp[];  // Per-token timing data
+  tps?: number;                   // Tokens/sec — server-reported or client-calculated
+  timing?: TimingInfo;
 }
 
 // Component Props Types
