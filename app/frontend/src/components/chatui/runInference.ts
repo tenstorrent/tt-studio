@@ -282,6 +282,7 @@ export const runInference = async (
     ]);
 
     let inferenceStats: InferenceStats | undefined;
+    let rafScheduled = false;
 
     if (reader) {
       try {
@@ -302,11 +303,6 @@ export const runInference = async (
             if (trimmedLine.startsWith("data: ")) {
               if (trimmedLine === "data: [DONE]") {
                 console.log("Received [DONE] signal");
-                continue;
-              }
-
-              if (trimmedLine.startsWith("data: <<END_OF_STREAM>>")) {
-                console.log("End of stream marker received");
                 continue;
               }
 
@@ -343,15 +339,23 @@ export const runInference = async (
                   metricsTracker.recordFirstToken();
 
                   accumulatedText += content;
-                  setChatHistory((prevHistory) => {
-                    const updatedHistory = [...prevHistory];
-                    const lastMessage =
-                      updatedHistory[updatedHistory.length - 1];
-                    if (lastMessage.id === newMessageId) {
-                      lastMessage.text = accumulatedText;
-                    }
-                    return updatedHistory;
-                  });
+                  // Batch UI updates with requestAnimationFrame — caps re-renders at ~60/sec
+                  // regardless of token rate, preventing main-thread saturation at high throughput
+                  if (!rafScheduled) {
+                    rafScheduled = true;
+                    const snapshot = accumulatedText;
+                    requestAnimationFrame(() => {
+                      setChatHistory((prevHistory) => {
+                        const updatedHistory = [...prevHistory];
+                        const lastMessage = updatedHistory[updatedHistory.length - 1];
+                        if (lastMessage?.id === newMessageId) {
+                          lastMessage.text = snapshot;
+                        }
+                        return updatedHistory;
+                      });
+                      rafScheduled = false;
+                    });
+                  }
                 }
               } catch (error) {
                 console.error("[Metrics] Failed to parse JSON:", error);

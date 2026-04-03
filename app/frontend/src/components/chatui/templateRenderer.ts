@@ -57,6 +57,17 @@ function generateSimpleGreetingResponse(
   return messages;
 }
 
+export function buildDefaultSystemPrompt(
+  modelName: string | null,
+  hardwareContext: string | null,
+): string {
+  const parts = [
+    modelName ? `You are ${modelName}.` : "You are a helpful AI assistant.",
+    hardwareContext ? `This instance is running on ${hardwareContext}.` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
   ragContext: { documents: string[] } | null = null,

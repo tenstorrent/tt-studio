@@ -11,7 +11,7 @@ services:
       # Mount the local api directory for live code changes
       - ./backend:/backend
     command: >
-      python manage.py runserver 0.0.0.0:8000
+      uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --reload
     environment:
       - DEBUG=True
     # Allow container to access host services (docker-control-service)

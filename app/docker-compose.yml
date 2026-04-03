@@ -21,7 +21,7 @@ services:
     ports:
       - "8000:8000"
     command: >
-      gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
+      uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 1200
     depends_on:
       tt_studio_chroma:
         condition: service_healthy
