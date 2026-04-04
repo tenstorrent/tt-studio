@@ -24,19 +24,40 @@ class InferenceMetricsTracker:
 
     def __init__(self):
         self.start_time: float = time.perf_counter()
-        self.first_token_time: Optional[float] = None
-        self.most_recent_token_time: Optional[float] = None  # vLLM-style: advances per content chunk
+        self.first_token_time: Optional[float] = None          # first token of any kind
+        self.first_content_token_time: Optional[float] = None  # first non-thinking token (true TTFT)
+        self.most_recent_token_time: Optional[float] = None    # vLLM-style: advances per content chunk
         self.itl: List[float] = []          # inter-token latency list (seconds) — vLLM style
         self.token_times: List[float] = []  # kept for backwards compat / detailed stats
         self.num_tokens: int = 0
         self.prompt_tokens: int = 0
         self.last_token_count: int = 0
+        # Thinking/reasoning tracking
+        self.thinking_start_time: Optional[float] = None
+        self.thinking_end_time: Optional[float] = None
+        self.num_thinking_tokens: int = 0
+
+    def record_thinking_token(self) -> None:
+        """Record arrival of a reasoning/thinking chunk."""
+        current_time = time.perf_counter()
+        if self.thinking_start_time is None:
+            self.thinking_start_time = current_time
+            if self.first_token_time is None:
+                self.first_token_time = current_time
+        self.num_thinking_tokens += 1
 
     def record_content_token(self) -> None:
         """Record arrival of a content chunk, tracking ITL exactly as vLLM does."""
         current_time = time.perf_counter()
-        if self.first_token_time is None:
-            self.first_token_time = current_time
+        # Close thinking window on first content token
+        if self.thinking_start_time is not None and self.thinking_end_time is None:
+            self.thinking_end_time = current_time
+        # Track first content token separately (true TTFT for thinking models)
+        if self.first_content_token_time is None:
+            self.first_content_token_time = current_time
+            if self.first_token_time is None:
+                self.first_token_time = current_time
+            # No ITL entry for the first content token
         else:
             self.itl.append(current_time - self.most_recent_token_time)
         self.most_recent_token_time = current_time
@@ -78,10 +99,12 @@ class InferenceMetricsTracker:
             self.last_token_count = completion_tokens
 
     def get_ttft(self) -> float:
-        """Time to first content chunk, in seconds. Returns 0 if no tokens received."""
-        if self.first_token_time is None:
+        """Time to first *content* token, in seconds (thinking models: excludes thinking time).
+        Falls back to first_token_time for non-thinking models."""
+        anchor = self.first_content_token_time or self.first_token_time
+        if anchor is None:
             return 0.0
-        return self.first_token_time - self.start_time
+        return anchor - self.start_time
 
     def get_tpot(self) -> float:
         """
@@ -106,6 +129,11 @@ class InferenceMetricsTracker:
 
     def get_stats(self) -> Dict:
         """Get final statistics in vLLM-compatible format."""
+        thinking_duration = (
+            self.thinking_end_time - self.thinking_start_time
+            if (self.thinking_start_time is not None and self.thinking_end_time is not None)
+            else None
+        )
         return {
             "ttft": self.get_ttft(),
             "tpot": self.get_tpot(),
@@ -114,6 +142,8 @@ class InferenceMetricsTracker:
             "tokens_prefilled": self.prompt_tokens,
             "context_length": self.prompt_tokens + self.num_tokens,
             "total_time": time.perf_counter() - self.start_time,
+            "reasoning_tokens": self.num_thinking_tokens,
+            "thinking_duration": thinking_duration,  # seconds, None if no thinking
         }
 
     def get_detailed_stats(self) -> Dict:

@@ -360,6 +360,8 @@ export const runInference = async (
               tokens_decoded: jsonData.tokens_decoded,
               tokens_prefilled: jsonData.tokens_prefilled,
               context_length: jsonData.context_length,
+              reasoning_tokens: jsonData.reasoning_tokens ?? undefined,
+              thinking_duration_ms: jsonData.thinking_duration != null ? jsonData.thinking_duration * 1000 : undefined,
             };
             inferenceStats = metricsTracker.finalizeStats(backendStats);
             continue;
@@ -385,7 +387,7 @@ export const runInference = async (
 
           if (reasoning && !thinkingDone) {
             if (!t.firstToken) t.firstToken = performance.now();
-            metricsTracker.recordContentToken();
+            metricsTracker.recordThinkingToken();
             thinkingText += reasoning;
             // Incomplete thinking block — no closing tag yet so StreamingMessage shows "Thinking..."
             accumulatedText = `<think>${thinkingText}${contentText}`;

@@ -250,11 +250,22 @@ export default function Component({
         : null;
   const displayTotalMs: number | null =
     totalMs ?? (ttftMs != null && generationMs != null ? ttftMs + generationMs : null);
+  // 3-segment bar when thinking data is present
+  const thinkingMs: number | null = stats.thinking_duration_ms ?? null;
+  const hasThinkingData = thinkingMs != null && thinkingMs > 0;
+
+  // For thinking models, ttftMs is the pre-thinking wait time (request → first thinking token)
+  // thinkingMs is thinking duration, generationMs is content generation
+  // For non-thinking models: just ttftPct + genPct
   const ttftPct =
     ttftMs != null && displayTotalMs != null && displayTotalMs > 0
-      ? Math.max(5, Math.min(95, Math.round((ttftMs / displayTotalMs) * 100)))
-      : 30;
-  const genPct = 100 - ttftPct;
+      ? Math.max(3, Math.min(hasThinkingData ? 20 : 95, Math.round((ttftMs / displayTotalMs) * 100)))
+      : 20;
+  const thinkingPct =
+    hasThinkingData && displayTotalMs != null && displayTotalMs > 0
+      ? Math.max(5, Math.min(80, Math.round((thinkingMs! / displayTotalMs) * 100)))
+      : 0;
+  const genPct = Math.max(5, 100 - ttftPct - thinkingPct);
 
   const fmtMs = (ms: number) =>
     ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
@@ -267,15 +278,20 @@ export default function Component({
       {ttftMs != null && generationMs != null && (
         <div className="space-y-1.5">
           {/* Legend */}
-          <div className={`flex items-center justify-between text-xs ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
+          <div className={`flex items-center gap-3 text-xs ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
             <span className="flex items-center gap-1">
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent" : "bg-violet-600"}`} />
               TTFT
             </span>
-            <span>→</span>
-            <span className="flex items-center gap-1">
+            {hasThinkingData && (
+              <span className="flex items-center gap-1">
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent/65" : "bg-violet-400"}`} />
+                Reasoning
+              </span>
+            )}
+            <span className="flex items-center gap-1 ml-auto">
               Generation
-              <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent/40" : "bg-violet-300"}`} />
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent/30" : "bg-violet-200"}`} />
             </span>
           </div>
 
@@ -285,32 +301,42 @@ export default function Component({
               className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent" : "bg-violet-600"} text-white`}
               style={{ width: `${ttftPct}%` }}
             >
-              {ttftPct > 15 && fmtMs(ttftMs)}
+              {ttftPct > 12 && fmtMs(ttftMs)}
             </div>
+            {hasThinkingData && (
+              <div
+                className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent/65" : "bg-violet-400"} text-white`}
+                style={{ width: `${thinkingPct}%` }}
+              >
+                {thinkingPct > 12 && fmtMs(thinkingMs!)}
+              </div>
+            )}
             <div
-              className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent/40" : "bg-violet-300"} ${isDarkMode ? "text-white/80" : "text-violet-900"}`}
+              className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent/30" : "bg-violet-200"} ${isDarkMode ? "text-white/70" : "text-violet-900"}`}
               style={{ width: `${genPct}%` }}
             >
-              {genPct > 15 && fmtMs(generationMs)}
+              {genPct > 12 && generationMs != null && fmtMs(generationMs)}
             </div>
           </div>
 
           {/* Axis labels */}
           <div className={`flex justify-between text-xs ${isDarkMode ? "text-white/30" : "text-gray-400"}`}>
-            <span>time to first token</span>
+            <span>request start</span>
             <span>token generation</span>
           </div>
 
           {/* Compact key-value rows */}
           <div className={`mt-1 border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-1.5 space-y-0`}>
             {[
-              { label: "TTFT (client-measured)", value: fmtMs(ttftMs) },
-              { label: "Generation time",         value: fmtMs(generationMs) },
-              { label: "Throughput (estimated)",  value: userTPS !== "N/A" ? `${userTPS} t/s` : null },
-              { label: "Tokens",                  value: (stats.tokens_prefilled || stats.tokens_decoded) ? `${stats.tokens_prefilled ?? 0} in / ${stats.tokens_decoded ?? 0} out` : null },
+              { label: "TTFT (to first content token)", value: fmtMs(ttftMs) },
+              hasThinkingData ? { label: "Reasoning duration",             value: fmtMs(thinkingMs!) } : null,
+              hasThinkingData && stats.reasoning_tokens ? { label: "Reasoning tokens",              value: String(stats.reasoning_tokens) } : null,
+              generationMs != null ? { label: "Generation time",           value: fmtMs(generationMs) } : null,
+              { label: "Throughput (estimated)",        value: userTPS !== "N/A" ? `${userTPS} t/s` : null },
+              { label: "Tokens",                        value: (stats.tokens_prefilled || stats.tokens_decoded) ? `${stats.tokens_prefilled ?? 0} in / ${stats.tokens_decoded ?? 0} out` : null },
             ]
-              .filter((r) => r.value != null)
-              .map((row, idx, arr) => (
+              .filter((r): r is { label: string; value: string | null } => r != null && r.value != null)
+              .map((row, idx) => (
                 <div key={idx} className={`flex justify-between py-1 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"}`}>
                   <span>{row.label}</span>
                   <span className={isDarkMode ? "text-white/90" : "text-gray-800"}>{row.value}</span>

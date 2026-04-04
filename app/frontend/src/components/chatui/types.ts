@@ -131,6 +131,8 @@ export interface InferenceStats {
   itl?: number[];                 // Inter-token latencies in ms — vLLM-style ITL list
   tps?: number;                   // Tokens/sec — server-reported or client-calculated
   timing?: TimingInfo;
+  reasoning_tokens?: number;      // Number of tokens spent in thinking phase
+  thinking_duration_ms?: number;  // ms from first thinking token → first content token
 }
 
 // Component Props Types

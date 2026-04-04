@@ -3,7 +3,7 @@
 
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import MarkdownComponent from "./MarkdownComponent";
 
 interface StreamingMessageProps {
@@ -145,51 +145,81 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     //   isStreamFinished,
     // });
 
+    // Extract live thinking text from incomplete <think> block during streaming
+    const liveThinkMatch = !isStreamFinished ? content.match(/^<think>([\s\S]*)$/i) : null;
+    const liveThinkingText = liveThinkMatch ? liveThinkMatch[1] : null;
+
     return (
       <div className="relative">
-        {/* Show "Thinking..." indicator while thinking is streaming */}
-        {isThinkingActive && (
-          <div className="mb-3 flex items-center gap-2 text-sm text-gray-400 italic">
-            <motion.span
-              animate={{ opacity: [1, 0.5, 1] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
+        <AnimatePresence mode="wait">
+          {/* Live thinking panel — exits smoothly when thinking ends */}
+          {isThinkingActive && liveThinkingText != null ? (
+            <motion.div
+              key="live-thinking"
+              className="mb-3"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4, transition: { duration: 0.2 } }}
+              transition={{ duration: 0.2 }}
             >
-              💭
-            </motion.span>
-            <span>Thinking...</span>
-          </div>
-        )}
-
-        {/* Show toggle button only after streaming is finished and there are thinking blocks */}
-        {isStreamFinished && hasThinking && (
-          <div className="mb-3">
-            <button
-              onClick={() => setShowThinking(!showThinking)}
-              className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors"
+              <div className="flex items-center gap-2 mb-1">
+                <motion.span
+                  className="text-gray-400"
+                  animate={{ opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  💭
+                </motion.span>
+                <span className="text-sm italic text-gray-400">Thinking...</span>
+              </div>
+              <p className="text-xs text-gray-600 mb-1.5">
+                The model is reasoning before responding. These thinking tokens are streamed separately and not counted toward output speed.
+              </p>
+              <div className="max-h-36 overflow-y-auto rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2 text-sm text-gray-300 font-mono leading-relaxed whitespace-pre-wrap">
+                {liveThinkingText}
+              </div>
+            </motion.div>
+          ) : !isThinkingActive && hasThinking ? (
+            /* Collapsed toggle — fades in as live panel exits */
+            <motion.div
+              key="thinking-toggle"
+              className="mb-3"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, delay: 0.05 }}
             >
-              <span className="text-xs">
-                {showThinking ? "▼" : "▶"}
-              </span>
-              <span className="italic">
-                {showThinking ? "Hide" : "Show"} thinking process
-              </span>
-            </button>
-            {showThinking && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-2 p-3 bg-gray-800/50 border border-gray-700 rounded-md"
+              <button
+                onClick={() => setShowThinking(!showThinking)}
+                className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors"
               >
-                {thinkingBlocksRef.current.map((block, index) => (
-                  <div key={index} className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
-                    {block}
-                  </div>
-                ))}
-              </motion.div>
-            )}
-          </div>
-        )}
+                <span className="text-xs">{showThinking ? "▼" : "▶"}</span>
+                <span className="italic">{showThinking ? "Hide" : "Show"} thinking process</span>
+              </button>
+              <AnimatePresence>
+                {showThinking && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="mt-2 overflow-hidden"
+                  >
+                    <p className="text-xs text-gray-600 mb-1.5">
+                      The model reasoned before responding. These thinking tokens are tracked separately and not counted toward output speed.
+                    </p>
+                    <div className="max-h-48 overflow-y-auto rounded-md bg-gray-800/50 border border-gray-700 p-3">
+                      {thinkingBlocksRef.current.map((block, index) => (
+                        <div key={index} className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
+                          {block}
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {renderedContent.length === 0 && !isStreamFinished && !isThinkingActive && !isStopped ? (
           <motion.span
