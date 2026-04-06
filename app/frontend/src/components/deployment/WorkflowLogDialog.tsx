@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useRef, useState, useEffect } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import { Spinner } from "../ui/spinner";
 import { Button } from "../ui/button";
 import { ChevronDown } from "lucide-react";
 import { useWorkflowLogStream } from "../../hooks/useWorkflowLogStream";
+import { parseAnsiColors } from "../../lib/ansi";
 import LogView from "../models/Logs/LogView";
 
 interface Props {
@@ -20,6 +21,17 @@ interface Props {
   modelName?: string;
   onClose: () => void;
 }
+
+const ALL_LEVELS = ["INFO", "DEBUG", "TRACE", "ERROR", "WARNING", "FATAL"] as const;
+
+const LEVEL_COLORS: Record<string, { active: string; inactive: string }> = {
+  INFO:    { active: "bg-blue-600 text-white", inactive: "bg-gray-800 text-gray-500 hover:text-gray-300" },
+  DEBUG:   { active: "bg-gray-600 text-white", inactive: "bg-gray-800 text-gray-500 hover:text-gray-300" },
+  TRACE:   { active: "bg-gray-600 text-white", inactive: "bg-gray-800 text-gray-500 hover:text-gray-300" },
+  ERROR:   { active: "bg-red-600 text-white", inactive: "bg-gray-800 text-gray-500 hover:text-gray-300" },
+  WARNING: { active: "bg-yellow-600 text-white", inactive: "bg-gray-800 text-gray-500 hover:text-gray-300" },
+  FATAL:   { active: "bg-red-700 text-white", inactive: "bg-gray-800 text-gray-500 hover:text-gray-300" },
+};
 
 export default function WorkflowLogDialog({
   open,
@@ -31,6 +43,41 @@ export default function WorkflowLogDialog({
   const logsRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [activeLevels, setActiveLevels] = useState<Set<string>>(
+    () => new Set(ALL_LEVELS)
+  );
+
+  const allActive = activeLevels.size === ALL_LEVELS.length;
+
+  const toggleLevel = (level: string) => {
+    setActiveLevels((prev) => {
+      const next = new Set(prev);
+      if (next.has(level)) {
+        next.delete(level);
+      } else {
+        next.add(level);
+      }
+      return next;
+    });
+  };
+
+  const resetLevels = () => setActiveLevels(new Set(ALL_LEVELS));
+
+  const filterLog = useCallback(
+    (line: string) => {
+      if (allActive) return true;
+      const parsed = parseAnsiColors(line);
+      // When filtering, only show lines with a recognized level that matches
+      if (!parsed.level) return false;
+      return activeLevels.has(parsed.level);
+    },
+    [activeLevels, allActive]
+  );
+
+  const filteredCount = useMemo(() => {
+    if (allActive) return logs.length;
+    return logs.filter(filterLog).length;
+  }, [logs, filterLog, allActive]);
 
   useEffect(() => {
     if (autoScrollEnabled && logsRef.current) {
@@ -75,6 +122,39 @@ export default function WorkflowLogDialog({
           </DialogTitle>
         </DialogHeader>
 
+        {/* Filter bar */}
+        <div className="shrink-0 flex items-center gap-2 py-2">
+          <span className="text-xs text-gray-400 mr-1">Filter:</span>
+          {ALL_LEVELS.map((level) => {
+            const isActive = activeLevels.has(level);
+            const colors = LEVEL_COLORS[level];
+            return (
+              <button
+                key={level}
+                onClick={() => toggleLevel(level)}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors duration-100 ${
+                  isActive ? colors.active : colors.inactive
+                }`}
+              >
+                {level}
+              </button>
+            );
+          })}
+          {!allActive && (
+            <button
+              onClick={resetLevels}
+              className="px-2.5 py-1 rounded text-xs font-medium text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors duration-100 ml-1"
+            >
+              Show All
+            </button>
+          )}
+          <span className="text-xs text-gray-500 ml-auto">
+            {filteredCount === logs.length
+              ? `${logs.length} lines`
+              : `${filteredCount} / ${logs.length} lines`}
+          </span>
+        </div>
+
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {isLoading && (
             <div className="flex items-center justify-center h-64">
@@ -96,7 +176,7 @@ export default function WorkflowLogDialog({
             <div className="flex-1 min-h-0 relative overflow-hidden">
               <LogView
                 logs={logs}
-                filterLog={() => true}
+                filterLog={filterLog}
                 onScroll={handleScroll}
                 scrollRef={logsRef}
                 showScrollButton={showScrollButton}
@@ -118,4 +198,3 @@ export default function WorkflowLogDialog({
     </Dialog>
   );
 }
-

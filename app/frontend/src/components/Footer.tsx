@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "./ui/badge";
 import { useTheme } from "../hooks/useTheme";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useModels } from "../hooks/useModels";
+import { useDeviceState } from "../hooks/useDeviceState";
 import {
   Tooltip,
   TooltipContent,
@@ -27,28 +29,17 @@ import {
 } from "lucide-react";
 import { useGitHubReleases } from "../hooks/useGitHubReleases";
 import { HardwareIcon } from "./aiPlaygroundHome/HardwareIcon";
+import { cn } from "../lib/utils";
 import { useFooterVisibility } from "../hooks/useFooterVisibility";
 
 interface FooterProps {
   className?: string;
 }
 
-interface SystemStatus {
+interface SystemResources {
   cpuUsage: number;
   memoryUsage: number;
   memoryTotal: string;
-  boardName: string;
-  temperature: number;
-  devices: Array<{
-    index: number;
-    board_type: string;
-    temperature: number;
-    power: number;
-    voltage: number;
-  }>;
-  hardware_status?: "healthy" | "error" | "unknown";
-  hardware_error?: string;
-  error?: string;
 }
 
 const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes cooldown between manual refreshes
@@ -59,13 +50,10 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const { showFooter, setShowFooter } = useFooterVisibility();
   const { theme } = useTheme();
   const footerRef = useRef<HTMLElement>(null);
-  const [systemStatus, setSystemStatus] = useState<SystemStatus>({
+  const [systemResources, setSystemResources] = useState<SystemResources>({
     cpuUsage: 0,
     memoryUsage: 0,
     memoryTotal: "0 GB",
-    boardName: "Unknown",
-    temperature: 0,
-    devices: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +61,12 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   const lastRefreshTime = useRef<number | null>(null);
   const [showTTStudioModal, setShowTTStudioModal] = useState(false);
   const [bugReportLoading, setBugReportLoading] = useState(false);
+  const [showModelPopover, setShowModelPopover] = useState(false);
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
+  const popoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const badgeWrapperRef = useRef<HTMLDivElement>(null);
   const { models } = useModels();
+  const { deviceState, refresh: refreshDeviceState } = useDeviceState();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -85,8 +78,11 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     refetch,
   } = useGitHubReleases();
 
-  // Fetch system status from API
-  const fetchSystemStatus = async () => {
+  // Check if we should hide the footer
+  const shouldHideFooter = location.pathname === "/chat";
+
+  // Fetch only CPU/memory resources (board info comes from DeviceStateContext)
+  const fetchSystemResources = async () => {
     try {
       const response = await fetch("/board-api/footer-data/");
       if (!response.ok) {
@@ -99,18 +95,15 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
       }
 
       const data = await response.json();
-      setSystemStatus(data);
+      setSystemResources({
+        cpuUsage: data.cpuUsage ?? 0,
+        memoryUsage: data.memoryUsage ?? 0,
+        memoryTotal: data.memoryTotal ?? "0 GB",
+      });
       setError(null);
     } catch (err) {
-      console.error("Failed to fetch system status:", err);
+      console.error("Failed to fetch system resources:", err);
       setError(err instanceof Error ? err.message : "Unknown error");
-      // Keep previous data or use fallback
-      setSystemStatus((prev) => ({
-        ...prev,
-        boardName: prev.hardware_status === "error" ? prev.boardName : "Error",
-        hardware_status: prev.hardware_status === "error" ? "error" : "unknown",
-        error: err instanceof Error ? err.message : "Unknown error",
-      }));
     } finally {
       setLoading(false);
     }
@@ -132,18 +125,8 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
     try {
       setRefreshing(true);
-      const response = await fetch("/board-api/refresh-cache/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      await fetchSystemStatus();
+      // Trigger an immediate re-poll of device state via context
+      refreshDeviceState();
     } catch (err) {
       console.error("Failed to refresh board detection:", err);
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -154,10 +137,9 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   };
 
   useEffect(() => {
-    // Initial fetch on mount only
-    fetchSystemStatus();
-
-    // No more timer-based polling - will refresh on model deployment events
+    // Fetch CPU/memory once on mount (board info is handled by DeviceStateContext)
+    fetchSystemResources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-hide footer when navigating to Chat UI
@@ -201,15 +183,79 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     location.pathname === "/chat" ||
     location.pathname === "/image-generation";
   const footerLeft = hasVerticalNav ? "left-16" : "left-0";
-  const normalizedBoardName = systemStatus.boardName?.toLowerCase();
+
+  // Derive board info from DeviceStateContext
+  const boardName = deviceState?.board_name ?? "Unknown";
+  const deviceStateName = deviceState?.state ?? "UNKNOWN";
+  const devices = deviceState?.devices ?? [];
+  const avgTemperature =
+    devices.length > 0
+      ? Math.round(
+          (devices.reduce((sum, d) => sum + (d.temperature ?? 0), 0) /
+            devices.length) *
+            10
+        ) / 10
+      : 0;
+  const isHardwareHealthy = deviceStateName === "HEALTHY";
+  const isHardwareError =
+    deviceStateName === "BAD_STATE" || deviceStateName === "NOT_PRESENT";
+  const normalizedBoardName = boardName.toLowerCase();
   const isBoardDetectionIssue =
-    systemStatus.hardware_status === "error" ||
+    isHardwareError ||
     !!error ||
     normalizedBoardName === "error" ||
-    normalizedBoardName === "unknown";
+    normalizedBoardName === "unknown" ||
+    normalizedBoardName === "not present" ||
+    normalizedBoardName === "bad state";
   const remainingCooldownMs = getRemainingCooldownMs();
   const isInCooldown = remainingCooldownMs > 0;
   const cooldownSeconds = Math.ceil(remainingCooldownMs / 1000);
+
+  // Legacy-compatible derived values used by bug-report and render
+  const hardwareStatus: "healthy" | "error" | "unknown" =
+    deviceStateName === "HEALTHY"
+      ? "healthy"
+      : deviceStateName === "BAD_STATE" || deviceStateName === "NOT_PRESENT"
+        ? "error"
+        : "unknown";
+  const hardwareError =
+    deviceStateName === "BAD_STATE"
+      ? "Board is in a bad state (unresponsive). Reset recommended."
+      : deviceStateName === "NOT_PRESENT"
+        ? "No Tenstorrent device detected. Check hardware connection."
+        : null;
+
+  // Hover popover handlers for deployed models
+  const handlePopoverEnter = () => {
+    if (popoverTimeoutRef.current) clearTimeout(popoverTimeoutRef.current);
+    if (models.length > 0) {
+      const rect = badgeWrapperRef.current?.getBoundingClientRect();
+      if (rect) {
+        setPopoverPos({ left: rect.left, top: rect.top });
+      }
+      setShowModelPopover(true);
+    }
+  };
+
+  const handlePopoverLeave = () => {
+    popoverTimeoutRef.current = setTimeout(() => setShowModelPopover(false), 200);
+  };
+
+  const getHealthColor = (health: unknown, status?: unknown) => {
+    const h = String(health ?? "").toLowerCase();
+    const s = String(status ?? "").toLowerCase();
+    if (h === "unhealthy" || s.includes("exited")) return "bg-TT-red-accent";
+    if (h === "healthy" || s.includes("running") || s === "deployed") return "bg-TT-green";
+    if (h === "starting") return "bg-TT-yellow";
+    return "bg-TT-yellow";
+  };
+
+  const getStatusText = (status: unknown) => {
+    const s = String(status ?? "").toLowerCase();
+    if (s.includes("running")) return "Running";
+    if (s.includes("exited")) return "Stopped";
+    return String(status) || "Unknown";
+  };
 
   // Handle click on deployed models section
   const handleDeployedModelsClick = () => {
@@ -342,19 +388,19 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 **Time:** ${new Date().toLocaleTimeString()}
 
 ### System Information
-- **Board:** ${systemStatus.boardName}
-- **Hardware Status:** ${systemStatus.hardware_status || "unknown"}
-- **CPU Usage:** ${systemStatus.cpuUsage.toFixed(2)}%
-- **Memory Usage:** ${systemStatus.memoryUsage.toFixed(1)}% (${systemStatus.memoryTotal})
-- **Temperature:** ${systemStatus.temperature.toFixed(1)}°C
-- **Devices:** ${systemStatus.devices.length} device(s)
+- **Board:** ${boardName}
+- **Hardware Status:** ${hardwareStatus || "unknown"}
+- **CPU Usage:** ${systemResources.cpuUsage.toFixed(2)}%
+- **Memory Usage:** ${systemResources.memoryUsage.toFixed(1)}% (${systemResources.memoryTotal})
+- **Temperature:** ${avgTemperature.toFixed(1)}°C
+- **Devices:** ${devices.length} device(s)
 - **Current URL:** ${currentUrl}
 - **User Agent:** ${userAgent}
 
 ### Hardware Details
 ${
-  systemStatus.devices.length > 0
-    ? systemStatus.devices
+  devices.length > 0
+    ? devices
         .map(
           (device, index) =>
             `**Device ${index + 1}:**
@@ -372,7 +418,7 @@ ${models.length > 0 ? models.map((model) => `- ${model.name} (${model.status})`)
 
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
-${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
+${hardwareError ? `**Hardware Error:** ${hardwareError}` : "No hardware errors detected"}
 
 ### FastAPI Logs
 ${fastapiLogs}
@@ -419,15 +465,15 @@ Add any other context about the problem here.
         : text;
     };
     const limitDevicesList = (maxDevices: number) => {
-      if (systemStatus.devices.length <= maxDevices) return undefined;
-      const blocks = systemStatus.devices
+      if (devices.length <= maxDevices) return undefined;
+      const blocks = devices
         .map(
           (device, index) =>
             `**Device ${index + 1}:**\n- Board Type: ${device.board_type}\n- Temperature: ${device.temperature.toFixed(1)}°C\n- Power: ${device.power.toFixed(2)}W\n- Voltage: ${device.voltage.toFixed(2)}V`
         )
         .slice(0, maxDevices)
         .join("\n\n");
-      return `${blocks}\n\n... (${systemStatus.devices.length - maxDevices} more device entries truncated)`;
+      return `${blocks}\n\n... (${devices.length - maxDevices} more device entries truncated)`;
     };
 
     const MAX_URL_LENGTH = 7000; // conservative safety limit for GitHub new-issue URL
@@ -446,15 +492,15 @@ Add any other context about the problem here.
 **Time:** ${new Date().toLocaleTimeString()}
 
 ### System Information
-- **Board:** ${systemStatus.boardName}
-- **Hardware Status:** ${systemStatus.hardware_status || "unknown"}
-- **CPU Usage:** ${systemStatus.cpuUsage.toFixed(2)}%
-- **Memory Usage:** ${systemStatus.memoryUsage.toFixed(1)}% (${systemStatus.memoryTotal})
-- **Temperature:** ${systemStatus.temperature.toFixed(1)}°C
-- **Devices:** ${systemStatus.devices.length} device(s)
+- **Board:** ${boardName}
+- **Hardware Status:** ${hardwareStatus || "unknown"}
+- **CPU Usage:** ${systemResources.cpuUsage.toFixed(2)}%
+- **Memory Usage:** ${systemResources.memoryUsage.toFixed(1)}% (${systemResources.memoryTotal})
+- **Temperature:** ${avgTemperature.toFixed(1)}°C
+- **Devices:** ${devices.length} device(s)
 
 ### Hardware Details (truncated)
-${devicesLimited ?? (systemStatus.devices.length ? "(within limit)" : "No hardware devices detected")}
+${devicesLimited ?? (devices.length ? "(within limit)" : "No hardware devices detected")}
 
 ### Deployed Models
 ${
@@ -468,7 +514,7 @@ ${
 
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
-${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
+${hardwareError ? `**Hardware Error:** ${hardwareError}` : "No hardware errors detected"}
 
 ### FastAPI Logs (truncated)
 ${truncatedFastapi}
@@ -570,16 +616,16 @@ Full logs have been copied to your clipboard and downloaded as a file. Please pa
 **Time:** ${new Date().toLocaleTimeString()}
 
 ### System Information
-- **Board:** ${systemStatus.boardName}
-- **Hardware Status:** ${systemStatus.hardware_status || "unknown"}
-- **CPU Usage:** ${systemStatus.cpuUsage.toFixed(2)}%
-- **Memory Usage:** ${systemStatus.memoryUsage.toFixed(1)}% (${systemStatus.memoryTotal})
-- **Temperature:** ${systemStatus.temperature.toFixed(1)}°C
-- **Devices:** ${systemStatus.devices.length} device(s)
+- **Board:** ${boardName}
+- **Hardware Status:** ${hardwareStatus || "unknown"}
+- **CPU Usage:** ${systemResources.cpuUsage.toFixed(2)}%
+- **Memory Usage:** ${systemResources.memoryUsage.toFixed(1)}% (${systemResources.memoryTotal})
+- **Temperature:** ${avgTemperature.toFixed(1)}°C
+- **Devices:** ${devices.length} device(s)
 
 ### Error Information
 ${error ? `**System Error:** ${error}` : "No system errors detected"}
-${systemStatus.hardware_error ? `**Hardware Error:** ${systemStatus.hardware_error}` : "No hardware errors detected"}
+${hardwareError ? `**Hardware Error:** ${hardwareError}` : "No hardware errors detected"}
 
 ### FastAPI Logs
 ${fallbackFastapiLogs}
@@ -761,7 +807,7 @@ Add any other context about the problem here.
                   />
                 </svg>
               </div>
-              {systemStatus.boardName?.toLowerCase().includes("t3k") ? (
+              {boardName?.toLowerCase().includes("t3k") ? (
                 <div
                   className="flex items-center gap-2 px-3 py-1.5 bg-TT-purple-accent/10 dark:bg-TT-purple-accent/30 rounded-full cursor-pointer transition-all duration-200 hover:bg-TT-purple-accent/20 dark:hover:bg-TT-purple-accent/40 hover:scale-105"
                   title="Hardware status - Click to learn more"
@@ -774,10 +820,10 @@ Add any other context about the problem here.
                 >
                   <HardwareIcon type="loudbox" className="h-4 w-4" />
                   <span className="text-sm font-medium text-TT-purple-accent">
-                    {systemStatus.boardName}
+                    {boardName}
                   </span>
                 </div>
-              ) : systemStatus.boardName?.toLowerCase().includes("n300") ? (
+              ) : boardName?.toLowerCase().includes("n300") ? (
                 <div
                   className="flex items-center gap-2 px-3 py-1.5 bg-TT-purple-accent/10 dark:bg-TT-purple-accent/30 rounded-full cursor-pointer transition-all duration-200 hover:bg-TT-purple-accent/20 dark:hover:bg-TT-purple-accent/40 hover:scale-105"
                   title="Hardware status - Click to learn more"
@@ -801,14 +847,14 @@ Add any other context about the problem here.
                     />
                   </svg>
                   <span className="text-sm font-medium text-TT-purple-accent">
-                    {systemStatus.boardName}
+                    {boardName}
                   </span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5">
                   <Badge
                     variant={
-                      systemStatus.hardware_status === "error"
+                      hardwareStatus === "error"
                         ? "destructive"
                         : error
                           ? "destructive"
@@ -816,7 +862,7 @@ Add any other context about the problem here.
                     }
                     className={`text-xs ${textColor} cursor-pointer transition-all duration-200 hover:scale-105 hover:bg-opacity-80`}
                     title={
-                      systemStatus.hardware_error ||
+                      hardwareError ||
                       error ||
                       "Hardware status - Click to learn more"
                     }
@@ -827,8 +873,8 @@ Add any other context about the problem here.
                       );
                     }}
                   >
-                    {systemStatus.boardName}
-                    {systemStatus.hardware_status === "error" && " ⚠️"}
+                    {boardName}
+                    {hardwareStatus === "error" && " ⚠️"}
                   </Badge>
                   {isBoardDetectionIssue && (
                     <TooltipProvider>
@@ -866,45 +912,132 @@ Add any other context about the problem here.
                   )}
                 </div>
               )}
-              {(error || systemStatus.hardware_error) && (
+              {(error || hardwareError) && (
                 <span
                   className={`text-xs text-red-500`}
-                  title={systemStatus.hardware_error || error || "System error"}
+                  title={hardwareError || error || "System error"}
                 >
                   ⚠️
                 </span>
               )}
 
-              {/* Deployed Models Section */}
-              <div className="flex items-center gap-2">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="inline-block">
-                        <Badge
-                          variant={models.length > 0 ? "default" : "outline"}
-                          className={`text-xs cursor-pointer transition-colors hover:bg-opacity-80 ${
-                            models.length > 0
-                              ? "bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-100 dark:hover:bg-green-800"
-                              : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-                          }`}
-                          onClick={handleDeployedModelsClick}
-                        >
-                          📟 {getDeployedModelsText()}
-                        </Badge>
+            {/* Deployed Models Section */}
+            <div className="flex items-center gap-2">
+              <div
+                ref={badgeWrapperRef}
+                className="inline-block"
+                onMouseEnter={handlePopoverEnter}
+                onMouseLeave={handlePopoverLeave}
+              >
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-xs cursor-pointer transition-all duration-300",
+                    models.length > 0
+                      ? "bg-TT-purple-accent/20 text-TT-purple-tint1 border-TT-purple-accent/30 hover:bg-TT-purple-accent/30 hover:shadow-[0_0_12px_rgba(124,104,250,0.3)] hover:scale-105"
+                      : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  )}
+                  onClick={() => {
+                    setShowModelPopover(false);
+                    handleDeployedModelsClick();
+                  }}
+                >
+                  📟 {getDeployedModelsText()}
+                </Badge>
+              </div>
+
+              {/* Hover popover - rendered via portal to escape footer overflow */}
+              {models.length > 0 && showModelPopover && popoverPos && createPortal(
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="fixed w-80 z-[9999] rounded-xl border border-TT-purple-accent/20 bg-stone-950 shadow-[0_0_30px_rgba(124,104,250,0.15)]"
+                  style={{ left: popoverPos.left, top: popoverPos.top - 8 }}
+                  onMouseEnter={handlePopoverEnter}
+                  onMouseLeave={handlePopoverLeave}
+                >
+                  <div style={{ transform: 'translateY(-100%)' }} className="bg-stone-950 rounded-xl border border-TT-purple-accent/20 overflow-hidden">
+                    {/* Header */}
+                    <div className="px-4 pt-3 pb-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-TT-purple-tint1 uppercase tracking-wider">
+                          Deployed Models
+                        </span>
+                        <span className="text-[10px] text-TT-purple/60 font-mono">
+                          {models.length} active
+                        </span>
                       </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>
-                        {models.length > 0
-                          ? `Click to view ${models.length} deployed model${
-                              models.length > 1 ? "s" : ""
-                            }${models.length === 1 ? `: ${models[0].name || "Unknown Model"}` : ""}`
-                          : "Click to view deployed models page"}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                      <div className="mt-2 h-[1px] w-full bg-gradient-to-r from-transparent via-TT-purple-accent/50 to-transparent" />
+                    </div>
+
+                    {/* Model list */}
+                    <div className="px-2 py-2 max-h-48 overflow-y-auto">
+                      {models.map((model, index) => (
+                        <motion.div
+                          key={model.id}
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05, duration: 0.2 }}
+                          className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors group"
+                        >
+                          {/* Health dot */}
+                          <div className="relative flex-shrink-0">
+                            <div className={cn(
+                              "w-2 h-2 rounded-full",
+                              getHealthColor(model.health, model.status)
+                            )} />
+                            {getHealthColor(model.health, model.status) === "bg-TT-green" && (
+                              <div className={cn(
+                                "absolute inset-0 w-2 h-2 rounded-full animate-ping opacity-30",
+                                getHealthColor(model.health, model.status)
+                              )} />
+                            )}
+                          </div>
+
+                          {/* Model info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium text-stone-100 truncate">
+                              {model.name || "Unknown Model"}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {model.model_type && (
+                                <span className="text-[10px] text-TT-purple/80 font-mono">
+                                  {model.model_type}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-stone-500">
+                                {getStatusText(model.status)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Device ID badge */}
+                          {model.device_id != null && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-TT-purple-accent/10 text-TT-purple/70 font-mono flex-shrink-0">
+                              dev:{model.device_id}
+                            </span>
+                          )}
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Footer hint */}
+                    <div
+                      className="px-4 py-2 border-t border-white/10 cursor-pointer hover:bg-white/5 transition-colors"
+                      onClick={() => {
+                        setShowModelPopover(false);
+                        handleDeployedModelsClick();
+                      }}
+                    >
+                      <span className="text-[10px] text-stone-500">
+                        Click to manage models →
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>,
+                document.body
+              )}
 
                 {/* Logs Button */}
                 {models.length > 0 && (
@@ -938,23 +1071,23 @@ Add any other context about the problem here.
                 SYSTEM RESOURCES USAGE:
               </span>
               <span className={`text-sm ${textColor}`}>
-                RAM: {systemStatus.memoryUsage.toFixed(1)}% (
-                {systemStatus.memoryTotal}) | CPU:{" "}
-                {systemStatus.cpuUsage.toFixed(2)}%
-                {systemStatus.hardware_status === "healthy" && (
-                  <> | TEMP: {systemStatus.temperature.toFixed(1)}°C</>
+                RAM: {systemResources.memoryUsage.toFixed(1)}% (
+                {systemResources.memoryTotal}) | CPU:{" "}
+                {systemResources.cpuUsage.toFixed(2)}%
+                {hardwareStatus === "healthy" && (
+                  <> | TEMP: {avgTemperature.toFixed(1)}°C</>
                 )}
-                {systemStatus.hardware_status === "error" && (
+                {hardwareStatus === "error" && (
                   <> | TT HARDWARE: UNAVAILABLE</>
                 )}
-                {systemStatus.hardware_status === "unknown" && (
+                {hardwareStatus === "unknown" && (
                   <> | TT HARDWARE: CHECKING...</>
                 )}
               </span>
-              {systemStatus.devices.length > 1 &&
-                systemStatus.hardware_status === "healthy" && (
+              {devices.length > 1 &&
+                hardwareStatus === "healthy" && (
                   <span className={`text-xs ${mutedTextColor}`}>
-                    ({systemStatus.devices.length} devices)
+                    ({devices.length} devices)
                   </span>
                 )}
             </div>
