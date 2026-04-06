@@ -82,7 +82,7 @@ const FirstFormSchema = z.object({
 export function FirstStepForm({
   setSelectedModel,
   setFormError,
-  setSelectedDeviceId,
+  setSelectedDeviceId: _setSelectedDeviceId,
   autoDeployModel,
   isAutoDeploying,
   chipMode,

@@ -497,20 +497,18 @@ export default function Component({
         : stats.user_ttft_s != null
           ? Math.round(stats.user_ttft_s * 1000)
           : null;
-    const tokensIn = stats.tokens_prefilled ?? 0;
-    const tokensOut = stats.tokens_decoded ?? 0;
-
     type Segment = { label: string | null; value: string; unit?: string; accent?: boolean };
-    const segments: Segment[] = [
+    const segments: (Segment | null)[] = [
       ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
       tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
       // tokens shown in modal only
-    ].filter((s): s is Segment => s != null);
+    ];
+    const visibleSegments = segments.filter((s): s is Segment => s !== null);
 
     return (
       <>
         <div className={`flex items-center gap-1.5 font-mono text-[11px] tabular-nums ${isDarkMode ? "text-white/30" : "text-gray-400"}`}>
-          {segments.map((seg, i) => (
+          {visibleSegments.map((seg, i) => (
             <React.Fragment key={i}>
               {i > 0 && <span className="opacity-40">·</span>}
               <span>{seg.label ? `${seg.label} ` : ""}{seg.value}{seg.unit ?? ""}</span>

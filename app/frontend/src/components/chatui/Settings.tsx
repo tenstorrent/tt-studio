@@ -233,7 +233,7 @@ export default function Settings({
   onClose,
   settings,
   onSettingsChange,
-  defaultSystemPrompt,
+  defaultSystemPrompt: _defaultSystemPrompt,
   maxTokensSliderMax,
 }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {

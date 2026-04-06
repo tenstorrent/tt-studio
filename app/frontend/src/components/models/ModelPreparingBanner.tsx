@@ -26,7 +26,7 @@ export default function ModelPreparingBanner({
         {/* Left: status LED + text */}
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <div className="mt-0.5 shrink-0">
-            <PulsatingDot color="amber" size="md" />
+            <PulsatingDot label="Preparing models" color="amber" size="md" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1">
