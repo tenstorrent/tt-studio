@@ -25,8 +25,6 @@ import type {
 import { runInference } from "./runInference";
 import { buildDefaultSystemPrompt } from "./templateRenderer";
 import { useDeviceState } from "../../hooks/useDeviceState";
-import { buildDefaultSystemPrompt } from "./templateRenderer";
-import { useDeviceState } from "../../hooks/useDeviceState";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
