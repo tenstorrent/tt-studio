@@ -70,3 +70,11 @@ inference-api/__pycache__/
 CLAUDE.md
 docs/RAG_PRODUCTIONIZATION_PLAN.md
 docs/DOCKER_CONTROL_SERVICE_PLAN.md
+!app/backend/shared_config/models_from_inference_server.json
+
+request-venv/*
+app/.env-old
+output.wav
+app/backend/core.*
+.workflow_venvs/.venv_bootstrap_uv
+speech.wav

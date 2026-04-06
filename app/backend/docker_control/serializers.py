@@ -14,6 +14,8 @@ from .docker_utils import get_model_weights_path
 class DeploymentSerializer(serializers.Serializer):
     model_id = serializers.CharField(required=True)
     weights_id = serializers.CharField(required=False, allow_blank=True)
+    device_id = serializers.IntegerField(required=False, default=0, min_value=0, max_value=3)
+    host_port = serializers.IntegerField(required=False, default=None, min_value=1024, max_value=65535, allow_null=True)
 
     def validate(self, data):
         model_id = data.get("model_id")

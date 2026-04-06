@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import axios from "axios";
 import { customToast } from "../components/CustomToaster";
@@ -30,6 +30,9 @@ interface ContainerData {
   image_name: string;
   port_bindings: { [key: string]: PortBinding[] };
   networks: { [key: string]: Network };
+  device_id?: number | null;
+  /** Set when status is enriched from deploy cache; used for navbar routing. */
+  model_type?: string;
 }
 
 interface StopResponse {
@@ -48,20 +51,63 @@ interface DeployedModelInfo {
   id: string;
   modelName: string;
   status: string;
+  model_type?: string;
   internal_url?: string;
   health_url?: string;
   model_impl?: {
     model_name?: string;
     hf_model_id?: string;
+    model_type?: string;
   };
 }
 
 export const ModelType = {
   ChatModel: "ChatModel",
+  VLM: "VLM",
   ImageGeneration: "ImageGeneration",
+  VideoGeneration: "VideoGeneration",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
   ImageClassificationModel: "ImageClassificationModel",
+  FaceRecognitionModel: "FaceRecognitionModel",
+  TTS: "TTS",
+  Embedding: "Embedding",
+  CNN: "CNN",
+};
+
+/**
+ * Map backend model_type strings (from catalog/API) to frontend ModelType constants.
+ * Normalizes casing so values like SPEECH_RECOGNITION still map correctly.
+ * Falls back to ChatModel for unknown types.
+ */
+export const getModelTypeFromBackendType = (backendType: string): string => {
+  const normalized = String(backendType ?? "").toLowerCase();
+  switch (normalized) {
+    case "chat":
+      return ModelType.ChatModel;
+    case "vlm":
+      return ModelType.VLM;
+    case "image_generation":
+      return ModelType.ImageGeneration;
+    case "video_generation":
+      return ModelType.VideoGeneration;
+    case "object_detection":
+      return ModelType.ObjectDetectionModel;
+    case "speech_recognition":
+      return ModelType.SpeechRecognitionModel;
+    case "image_classification":
+      return ModelType.ImageClassificationModel;
+    case "face_recognition":
+      return ModelType.FaceRecognitionModel;
+    case "tts":
+      return ModelType.TTS;
+    case "embedding":
+      return ModelType.Embedding;
+    case "cnn":
+      return ModelType.CNN;
+    default:
+      return ModelType.ChatModel;
+  }
 };
 
 export const fetchModels = async (): Promise<Model[]> => {
@@ -115,6 +161,8 @@ export const fetchModels = async (): Promise<Model[]> => {
         health: container.health || "unknown",
         ports: portMapping,
         name: container.name || "Unnamed container",
+        device_id: container.device_id ?? null,
+        model_type: container.model_type,
       };
     });
 
@@ -215,12 +263,13 @@ export const handleRedeploy = (modelName: string): void => {
 export const handleModelNavigationClick = (
   modelID: string,
   modelName: string,
-  navigate: NavigateFunction
+  navigate: NavigateFunction,
+  modelType?: string
 ): void => {
-  const modelType = getModelTypeFromName(modelName);
-  const destination = getDestinationFromModelType(modelType);
-  console.log(`${modelType} button clicked for model: ${modelID}`);
-  console.log(`Opening ${modelType} for model: ${modelName}`);
+  const resolvedModelType = modelType ?? getModelTypeFromName(modelName);
+  const destination = getDestinationFromModelType(resolvedModelType);
+  console.log(`${resolvedModelType} button clicked for model: ${modelID}`);
+  console.log(`Opening ${resolvedModelType} for model: ${modelName}`);
   customToast.success(`${destination.slice(1)} page opened!`);
 
   navigate(destination, {
@@ -234,32 +283,173 @@ export const getDestinationFromModelType = (modelType: string): string => {
   switch (modelType) {
     case ModelType.ChatModel:
       return "/chat";
+    case ModelType.VLM:
+      return "/chat"; // VLM reuses the chat UI (supports image content)
     case ModelType.ImageGeneration:
       return "/image-generation";
+    case ModelType.VideoGeneration:
+      return "/chat"; // placeholder until video UI exists
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
       return "/speech-to-text";
     case ModelType.ImageClassificationModel:
       return "/image-classification";
+    case ModelType.FaceRecognitionModel:
+      return "/face-recognition";
+    case ModelType.TTS:
+      return "/tts";
+    case ModelType.Embedding:
+      return "/chat"; // placeholder
+    case ModelType.CNN:
+      return "/object-detection"; // CNN reuses object detection UI
     default:
       return "/chat";
   }
 };
 
-export const getModelTypeFromName = (modelName: string): string => {
-  const name = modelName.toLowerCase();
-  if (name.includes("yolo")) {
-    return ModelType.ObjectDetectionModel;
-  } else if (name.includes("diffusion")) {
-    return ModelType.ImageGeneration;
-  } else if (name.includes("whisper")) {
-    return ModelType.SpeechRecognitionModel;
-  } else if (name.includes("forge")) {
-    return ModelType.ImageClassificationModel;
-  } else {
-    return ModelType.ChatModel;
+// ----- deployModel with device_id support -----
+export const deployModel = async (
+  modelId: string,
+  weightsId: string,
+  deviceId: number = 0,
+): Promise<{ job_id?: string; status?: string; message?: string }> => {
+  const payload = JSON.stringify({
+    model_id: modelId,
+    weights_id: weightsId,
+    device_id: deviceId,
+  });
+  const response = await fetch("/docker-api/deploy/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload,
+  });
+  return response.json();
+};
+
+// ----- TTS Inference -----
+export const runTTSInference = async (
+  deployId: string,
+  text: string,
+): Promise<Blob> => {
+  const response = await fetch("/models-api/tts/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deploy_id: deployId, text }),
+  });
+  if (!response.ok) {
+    throw new Error(`TTS request failed: HTTP ${response.status}`);
   }
+  return response.blob();
+};
+
+// ----- Voice Pipeline -----
+export interface VoicePipelineRequest {
+  audioFile: File;
+  whisperDeployId: string;
+  llmDeployId: string;
+  ttsDeployId?: string;
+  systemPrompt?: string;
+}
+
+/**
+ * Calls the voice pipeline endpoint and returns an SSE EventSource.
+ * The caller is responsible for closing the EventSource when done.
+ */
+export const runVoicePipeline = async (
+  req: VoicePipelineRequest,
+  onTranscript: (text: string) => void,
+  onLlmChunk: (text: string) => void,
+  onAudio: (dataUrl: string) => void,
+  onError: (stage: string, message: string) => void,
+  onDone: () => void,
+  onMetrics?: (metrics: Record<string, number>) => void,
+): Promise<void> => {
+  const form = new FormData();
+  form.append("audio_file", req.audioFile);
+  form.append("whisper_deploy_id", req.whisperDeployId);
+  form.append("llm_deploy_id", req.llmDeployId);
+  if (req.ttsDeployId) form.append("tts_deploy_id", req.ttsDeployId);
+  if (req.systemPrompt) form.append("system_prompt", req.systemPrompt);
+
+  const response = await fetch("/models-api/pipeline/voice/", {
+    method: "POST",
+    body: form,
+  });
+
+  if (!response.ok || !response.body) {
+    onError("pipeline", `HTTP ${response.status}`);
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === "transcript") onTranscript(evt.text);
+        else if (evt.type === "llm_chunk") onLlmChunk(evt.text);
+        else if (evt.type === "audio_url") onAudio(evt.url);
+        else if (evt.type === "metrics" && onMetrics) {
+          const { type: _, ...metricsData } = evt;
+          onMetrics(metricsData);
+        }
+        else if (evt.type === "error") onError(evt.stage ?? "unknown", evt.message);
+        else if (evt.type === "done") onDone();
+      } catch {
+        // skip malformed lines
+      }
+    }
+  }
+};
+
+/**
+ * Infer model type from name (and optionally image) when model_type is not available (e.g. Docker-only data).
+ * Recognizes speech models via "whisper", "speech", "asr", or "speech_recognition" in name or image.
+ */
+export const getModelTypeFromName = (
+  modelName: string,
+  image?: string
+): string => {
+  const name = (modelName ?? "").toLowerCase();
+  const imageStr = (image ?? "").toLowerCase();
+  const combined = `${name} ${imageStr}`;
+
+  if (combined.includes("yolo")) {
+    return ModelType.ObjectDetectionModel;
+  }
+  if (combined.includes("face") && combined.includes("recognition")) {
+    return ModelType.FaceRecognitionModel;
+  }
+  if (combined.includes("diffusion")) {
+    return ModelType.ImageGeneration;
+  }
+  if (
+    combined.includes("whisper") ||
+    combined.includes("speech") ||
+    combined.includes("asr") ||
+    combined.includes("speech_recognition")
+  ) {
+    return ModelType.SpeechRecognitionModel;
+  }
+  if (combined.includes("tts")) {
+    return ModelType.TTS;
+  }
+  if (combined.includes("forge")) {
+    return ModelType.ImageClassificationModel;
+  }
+  return ModelType.ChatModel;
 };
 
 export const checkDeployedModels = async (): Promise<boolean> => {
@@ -302,6 +492,7 @@ export const fetchDeployedModelsInfo = async (): Promise<
           modelData.model_impl?.hf_model_id ||
           "Unknown Model",
         status: "deployed",
+        model_type: modelData.model_impl?.model_type,
         internal_url: modelData.internal_url,
         health_url: modelData.health_url,
         model_impl: modelData.model_impl,
@@ -338,6 +529,72 @@ export const checkCurrentlyDeployedModels = async (): Promise<{
       modelNames: [],
     };
   }
+};
+
+// ----- Discover & Register External Containers -----
+
+export interface DiscoveredContainer {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  port_bindings: Record<string, { HostIp: string; HostPort: string }[] | null>;
+}
+
+export const discoverContainers = async (): Promise<DiscoveredContainer[]> => {
+  const response = await axios.get<DiscoveredContainer[]>(
+    "/docker-api/discover-containers/"
+  );
+  return response.data;
+};
+
+export interface RegisterExternalModelRequest {
+  container_id: string;
+  model_type: string;
+  model_name: string;
+  hf_model_id?: string;
+  service_port?: number;
+  service_route?: string;
+  health_route?: string;
+  device_id: number;
+  chips_required?: number;
+}
+
+export interface RegisterExternalModelResponse {
+  status: string;
+  container_id: string;
+  container_name: string;
+  corrections?: string[];
+  message?: string;
+}
+
+export const registerExternalModel = async (
+  req: RegisterExternalModelRequest
+): Promise<RegisterExternalModelResponse> => {
+  const response = await axios.post<RegisterExternalModelResponse>(
+    "/docker-api/register-external/",
+    req
+  );
+  return response.data;
+};
+
+export interface CatalogModel {
+  model_name: string;
+  model_type: string;
+  hf_model_id: string;
+  service_route: string;
+  health_route: string;
+  display_model_type?: string;
+}
+
+export const fetchModelCatalog = async (): Promise<CatalogModel[]> => {
+  const response = await axios.get("/docker-api/catalog/");
+  // Catalog endpoint returns { status, models: { [id]: {...} } }
+  const models = response.data?.models;
+  if (models && typeof models === "object" && !Array.isArray(models)) {
+    return Object.values(models) as CatalogModel[];
+  }
+  return [];
 };
 
 // Utility to extract short model name from container name

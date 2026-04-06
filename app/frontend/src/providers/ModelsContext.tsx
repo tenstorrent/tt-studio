@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useCallback } from "react";
 import {
@@ -23,7 +23,8 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
       ]);
 
       if (deployedModelsInfo.length > 0) {
-        // Merge the deployed models info with Docker container info
+        // Merge the deployed models info with Docker container info.
+        // model_type from deployed API is required for correct navbar routing (e.g. Speech Recognition -> /speech-to-text).
         const mergedModels = deployedModelsInfo.map((deployedModel) => {
           // Find corresponding Docker container
           const dockerModel = dockerModels.find(
@@ -39,20 +40,21 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
             status: dockerModel?.status || "deployed",
             health: dockerModel?.health || "unknown",
             ports: dockerModel?.ports || "No ports",
+            model_type: deployedModel.model_type,
           };
         });
 
         setModels(mergedModels);
         setHasDeployedModels(true);
       } else {
-        // If no deployed models, just use Docker API as fallback
+        // Docker-only fallback: no model_type available; navbar uses name/image-based type inference.
         const dockerModels = await fetchModels();
         setModels(dockerModels);
         setHasDeployedModels(false);
       }
     } catch (error) {
       console.error("Error refreshing models:", error);
-      // Fallback to Docker API if deployed models API fails
+      // Fallback to Docker API if deployed models API fails (Docker-only mode; no model_type).
       try {
         const dockerModels = await fetchModels();
         setModels(dockerModels);

@@ -9,18 +9,10 @@ import { useEffect, useState } from "react";
 import {
   Bot,
   XCircle,
-  MessageSquare,
-  Eye,
-  Mic,
-  Palette,
-  ScanSearch,
+  CheckCircle2,
+  Zap,
+  FlaskConical,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./ui/tooltip";
 
 import {
   Select,
@@ -45,66 +37,62 @@ import BoardBadge from "./BoardBadge";
 import { DeployedModelsWarning } from "./DeployedModelsWarning";
 import { useModels } from "../hooks/useModels";
 
-// Model type configuration with icons and labels
-const MODEL_TYPE_CONFIG = {
-  chat: {
-    label: "Chat & Language Models",
-    icon: MessageSquare,
+// Status configuration with icons and labels
+const STATUS_CONFIG = {
+  COMPLETE: {
+    label: "Complete",
+    icon: CheckCircle2,
+    color: "text-green-600",
+    bgColor: "bg-green-50 dark:bg-green-900/20",
+    borderColor: "border-green-200 dark:border-green-800",
+  },
+  FUNCTIONAL: {
+    label: "Functional",
+    icon: Zap,
     color: "text-blue-500",
     bgColor: "bg-blue-50 dark:bg-blue-900/20",
     borderColor: "border-blue-200 dark:border-blue-800",
   },
-  image_generation: {
-    label: "Image Generation",
-    icon: Palette,
-    color: "text-purple-500",
-    bgColor: "bg-purple-50 dark:bg-purple-900/20",
-    borderColor: "border-purple-200 dark:border-purple-800",
+  EXPERIMENTAL: {
+    label: "Experimental",
+    icon: FlaskConical,
+    color: "text-amber-500",
+    bgColor: "bg-amber-50 dark:bg-amber-900/20",
+    borderColor: "border-amber-200 dark:border-amber-800",
   },
-  object_detection: {
-    label: "Object Detection",
-    icon: Eye,
-    color: "text-emerald-500",
-    bgColor: "bg-emerald-50 dark:bg-emerald-900/20",
-    borderColor: "border-emerald-200 dark:border-emerald-800",
-  },
-  speech_recognition: {
-    label: "Speech Recognition",
-    icon: Mic,
-    color: "text-orange-500",
-    bgColor: "bg-orange-50 dark:bg-orange-900/20",
-    borderColor: "border-orange-200 dark:border-orange-800",
-  },
-  image_classification: {
-    label: "Image Classification (Forge)",
-    icon: ScanSearch,
-    color: "text-cyan-500",
-    bgColor: "bg-cyan-50 dark:bg-cyan-900/20",
-    borderColor: "border-cyan-200 dark:border-cyan-800",
-  },
-  mock: {
-    label: "Test Models",
-    icon: Bot,
-    color: "text-gray-500",
-    bgColor: "bg-gray-50 dark:bg-gray-900/20",
-    borderColor: "border-gray-200 dark:border-gray-800",
-  },
+};
+
+// Model type configuration for grouping by inference server type
+const TYPE_CONFIG: Record<string, { label: string; order: number }> = {
+  LLM: { label: "LLM Models", order: 1 },
+  VLM: { label: "VLM Models", order: 2 },
+  VIDEO: { label: "Video Models", order: 3 },
+  IMAGE: { label: "Image Models", order: 4 },
+  AUDIO: { label: "Audio Models", order: 5 },
+  TEXT_TO_SPEECH: { label: "TTS Models", order: 6 },
+  EMBEDDING: { label: "Embedding Models", order: 7 },
+  CNN: { label: "CNN Models", order: 8 },
 };
 
 const FirstFormSchema = z.object({
   model: z.string().nonempty("Please select a model."),
 });
 
+
 export function FirstStepForm({
   setSelectedModel,
   setFormError,
+  setSelectedDeviceId,
   autoDeployModel,
   isAutoDeploying,
+  chipMode,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
+  setSelectedDeviceId?: (deviceId: number) => void;
   autoDeployModel?: string | null;
   isAutoDeploying?: boolean;
+  chipMode?: "single" | "multi";
 }) {
   const { nextStep } = useStepper();
   const {
@@ -189,7 +177,7 @@ export function FirstStepForm({
 
         console.log(
           "📝 FirstStepForm: Setting selectedModel to:",
-          selectedModel.id
+          selectedModel.id,
         );
         setSelectedModel(selectedModel.id);
         console.log(
@@ -239,33 +227,62 @@ export function FirstStepForm({
     }
   }, [autoDeployModel, models, isAutoDeploying, form, onSubmit]);
 
-  // Get current board info and group models by type and compatibility
+  // Get current board info and group models by status and compatibility
   const currentBoard = models[0]?.current_board || "unknown";
 
-  // Group models by type and compatibility
+  // Map multi-chip boards to their constituent single-chip device for single-chip mode
+  const BOARD_TO_SINGLE_CHIP_DEVICE: Record<string, string> = {
+    "T3K": "N300",
+    "T3000": "N300",
+    "N300x4": "N300",
+    "N150X4": "N150",
+    "P150X4": "P150",
+    "P150X8": "P150",
+    "P300Cx2": "P300c",
+    "P300Cx4": "P300c",
+    "GALAXY": "N300",
+    "GALAXY_T3K": "N300",
+  };
+
+  // Determine the display board name based on chip mode
+  const displayBoard = chipMode === "single" && BOARD_TO_SINGLE_CHIP_DEVICE[currentBoard]
+    ? BOARD_TO_SINGLE_CHIP_DEVICE[currentBoard]
+    : currentBoard;
+
+  // Status priority order for sorting
+  const STATUS_ORDER: Record<string, number> = {
+    COMPLETE: 3,
+    FUNCTIONAL: 2,
+    EXPERIMENTAL: 1,
+  };
+
+  // Filter models by chip mode, and exclude incompatible models entirely
+  const filteredModels = (chipMode
+    ? models.filter((m) =>
+      chipMode === "single"
+        ? (m.chips_required ?? 1) === 1
+        : (m.chips_required ?? 1) > 1
+    )
+    : models
+  ).filter((m) => m.is_compatible !== false);
+
+  // Group models by display type, then by status, then by hardware compatibility
+  type CompatibilityGroup = { compatible: Model[]; unknown: Model[] };
   const groupModelsByType = () => {
-    const grouped: Record<
-      string,
-      {
-        compatible: Model[];
-        incompatible: Model[];
-        unknown: Model[];
-      }
-    > = {};
+    const grouped: Record<string, Record<string, CompatibilityGroup>> = {};
 
-    models.forEach((model) => {
-      const modelType = model.model_type || "unknown";
+    filteredModels.forEach((model) => {
+      const displayType = model.display_model_type || "LLM";
+      const modelStatus = model.status || "EXPERIMENTAL";
 
-      if (!grouped[modelType]) {
-        grouped[modelType] = { compatible: [], incompatible: [], unknown: [] };
-      }
+      if (!grouped[displayType]) grouped[displayType] = {};
+      if (!grouped[displayType][modelStatus])
+        grouped[displayType][modelStatus] = { compatible: [], unknown: [] };
 
       if (model.is_compatible === true) {
-        grouped[modelType].compatible.push(model);
-      } else if (model.is_compatible === false) {
-        grouped[modelType].incompatible.push(model);
+        grouped[displayType][modelStatus].compatible.push(model);
       } else {
-        grouped[modelType].unknown.push(model);
+        grouped[displayType][modelStatus].unknown.push(model);
       }
     });
 
@@ -274,7 +291,7 @@ export function FirstStepForm({
 
   const groupedModels = groupModelsByType();
   const allModelsUnknown =
-    models.length > 0 && models.every((model) => model.is_compatible === null);
+    filteredModels.length > 0 && filteredModels.every((model) => model.is_compatible === null);
 
   return (
     <Form {...form}>
@@ -344,122 +361,113 @@ export function FirstStepForm({
                     </div>
                   )}
 
-                  {/* Render models grouped by type */}
-                  {Object.entries(groupedModels).map(
-                    ([modelType, modelsByCompatibility], typeIndex) => {
-                      const typeConfig =
-                        MODEL_TYPE_CONFIG[
-                          modelType as keyof typeof MODEL_TYPE_CONFIG
-                        ];
-                      const hasModels =
-                        modelsByCompatibility.compatible.length +
-                          modelsByCompatibility.incompatible.length +
-                          modelsByCompatibility.unknown.length >
-                        0;
-
-                      if (!hasModels) return null;
-
-                      const IconComponent = typeConfig?.icon || Bot;
+                  {/* Render models grouped by type, then by status */}
+                  {Object.entries(groupedModels)
+                    .sort(([a], [b]) => {
+                      const orderA = TYPE_CONFIG[a]?.order ?? 99;
+                      const orderB = TYPE_CONFIG[b]?.order ?? 99;
+                      return orderA - orderB;
+                    })
+                    .map(([displayType, statusGroups], typeIndex) => {
+                      const typeConfig = TYPE_CONFIG[displayType];
+                      const typeLabel = typeConfig?.label || `${displayType} Models`;
 
                       return (
-                        <div key={modelType}>
-                          {/* Model Type Header */}
+                        <div key={displayType}>
+                          {/* Type Group Header */}
                           {typeIndex > 0 && (
-                            <div className="h-px bg-gray-200 dark:bg-gray-700 my-2" />
+                            <div className="h-[2px] bg-gray-300 dark:bg-gray-600 my-2" />
                           )}
-                          <div
-                            className={`flex items-center gap-2 px-2 py-2 text-xs font-semibold ${typeConfig?.color || "text-gray-600"} ${typeConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
-                          >
-                            <IconComponent className="w-4 h-4" />
-                            <span>{typeConfig?.label || modelType}</span>
+                          <div className="flex items-center gap-2 px-2 py-2 text-sm font-bold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-800/50">
+                            <span>{typeLabel}</span>
                           </div>
 
-                          {/* Compatible Models */}
-                          {modelsByCompatibility.compatible.map((model) => (
-                            <SelectItem
-                              key={model.id}
-                              value={model.name}
-                              className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                            >
-                              <div className="flex items-center w-full">
-                                <span className="text-green-500 mr-2 text-xs">
-                                  ●
-                                </span>
-                                <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-green-600 ml-2">
-                                  Compatible
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
+                          {/* Status sub-groups within this type */}
+                          {Object.entries(statusGroups)
+                            .sort(
+                              ([a], [b]) =>
+                                (STATUS_ORDER[b] ?? 0) - (STATUS_ORDER[a] ?? 0)
+                            )
+                            .map(([modelStatus, modelsByCompatibility]) => {
+                              const statusConfig =
+                                STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
+                              const hasModels =
+                                modelsByCompatibility.compatible.length +
+                                modelsByCompatibility.unknown.length > 0;
 
-                          {/* Incompatible Models */}
-                          {modelsByCompatibility.incompatible.map((model) => (
-                            <SelectItem
-                              key={model.id}
-                              value={model.name}
-                              disabled={true}
-                              className="pl-6 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                            >
-                              <div className="flex items-center w-full">
-                                <span className="text-red-500 mr-2 text-xs">
-                                  ●
-                                </span>
-                                <span className="text-gray-500 flex-1">
-                                  {model.name}
-                                </span>
-                                <span className="text-xs text-red-500 ml-2">
-                                  Incompatible
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
+                              if (!hasModels) return null;
 
-                          {/* Unknown Compatibility Models */}
-                          {modelsByCompatibility.unknown.map((model) => (
-                            <SelectItem
-                              key={model.id}
-                              value={model.name}
-                              className="pl-6 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
-                            >
-                              <div className="flex items-center w-full">
-                                <span className="text-yellow-500 mr-2 text-xs">
-                                  ●
-                                </span>
-                                <span className="flex-1">{model.name}</span>
-                                <span className="text-xs text-yellow-600 ml-2">
-                                  Unknown
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
+                              const IconComponent = statusConfig?.icon || Bot;
+
+                              return (
+                                <div key={`${displayType}-${modelStatus}`}>
+                                  {/* Status Sub-Header */}
+                                  <div
+                                    className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold ${statusConfig?.color || "text-gray-600"} ${statusConfig?.bgColor || "bg-gray-50 dark:bg-gray-900/20"}`}
+                                  >
+                                    <IconComponent className="w-3 h-3" />
+                                    <span>{statusConfig?.label || modelStatus}</span>
+                                  </div>
+
+                                  {/* Compatible Models */}
+                                  {modelsByCompatibility.compatible.map((model: Model) => (
+                                    <SelectItem
+                                      key={model.id}
+                                      value={model.name}
+                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                                    >
+                                      <div className="flex items-center w-full">
+                                        <span className="text-green-500 mr-2 text-xs">●</span>
+                                        <span className="flex-1">{model.name}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+
+
+                                  {/* Unknown Compatibility Models */}
+                                  {modelsByCompatibility.unknown.map((model: Model) => (
+                                    <SelectItem
+                                      key={model.id}
+                                      value={model.name}
+                                      className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden"
+                                    >
+                                      <div className="flex items-center w-full">
+                                        <span className="text-yellow-500 mr-2 text-xs">●</span>
+                                        <span className="flex-1">{model.name}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </div>
+                              );
+                            })}
                         </div>
                       );
-                    }
-                  )}
+                    })}
 
                   {/* If no models loaded yet */}
-                  {models.length === 0 && !isLoading && (
+                  {filteredModels.length === 0 && !isLoading && (
                     <div className="px-2 py-4 text-center text-gray-500">
-                      No models available
+                      {models.length === 0 ? "No models available" : "No models available for selected chip mode"}
                     </div>
                   )}
                 </SelectContent>
               </Select>
 
               {/* Summary info */}
-              {models.length > 0 && !isLoading && (
+              {filteredModels.length > 0 && !isLoading && (
                 <div className="mt-4 p-4 rounded-lg border-2 border-stone-200 bg-white text-stone-950 shadow-sm dark:border-stone-800 dark:bg-stone-950 dark:text-stone-50 hover:border-stone-400 dark:hover:border-stone-700 hover:shadow-md transition-all duration-200">
                   <div className="flex items-center justify-between text-sm mb-3">
                     <span className="text-gray-600 dark:text-gray-300">
-                      Detected Tenstorrent board:
+                      {chipMode === "single" && displayBoard !== currentBoard
+                        ? "Target device (single chip):"
+                        : "Detected Tenstorrent board:"}
                     </span>
                     <div className="px-2 py-2">
-                      {currentBoard !== "unknown" ? (
+                      {displayBoard !== "unknown" ? (
                         <BoardBadge
-                          boardName={currentBoard}
+                          boardName={displayBoard}
                           onClick={() => {
-                            const lower = currentBoard.toLowerCase();
+                            const lower = displayBoard.toLowerCase();
                             if (
                               lower.includes("t3k") ||
                               lower.includes("t3000")
@@ -488,83 +496,6 @@ export function FirstStepForm({
                       )}
                     </div>
                   </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-gray-600 dark:text-gray-300">
-                            Board compatibility:
-                          </span>
-                          <div className="flex items-center gap-4">
-                            <span className="flex items-center gap-1">
-                              <span className="text-green-500 text-xs">●</span>
-                              <span className="text-gray-700 dark:text-gray-200">
-                                {
-                                  models.filter(
-                                    (model) => model.is_compatible === true
-                                  ).length
-                                }{" "}
-                                compatible
-                              </span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="text-red-500 text-xs">●</span>
-                              <span className="text-gray-700 dark:text-gray-200">
-                                {
-                                  models.filter(
-                                    (model) => model.is_compatible === false
-                                  ).length
-                                }{" "}
-                                incompatible
-                              </span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="text-yellow-500 text-xs">●</span>
-                              <span className="text-gray-700 dark:text-gray-200">
-                                {
-                                  models.filter(
-                                    (model) => model.is_compatible === null
-                                  ).length
-                                }{" "}
-                                unknown
-                              </span>
-                            </span>
-                          </div>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="bottom"
-                        align="start"
-                        sideOffset={4}
-                        className="max-w-sm text-xs text-left leading-relaxed"
-                      >
-                        <div className="font-semibold mb-1">
-                          Board Compatibility
-                        </div>
-                        <div>
-                          <span className="text-green-500 font-bold">
-                            Compatible
-                          </span>
-                          <span>: Model will run on your detected board.</span>
-                        </div>
-                        <div>
-                          <span className="text-red-500 font-bold">
-                            Incompatible
-                          </span>
-                          <span>: Model will not run on your board.</span>
-                        </div>
-                        <div>
-                          <span className="text-yellow-500 font-bold">
-                            Unknown
-                          </span>
-                          <span>
-                            : Board detection failed; compatibility cannot be
-                            determined.
-                          </span>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </div>
               )}
 
@@ -576,7 +507,7 @@ export function FirstStepForm({
         />
         <StepperFormActions
           form={form}
-          removeDynamicSteps={() => {}}
+          removeDynamicSteps={() => { }}
           isSubmitting={isSubmitting}
         />
       </form>

@@ -24,7 +24,7 @@ class ContainerRunRequest(BaseModel):
     auto_remove: bool = Field(False, description="Remove container on exit")
     privileged: bool = Field(False, description="Run in privileged mode (NOT ALLOWED)")
     user: Optional[str] = Field(None, description="User to run as (e.g., '1000:1000')")
-    cap_add: Optional[List[str]] = Field(None, description="Linux capabilities to add")
+    cap_add: List[str] = Field(default_factory=list, description="Linux capabilities to add (e.g., ['SYS_ADMIN', 'IPC_LOCK'])")
     shm_size: Optional[str] = Field(None, description="Shared memory size (e.g., '32G')")
 
 

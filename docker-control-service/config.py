@@ -28,6 +28,7 @@ class Settings:
         "alpine:",
         "ubuntu:",
         "python:",
+        "face-recognition-api:",
     ]
 
     ALLOWED_NETWORKS: List[str] = [

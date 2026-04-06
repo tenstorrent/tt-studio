@@ -5,6 +5,7 @@
 # model_control/urls.py
 from django.urls import path
 from . import views
+from .pipeline_views import VoicePipelineView
 
 urlpatterns = [
     path("inference/", views.InferenceView.as_view()),
@@ -19,6 +20,12 @@ urlpatterns = [
     path("speech-recognition/", views.SpeechRecognitionInferenceView.as_view()),
     path("speech-recognition-cloud/", views.SpeechRecognitionInferenceCloudView.as_view()),
     path("image-classification/", views.ImageClassificationInferenceView.as_view()),
+    path("face-recognition/recognize/", views.FaceRecognitionRecognizeView.as_view()),
+    path("face-recognition/register/", views.FaceRecognitionRegisterView.as_view()),
+    path("face-recognition/faces/", views.FaceRecognitionListView.as_view()),
+    path("face-recognition/faces/<str:name>/", views.FaceRecognitionDeleteView.as_view()),
+    path("tts/", views.TtsInferenceView.as_view()),
+    path("pipeline/voice/", VoicePipelineView.as_view()),
     path("health/", views.ModelHealthView.as_view()),
     path("inference_cloud/", views.InferenceCloudView.as_view()),
     path("logs/<str:container_id>/", views.ContainerLogsView.as_view(), name="container-logs"),

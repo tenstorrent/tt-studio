@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useRef, useEffect, forwardRef } from "react";
+import React, { useState, useRef, useEffect, forwardRef, useMemo } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -9,11 +9,13 @@ import {
   Boxes,
   BotMessageSquare,
   Notebook,
-  FileText,
   Image,
   Eye,
   AudioLines,
   ScanSearch,
+  Mic,
+  Volume2,
+  ScanFace,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
@@ -47,6 +49,7 @@ import {
   getDestinationFromModelType,
   ModelType,
   getModelTypeFromName,
+  getModelTypeFromBackendType,
 } from "../api/modelsDeployedApis";
 import { useHeroSection } from "../hooks/useHeroSection";
 
@@ -292,6 +295,23 @@ export default function NavBar() {
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 
+  // Voice agent requires all three model types: LLM/VLM, speech recognition (Whisper), and TTS
+  const isVoiceAgentReady = useMemo(() => {
+    const getType = (m: (typeof models)[number]) =>
+      m.model_type
+        ? getModelTypeFromBackendType(m.model_type)
+        : getModelTypeFromName(m.name, m.image);
+    const hasLlm = models.some((m) => {
+      const t = getType(m);
+      return t === ModelType.ChatModel || t === ModelType.VLM;
+    });
+    const hasStt = models.some(
+      (m) => getType(m) === ModelType.SpeechRecognitionModel
+    );
+    const hasTts = models.some((m) => getType(m) === ModelType.TTS);
+    return hasLlm && hasStt && hasTts;
+  }, [models]);
+
   // Check if we're in Chat UI or Image Generation mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
@@ -387,7 +407,12 @@ export default function NavBar() {
     if (models.length > 0) {
       const firstModel = models[0];
       if (firstModel.id && firstModel.name) {
-        handleModelNavigationClick(firstModel.id, firstModel.name, navigate);
+        handleModelNavigationClick(
+          firstModel.id,
+          firstModel.name,
+          navigate,
+          firstModel.model_type
+        );
       } else {
         console.error("Model ID or name is undefined");
       }
@@ -405,15 +430,24 @@ export default function NavBar() {
   const getNavIconFromModelType = (model_type: string): LucideIcon => {
     switch (model_type) {
       case ModelType.ChatModel:
+      case ModelType.VLM:
+      case ModelType.Embedding:
         return BotMessageSquare;
       case ModelType.ImageGeneration:
         return Image;
+      case ModelType.VideoGeneration:
+        return BotMessageSquare;
       case ModelType.ObjectDetectionModel:
+      case ModelType.CNN:
         return Eye;
       case ModelType.SpeechRecognitionModel:
         return AudioLines;
       case ModelType.ImageClassificationModel:
         return ScanSearch;
+      case ModelType.FaceRecognitionModel:
+        return ScanFace;
+      case ModelType.TTS:
+        return Volume2;
       default:
         return BotMessageSquare;
     }
@@ -423,16 +457,28 @@ export default function NavBar() {
     switch (model_type) {
       case ModelType.ChatModel:
         return "Chat UI";
+      case ModelType.VLM:
+        return "Chat UI";
       case ModelType.ImageGeneration:
         return "Image Generation";
+      case ModelType.VideoGeneration:
+        return "Video Generation";
       case ModelType.ObjectDetectionModel:
         return "Object Detection";
+      case ModelType.CNN:
+        return "Object Detection";
       case ModelType.SpeechRecognitionModel:
-        return "Speech Recognition";
+        return "Speech to Text";
       case ModelType.ImageClassificationModel:
         return "Image Classification";
+      case ModelType.FaceRecognitionModel:
+        return "Face Recognition";
+      case ModelType.TTS:
+        return "Text to Speech";
+      case ModelType.Embedding:
+        return "Chat UI";
       default:
-        return "ERROR";
+        return "Model";
     }
   };
 
@@ -465,13 +511,18 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
-    {
-      type: "link",
-      to: "/logs",
-      icon: FileText,
-      label: "Logs",
-      tooltip: "View system logs",
-    },
+    // Voice Agent is only shown when all three voice-stack models are deployed
+    ...(isVoiceAgentReady
+      ? [
+          {
+            type: "link" as const,
+            to: "/voice-agent",
+            icon: Mic,
+            label: "Voice Agent",
+            tooltip: "Full conversational AI interface with voice chat",
+          },
+        ]
+      : []),
   ];
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
@@ -489,17 +540,22 @@ export default function NavBar() {
       if (models.length > 0) {
         // Show navigation items for each deployed model
         return models.map((model) => {
-          const modelType = getModelTypeFromName(model.name);
+          const modelType = model.model_type
+            ? getModelTypeFromBackendType(model.model_type)
+            : getModelTypeFromName(model.name, model.image);
+          const route = getDestinationFromModelType(modelType);
           console.log(`Model: ${model.name}, Type: ${modelType}`);
           return {
             type: "button",
             icon: getNavIconFromModelType(modelType),
             label: getModelPageNameFromModelType(modelType),
             onClick: () =>
-              handleNavigation(getDestinationFromModelType(modelType)),
+              navigate(route, {
+                state: { containerID: model.id, modelName: model.name },
+              }),
             isDisabled: false,
             tooltipText: `Open ${getModelPageNameFromModelType(modelType)} (${model.name})`,
-            route: getDestinationFromModelType(modelType),
+            route,
           };
         });
       } else {
@@ -537,11 +593,11 @@ export default function NavBar() {
           {
             type: "button",
             icon: AudioLines,
-            label: "Speech Recognition",
+            label: "Speech to Text",
             onClick: () => handleNavigation("/speech-to-text"),
             isDisabled: true,
             tooltipText:
-              "Deploy a speech recognition model to use Speech Recognition",
+              "Deploy a speech recognition model to use Speech to Text",
             route: "/speech-to-text",
           },
           {
@@ -560,20 +616,25 @@ export default function NavBar() {
       // In TT-Studio mode, show only deployed models
       console.log("TT-Studio mode - creating navigation for deployed models");
       return models.map((model) => {
-        const modelType = getModelTypeFromName(model.name);
+        const modelType = model.model_type
+          ? getModelTypeFromBackendType(model.model_type)
+          : getModelTypeFromName(model.name, model.image);
+        const route = getDestinationFromModelType(modelType);
         console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",
           icon: getNavIconFromModelType(modelType),
           label: getModelPageNameFromModelType(modelType),
           onClick: () =>
-            handleNavigation(getDestinationFromModelType(modelType)),
+            navigate(route, {
+              state: { containerID: model.id, modelName: model.name },
+            }),
           isDisabled: models.length === 0,
           tooltipText:
             models.length > 0
               ? `Open ${getModelPageNameFromModelType(modelType)}`
               : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
-          route: getDestinationFromModelType(modelType),
+          route,
         };
       });
     }

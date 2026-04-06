@@ -1093,6 +1093,8 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
                     original_cmd += " --skip-fastapi"
                 if args.no_sudo:
                     original_cmd += " --no-sudo"
+                if args.resync:
+                    original_cmd += " --resync"
             
             print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
             print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
@@ -1139,10 +1141,11 @@ def _hf_check_repo(token, repo_id):
 
 
 def check_hf_access(token):
-    """Check if HF token can access meta-llama repos. Returns (ok, message)."""
+    """Check if HF token can access meta-llama and Qwen repos. Returns (ok, message)."""
     repos = [
         ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
         ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
+        ("Qwen/Qwen3-32B", "Qwen3-32B"),
     ]
     results = []
     for repo_id, label in repos:
@@ -1301,6 +1304,30 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
     else:
         print(f"✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
+
+    # TTS_API_KEY
+    current_tts_api_key = get_env_var("TTS_API_KEY")
+    if easy_mode:
+        if should_configure_var("TTS_API_KEY", current_tts_api_key):
+            write_env_var("TTS_API_KEY", "your-secret-key")
+    elif should_configure_var("TTS_API_KEY", current_tts_api_key):
+        if is_placeholder(current_tts_api_key):
+            print(f"🔄 TTS_API_KEY has placeholder value '{current_tts_api_key}' - configuring...")
+        dev_default = "your-secret-key" if dev_mode else ""
+        prompt_text = f"🔑 Enter TTS_API_KEY (for TTS inference server authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
+
+        while True:
+            val = getpass.getpass(prompt_text)
+            if not val and dev_mode:
+                val = dev_default
+            if val and val.strip():
+                write_env_var("TTS_API_KEY", val)
+                print("✅ TTS_API_KEY saved.")
+                break
+            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
+    else:
+        if not easy_mode:
+            print(f"✅ TTS_API_KEY already configured (keeping existing value).")
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
@@ -1908,27 +1935,28 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
 
     return all_healthy
 
-def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None):
+def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, auto_deploy_model=None, device_id=0):
     """
     Wait for frontend service to be healthy before opening browser.
-    
+
     Args:
         host: Frontend host
         port: Frontend port
         timeout: Timeout in seconds
         auto_deploy_model: Model name to auto-deploy (optional)
-    
+        device_id: Chip slot index for auto-deploy (default 0)
+
     Returns:
         bool: True if browser opened successfully, False otherwise
     """
     base_url = f"http://{host}:{port}/"
-    
+
     # Add auto-deploy parameter if specified
     if auto_deploy_model:
         from urllib.parse import urlencode
-        params = urlencode({"auto-deploy": auto_deploy_model})
+        params = urlencode({"auto-deploy": auto_deploy_model, "device-id": device_id})
         frontend_url = f"{base_url}?{params}"
-        print(f"\n🤖 Auto-deploying model: {auto_deploy_model}")
+        print(f"\n🤖 Auto-deploying model: {auto_deploy_model} on chip {device_id}")
     else:
         frontend_url = base_url
     
@@ -2337,7 +2365,48 @@ def validate_artifact_structure(artifact_dir):
     return True
 
 
-def setup_tt_inference_server():
+def _sync_model_catalog():
+    """
+    Sync model catalog from the TT Inference Server artifact.
+    Runs sync_models_from_inference_server.py to generate models_from_inference_server.json.
+    """
+    sync_script = os.path.join(
+        TT_STUDIO_ROOT, "app", "backend", "shared_config",
+        "sync_models_from_inference_server.py",
+    )
+
+    if not os.path.exists(sync_script):
+        print(f"{C_YELLOW}⚠️  Model catalog sync script not found: {sync_script}{C_RESET}")
+        return False
+
+    try:
+        env = os.environ.copy()
+        if os.path.exists(INFERENCE_ARTIFACT_DIR):
+            env["TT_INFERENCE_ARTIFACT_PATH"] = INFERENCE_ARTIFACT_DIR
+
+        result = subprocess.run(
+            [sys.executable, sync_script],
+            capture_output=True, text=True, check=False, env=env,
+        )
+
+        if result.returncode == 0:
+            print(f"{C_GREEN}✅ Model catalog synced successfully{C_RESET}")
+            if result.stdout.strip():
+                for line in result.stdout.strip().splitlines():
+                    print(f"   {line}")
+            return True
+        else:
+            print(f"{C_YELLOW}⚠️  Model catalog sync returned exit code {result.returncode}{C_RESET}")
+            if result.stderr.strip():
+                for line in result.stderr.strip().splitlines()[-5:]:
+                    print(f"   {line}")
+            return False
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Model catalog sync failed: {e}{C_RESET}")
+        return False
+
+
+def setup_tt_inference_server(pull_branch=False):
     """Set up TT Inference Server by downloading/extracting artifact from GitHub release or branch."""
     # Artifact setup — quiet unless downloading or encountering issues
 
@@ -2406,7 +2475,13 @@ def setup_tt_inference_server():
                     print(f"{C_YELLOW}⚠️  Artifact metadata missing - will re-download branch '{artifact_branch}'{C_RESET}")
                 
                 if not branch_mismatch:
-                    print(f"{C_GREEN}✅ TT Inference Server{branch_str} (cached){C_RESET}")
+                    if pull_branch:
+                        # --pull-branch flag: force re-download to pick up new commits on the branch
+                        branch_mismatch = True
+                        print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
+                    else:
+                        # For branches, we can't easily verify without git, so just show what's configured
+                        print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{branch_str}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
                 cur = version.lstrip("v").strip()
@@ -2915,7 +2990,9 @@ def setup_tt_inference_server():
         return False
 
 def setup_fastapi_environment():
-    """Set up the inference-api FastAPI environment (silent on success)."""
+    """Set up the inference-api FastAPI environment."""
+    print(f"🔧 Setting up inference-api environment...")
+    
     original_dir = os.getcwd()
 
     try:
@@ -2974,6 +3051,7 @@ def setup_fastapi_environment():
         os.chdir(original_dir)
 
 
+
 def build_forge_docker_image():
     """Build the tt-forge-server Docker image from Dockerfile.forge if not already built."""
     forge_image_name = "tt-forge-server"
@@ -3027,7 +3105,7 @@ def build_forge_docker_image():
         return False
 
 
-def start_fastapi_server(no_sudo=False):
+def start_fastapi_server(no_sudo=False, dev_mode=False):
     """Start the inference-api FastAPI server on port 8001."""
     print(f"🔧 Starting FastAPI server...")
 
@@ -3051,6 +3129,7 @@ def start_fastapi_server(no_sudo=False):
     # Get environment variables for the server
     jwt_secret = get_env_var("JWT_SECRET")
     hf_token = get_env_var("HF_TOKEN")
+    tts_api_key = get_env_var("TTS_API_KEY")
     
     # Export the environment variables
     env = os.environ.copy()
@@ -3058,6 +3137,8 @@ def start_fastapi_server(no_sudo=False):
         env["JWT_SECRET"] = jwt_secret
     if hf_token:
         env["HF_TOKEN"] = hf_token
+    if tts_api_key:
+        env["TTS_API_KEY"] = tts_api_key
     
     # Set artifact path and version/branch so inference-api uses the version-resolved artifact
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
@@ -3101,15 +3182,30 @@ def start_fastapi_server(no_sudo=False):
             if os.path.exists(INFERENCE_ARTIFACT_DIR):
                 pythonpath_export = f'export PYTHONPATH="{INFERENCE_ARTIFACT_DIR}:$PYTHONPATH"\n'
             
-            temp_script.write(f'''#!/bin/bash
-set -e
-cd "$1"
-{artifact_path_export}{benchmark_targets_export}{pythonpath_export}echo $$ > "$2"
+            if dev_mode:
+                uvicorn_block = f'''\
+echo $$ > "$2"
+RESTART_COUNT=0
+while true; do
+    "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1
+    EXIT_CODE=$?
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+    echo "[$(date)] FastAPI exited with code $EXIT_CODE (restart #$RESTART_COUNT) — restarting in 3s..." >> "$4"
+    sleep 3
+done
+'''
+            else:
+                uvicorn_block = f'''\
+echo $$ > "$2"
 if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
     echo "Failed to start inference-api server. Check logs at $4"
     exit 1
 fi
-''')
+'''
+            temp_script.write(f'''#!/bin/bash
+set -e
+cd "$1"
+{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
             temp_script_path = temp_script.name
         
         # Make the script executable
@@ -3233,9 +3329,10 @@ def cleanup_fastapi_server(no_sudo=False):
         except Exception:
             pass
 
-def start_docker_control_service(no_sudo=False):
+def start_docker_control_service(no_sudo=False, dev_mode=False):
     """Start the Docker Control Service on port 8002."""
-    print(f"🔧 Starting Docker Control Service...")
+    mode_label = " (dev/reload)" if dev_mode else ""
+    print(f"🔧 Starting Docker Control Service{mode_label}...")
 
     # Check if user has Docker access
     if not check_docker_access():
@@ -3333,13 +3430,14 @@ def start_docker_control_service(no_sudo=False):
     try:
         # Create a temporary wrapper script similar to FastAPI
         with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as temp_script:
-            temp_script.write('''#!/bin/bash
+            reload_flag = "--reload" if dev_mode else ""
+            temp_script.write(f'''#!/bin/bash
 set -e
 cd "$1"
 # Save PID to file
 echo $$ > "$2"
 # Start the service
-if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 > "$4" 2>&1; then
+if ! "$3/bin/uvicorn" api:app --host 0.0.0.0 --port 8002 {reload_flag} > "$4" 2>&1; then
     echo "Failed to start Docker Control Service. Check logs at $4"
     exit 1
 fi
@@ -4002,6 +4100,7 @@ def main():
   {C_CYAN}python run.py --dev --configure-env{C_RESET}  ⚙️  Full interactive setup in dev mode
   {C_CYAN}python run.py --reconfigure{C_RESET}          🔄 Reset preferences + full interactive setup
   {C_CYAN}python run.py --reconfigure-inference-server{C_RESET} 🔄 Change TT Inference Server artifact (branch/version)
+  {C_CYAN}python run.py --resync{C_RESET}         🔄 Force model catalog resync
   {C_CYAN}python run.py --cleanup{C_RESET}              🧹 Clean up containers and networks only
   {C_CYAN}python run.py --cleanup-all{C_RESET}          🗑️  Complete cleanup including data and config
   {C_CYAN}python run.py --skip-fastapi{C_RESET}         ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
@@ -4027,6 +4126,10 @@ def main():
                            help="🔄 Reset preferences and reconfigure all options")
         parser.add_argument("--reconfigure-inference-server", action="store_true",
                            help="🔄 Reconfigure TT Inference Server artifact (branch/version)")
+        parser.add_argument("--resync", action="store_true",
+                           help="🔄 Force resync of model catalog from TT Inference Server artifact")
+        parser.add_argument("--pull-branch", action="store_true",
+                           help="🔄 Re-download the inference server artifact from the configured branch to pick up new commits")
         parser.add_argument("--skip-fastapi", action="store_true",
                            help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
         parser.add_argument("--skip-docker-control", action="store_true",
@@ -4045,6 +4148,8 @@ def main():
                    help="🔍 Check for missing SPDX license headers without adding them")
         parser.add_argument("--auto-deploy", type=str, metavar="MODEL_NAME",
                    help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
+        parser.add_argument("--device-id", type=int, default=0, metavar="CHIP_ID",
+                   help="🔌 Chip slot index (0-7) to use when auto-deploying a model (default: 0)")
         parser.add_argument("--fix-docker", action="store_true",
                    help="🔧 Automatically fix Docker service and permission issues")
         parser.add_argument("--configure-env", action="store_true",
@@ -4313,7 +4418,7 @@ def main():
         # This ensures the backend can connect to it when it starts
         startup_log.step("docker_control_service", "START")
         if not args.skip_docker_control:
-            if not start_docker_control_service(no_sudo=args.no_sudo):
+            if not start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev):
                 startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
                 print(f"{C_RED}⛔ Failed to start Docker Control Service. Continuing without it.{C_RESET}")
                 print(f"{C_YELLOW}Note: Backend will not be able to manage Docker containers.{C_RESET}")
@@ -4363,10 +4468,23 @@ def main():
 
             original_dir = os.getcwd()
             try:
-                if not setup_tt_inference_server():
+                if not setup_tt_inference_server(pull_branch=args.pull_branch):
                     startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
                     print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
                     startup_log.summary(exit_code=1)
+                    # Only sync model catalog when explicitly requested or needed
+                    models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
+                    should_sync = (
+                        args.resync or
+                        args.reconfigure_inference_server or
+                        not os.path.exists(models_json_path)
+                    )
+
+                    if should_sync:
+                        print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
+                        _sync_model_catalog()
+                    else:
+                        print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
                     startup_log.close()
                     sys.exit(1)
 
@@ -4374,7 +4492,18 @@ def main():
                 if not build_forge_docker_image():
                     print(f"{C_YELLOW}⚠️  Forge image build failed. Forge CNN models will not be available until the image is built.{C_RESET}")
 
-                # Setup FastAPI environment
+                # Sync model catalog from artifact on success path
+                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
+                should_sync = (
+                    args.resync or
+                    args.reconfigure_inference_server or
+                    args.pull_branch or
+                    not os.path.exists(models_json_path)
+                )
+                if should_sync:
+                    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
+                    _sync_model_catalog()
+
                 if not setup_fastapi_environment():
                     startup_log.step("fastapi_server", "FAIL", "environment setup failed")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI environment setup failed. Exiting.{C_RESET}")
@@ -4383,7 +4512,7 @@ def main():
                     startup_log.close()
                     sys.exit(1)
 
-                if not start_fastapi_server(no_sudo=args.no_sudo):
+                if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
                     startup_log.step("fastapi_server", "FAIL", f"see {FASTAPI_LOG_FILE}")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
                     print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
@@ -4461,13 +4590,15 @@ def main():
             host, port, timeout = get_frontend_config()
             
             # Use the new function that reuses existing infrastructure
-            if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy):
-                auto_deploy_param = f"?auto-deploy={args.auto_deploy}" if args.auto_deploy else ""
+            device_id_val = getattr(args, "device_id", 0)
+            if not wait_for_frontend_and_open_browser(host, port, timeout, args.auto_deploy, device_id=device_id_val):
+                auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
                 print(f"\n{C_YELLOW}⚠️  Could not reach frontend at http://{host}:{port}{auto_deploy_param}{C_RESET}")
                 print(f"{C_CYAN}💡 Run: {C_WHITE}python run.py --cleanup && python run.py{C_RESET}")
         else:
             host, port, _ = get_frontend_config()
-            auto_deploy_param = f"?auto-deploy={args.auto_deploy}" if args.auto_deploy else ""
+            device_id_val = getattr(args, "device_id", 0)
+            auto_deploy_param = f"?auto-deploy={args.auto_deploy}&device-id={device_id_val}" if args.auto_deploy else ""
             print(f"{C_BLUE}🌐 Automatic browser opening disabled. Access TT-Studio at: {C_CYAN}http://{host}:{port}{auto_deploy_param}{C_RESET}")
         
         # If in dev mode, show logs similar to startup.sh
@@ -4518,7 +4649,9 @@ def main():
                 original_cmd += " --skip-fastapi"
             if args.no_sudo:
                 original_cmd += " --no-sudo"
-
+            if args.resync:
+                original_cmd += " --resync"
+        
         print(f"{C_CYAN}🔄 To resume setup later, run: {C_WHITE}{original_cmd}{C_RESET}")
         print(f"{C_CYAN}🧹 To clean up any partial setup: {C_WHITE}python run.py --cleanup{C_RESET}")
         print(f"{C_CYAN}❓ For help: {C_WHITE}python run.py --help{C_RESET}")

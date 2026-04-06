@@ -27,6 +27,47 @@ logger.info(f"importing {__name__}")
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
+FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+
+
+def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
+    """Poll FastAPI /run/progress/{job_id} until the job reaches a terminal state.
+
+    Returns the final progress dict (status=="completed") or raises RuntimeError on failure/timeout.
+    """
+    poll_interval = 5  # seconds between polls
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+        try:
+            resp = requests.get(
+                f"{FASTAPI_BASE_URL}/run/progress/{job_id}",
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                progress = resp.json()
+                job_status = progress.get("status")
+                if job_status == "completed":
+                    return progress
+                if job_status in ("failed", "error"):
+                    raise RuntimeError(
+                        progress.get("message", f"Deployment job {job_id} failed")
+                    )
+                if job_status == "not_found":
+                    raise RuntimeError(f"Deployment job {job_id} not found in progress store")
+                logger.debug(
+                    "Job %s: status=%s progress=%s%%",
+                    job_id,
+                    job_status,
+                    progress.get("progress", 0),
+                )
+        except requests.exceptions.RequestException as e:
+            logger.warning("Progress poll failed for job %s: %s", job_id, e)
+
+        time.sleep(poll_interval)
+
+    raise TimeoutError(f"Deployment job {job_id} did not complete within {timeout_seconds}s")
+
 # Ensure the bridge network exists on startup
 def _ensure_network():
     """Ensure the tt_studio_network exists via docker-control-service"""
@@ -49,6 +90,33 @@ def _ensure_network():
 
 # Initialize network on module load
 _ensure_network()
+
+# When deploying a single-chip model on a multi-chip board, the inference
+# server needs the constituent single-chip device name (e.g. "n300" for one
+# chip of a T3K board), not the board-level name ("t3k").
+_BOARD_TO_SINGLE_CHIP_DEVICE = {
+    # Multi-chip Wormhole boards → constituent N300 chip
+    "T3K":    "n300",
+    "T3000":  "n300",
+    "N300x4": "n300",
+    "N150X4": "n150",
+    # Multi-chip Blackhole boards → constituent single-chip device
+    "P150X4":  "p150",
+    "P150X8":  "p150",
+    "P300Cx2": "p300x2",  # QB2: inference server always wants p300x2; device_id selects the chip
+    "P300Cx4": "p300c",
+    # Galaxy (N300-based)
+    "GALAXY":     "n300",
+    "GALAXY_T3K": "n300",
+    # True single-chip boards are unchanged
+    "N150":  "n150",
+    "N300":  "n300",
+    "E150":  "e150",
+    "P100":  "p100",
+    "P150":  "p150",
+    "P300c": "p300c",
+    "unknown": "cpu",
+}
 
 
 def map_board_type_to_device_name(board_type):
@@ -85,6 +153,7 @@ def map_board_type_to_device_name(board_type):
     device_name = board_to_device_map.get(board_type, "cpu")
     logger.info(f"Mapped board type '{board_type}' to device name '{device_name}'")
     return device_name
+
 
 
 def _get_tt_device_ids():
@@ -153,236 +222,398 @@ def _configure_forge_device_env(run_kwargs):
     )
 
 
-def run_container(impl, weights_id):
-    """Run a docker container via TT Inference Server API"""
-    if (impl.model_type == ModelTypes.CHAT):
-        # For chat models, we use the TT Inference Server API to run the container
-        try:
-            logger.info(f"Calling TT Inference Server API")
-            logger.info(f"run_container called for {impl.model_name}")
+def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
+    """Run a docker container directly via docker-control-service (bypasses TT Inference Server).
 
-            board_type = detect_board_type()
-            device = map_board_type_to_device_name(board_type)
-            
-            # Create payload for the API call
-            payload = {
-                "model": impl.model_name,
-                "workflow": "server",  # Default workflow for container runs
-                "device": device,  # Use mapped device name
-                "docker_server": True,
-                "dev_mode": False
-            }
+    Used for model types that are not managed by TT Inference Server (e.g. FACE_RECOGNITION).
 
-            logger.info(f"API payload: {payload}")
+    Used for model types that are not managed by TT Inference Server (e.g. FACE_RECOGNITION).
+    """
+    try:
+        logger.info(f"run_container (direct) called for {impl.model_name} with device_id={device_id}, host_port={host_port}")
 
-            # Make POST request to TT Inference Server API
-            api_url = "http://172.18.0.1:8001/run"
+        run_kwargs = copy.deepcopy(impl.docker_config)
 
-            response = requests.post(
-                api_url,
-                json=payload,
-                timeout=DEPLOYMENT_TIMEOUT_SECONDS  # 5 hour timeout for container startup and weight downloads
-            )
+        # Device mounts
+        device_mounts = get_devices_mounts(impl, device_id=device_id)
+        if device_mounts:
+            run_kwargs.update({"devices": device_mounts})
 
-            if response.status_code in [200, 202]:
-                api_result = response.json()
-                logger.info(f"API call successful (status {response.status_code}): {api_result}")
-                logger.info(f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}")
-                if 'docker_log_file_path' in api_result:
-                    logger.info(f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}")
+        # Port mounts (use provided host_port or auto-assign)
+        run_kwargs.update({"ports": get_port_mounts(impl, host_port=host_port)})
+
+        # Bridge network
+        run_kwargs.update({"network": backend_config.docker_bridge_network_name})
+
+        # Unique container name using host port
+        actual_host_port = list(run_kwargs["ports"].values())[0]
+        logger.info(f"host_port for container naming: {actual_host_port}")
+        run_kwargs.update({"name": f"{impl.container_base_name}_p{actual_host_port}"})
+        run_kwargs.update({"hostname": f"{impl.container_base_name}_p{actual_host_port}"})
+
+        # Environment variables
+        run_kwargs["environment"]["DEVICE_ID"] = str(device_id)
+        run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
+
+        # Convert volumes: {host_path: {"bind": container_path, "mode": "rw"}}
+        # → {host_path_str: container_path_str} for docker-control-service API
+        volumes_raw = run_kwargs.get("volumes", {})
+        volumes = {}
+        if volumes_raw:
+            for h_path, mount_config in volumes_raw.items():
+                h_path_str = str(h_path)
+                if isinstance(mount_config, dict):
+                    volumes[h_path_str] = mount_config.get("bind", str(mount_config))
                 else:
-                    logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
+                    volumes[h_path_str] = str(mount_config)
 
-                # Update deploy cache on success
-                update_deploy_cache()
-                
-                # Notify agent about new container deployment
-                notify_agent_of_new_container(api_result["container_name"])
-                
-                # Save deployment record to database
-                container_id = None
-                container_name = "unknown"
-                try:
-                    container_id = api_result.get("container_id")
-                    container_name = api_result.get("container_name", "unknown")
-                    
-                    # If container_id is not in response, try to get it from Docker by name
-                    if not container_id and container_name:
-                        try:
-                            docker_client = get_docker_client()
-                            container_info = docker_client.get_container(container_name)
-                            container_id = container_info.get("id")
-                            logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
-                        except Exception as docker_error:
-                            logger.warning(f"Could not get container_id from Docker: {docker_error}")
-                            # Use container_name as fallback ID if we can't get the actual ID
-                            container_id = container_name
-                    
-                    if container_id:
-                        # Extract workflow log path from API response
-                        workflow_log_path = api_result.get("docker_log_file_path")
-                        logger.info(f"Extracted workflow_log_path from api_result: {workflow_log_path}")
-                        logger.info(f"workflow_log_path type: {type(workflow_log_path)}, is None: {workflow_log_path is None}")
-                        
-                        ModelDeployment.objects.create(
-                            container_id=container_id,
-                            container_name=container_name,
-                            model_name=impl.model_name,
-                            device=device,
-                            status="running",
-                            stopped_by_user=False,
-                            port=7000,  # TT Inference Server default port
-                            workflow_log_path=workflow_log_path
-                        )
-                        logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
-                        if workflow_log_path:
-                            logger.info(f"Workflow log path saved: {workflow_log_path}")
-                        else:
-                            logger.warning(f"Workflow log path is None/empty for {container_name}")
-                    else:
-                        logger.warning(f"Could not save deployment record: no container_id or container_name")
-                except Exception as e:
-                    import traceback
-                    logger.error(
-                        f"Failed to save deployment record for {container_name} (ID: {container_id}): {type(e).__name__}: {e}\n"
-                        f"Traceback: {traceback.format_exc()}"
-                    )
-                    # Don't fail the deployment if we can't save the record
+        # Convert ports to int values
+        ports_raw = run_kwargs.get("ports", {})
+        ports = {}
+        if ports_raw:
+            for container_port, h_port in ports_raw.items():
+                ports[str(container_port)] = int(h_port) if isinstance(h_port, (int, str)) else h_port
 
-                return {
-                    "status": "success",
-                    "container_name": api_result["container_name"],
-                    "container_id": api_result.get("container_id"),  # Pass through container_id
-                    "job_id": api_result.get("job_id") or api_result.get("container_id"),  # Use job_id or container_id as fallback
-                    "api_response": api_result
-                }
-            else:
-                error_msg = f"API call failed with status {response.status_code}: {response.text}"
-                logger.error(error_msg)
-                
-                # Try to extract job_id and error details from response
-                job_id = None
-                error_detail = error_msg
-                try:
-                    error_data = response.json()
-                    if isinstance(error_data, dict):
-                        # Extract job_id if present
-                        job_id = error_data.get('job_id')
-                        # Extract error message if present
-                        error_detail = error_data.get('message', error_msg)
-                        logger.info(f"Extracted job_id from error response: {job_id}")
-                except Exception as parse_error:
-                    logger.warning(f"Could not parse error response: {parse_error}")
-                
-                return {
-                    "status": "error",
-                    "message": error_detail,
-                    "job_id": job_id
-                }
+        # Stringify all environment variable values (PosixPath → str)
+        environment = run_kwargs.get("environment", {})
+        if environment:
+            environment = {str(k): str(v) if v is not None else "" for k, v in environment.items()}
 
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Network error calling TT Inference Server API: {str(e)}"
-            logger.error(error_msg)
-            return {"status": "error", "message": error_msg}
-        except Exception as e:
-            error_msg = f"Unexpected error in run_container: {str(e)}"
-            logger.error(error_msg)
-            return {"status": "error", "message": error_msg}
-    else:
-        # For non-chat models, we use the docker client to run the container
+        api_kwargs = {
+            "image": impl.image_version,
+            "name": run_kwargs.get("name"),
+            "command": run_kwargs.get("command"),
+            "environment": environment,
+            "ports": ports,
+            "volumes": volumes,
+            "network": run_kwargs.get("network"),
+            "detach": run_kwargs.get("detach", True),
+        }
+
+        if run_kwargs.get("devices"):
+            api_kwargs["devices"] = run_kwargs["devices"]
+        if "hostname" in run_kwargs:
+            api_kwargs["hostname"] = run_kwargs["hostname"]
+
+        # cap_add for hugepages memory pinning
+        if "cap_add" in run_kwargs:
+            cap_add = run_kwargs["cap_add"]
+            if isinstance(cap_add, str):
+                cap_add = [cap_add]
+            api_kwargs["cap_add"] = cap_add
+
+        # shm_size for shared memory
+        if "shm_size" in run_kwargs:
+            api_kwargs["shm_size"] = run_kwargs["shm_size"]
+
+        docker_client = get_docker_client()
+        container_result = docker_client.run_container(**api_kwargs)
+        logger.info(f"Container started via docker-control-service: {container_result}")
+
+        if isinstance(container_result, dict) and container_result.get("status") == "error":
+            return {"status": "error", "message": container_result.get("message", "Unknown error")}
+
+        container_id = container_result.get("container_id") or container_result.get("id")
+        container_name = container_result.get("container_name") or container_result.get("name")
+
+        # Save deployment record
         try:
-            logger.info(f"run_container called for {impl.model_name}")
-
-            is_forge = impl.model_type == ModelTypes.IMAGE_CLASSIFICATION
-
-            run_kwargs = copy.deepcopy(impl.docker_config)
-            # handle runtime configuration changes to docker kwargs
-            if is_forge:
-                # Forge containers mount all of /dev/tenstorrent
-                run_kwargs["devices"] = ["/dev/tenstorrent:/dev/tenstorrent"]
-                # Inject device-specific env vars based on detected hardware
-                _configure_forge_device_env(run_kwargs)
-            else:
-                device_mounts = get_devices_mounts(impl)
-                if device_mounts:
-                    run_kwargs.update({"devices": device_mounts})
-
-            run_kwargs.update({"ports": get_port_mounts(impl)})
-            # add bridge inter-container network
-            run_kwargs.update({"network": backend_config.docker_bridge_network_name})
-            # add unique container name suffixing with host port
-            host_port = list(run_kwargs["ports"].values())[0]
-            logger.info(f"!!!host_port:= {host_port}")
-            run_kwargs.update({"name": f"{impl.container_base_name}_p{host_port}"})
-            run_kwargs.update({"hostname": f"{impl.container_base_name}_p{host_port}"})
-
-            run_kwargs["environment"]["MODEL_ID"] = impl.model_id
-
-            if not is_forge:
-                run_kwargs["environment"]["MODEL_WEIGHTS_ID"] = weights_id
-                run_kwargs["environment"]["MODEL_WEIGHTS_PATH"] = get_model_weights_path(
-                    impl.model_container_weights_dir, weights_id
-                )
-
-            logger.info(f"run_kwargs:= {run_kwargs}")
-
-            # Convert run_kwargs to docker-control-service API format
-            docker_client = get_docker_client()
-            api_kwargs = {
-                "image": impl.image_version,
-                "name": run_kwargs.get("name"),
-                "command": run_kwargs.get("command"),
-                "environment": run_kwargs.get("environment", {}),
-                "ports": run_kwargs.get("ports", {}),
-                "volumes": run_kwargs.get("volumes"),
-                "network": run_kwargs.get("network"),
-                "detach": run_kwargs.get("detach", True),
-            }
-
-            if "devices" in run_kwargs:
-                api_kwargs["devices"] = run_kwargs["devices"]
-
-            if "hostname" in run_kwargs:
-                api_kwargs["hostname"] = run_kwargs["hostname"]
-
-            if run_kwargs.get("auto_remove"):
-                api_kwargs["auto_remove"] = run_kwargs["auto_remove"]
-
-            if run_kwargs.get("cap_add"):
-                cap = run_kwargs["cap_add"]
-                api_kwargs["cap_add"] = [cap] if isinstance(cap, str) else cap
-
-            if run_kwargs.get("shm_size"):
-                api_kwargs["shm_size"] = run_kwargs["shm_size"]
-
-            container_result = docker_client.run_container(**api_kwargs)
-            logger.info(f"Container started via docker-control-service: {container_result}")
-
-            # Extract container info from API response
-            container_id = container_result.get("id")
-            container_name = container_result.get("name")
-            # on changes to containers, update deploy cache
-            update_deploy_cache()
-
-            # Notify agent about new container deployment
-            notify_agent_of_new_container(container_name)
-
-            # Save deployment record to database
-            try:
-                # Get device from impl configuration
-                device_config = impl.device_configurations[0] if impl.device_configurations else None
-                device_name = device_config.name if device_config else "unknown"
-
+            if container_id:
                 ModelDeployment.objects.create(
                     container_id=container_id,
-                    container_name=container_name,
+                    container_name=container_name or run_kwargs.get("name"),
                     model_name=impl.model_name,
-                    device=device_name,
+                    device=f"device_{device_id}",
+                    device_id=device_id,
                     status="running",
                     stopped_by_user=False,
-                    port=host_port
+                    port=actual_host_port,
                 )
                 logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+        except Exception as e:
+            logger.error(f"Failed to save deployment record: {e}")
+
+        update_deploy_cache()
+
+        return {
+            "status": "success",
+            "container_name": container_name,
+            "container_id": container_id,
+            "job_id": None,
+            "api_response": container_result,
+        }
+
+    except Exception as e:
+        error_msg = f"Unexpected error in _run_direct_container: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
+
+
+def _run_forge_container(impl, device_id=0, host_port=None):
+    """Deploy a Forge/IMAGE_CLASSIFICATION container directly via docker-control-service.
+
+    Forge containers have their own Docker image and cannot use TT Inference Server.
+    Device-specific env vars are injected based on detected hardware.
+    """
+    try:
+        logger.info(f"run_container (forge) called for {impl.model_name}")
+
+        run_kwargs = copy.deepcopy(impl.docker_config)
+
+        # Forge containers mount all of /dev/tenstorrent
+        run_kwargs["devices"] = ["/dev/tenstorrent:/dev/tenstorrent"]
+        # Inject device-specific env vars (DEVICE_IDS, IS_GALAXY, mesh descriptor)
+        _configure_forge_device_env(run_kwargs)
+
+        run_kwargs.update({"ports": get_port_mounts(impl, host_port=host_port)})
+        run_kwargs.update({"network": backend_config.docker_bridge_network_name})
+
+        actual_host_port = list(run_kwargs["ports"].values())[0]
+        run_kwargs.update({"name": f"{impl.container_base_name}_p{actual_host_port}"})
+        run_kwargs.update({"hostname": f"{impl.container_base_name}_p{actual_host_port}"})
+
+        run_kwargs["environment"]["MODEL_ID"] = impl.model_id
+        run_kwargs["environment"]["DEVICE_ID"] = str(device_id)
+
+        # Stringify env vars (PosixPath → str)
+        environment = run_kwargs.get("environment", {})
+        environment = {str(k): str(v) if v is not None else "" for k, v in environment.items()}
+
+        volumes_raw = run_kwargs.get("volumes", {})
+        volumes = {}
+        for h_path, mount_config in volumes_raw.items():
+            h_path_str = str(h_path)
+            if isinstance(mount_config, dict):
+                volumes[h_path_str] = mount_config.get("bind", str(mount_config))
+            else:
+                volumes[h_path_str] = str(mount_config)
+
+        ports_raw = run_kwargs.get("ports", {})
+        ports = {str(k): int(v) if isinstance(v, (int, str)) else v for k, v in ports_raw.items()}
+
+        api_kwargs = {
+            "image": impl.image_version,
+            "name": run_kwargs.get("name"),
+            "command": run_kwargs.get("command"),
+            "environment": environment,
+            "ports": ports,
+            "volumes": volumes,
+            "network": run_kwargs.get("network"),
+            "detach": run_kwargs.get("detach", True),
+            "devices": run_kwargs["devices"],
+            "hostname": run_kwargs.get("name"),
+        }
+
+        cap_add = run_kwargs.get("cap_add")
+        if cap_add:
+            api_kwargs["cap_add"] = [cap_add] if isinstance(cap_add, str) else cap_add
+
+        if run_kwargs.get("shm_size"):
+            api_kwargs["shm_size"] = run_kwargs["shm_size"]
+
+        docker_client = get_docker_client()
+        container_result = docker_client.run_container(**api_kwargs)
+        logger.info(f"Forge container started via docker-control-service: {container_result}")
+
+        if isinstance(container_result, dict) and container_result.get("status") == "error":
+            return {"status": "error", "message": container_result.get("message", "Unknown error")}
+
+        container_id = container_result.get("container_id") or container_result.get("id")
+        container_name = container_result.get("container_name") or container_result.get("name")
+
+        try:
+            if container_id:
+                ModelDeployment.objects.create(
+                    container_id=container_id,
+                    container_name=container_name or run_kwargs.get("name"),
+                    model_name=impl.model_name,
+                    device=f"device_{device_id}",
+                    device_id=device_id,
+                    status="running",
+                    stopped_by_user=False,
+                    port=actual_host_port,
+                )
+                logger.info(f"Saved forge deployment record for {container_name} (ID: {container_id})")
+        except Exception as e:
+            logger.error(f"Failed to save forge deployment record: {e}")
+
+        update_deploy_cache()
+        notify_agent_of_new_container(container_name)
+
+        return {
+            "status": "success",
+            "container_name": container_name,
+            "container_id": container_id,
+            "job_id": None,
+            "api_response": container_result,
+        }
+
+    except Exception as e:
+        error_msg = f"Unexpected error in _run_forge_container: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
+
+
+def run_container(impl, weights_id, device_id=0, host_port=None):
+    """Run a docker container.
+
+    For FACE_RECOGNITION, uses docker-control-service directly.
+    For IMAGE_CLASSIFICATION (forge), uses docker-control-service with forge-specific config.
+    For all other model types, uses TT Inference Server API.
+    """
+    # Face recognition bypasses TT Inference Server — deploy via docker-control-service
+    if impl.model_type == ModelTypes.FACE_RECOGNITION:
+        return _run_direct_container(impl, weights_id, device_id=device_id, host_port=host_port)
+
+    # Forge/image classification containers bypass TT Inference Server
+    if impl.model_type == ModelTypes.IMAGE_CLASSIFICATION:
+        return _run_forge_container(impl, device_id=device_id, host_port=host_port)
+
+    try:
+        logger.info(f"Calling TT Inference Server API")
+        logger.info(f"run_container called for {impl.model_name}")
+
+        # Determine the correct inference-server device name.
+        # A single-chip model on a multi-chip board (e.g. Llama-8B on T3K)
+        # must use the constituent chip device ("n300"), not the board device
+        # ("t3k"). We use chips_required + board_type to pick the right name.
+        from shared_config.model_config import infer_chips_required
+        board_type = detect_board_type()
+        chips_required = infer_chips_required(impl.device_configurations)
+        if chips_required == 1:
+            device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+        else:
+            device = map_board_type_to_device_name(board_type)
+        logger.info(
+            f"Device name '{device}' for {impl.model_name} "
+            f"(board={board_type}, chips_required={chips_required})"
+        )
+
+        # Speech models (Whisper, TTS) only need a single N150-class chip.
+        # On multi-chip N300-based boards (T3K, etc.) the single-chip lookup
+        # returns "n300", but these models require "n150" to run correctly.
+        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+            if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
+                device = "n150"
+                logger.info(
+                    f"Overriding device to 'n150' for speech model {impl.model_name} "
+                    f"on multi-chip board {board_type}"
+                )
+
+        BASE_SERVICE_PORT = 7000
+
+        # Create payload for the API call
+        payload = {
+            "model": impl.model_name,
+            "workflow": "server",  # Default workflow for container runs
+            "device": device,  # Use mapped device name
+            "docker_server": True,
+        }
+
+        # Use slot-based port allocation for all models (single and multi-chip)
+        # This allows multiple models to run simultaneously on different chip slots
+        # Port mapping: slot 0 -> 7000, slot 1 -> 7001, slot 2 -> 7002, slot 3 -> 7003
+        payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
+        service_port = BASE_SERVICE_PORT + device_id
+
+        # Pin to specific chip slot (both single and multi-chip models)
+        # Single-chip models need this to pin to a specific slot on multi-chip boards (e.g., slot 0 on T3K)
+        # Multi-chip models need this to specify which configuration to use
+        payload["device_id"] = str(device_id)
+
+        # media/forge models require skipping hw validation; vLLM models do not
+        if impl.model_type != ModelTypes.CHAT:
+            payload["skip_system_sw_validation"] = True
+
+        # TTS and Speech Recognition models require dev_mode for proper operation
+        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+            payload["dev_mode"] = True
+
+        logger.info(f"API payload: {payload}")
+
+        # Make POST request to TT Inference Server API
+        api_url = f"{FASTAPI_BASE_URL}/run"
+
+        response = requests.post(
+            api_url,
+            json=payload,
+            timeout=60  # Short timeout: the /run endpoint returns 202 immediately
+        )
+
+        if response.status_code in [200, 202]:
+            api_result = response.json()
+            logger.info(f"API call successful (status {response.status_code}): {api_result}")
+            logger.info(f"api_result contains docker_log_file_path: {'docker_log_file_path' in api_result}")
+            if 'docker_log_file_path' in api_result:
+                logger.info(f"api_result['docker_log_file_path'] = {api_result.get('docker_log_file_path')}")
+            else:
+                logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
+
+            job_id = api_result.get("job_id")
+            logger.info(f"Deployment job submitted with job_id={job_id}; polling for completion...")
+
+            # The FastAPI /run endpoint returns 202 immediately (async job).
+            # Poll /run/progress/{job_id} until the job reaches a terminal state.
+            completed_progress: dict = {}
+            if job_id:
+                try:
+                    completed_progress = _poll_deployment_to_completion(
+                        job_id, timeout_seconds=DEPLOYMENT_TIMEOUT_SECONDS
+                    )
+                    logger.info(f"Job {job_id} completed: {completed_progress}")
+                except (RuntimeError, TimeoutError) as poll_err:
+                    error_msg = f"Deployment job failed or timed out: {poll_err}"
+                    logger.error(error_msg)
+                    return {"status": "error", "message": error_msg, "job_id": job_id}
+            else:
+                logger.warning("No job_id in 202 response; attempting to use response data directly")
+                completed_progress = api_result
+
+            # Update deploy cache on success
+            update_deploy_cache()
+
+            # Notify agent about new container deployment (best-effort)
+            container_name_for_notify = completed_progress.get("container_name")
+            if container_name_for_notify:
+                notify_agent_of_new_container(container_name_for_notify)
+
+            # Create the deployment record only after successful API response
+            # (never before — avoids stale "starting" records blocking slots on failure)
+            container_id = None
+            container_name = "unknown"
+            try:
+                container_id = completed_progress.get("container_id")
+                container_name = completed_progress.get("container_name", "unknown")
+
+                # If container_id is not in response, try to get it from Docker by name
+                if not container_id and container_name:
+                    try:
+                        docker_client = get_docker_client()
+                        container_info = docker_client.get_container(container_name)
+                        container_id = container_info.get("id")
+                        logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
+                    except Exception as docker_error:
+                        logger.warning(f"Could not get container_id from Docker: {docker_error}")
+                        container_id = container_name
+
+                if container_id:
+                    workflow_log_path = completed_progress.get("docker_log_file_path")
+                    logger.info(f"Extracted workflow_log_path from completed progress: {workflow_log_path}")
+
+                    ModelDeployment.objects.create(
+                        container_id=container_id,
+                        container_name=container_name,
+                        model_name=impl.model_name,
+                        device=device,
+                        device_id=device_id,
+                        status="running",
+                        stopped_by_user=False,
+                        port=service_port,
+                        workflow_log_path=workflow_log_path
+                    )
+                    logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
+                else:
+                    logger.warning(f"Could not save deployment record: no container_id or container_name")
             except Exception as e:
                 import traceback
                 logger.error(
@@ -393,13 +624,43 @@ def run_container(impl, weights_id):
 
             return {
                 "status": "success",
-                "container_id": container_id,
-                "container_name": container_name,
-                "service_route": impl.service_route,
-                "port_bindings": run_kwargs["ports"],
+                "container_name": completed_progress.get("container_name"),
+                "container_id": completed_progress.get("container_id"),
+                "job_id": job_id or completed_progress.get("job_id"),
+                "api_response": completed_progress
             }
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+        else:
+            error_msg = f"API call failed with status {response.status_code}: {response.text}"
+            logger.error(error_msg)
+
+            # Try to extract job_id and error details from response
+            job_id = None
+            error_detail = error_msg
+            try:
+                error_data = response.json()
+                if isinstance(error_data, dict):
+                    # Extract job_id if present
+                    job_id = error_data.get('job_id')
+                    # Extract error message if present
+                    error_detail = error_data.get('message', error_msg)
+                    logger.info(f"Extracted job_id from error response: {job_id}")
+            except Exception as parse_error:
+                logger.warning(f"Could not parse error response: {parse_error}")
+
+            return {
+                "status": "error",
+                "message": error_detail,
+                "job_id": job_id
+            }
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Network error calling TT Inference Server API: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
+    except Exception as e:
+        error_msg = f"Unexpected error in run_container: {str(e)}"
+        logger.error(error_msg)
+        return {"status": "error", "message": error_msg}
 
 def run_agent_container(container_name, port_bindings, impl):
     # runs agent container after associated llm container runs
@@ -424,10 +685,20 @@ def run_agent_container(container_name, port_bindings, impl):
     )
 
 def stop_container(container_id):
-    """Stop a specific docker container"""
+    """Stop and remove a specific docker container"""
     try:
         docker_client = get_docker_client()
         result = docker_client.stop_container(container_id)
+        logger.info(f"Stop container result: {result}")
+
+        # Remove container after stopping to prevent name conflicts on redeploy
+        try:
+            remove_result = docker_client.remove_container(container_id, force=True)
+            logger.info(f"Remove container result: {remove_result}")
+        except Exception as remove_error:
+            logger.warning(f"Failed to remove container {container_id}: {remove_error}")
+            # Continue even if remove fails — container may already be removed
+
         # on changes to containers, update deploy cache
         update_deploy_cache()
         return result
@@ -447,35 +718,71 @@ def get_runtime_device_configuration(device_configurations):
     return next(iter(device_configurations))
 
 
-def get_devices_mounts(impl):
+def get_devices_mounts(impl, device_id=0):
     device_config = get_runtime_device_configuration(impl.device_configurations)
     assert isinstance(device_config, DeviceConfigurations)
-    # TODO: add logic to handle multiple devices and multiple containers
-    single_device_mounts = ["/dev/tenstorrent/0:/dev/tenstorrent/0"]
-    all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
-    device_map = {
-        DeviceConfigurations.E150: single_device_mounts,
-        DeviceConfigurations.N150: single_device_mounts,
-        DeviceConfigurations.N150_WH_ARCH_YAML: single_device_mounts,
-        DeviceConfigurations.N300: single_device_mounts,
-        DeviceConfigurations.N300x4_WH_ARCH_YAML: all_device_mounts,
-        DeviceConfigurations.N300x4: all_device_mounts,
+
+    # Single-chip device configurations: pin to the requested chip slot
+    single_chip_configs = {
+        DeviceConfigurations.E150,
+        DeviceConfigurations.N150,
+        DeviceConfigurations.N150_WH_ARCH_YAML,
+        DeviceConfigurations.N300,
+        DeviceConfigurations.N300_WH_ARCH_YAML,
+        DeviceConfigurations.P100,
+        DeviceConfigurations.P150,
+        DeviceConfigurations.P300c,
     }
-    device_mounts = device_map.get(device_config)
-    return device_mounts
+
+    # Multi-chip configurations manage their own chip allocation; expose full directory
+    all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
+
+    if device_config in single_chip_configs:
+        return [f"/dev/tenstorrent/{device_id}:/dev/tenstorrent/{device_id}"]
+
+    # Multi-chip (T3K, Galaxy, N300x4, P150X4, P150X8, etc.)
+    multi_chip_configs = {
+        DeviceConfigurations.N150X4,
+        DeviceConfigurations.N300x4,
+        DeviceConfigurations.N300x4_WH_ARCH_YAML,
+        DeviceConfigurations.T3K,
+        DeviceConfigurations.T3K_RING,
+        DeviceConfigurations.T3K_LINE,
+        DeviceConfigurations.P150X4,
+        DeviceConfigurations.P150X8,
+        DeviceConfigurations.P300Cx2,
+        DeviceConfigurations.P300Cx4,
+        DeviceConfigurations.GALAXY,
+        DeviceConfigurations.GALAXY_T3K,
+    }
+    if device_config in multi_chip_configs:
+        return all_device_mounts
+
+    return None
 
 
-def get_port_mounts(impl):
-    host_port = get_host_port(impl)
+def get_port_mounts(impl, host_port=None):
+    """Get port mappings for a container.
+
+    Args:
+        impl: ModelImpl configuration
+        host_port: Specific host port to use, or None for auto-assignment
+    """
+    if host_port is None:
+        host_port = get_host_port(impl)
     return {f"{impl.service_port}/tcp": host_port}
 
 
 def get_host_port(impl):
+    # Reserve ports used by TT-Studio services on the host:
+    #   8000 = Django backend, 8001 = FastAPI/inference-api, 8002 = docker-control-service
+    # Model containers start at 8003.
     managed_containers = get_managed_containers()
     port_mappings = get_port_mappings(managed_containers)
     used_host_ports = get_used_host_ports(port_mappings)
+    RESERVED_PORTS = ["8000", "8001", "8002"]
+    used_host_ports.extend(RESERVED_PORTS)
     logger.info(f"used_host_ports={used_host_ports}")
-    # 8001 = FastAPI inference server, 8002 = Docker Control Service
     BASE_MODEL_PORT = 8003
     for port in range(BASE_MODEL_PORT, BASE_MODEL_PORT + 100):
         if str(port) not in used_host_ports:
@@ -585,6 +892,15 @@ def parse_env_var_str(env_var_list):
 
 def get_container_status():
     containers = get_managed_containers()
+
+    # Build container_id → device_id lookup from deployment database
+    device_id_lookup: dict = {}
+    try:
+        for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
+            device_id_lookup[dep.container_id] = dep.device_id
+    except Exception as e:
+        logger.warning(f"Could not load device_id lookup: {e}")
+
     data = {}
     for con in containers:
         env_vars = parse_env_var_str(con.attrs.get("Config").get("Env"))
@@ -606,6 +922,7 @@ def get_container_status():
                 for k, v in con.attrs.get("NetworkSettings").get("Networks").items()
             },
             "env_vars": env_vars,
+            "device_id": device_id_lookup.get(con.id),
         }
     return data
 
@@ -648,12 +965,12 @@ def update_deploy_cache():
             if is_tt_inference_container:
                 logger.info(f"Detected TT Inference Server container: {con['name']} (ID: {con_id})")
                 
-                # Try to find the model implementation from the database
+                # Try to find the model implementation from the deployment store
                 deployment_found = False
                 try:
                     from docker_control.models import ModelDeployment
                     deployment = ModelDeployment.objects.filter(container_id=con_id).first()
-                    
+
                     if deployment:
                         # Find the model implementation by model name
                         model_impl = None
@@ -663,11 +980,12 @@ def update_deploy_cache():
                                 logger.info(f"Matched TT Inference Server container to model_impl: {model_impl.model_name}")
                                 deployment_found = True
                                 break
-                        
+
                         if not model_impl:
                             logger.warning(f"Could not find model_impl for {deployment.model_name} in container {con['name']}")
                     else:
-                        logger.warning(f"No deployment record found for TT Inference Server container {con_id}")
+                        # No record by container_id — could be a pre-existing container or still starting up
+                        logger.debug(f"No deployment record found for TT Inference Server container {con_id}")
                 except Exception as e:
                     # Check if this is a migration/database issue
                     error_str = str(e).lower()
@@ -680,13 +998,25 @@ def update_deploy_cache():
                 if not deployment_found:
                     logger.info(f"Using fallback logic to match container {con['name']}")
                     # Try to match by container name
+                    # First try exact match
                     model_impl = None
                     for k, v in model_implmentations.items():
-                        if v.model_name in con["name"]:
+                        if v.model_name == con["name"]:
                             model_impl = v
-                            logger.info(f"Matched container by name to model_impl: {model_impl.model_name}")
+                            logger.info(f"Matched container by exact name to model_impl: {model_impl.model_name}")
                             break
-                    
+
+                    # Fall back to longest-substring match (prevents short names like "Llama-3.1-8B"
+                    # from beating "Llama-3.1-8B-Instruct" on container name "Llama-3.1-8B-Instruct")
+                    if not model_impl:
+                        best_match_len = 0
+                        for k, v in model_implmentations.items():
+                            if v.model_name in con["name"] and len(v.model_name) > best_match_len:
+                                model_impl = v
+                                best_match_len = len(v.model_name)
+                        if model_impl:
+                            logger.info(f"Matched container by name substring to model_impl: {model_impl.model_name}")
+
                     if not model_impl:
                         logger.warning(f"Could not match TT Inference Server container {con['name']} to any model_impl. Skipping.")
                         continue
@@ -723,11 +1053,23 @@ def update_deploy_cache():
             hostname = con["networks"][backend_config.docker_bridge_network_name][
                 "DNSNames"
             ][0]
+            # Use the actual container port from port bindings instead of the
+            # static model_impl.service_port (which is always 7000).  All deployments
+            # now use slot-based ports (7000+device_id), so we must resolve the real port.
+            actual_port = model_impl.service_port  # default fallback
+            port_bindings = con.get("port_bindings", {})
+            if port_bindings:
+                container_port_key = next(iter(port_bindings.keys()), None)
+                if container_port_key:
+                    try:
+                        actual_port = int(container_port_key.split("/")[0])
+                    except (ValueError, IndexError):
+                        pass
             con["internal_url"] = (
-                f"{hostname}:{model_impl.service_port}{model_impl.service_route}"
+                f"{hostname}:{actual_port}{model_impl.service_route}"
             )
             con["health_url"] = (
-                f"{hostname}:{model_impl.service_port}{model_impl.health_route}"
+                f"{hostname}:{actual_port}{model_impl.health_route}"
             )
             cache.set(con_id, con, timeout=None)
             logger.info(f"Added container {con['name']} (ID: {con_id[:12]}) to deploy cache")
@@ -753,197 +1095,180 @@ def get_model_weights_path(weights_dir_path, weights_id):
 
 
 def perform_reset():
+    """
+    Reset the TT board using tt-smi -r (up to 2 attempts, 30-second timeout each).
+
+    The tt-smi -s pre-check has been intentionally removed: when the board is in
+    a bad state tt-smi -s itself hangs, which makes recovery worse.  We go
+    straight to tt-smi -r and let the result speak for itself.
+    """
     try:
-        logger.info("Running initial tt-smi -s command to check device detection.")
+        logger.info("Starting board reset — running tt-smi -r directly (no pre-check)")
 
-        # Initial check to see if Tenstorrent devices are detected
-        def check_device_detection():
-            process = subprocess.Popen(
-                ["tt-smi", "-s"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,  # Prevents interactive command-line interface
-                text=True,
-            )
-            output = []
-            detected_chips = 0
-            warnings = []
-            for line in iter(process.stdout.readline, ""):
-                logger.info(f"tt-smi output: {line.strip()}")
-                output.append(line)
-                lower_line = line.lower()
-                if "detected chips" in lower_line:
-                    # Expect format like: "Detected Chips: 2"
-                    try:
-                        parts = line.strip().split(":")
-                        if len(parts) == 2:
-                            detected_chips = int(parts[1].strip().split()[0])
-                    except (ValueError, IndexError) as e:
-                        warnings.append(f"Unable to parse detected chips from line: {line.strip()}")
-                        logger.warning(f"Unable to parse detected chips from line '{line.strip()}': {e}")
-                if "response_q out of sync" in lower_line or "rd_ptr" in lower_line:
-                    warnings.append(line.strip())
-                if "No Tenstorrent devices detected" in line:
-                    return {
-                        "status": "error",
-                        "message": "No Tenstorrent devices detected! Please check your hardware and try again.",
-                        "output": "".join(output),
-                        "http_status": 503,  # Service Unavailable
-                    }
-            process.stdout.close()
-            return_code = process.wait()
-            
-            # Parse JSON output if text parsing didn't find chips
-            if detected_chips == 0:
-                full_output = "".join(output)
-                try:
-                    json_data = json.loads(full_output)
-                    if "device_info" in json_data and isinstance(json_data["device_info"], list):
-                        detected_chips = len(json_data["device_info"])
-                        logger.info(f"Detected {detected_chips} chips from JSON output")
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Could not parse tt-smi output as JSON: {e}")
-            
-            # If chips are detected, allow reset but surface warnings/return code
-            if detected_chips > 0:
-                if return_code != 0:
-                    warnings.append(f"tt-smi -s exited with code {return_code}")
-                status_val = "success" if not warnings and return_code == 0 else "warning"
-                return {
-                    "status": status_val,
-                    "output": "".join(output),
-                    "warnings": warnings,
-                    "detected_chips": detected_chips,
-                    "return_code": return_code,
-                }
-            if return_code != 0:
-                return {
-                    "status": "error",
-                    "message": f"tt-smi -s command failed with return code {return_code}. Please check if tt-smi is properly installed.",
-                    "output": "".join(output),
-                    "http_status": 500,  # Internal Server Error
-                }
-            return {
-                "status": "success",
-                "message": "No Tenstorrent devices detected. tt-smi executed successfully.",
-                "output": "".join(output),
-                "detected_chips": 0,
-                "return_code": return_code,
-            }
+        # Signal that a reset is in progress so the device-state endpoint reports RESETTING
+        SystemResourceService.set_resetting_state()
 
-        # Run the device detection check
-        detection_result = check_device_detection()
-        detection_warnings = detection_result.get("warnings", [])
-        detection_output = detection_result.get("output", "")
-        if detection_result.get("status") == "error":
-            return detection_result
-        if detection_output:
-            cumulative_output = [detection_output]
-        else:
-            cumulative_output = []
-        if detection_warnings:
-            cumulative_output.append("Warnings during device detection:\n")
-            cumulative_output.extend([w + "\n" for w in detection_warnings])
+        MAX_ATTEMPTS = 2
+        last_output = ""
 
-        logger.info("Running tt-smi reset command.")
-
-        def stream_command_output(command):
-            logger.info(f"Executing command: {' '.join(command)}")
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,  # Prevents interactive command-line interface
-                text=True,
-            )
-            output = []
-            for line in iter(process.stdout.readline, ""):
-                logger.info(f"Command output: {line.strip()}")
-                output.append(line)
-            process.stdout.close()
-            return_code = process.wait()
-            if return_code != 0:
-                logger.info(f"Command failed with return code {return_code}")
-                output.append(f"Command failed with return code {return_code}")
-                error_message = "tt-smi reset failed. Please check if:\n"
-                error_message += "1. The Tenstorrent device is properly connected\n"
-                error_message += "2. You have the correct permissions to access the device\n"
-                error_message += "3. The tt-smi utility is properly installed\n"
-                error_message += "4. The device firmware is up to date"
-                return {
-                    "status": "error",
-                    "message": error_message,
-                    "output": "".join(output),
-                    "http_status": 500,  # Internal Server Error
-                }
-            else:
-                logger.info(
-                    f"Command completed successfully with return code {return_code}"
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.info(f"Reset attempt {attempt} of {MAX_ATTEMPTS}")
+            try:
+                process = subprocess.Popen(
+                    ["tt-smi", "-r"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    preexec_fn=os.setsid,
                 )
-                return {"status": "success", "output": "".join(output)}
 
-        # Attempt software resets first (up to MAX_RESET_ATTEMPTS)
-        MAX_RESET_ATTEMPTS = 3
-        reset_attempts = 0
-        reset_success = False
+                try:
+                    stdout, _ = process.communicate(timeout=90)
+                    last_output = stdout
+                    logger.info(f"tt-smi -r attempt {attempt} output: {stdout.strip()!r:.200}")
 
-        # Try tt-smi reset with retries (no reset config file; use default tt-smi behavior)
-        while reset_attempts < MAX_RESET_ATTEMPTS and not reset_success:
-            reset_attempts += 1
-            logger.info(f"Reset attempt {reset_attempts} of {MAX_RESET_ATTEMPTS}")
-            cumulative_output.append(f"Attempting reset {reset_attempts} of {MAX_RESET_ATTEMPTS}...\n")
+                    if process.returncode == 0:
+                        logger.info(f"Reset succeeded on attempt {attempt}")
+                        SystemResourceService.clear_device_state_cache()
+                        return {
+                            "status": "success",
+                            "message": f"Board reset successfully after {attempt} attempt(s)",
+                            "attempts_used": attempt,
+                            "output": stdout,
+                            "http_status": 200,
+                        }
 
-            # Perform reset using tt-smi default behavior (no reset_config.json)
-            cumulative_output.append("Executing tt-smi -r with default reset configuration.\n")
-            reset_result = stream_command_output(["tt-smi", "-r"])
-            cumulative_output.append(reset_result.get('output', '') + "\n")
+                    logger.warning(
+                        f"Reset attempt {attempt} failed: exit code {process.returncode}"
+                    )
 
-            if reset_result.get("status") == "success":
-                logger.info(f"Reset attempt {reset_attempts} succeeded")
-                reset_success = True
-                break
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Reset attempt {attempt} timed out after 90s")
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except Exception:
+                            pass
+                    last_output = "(timeout)"
 
-            logger.warning(f"Reset attempt {reset_attempts} failed")
-            # Small delay between attempts
-            time.sleep(2)
+            except Exception as exc:
+                logger.error(f"Reset attempt {attempt} raised exception: {exc}")
+                last_output = str(exc)
 
-        # If all reset attempts failed
-        if not reset_success:
-            all_output = "".join(cumulative_output)
-            logger.error(f"All {MAX_RESET_ATTEMPTS} reset attempts failed")
-            return {
-                "status": "error", 
-                "message": f"All {MAX_RESET_ATTEMPTS} reset attempts failed using tt-smi --reset command.",
-                "output": all_output,
-                "http_status": 500
-            }
-
-        all_output = "".join(cumulative_output)
-        if reset_success:
-            return {
-                "status": "success",
-                "message": f"Reset successful after {reset_attempts} attempt(s)",
-                "output": all_output,
-                "warnings": detection_warnings,
-                "http_status": 200
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "All reset attempts failed with no specific error",
-                "output": all_output,
-                "warnings": detection_warnings,
-                "http_status": 500
-            }
+        # All attempts failed
+        logger.error(f"All {MAX_ATTEMPTS} reset attempts failed")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": (
+                f"Board did not recover after {MAX_ATTEMPTS} reset attempts. "
+                "Manual intervention may be required."
+            ),
+            "attempts_used": MAX_ATTEMPTS,
+            "output": last_output,
+            "http_status": 500,
+        }
 
     except Exception as e:
-        logger.exception("Exception occurred during reset operation.")
+        logger.exception("Unexpected error during reset operation")
+        SystemResourceService.clear_device_state_cache()
         return {
             "status": "error",
             "message": str(e),
-            "output": "An exception occurred during the reset operation.",
+            "attempts_used": 0,
+            "output": "",
             "http_status": 500,
         }
+
+def perform_device_reset(device_id: int):
+    """
+    Reset a specific TT chip/device using tt-smi -r <device_id>.
+    Up to 2 attempts with 30-second timeout each.
+    """
+    try:
+        logger.info(f"Starting chip reset for device {device_id} — running tt-smi -r {device_id}")
+
+        SystemResourceService.set_resetting_state()
+
+        MAX_ATTEMPTS = 2
+        last_output = ""
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.info(f"Device {device_id} reset attempt {attempt} of {MAX_ATTEMPTS}")
+            try:
+                process = subprocess.Popen(
+                    ["tt-smi", "-r", str(device_id)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    preexec_fn=os.setsid,
+                )
+
+                try:
+                    stdout, _ = process.communicate(timeout=30)
+                    last_output = stdout
+                    logger.info(f"tt-smi -r {device_id} attempt {attempt} output: {stdout.strip()!r:.200}")
+
+                    if process.returncode == 0:
+                        logger.info(f"Device {device_id} reset succeeded on attempt {attempt}")
+                        SystemResourceService.clear_device_state_cache()
+                        return {
+                            "status": "success",
+                            "message": f"Device {device_id} reset successfully after {attempt} attempt(s)",
+                            "attempts_used": attempt,
+                            "output": stdout,
+                            "http_status": 200,
+                        }
+
+                    logger.warning(
+                        f"Device {device_id} reset attempt {attempt} failed: exit code {process.returncode}"
+                    )
+
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Device {device_id} reset attempt {attempt} timed out after 30s")
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except Exception:
+                            pass
+                    last_output = "(timeout)"
+
+            except Exception as exc:
+                logger.error(f"Device {device_id} reset attempt {attempt} raised exception: {exc}")
+                last_output = str(exc)
+
+        logger.error(f"All {MAX_ATTEMPTS} reset attempts for device {device_id} failed")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": (
+                f"Device {device_id} did not recover after {MAX_ATTEMPTS} reset attempts. "
+                "Manual intervention may be required."
+            ),
+            "attempts_used": MAX_ATTEMPTS,
+            "output": last_output,
+            "http_status": 500,
+        }
+
+    except Exception as e:
+        logger.exception(f"Unexpected error during device {device_id} reset operation")
+        SystemResourceService.clear_device_state_cache()
+        return {
+            "status": "error",
+            "message": str(e),
+            "attempts_used": 0,
+            "output": "",
+            "http_status": 500,
+        }
+
 
 def check_image_exists(image_name, image_tag):
     """Check if a Docker image exists locally with robust matching"""

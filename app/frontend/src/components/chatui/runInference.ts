@@ -22,7 +22,8 @@ export const runInference = async (
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>,
   isAgentSelected: boolean,
   threadId: number,
-  abortController?: AbortController
+  abortController?: AbortController,
+  systemPrompt: string | null = null,
 ) => {
   console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
     request,
@@ -75,7 +76,8 @@ export const runInference = async (
         console.log("Processing with combined RAG context:", ragContext);
         messages = generatePrompt(
           chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-          ragContext
+          ragContext,
+          systemPrompt,
         );
       } else if (file.image_url?.url || file) {
         console.log(
@@ -135,7 +137,8 @@ export const runInference = async (
       console.log("RAG context being passed to generatePrompt:", ragContext);
       messages = generatePrompt(
         chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
-        ragContext
+        ragContext,
+        systemPrompt,
       );
     }
 
@@ -202,6 +205,7 @@ export const runInference = async (
         top_k: request.top_k,
         top_p: request.top_p,
         max_tokens: request.max_tokens,
+        ...(request.seed && request.seed > 0 ? { seed: request.seed } : {}),
         stream: true,
         stream_options: {
           include_usage: true,
@@ -217,6 +221,7 @@ export const runInference = async (
         top_k: request.top_k,
         top_p: request.top_p,
         max_tokens: request.max_tokens,
+        ...(request.seed && request.seed > 0 ? { seed: request.seed } : {}),
         stream: true,
         stream_options: {
           include_usage: true,
@@ -309,7 +314,7 @@ export const runInference = async (
                 const jsonData = JSON.parse(trimmedLine.slice(5));
 
                 // Handle final statistics from backend (after [DONE])
-                if (!isAgentSelected && jsonData.ttft && jsonData.tpot) {
+                if (!isAgentSelected && jsonData.tokens_decoded !== undefined) {
                   const backendStats: InferenceStats = {
                     user_ttft_s: jsonData.ttft,
                     user_tpot: jsonData.tpot,
@@ -331,8 +336,8 @@ export const runInference = async (
                   metricsTracker.recordUsage(usage);
                 }
 
-                // Handle generated text content
-                const content = jsonData.choices[0]?.delta?.content || "";
+                // Handle generated text content (chat completions use delta.content, text completions use text)
+                const content = jsonData.choices[0]?.delta?.content ?? jsonData.choices[0]?.text ?? "";
                 if (content) {
                   // Record first token arrival
                   metricsTracker.recordFirstToken();

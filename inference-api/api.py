@@ -500,6 +500,22 @@ class ProgressHandler(logging.Handler):
             elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download", "setup already completed"]):
                 stage = "model_preparation"
                 progress = 40
+            # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
+            elif "fetching" in message.lower() and "files" in message.lower():
+                stage = "model_preparation"
+                progress = 20
+                message = "Downloading model configuration files..."
+            # Docker image layer pull (e.g. "abc123: Download complete", "Pulling from ...")
+            elif any(keyword in message.lower() for keyword in [
+                "pulling from",
+                ": download complete",
+                ": verifying checksum",
+                ": pull complete",
+                ": already exists",
+            ]):
+                stage = "container_setup"
+                progress = 50
+                message = "Pulling container image layers..."
             elif any(keyword in message.lower() for keyword in ["docker run command", "running docker container"]):
                 stage = "container_setup"
                 progress = 70
@@ -945,7 +961,7 @@ async def run_inference(request: RunRequest):
             "AUTOMATIC_HOST_SETUP": "True",
             "TT_PROGRESS_DEBUG": "1",  # Enable structured progress emission
             "TT_PROGRESS_SSE": "1",     # Enable SSE endpoint for real-time progress
-            "SERVICE_PORT": "7000"      # Set SERVICE_PORT to match --service-port argument
+            "SERVICE_PORT": request.service_port or "7000"  # Use requested port (per-slot)
         }
         
         # Handle secrets - use from request if provided and not already in environment
@@ -961,29 +977,50 @@ async def run_inference(request: RunRequest):
         elif not os.getenv("HF_TOKEN"):
             logger.warning("HF_TOKEN not set - this may cause issues with model downloads")
             
-        # Build argv list; run_main() uses sys.argv, but we only mutate it inside the background thread.
-        argv = ["run.py"]
-        argv.extend(["--model", request.model])
-        argv.extend(["--workflow", request.workflow])
-        argv.extend(["--device", normalized_device])
-        argv.extend(["--docker-server"])
-        argv.extend(["--service-port", "7000"])
+        # Set environment variables
+        for key, value in env_vars_to_set.items():
+            if key in ["JWT_SECRET", "HF_TOKEN"]:
+                logger.info(f"Setting environment variable: {key}=[REDACTED]")
+            else:
+                logger.info(f"Setting environment variable: {key}={value}")
+            os.environ[key] = value
+
+        
+        # Convert the request to command line arguments
+        sys.argv = ["run.py"]  # Reset sys.argv
+        
+        # Add required arguments
+        sys.argv.extend(["--model", request.model])
+        sys.argv.extend(["--workflow", request.workflow])
+        sys.argv.extend(["--device", normalized_device])
+        sys.argv.extend(["--docker-server"])
+         # Add dev-mode if requested (used for auto-retry on failure)
+        if request.dev_mode:
+            sys.argv.extend(["--dev-mode"])
+        # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
+        if request.skip_system_sw_validation:
+            sys.argv.extend(["--skip-system-sw-validation"])
+        sys.argv.extend(["--service-port", request.service_port or "7000"])
+        
+        # Add optional arguments if they are set
         if request.impl:
-            argv.extend(["--impl", request.impl])
+            sys.argv.extend(["--impl", request.impl])
         if request.local_server:
-            argv.append("--local-server")
+            sys.argv.append("--local-server")
         if request.interactive:
-            argv.append("--interactive")
+            sys.argv.append("--interactive")
         if request.workflow_args:
-            argv.extend(["--workflow-args", request.workflow_args])
+            sys.argv.extend(["--workflow-args", request.workflow_args])
         if request.disable_trace_capture:
-            argv.append("--disable-trace-capture")
+            sys.argv.append("--disable-trace-capture")
         if request.override_docker_image:
-            argv.extend(["--override-docker-image", request.override_docker_image])
+            sys.argv.extend(["--override-docker-image", request.override_docker_image])
+        if request.device_id:
+            sys.argv.extend(["--device-id", request.device_id])
         if request.override_tt_config:
-            argv.extend(["--override-tt-config", request.override_tt_config])
+            sys.argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
-            argv.extend(["--vllm-override-args", request.vllm_override_args])
+            sys.argv.extend(["--vllm-override-args", request.vllm_override_args])
 
         def _run_job_in_background():
             weights_stop_event = threading.Event()
@@ -1029,7 +1066,7 @@ async def run_inference(request: RunRequest):
                     return attempt_return_code, attempt_container_info
 
                 def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
-                    retry_argv = list(argv)
+                    retry_argv = list(sys.argv)
                     retry_reason_parts: list[str] = []
                     if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                         retry_argv.append("--skip-system-sw-validation")
@@ -1038,7 +1075,7 @@ async def run_inference(request: RunRequest):
                     return retry_argv, retry_reason
 
                 try:
-                    return_code, container_info = _execute_run(argv)
+                    return_code, container_info = _execute_run(sys.argv)
                 except Exception as first_attempt_error:
                     # run_main() can raise directly (e.g. local setup validation errors)
                     # and bypass return-code based retry logic.
