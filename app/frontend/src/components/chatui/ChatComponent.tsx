@@ -25,6 +25,8 @@ import type {
 import { runInference } from "./runInference";
 import { buildDefaultSystemPrompt } from "./templateRenderer";
 import { useDeviceState } from "../../hooks/useDeviceState";
+import { buildDefaultSystemPrompt } from "./templateRenderer";
+import { useDeviceState } from "../../hooks/useDeviceState";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
@@ -704,6 +706,8 @@ export default function ChatComponent() {
           currentThreadIndex,
           controller,
           modelSettings.systemPrompt || null,
+          hardwareContext,
+          modelName,
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -841,6 +845,8 @@ export default function ChatComponent() {
         currentThreadIndex,
         undefined,
         modelSettings.systemPrompt || null,
+        hardwareContext,
+        modelName,
       );
 
       setReRenderingMessageId(null);
