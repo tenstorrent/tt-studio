@@ -3166,25 +3166,20 @@ while true; do
 done
 '''
             else:
-                uvicorn_block = f'''\
+                uvicorn_block = '''\
 echo $$ > "$2"
-if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
+if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1; then
+    echo "Failed to start inference-api server. Check logs at $4"
+    exit 1
+fi
+'''
 
             tt_studio_root_export = f'export TT_STUDIO_ROOT="{TT_STUDIO_ROOT}"\n'
 
             temp_script.write(f'''#!/bin/bash
 set -e
 cd "$1"
-{tt_studio_root_export}{artifact_path_export}{benchmark_targets_export}{pythonpath_export}echo $$ > "$2"
-if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1; then
-    echo "Failed to start inference-api server. Check logs at $4"
-    exit 1
-fi
-'''
-            temp_script.write(f'''#!/bin/bash
-set -e
-cd "$1"
-{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
+{tt_studio_root_export}{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
             temp_script_path = temp_script.name
         
         # Make the script executable
