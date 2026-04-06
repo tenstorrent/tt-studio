@@ -4402,6 +4402,46 @@ def main():
             startup_log.step("docker_control_service", "SKIP", "--skip-docker-control")
             print(f"\n{C_YELLOW}⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used){C_RESET}")
 
+        # Check if AI Playground mode is enabled
+        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
+
+        # Check and download TT Inference Server artifact BEFORE building containers
+        # so any version/branch changes are visible to the user early and failures stop startup immediately
+        if not args.skip_fastapi and not is_deployed_mode:
+            startup_log.step("fastapi_server", "START")
+            print(f"\n{C_CYAN}🔍 Checking TT Inference Server artifact...{C_RESET}")
+            original_dir = os.getcwd()
+            try:
+                if not setup_tt_inference_server(pull_branch=args.pull_branch):
+                    startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
+                    print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
+                    startup_log.summary(exit_code=1)
+                    startup_log.close()
+                    sys.exit(1)
+
+                # Sync model catalog from artifact
+                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
+                should_sync = (
+                    args.resync or
+                    args.reconfigure_inference_server or
+                    args.pull_branch or
+                    not os.path.exists(models_json_path)
+                )
+                if should_sync:
+                    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
+                    _sync_model_catalog()
+                else:
+                    print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
+            finally:
+                os.chdir(original_dir)
+        elif args.skip_fastapi:
+            startup_log.step("fastapi_server", "SKIP", "--skip-fastapi")
+            print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
+        elif is_deployed_mode:
+            startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
+            print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
+            print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
+
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
         print(f"\n{C_CYAN}🔨 Building containers (backend, frontend, agent, chroma)...{C_RESET}")
@@ -4433,47 +4473,10 @@ def main():
         print(f"{C_GREEN}✅ Docker containers built and running{C_RESET}")
         startup_log.step("docker_compose_up", "OK")
 
-        # Check if AI Playground mode is enabled
-        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
-        
-        # Setup TT Inference Server FastAPI (unless skipped or AI Playground mode is enabled)
+        # Start FastAPI server now that containers are up
         if not args.skip_fastapi and not is_deployed_mode:
-            startup_log.step("fastapi_server", "START")
-
             original_dir = os.getcwd()
             try:
-                if not setup_tt_inference_server(pull_branch=args.pull_branch):
-                    startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
-                    print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
-                    startup_log.summary(exit_code=1)
-                    # Only sync model catalog when explicitly requested or needed
-                    models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
-                    should_sync = (
-                        args.resync or
-                        args.reconfigure_inference_server or
-                        not os.path.exists(models_json_path)
-                    )
-
-                    if should_sync:
-                        print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
-                        _sync_model_catalog()
-                    else:
-                        print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
-                    startup_log.close()
-                    sys.exit(1)
-
-                # Sync model catalog from artifact on success path
-                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
-                should_sync = (
-                    args.resync or
-                    args.reconfigure_inference_server or
-                    args.pull_branch or
-                    not os.path.exists(models_json_path)
-                )
-                if should_sync:
-                    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
-                    _sync_model_catalog()
-
                 if not setup_fastapi_environment():
                     startup_log.step("fastapi_server", "FAIL", "environment setup failed")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI environment setup failed. Exiting.{C_RESET}")
@@ -4492,13 +4495,6 @@ def main():
                 startup_log.step("fastapi_server", "OK")
             finally:
                 os.chdir(original_dir)
-        elif args.skip_fastapi:
-            startup_log.step("fastapi_server", "SKIP", "--skip-fastapi")
-            print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
-        elif is_deployed_mode:
-            startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
-            print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
-            print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
 
         fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
         docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
