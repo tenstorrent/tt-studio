@@ -22,6 +22,8 @@ import type {
   FileData,
 } from "./types";
 import { runInference } from "./runInference";
+import { buildDefaultSystemPrompt } from "./templateRenderer";
+import { useDeviceState } from "../../hooks/useDeviceState";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
@@ -35,6 +37,16 @@ interface ChatThread {
 }
 
 export default function ChatComponent() {
+  const { deviceState } = useDeviceState();
+  // Build a minimal hardware context note from detected board info (null if no TT hardware present)
+  const hardwareContext = (() => {
+    if (!deviceState || deviceState.state === "NOT_PRESENT") return null;
+    const name = deviceState.board_name && deviceState.board_name !== "unknown" && deviceState.board_name !== "Unknown"
+      ? deviceState.board_name
+      : null;
+    return name ? `Tenstorrent hardware (${name})` : "Tenstorrent hardware";
+  })();
+
   // Show loading state on initial load
   const [isLoading, setIsLoading] = useState(true);
   const [files, setFiles] = useState<FileData[]>([]);
@@ -674,6 +686,8 @@ export default function ChatComponent() {
           currentThreadIndex,
           controller,
           modelSettings.systemPrompt || null,
+          hardwareContext,
+          modelName,
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -811,6 +825,8 @@ export default function ChatComponent() {
         currentThreadIndex,
         undefined,
         modelSettings.systemPrompt || null,
+        hardwareContext,
+        modelName,
       );
 
       setReRenderingMessageId(null);
@@ -1336,6 +1352,7 @@ export default function ChatComponent() {
         onClose={() => setIsSettingsOpen(false)}
         settings={modelSettings}
         onSettingsChange={handleSettingsChange}
+        defaultSystemPrompt={buildDefaultSystemPrompt(modelName, hardwareContext)}
       />
     </div>
   );
