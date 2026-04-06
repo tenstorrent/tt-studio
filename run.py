@@ -869,6 +869,19 @@ def write_env_var(var_name, var_value, quote_value=True):
     with open(ENV_FILE_PATH, 'w') as f:
         f.writelines(lines)
 
+def comment_out_env_var(var_name):
+    """Comment out an environment variable in the .env file (VAR=val → # VAR=val)."""
+    if not os.path.exists(ENV_FILE_PATH):
+        return
+    with open(ENV_FILE_PATH, 'r') as f:
+        lines = f.readlines()
+    for i, line in enumerate(lines):
+        if re.match(f"^{re.escape(var_name)}=", line):
+            lines[i] = f"# {line}"
+            break
+    with open(ENV_FILE_PATH, 'w') as f:
+        f.writelines(lines)
+
 def get_env_var(var_name, default=""):
     """Safely get a variable from the .env file."""
     if not os.path.exists(ENV_FILE_PATH):
@@ -1264,7 +1277,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_jwt = get_env_var("JWT_SECRET")
     if easy_mode:
         if should_configure_var("JWT_SECRET", current_jwt):
-            write_env_var("JWT_SECRET", "test-secret-456")
+            write_env_var("JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("JWT_SECRET", current_jwt):
         if is_placeholder(current_jwt):
             print(f"🔄 JWT_SECRET has placeholder value '{current_jwt}' - configuring...")
@@ -1276,7 +1289,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
-                write_env_var("JWT_SECRET", val)
+                write_env_var("JWT_SECRET", val.strip().strip('"\''), quote_value=False)
                 print("✅ JWT_SECRET saved.")
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -1288,7 +1301,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_django = get_env_var("DJANGO_SECRET_KEY")
     if easy_mode:
         if should_configure_var("DJANGO_SECRET_KEY", current_django):
-            write_env_var("DJANGO_SECRET_KEY", "django-insecure-default")
+            write_env_var("DJANGO_SECRET_KEY", "django-insecure-default", quote_value=False)
     elif should_configure_var("DJANGO_SECRET_KEY", current_django):
         if is_placeholder(current_django):
             print(f"🔄 DJANGO_SECRET_KEY has placeholder value '{current_django}' - configuring...")
@@ -1300,7 +1313,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
-                write_env_var("DJANGO_SECRET_KEY", val)
+                write_env_var("DJANGO_SECRET_KEY", val.strip().strip('"\''), quote_value=False)
                 print("✅ DJANGO_SECRET_KEY saved.")
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -1354,7 +1367,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_docker_jwt = get_env_var("DOCKER_CONTROL_JWT_SECRET")
     if easy_mode:
         if should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
-            write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456")
+            write_env_var("DOCKER_CONTROL_JWT_SECRET", "test-secret-456", quote_value=False)
     elif should_configure_var("DOCKER_CONTROL_JWT_SECRET", current_docker_jwt):
         if is_placeholder(current_docker_jwt):
             print(f"🔄 DOCKER_CONTROL_JWT_SECRET has placeholder value '{current_docker_jwt}' - configuring...")
@@ -1366,7 +1379,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
             if not val and dev_mode:
                 val = dev_default
             if val and val.strip():
-                write_env_var("DOCKER_CONTROL_JWT_SECRET", val)
+                write_env_var("DOCKER_CONTROL_JWT_SECRET", val.strip().strip('"\''), quote_value=False)
                 print("✅ DOCKER_CONTROL_JWT_SECRET saved.")
                 break
             print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
@@ -1378,11 +1391,11 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_tavily = get_env_var("TAVILY_API_KEY")
     if easy_mode:
         if should_configure_var("TAVILY_API_KEY", current_tavily):
-            write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured")
+            write_env_var("TAVILY_API_KEY", "tavily-api-key-not-configured", quote_value=False)
     elif should_configure_var("TAVILY_API_KEY", current_tavily):
         prompt_text = "🔍 Enter TAVILY_API_KEY for search agent (optional; press Enter to skip): "
         val = getpass.getpass(prompt_text)
-        write_env_var("TAVILY_API_KEY", val or "")
+        write_env_var("TAVILY_API_KEY", (val or "").strip().strip('"\''), quote_value=False)
         print("✅ TAVILY_API_KEY saved.")
     else:
         if not easy_mode:
@@ -1412,7 +1425,8 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 if not val or not val.strip():
                     print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
                     continue
-            write_env_var("HF_TOKEN", val)
+            val = val.strip().strip('"\'')
+            write_env_var("HF_TOKEN", val, quote_value=False)
             print("✅ HF_TOKEN saved.")
         else:
             val = current_hf
@@ -1509,7 +1523,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     current_rag_pass = get_env_var("RAG_ADMIN_PASSWORD")
     if easy_mode:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
-            write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password")
+            write_env_var("RAG_ADMIN_PASSWORD", "tt-studio-rag-admin-password", quote_value=False)
     elif is_rag_admin_enabled:
         if should_configure_var("RAG_ADMIN_PASSWORD", current_rag_pass):
             dev_default = "dev-admin-123" if dev_mode else ""
@@ -1521,7 +1535,7 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
                 if not val and dev_mode:
                     val = dev_default
                 if val and val.strip():
-                    write_env_var("RAG_ADMIN_PASSWORD", val)
+                    write_env_var("RAG_ADMIN_PASSWORD", val.strip().strip('"\''), quote_value=False)
                     print("✅ RAG_ADMIN_PASSWORD saved.")
                     break
                 print(f"{C_RED}⛔ Password cannot be empty.{C_RESET}")
@@ -2248,7 +2262,22 @@ def _set_artifact_environment_variables(artifact_dir):
     if os.path.exists(benchmark_file):
         os.environ["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
 
-def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False):
+def fetch_branch_commit_sha(branch):
+    """Fetch the latest commit SHA for a branch from the GitHub API (unauthenticated)."""
+    import json
+    url = f"https://api.github.com/repos/tenstorrent/tt-inference-server/git/refs/heads/{branch}"
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+            if isinstance(data, list):
+                return data[0]["object"]["sha"] if data else None
+            return data["object"]["sha"]
+    except Exception:
+        return None
+
+
+def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False, commit_sha=None):
     """
     Write artifact metadata file outside the inference-server directory.
 
@@ -2258,6 +2287,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
         artifact_value: Branch name or version number
         validation_passed: Whether artifact validation succeeded
         sudo_used: Whether sudo was needed during download/cleanup
+        commit_sha: Git commit SHA at download time (branches only)
     """
     info_file = os.path.join(artifacts_dir, "artifact-info.txt")
     try:
@@ -2292,10 +2322,17 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             f.write("  🔍 Technical Details:\n")
             f.write(f"     Artifact Type     : {artifact_type}\n")
             f.write(f"     Artifact Value    : {artifact_value}\n")
+            if commit_sha:
+                f.write(f"     Commit SHA        : {commit_sha}\n")
             f.write(f"     Download Time     : {timestamp}\n")
             f.write(f"     Validation Status : {'✓ PASSED' if validation_passed else '✗ FAILED'}\n")
-            f.write(f"     Validation Checks : workflows_dir, workflows/utils.py\n")
+            f.write(f"     Validation Checks : workflows_dir, workflows/utils.py, VERSION\n")
             f.write(f"     Sudo Used         : {'Yes' if sudo_used else 'No'}\n")
+            # Machine-readable marker lines used by cache invalidation detection
+            f.write(f"     artifact_type={artifact_type}\n")
+            f.write(f"     artifact_value={artifact_value}\n")
+            if commit_sha:
+                f.write(f"     commit_sha={commit_sha}\n")
             f.write("\n" + "=" * 80 + "\n")
 
         print(f"📝 Artifact info written to {info_file}")
@@ -2418,12 +2455,29 @@ def setup_tt_inference_server(pull_branch=False):
             return "v0" + version[1:]
         return ""
 
-    # Read artifact source from .env file or environment
-    # Priority: Branch > Version
-    artifact_branch = (get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", None))
-    artifact_version = (get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION") or "latest").strip()
+    # Read artifact source from .env file — use EITHER branch OR version, never both
+    artifact_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or None
+    artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or None
 
-    if not artifact_branch and not artifact_version:
+    if artifact_branch and artifact_version:
+        # Both are set — ask the user which to keep and comment out the other
+        print(f"\n{C_YELLOW}⚠️  Both TT_INFERENCE_ARTIFACT_BRANCH and TT_INFERENCE_ARTIFACT_VERSION are set in .env:{C_RESET}")
+        print(f"   1. Branch: '{artifact_branch}'")
+        print(f"   2. Version: '{artifact_version}'")
+        while True:
+            choice = input(f"{C_CYAN}Which would you like to use? (1 or 2): {C_RESET}").strip()
+            if choice in ("1", "2"):
+                break
+            print(f"{C_RED}⛔ Enter 1 or 2.{C_RESET}")
+        if choice == "1":
+            comment_out_env_var("TT_INFERENCE_ARTIFACT_VERSION")
+            artifact_version = None
+            print(f"{C_GREEN}✅ Using branch '{artifact_branch}' — commented out TT_INFERENCE_ARTIFACT_VERSION in .env{C_RESET}")
+        else:
+            comment_out_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
+            artifact_branch = None
+            print(f"{C_GREEN}✅ Using version '{artifact_version}' — commented out TT_INFERENCE_ARTIFACT_BRANCH in .env{C_RESET}")
+    elif not artifact_branch and not artifact_version:
         artifact_version = "latest"
 
     # Create artifacts directory early so we can check for local tarballs
@@ -2438,13 +2492,22 @@ def setup_tt_inference_server(pull_branch=False):
     # Track if sudo was used during cleanup (for artifact info file)
     sudo_used_for_cleanup = False
 
-    # Check if artifact already exists and is valid (has workflows directory)
+    # Check if artifact already exists and is fully downloaded
+    # A complete download has: artifact-info.txt (written last on success), workflows/utils.py, and VERSION
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
-        workflows_dir = os.path.join(INFERENCE_ARTIFACT_DIR, "workflows")
-        workflows_utils = os.path.join(workflows_dir, "utils.py")
-        
-        # Only return early if the artifact is actually valid (has workflows)
-        if os.path.exists(workflows_utils):
+        info_file_check = os.path.join(artifacts_dir, "artifact-info.txt")
+        workflows_utils = os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")
+        version_file = os.path.join(INFERENCE_ARTIFACT_DIR, "VERSION")
+
+        missing = [p for p in [info_file_check, workflows_utils, version_file] if not os.path.exists(p)]
+        if missing:
+            print(f"{C_YELLOW}⚠️  Incomplete artifact detected (missing: {', '.join(os.path.basename(p) for p in missing)}) — re-downloading...{C_RESET}")
+            try:
+                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+            except Exception:
+                pass
+
+        if not missing:
             version = get_inference_server_version()
             version_str = f" (v{version})" if version else ""
             branch_str = f" (branch: {artifact_branch})" if artifact_branch else ""
@@ -2469,6 +2532,10 @@ def setup_tt_inference_server(pull_branch=False):
                                 if f"artifact_value={artifact_branch}" not in info_content:
                                     branch_mismatch = True
                                     print(f"{C_YELLOW}⚠️  Branch mismatch: requested '{artifact_branch}' but artifact has different branch{C_RESET}")
+                            else:
+                                # Old-format or unrecognized artifact-info.txt — force re-download
+                                branch_mismatch = True
+                                print(f"{C_YELLOW}⚠️  Unrecognized artifact metadata format - re-downloading branch '{artifact_branch}'{C_RESET}")
                     except Exception:
                         pass
                 else:
@@ -2482,8 +2549,25 @@ def setup_tt_inference_server(pull_branch=False):
                         branch_mismatch = True
                         print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
                     else:
-                        # For branches, we can't easily verify without git, so just show what's configured
-                        print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{branch_str}")
+                        # Check GitHub for new commits via commit SHA comparison
+                        stored_sha = None
+                        try:
+                            with open(info_file_check) as _f:
+                                for _line in _f:
+                                    if _line.startswith("     commit_sha="):
+                                        stored_sha = _line.split("=", 1)[1].strip()
+                        except Exception:
+                            pass
+                        current_sha = fetch_branch_commit_sha(artifact_branch)
+                        if current_sha and stored_sha and current_sha != stored_sha:
+                            print(f"{C_YELLOW}⚠️  Branch '{artifact_branch}' has new commits ({stored_sha[:7]} → {current_sha[:7]}){C_RESET}")
+                            print(f"   Re-downloading latest...")
+                            branch_mismatch = True
+                        elif current_sha and stored_sha:
+                            print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]}){C_RESET}")
+                        else:
+                            # API unreachable or no stored SHA — fall back gracefully
+                            print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
                 cur = version.lstrip("v").strip()
@@ -2500,6 +2584,10 @@ def setup_tt_inference_server(pull_branch=False):
                                 if 'artifact_type=branch' in info_content:
                                     version_mismatch = True
                                     print(f"{C_YELLOW}⚠️  Switching from branch artifact to version '{artifact_version}'{C_RESET}")
+                                elif 'artifact_type=version' not in info_content:
+                                    # Old-format or unrecognized artifact-info.txt — force re-download
+                                    version_mismatch = True
+                                    print(f"{C_YELLOW}⚠️  Unrecognized artifact metadata format - re-downloading version '{artifact_version}'{C_RESET}")
                         except Exception:
                             pass
                     else:
@@ -2609,7 +2697,8 @@ def setup_tt_inference_server(pull_branch=False):
                         print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
                         return False
             else:
-                print(f"{C_GREEN}✅ TT Inference Server{version_str} (cached){C_RESET}")
+                if not artifact_branch:
+                    print(f"{C_GREEN}✅ TT Inference Server{version_str} (cached){C_RESET}")
                 
                 # If version matches or no version specified, use existing artifact
                 _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
@@ -2761,7 +2850,8 @@ def setup_tt_inference_server(pull_branch=False):
                         return False
 
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                    commit_sha = fetch_branch_commit_sha(artifact_branch)
+                    _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                     return True
                 else:
                     print(f"{C_RED}⛔ Extracted directory not found in {artifacts_dir}{C_RESET}")
@@ -2846,7 +2936,8 @@ def setup_tt_inference_server(pull_branch=False):
 
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
                         # "latest" used main branch, so record branch not version
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                        commit_sha = fetch_branch_commit_sha(artifact_branch)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                         return True
                     else:
                         print(f"{C_RED}⛔ Extracted directory not found{C_RESET}")
@@ -3143,17 +3234,20 @@ while true; do
 done
 '''
             else:
-                uvicorn_block = f'''\
+                uvicorn_block = '''\
 echo $$ > "$2"
-if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 > "$4" 2>&1; then
+if ! "$3/bin/uvicorn" main:app --host 0.0.0.0 --port 8001 >> "$4" 2>&1; then
     echo "Failed to start inference-api server. Check logs at $4"
     exit 1
 fi
 '''
+
+            tt_studio_root_export = f'export TT_STUDIO_ROOT="{TT_STUDIO_ROOT}"\n'
+
             temp_script.write(f'''#!/bin/bash
 set -e
 cd "$1"
-{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
+{tt_studio_root_export}{artifact_path_export}{benchmark_targets_export}{pythonpath_export}{uvicorn_block}''')
             temp_script_path = temp_script.name
         
         # Make the script executable
@@ -4377,6 +4471,46 @@ def main():
             startup_log.step("docker_control_service", "SKIP", "--skip-docker-control")
             print(f"\n{C_YELLOW}⚠️  Skipping Docker Control Service setup (--skip-docker-control flag used){C_RESET}")
 
+        # Check if AI Playground mode is enabled
+        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
+
+        # Check and download TT Inference Server artifact BEFORE building containers
+        # so any version/branch changes are visible to the user early and failures stop startup immediately
+        if not args.skip_fastapi and not is_deployed_mode:
+            startup_log.step("fastapi_server", "START")
+            print(f"\n{C_CYAN}🔍 Checking TT Inference Server artifact...{C_RESET}")
+            original_dir = os.getcwd()
+            try:
+                if not setup_tt_inference_server(pull_branch=args.pull_branch):
+                    startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
+                    print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
+                    startup_log.summary(exit_code=1)
+                    startup_log.close()
+                    sys.exit(1)
+
+                # Sync model catalog from artifact
+                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
+                should_sync = (
+                    args.resync or
+                    args.reconfigure_inference_server or
+                    args.pull_branch or
+                    not os.path.exists(models_json_path)
+                )
+                if should_sync:
+                    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
+                    _sync_model_catalog()
+                else:
+                    print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
+            finally:
+                os.chdir(original_dir)
+        elif args.skip_fastapi:
+            startup_log.step("fastapi_server", "SKIP", "--skip-fastapi")
+            print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
+        elif is_deployed_mode:
+            startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
+            print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
+            print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
+
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
         print(f"\n{C_CYAN}🔨 Building containers (backend, frontend, agent, chroma)...{C_RESET}")
@@ -4408,47 +4542,10 @@ def main():
         print(f"{C_GREEN}✅ Docker containers built and running{C_RESET}")
         startup_log.step("docker_compose_up", "OK")
 
-        # Check if AI Playground mode is enabled
-        is_deployed_mode = parse_boolean_env(get_env_var("VITE_ENABLE_DEPLOYED"))
-        
-        # Setup TT Inference Server FastAPI (unless skipped or AI Playground mode is enabled)
+        # Start FastAPI server now that containers are up
         if not args.skip_fastapi and not is_deployed_mode:
-            startup_log.step("fastapi_server", "START")
-
             original_dir = os.getcwd()
             try:
-                if not setup_tt_inference_server(pull_branch=args.pull_branch):
-                    startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
-                    print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
-                    startup_log.summary(exit_code=1)
-                    # Only sync model catalog when explicitly requested or needed
-                    models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
-                    should_sync = (
-                        args.resync or
-                        args.reconfigure_inference_server or
-                        not os.path.exists(models_json_path)
-                    )
-
-                    if should_sync:
-                        print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
-                        _sync_model_catalog()
-                    else:
-                        print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
-                    startup_log.close()
-                    sys.exit(1)
-
-                # Sync model catalog from artifact on success path
-                models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
-                should_sync = (
-                    args.resync or
-                    args.reconfigure_inference_server or
-                    args.pull_branch or
-                    not os.path.exists(models_json_path)
-                )
-                if should_sync:
-                    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
-                    _sync_model_catalog()
-
                 if not setup_fastapi_environment():
                     startup_log.step("fastapi_server", "FAIL", "environment setup failed")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI environment setup failed. Exiting.{C_RESET}")
@@ -4467,13 +4564,6 @@ def main():
                 startup_log.step("fastapi_server", "OK")
             finally:
                 os.chdir(original_dir)
-        elif args.skip_fastapi:
-            startup_log.step("fastapi_server", "SKIP", "--skip-fastapi")
-            print(f"\n{C_YELLOW}⚠️  Skipping TT Inference Server FastAPI setup (--skip-fastapi flag used){C_RESET}")
-        elif is_deployed_mode:
-            startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
-            print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
-            print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
 
         fastapi_enabled = not args.skip_fastapi and not is_deployed_mode and os.path.exists(FASTAPI_PID_FILE)
         docker_control_enabled = not args.skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE)
