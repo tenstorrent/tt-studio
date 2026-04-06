@@ -2260,7 +2260,22 @@ def _set_artifact_environment_variables(artifact_dir):
     if os.path.exists(benchmark_file):
         os.environ["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
 
-def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False):
+def fetch_branch_commit_sha(branch):
+    """Fetch the latest commit SHA for a branch from the GitHub API (unauthenticated)."""
+    import json
+    url = f"https://api.github.com/repos/tenstorrent/tt-inference-server/git/refs/heads/{branch}"
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+            if isinstance(data, list):
+                return data[0]["object"]["sha"] if data else None
+            return data["object"]["sha"]
+    except Exception:
+        return None
+
+
+def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validation_passed=True, sudo_used=False, commit_sha=None):
     """
     Write artifact metadata file outside the inference-server directory.
 
@@ -2270,6 +2285,7 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
         artifact_value: Branch name or version number
         validation_passed: Whether artifact validation succeeded
         sudo_used: Whether sudo was needed during download/cleanup
+        commit_sha: Git commit SHA at download time (branches only)
     """
     info_file = os.path.join(artifacts_dir, "artifact-info.txt")
     try:
@@ -2304,13 +2320,17 @@ def _write_artifact_info(artifacts_dir, artifact_type, artifact_value, validatio
             f.write("  🔍 Technical Details:\n")
             f.write(f"     Artifact Type     : {artifact_type}\n")
             f.write(f"     Artifact Value    : {artifact_value}\n")
+            if commit_sha:
+                f.write(f"     Commit SHA        : {commit_sha}\n")
             f.write(f"     Download Time     : {timestamp}\n")
             f.write(f"     Validation Status : {'✓ PASSED' if validation_passed else '✗ FAILED'}\n")
-            f.write(f"     Validation Checks : workflows_dir, workflows/utils.py\n")
+            f.write(f"     Validation Checks : workflows_dir, workflows/utils.py, VERSION\n")
             f.write(f"     Sudo Used         : {'Yes' if sudo_used else 'No'}\n")
             # Machine-readable marker lines used by cache invalidation detection
             f.write(f"     artifact_type={artifact_type}\n")
             f.write(f"     artifact_value={artifact_value}\n")
+            if commit_sha:
+                f.write(f"     commit_sha={commit_sha}\n")
             f.write("\n" + "=" * 80 + "\n")
 
         print(f"📝 Artifact info written to {info_file}")
@@ -2470,13 +2490,22 @@ def setup_tt_inference_server(pull_branch=False):
     # Track if sudo was used during cleanup (for artifact info file)
     sudo_used_for_cleanup = False
 
-    # Check if artifact already exists and is valid (has workflows directory)
+    # Check if artifact already exists and is fully downloaded
+    # A complete download has: artifact-info.txt (written last on success), workflows/utils.py, and VERSION
     if os.path.exists(INFERENCE_ARTIFACT_DIR):
-        workflows_dir = os.path.join(INFERENCE_ARTIFACT_DIR, "workflows")
-        workflows_utils = os.path.join(workflows_dir, "utils.py")
-        
-        # Only return early if the artifact is actually valid (has workflows)
-        if os.path.exists(workflows_utils):
+        info_file_check = os.path.join(artifacts_dir, "artifact-info.txt")
+        workflows_utils = os.path.join(INFERENCE_ARTIFACT_DIR, "workflows", "utils.py")
+        version_file = os.path.join(INFERENCE_ARTIFACT_DIR, "VERSION")
+
+        missing = [p for p in [info_file_check, workflows_utils, version_file] if not os.path.exists(p)]
+        if missing:
+            print(f"{C_YELLOW}⚠️  Incomplete artifact detected (missing: {', '.join(os.path.basename(p) for p in missing)}) — re-downloading...{C_RESET}")
+            try:
+                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
+            except Exception:
+                pass
+
+        if not missing:
             version = get_inference_server_version()
             version_str = f" (v{version})" if version else ""
             branch_str = f" (branch: {artifact_branch})" if artifact_branch else ""
@@ -2517,6 +2546,26 @@ def setup_tt_inference_server(pull_branch=False):
                         # --pull-branch flag: force re-download to pick up new commits on the branch
                         branch_mismatch = True
                         print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
+                    else:
+                        # Check GitHub for new commits via commit SHA comparison
+                        stored_sha = None
+                        try:
+                            with open(info_file_check) as _f:
+                                for _line in _f:
+                                    if _line.startswith("     commit_sha="):
+                                        stored_sha = _line.split("=", 1)[1].strip()
+                        except Exception:
+                            pass
+                        current_sha = fetch_branch_commit_sha(artifact_branch)
+                        if current_sha and stored_sha and current_sha != stored_sha:
+                            print(f"{C_YELLOW}⚠️  Branch '{artifact_branch}' has new commits ({stored_sha[:7]} → {current_sha[:7]}){C_RESET}")
+                            print(f"   Re-downloading latest...")
+                            branch_mismatch = True
+                        elif current_sha and stored_sha:
+                            print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]}){C_RESET}")
+                        else:
+                            # API unreachable or no stored SHA — fall back gracefully
+                            print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
                 cur = version.lstrip("v").strip()
@@ -2646,9 +2695,7 @@ def setup_tt_inference_server(pull_branch=False):
                         print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
                         return False
             else:
-                if artifact_branch:
-                    print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
-                else:
+                if not artifact_branch:
                     print(f"{C_GREEN}✅ TT Inference Server{version_str} (cached){C_RESET}")
                 
                 # If version matches or no version specified, use existing artifact
@@ -2801,7 +2848,8 @@ def setup_tt_inference_server(pull_branch=False):
                         return False
 
                     _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
-                    _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                    commit_sha = fetch_branch_commit_sha(artifact_branch)
+                    _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                     return True
                 else:
                     print(f"{C_RED}⛔ Extracted directory not found in {artifacts_dir}{C_RESET}")
@@ -2886,7 +2934,8 @@ def setup_tt_inference_server(pull_branch=False):
 
                         _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
                         # "latest" used main branch, so record branch not version
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                        commit_sha = fetch_branch_commit_sha(artifact_branch)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=commit_sha)
                         return True
                     else:
                         print(f"{C_RED}⛔ Extracted directory not found{C_RESET}")
