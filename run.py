@@ -867,6 +867,19 @@ def write_env_var(var_name, var_value, quote_value=True):
     with open(ENV_FILE_PATH, 'w') as f:
         f.writelines(lines)
 
+def comment_out_env_var(var_name):
+    """Comment out an environment variable in the .env file (VAR=val → # VAR=val)."""
+    if not os.path.exists(ENV_FILE_PATH):
+        return
+    with open(ENV_FILE_PATH, 'r') as f:
+        lines = f.readlines()
+    for i, line in enumerate(lines):
+        if re.match(f"^{re.escape(var_name)}=", line):
+            lines[i] = f"# {line}"
+            break
+    with open(ENV_FILE_PATH, 'w') as f:
+        f.writelines(lines)
+
 def get_env_var(var_name, default=""):
     """Safely get a variable from the .env file."""
     if not os.path.exists(ENV_FILE_PATH):
@@ -2420,27 +2433,30 @@ def setup_tt_inference_server(pull_branch=False):
             return "v0" + version[1:]
         return ""
 
-    # Read artifact source from .env file or environment
-    # Priority: Branch > Version
-    artifact_branch = (get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", None))
-    artifact_version = (get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION") or "latest").strip()
+    # Read artifact source from .env file — use EITHER branch OR version, never both
+    artifact_branch = get_env_var("TT_INFERENCE_ARTIFACT_BRANCH") or None
+    artifact_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or None
 
-    if not artifact_branch and not artifact_version:
-        artifact_version = "latest"
-
-    if artifact_branch and artifact_version and artifact_version != "latest":
-        print(f"{C_YELLOW}⚠️  Both TT_INFERENCE_ARTIFACT_BRANCH and TT_INFERENCE_ARTIFACT_VERSION are set.{C_RESET}")
-        print(f"   1. Use branch '{artifact_branch}'")
-        print(f"   2. Use version '{artifact_version}'")
+    if artifact_branch and artifact_version:
+        # Both are set — ask the user which to keep and comment out the other
+        print(f"\n{C_YELLOW}⚠️  Both TT_INFERENCE_ARTIFACT_BRANCH and TT_INFERENCE_ARTIFACT_VERSION are set in .env:{C_RESET}")
+        print(f"   1. Branch: '{artifact_branch}'")
+        print(f"   2. Version: '{artifact_version}'")
         while True:
-            choice = input("Choose (1 or 2): ").strip()
+            choice = input(f"{C_CYAN}Which would you like to use? (1 or 2): {C_RESET}").strip()
             if choice in ("1", "2"):
                 break
             print(f"{C_RED}⛔ Enter 1 or 2.{C_RESET}")
         if choice == "1":
+            comment_out_env_var("TT_INFERENCE_ARTIFACT_VERSION")
             artifact_version = None
+            print(f"{C_GREEN}✅ Using branch '{artifact_branch}' — commented out TT_INFERENCE_ARTIFACT_VERSION in .env{C_RESET}")
         else:
+            comment_out_env_var("TT_INFERENCE_ARTIFACT_BRANCH")
             artifact_branch = None
+            print(f"{C_GREEN}✅ Using version '{artifact_version}' — commented out TT_INFERENCE_ARTIFACT_BRANCH in .env{C_RESET}")
+    elif not artifact_branch and not artifact_version:
+        artifact_version = "latest"
 
     # Create artifacts directory early so we can check for local tarballs
     artifacts_dir = os.path.join(TT_STUDIO_ROOT, ".artifacts")
@@ -2501,9 +2517,6 @@ def setup_tt_inference_server(pull_branch=False):
                         # --pull-branch flag: force re-download to pick up new commits on the branch
                         branch_mismatch = True
                         print(f"🔄 --pull-branch: re-fetching latest '{artifact_branch}' from remote...")
-                    else:
-                        # For branches, we can't easily verify without git, so just show what's configured
-                        print(f"✅ TT Inference Server configuration already exists at {INFERENCE_ARTIFACT_DIR}{branch_str}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
                 cur = version.lstrip("v").strip()
@@ -2633,7 +2646,10 @@ def setup_tt_inference_server(pull_branch=False):
                         print(f"   Please manually remove {INFERENCE_ARTIFACT_DIR} and try again")
                         return False
             else:
-                print(f"{C_GREEN}✅ TT Inference Server{version_str} (cached){C_RESET}")
+                if artifact_branch:
+                    print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
+                else:
+                    print(f"{C_GREEN}✅ TT Inference Server{version_str} (cached){C_RESET}")
                 
                 # If version matches or no version specified, use existing artifact
                 _set_artifact_environment_variables(INFERENCE_ARTIFACT_DIR)
