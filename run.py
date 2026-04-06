@@ -4453,9 +4453,14 @@ def main():
                         os.chown(workflow_logs_dir, current_user_uid, os.getgid())
                         print(f"{C_GREEN}✅ Fixed workflow_logs directory ownership{C_RESET}")
                 except (OSError, PermissionError, AttributeError) as e:
-                    # If we don't have permission or chown is not available, warn user
-                    print(f"{C_YELLOW}⚠️  Warning: Could not fix workflow_logs permissions: {e}{C_RESET}")
-                    print(f"   You may need to run: sudo chown -R $USER:$USER {workflow_logs_dir}")
+                    # If we don't have permission or chown is not available, ask user to fix manually then continue
+                    print(f"{C_RED}⛔ Could not fix workflow_logs permissions: {e}{C_RESET}")
+                    print()
+                    print(f"{C_YELLOW}The workflow_logs directory is owned by root. Please run the following in another terminal:{C_RESET}")
+                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {workflow_logs_dir}{C_RESET}")
+                    print()
+                    input("Press Enter once you've run the command above to continue...")
+                    print()
 
         # Start Docker Control Service BEFORE starting Docker containers
         # This ensures the backend can connect to it when it starts
