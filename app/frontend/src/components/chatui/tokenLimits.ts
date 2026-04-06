@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 export interface TokenLimits {
   defaultMaxTokens: number;
@@ -21,15 +21,15 @@ export function getTokenLimitsForModel(
   // is the total input+output budget, not a realistic single-response target.
   if (maxModelLen != null && maxModelLen > 0) {
     const sliderMax = maxModelLen <= 16384 ? 8192
-                    : maxModelLen <= 65536 ? 16384
-                    : 32768;
+      : maxModelLen <= 65536 ? 16384
+        : 32768;
     const defaultMaxTokens = Math.min(Math.round(sliderMax / 4), 8192);
     return { defaultMaxTokens, sliderMax };
   }
 
   // Fallback: estimate from param_count
   if (paramCount == null) return { defaultMaxTokens: 1024, sliderMax: 8192 };
-  if (paramCount <= 8)    return { defaultMaxTokens: 2048, sliderMax: 8192 };
-  if (paramCount <= 32)   return { defaultMaxTokens: 4096, sliderMax: 16384 };
-  return                         { defaultMaxTokens: 8192, sliderMax: 32768 };
+  if (paramCount <= 8) return { defaultMaxTokens: 2048, sliderMax: 8192 };
+  if (paramCount <= 32) return { defaultMaxTokens: 4096, sliderMax: 16384 };
+  return { defaultMaxTokens: 8192, sliderMax: 32768 };
 }
