@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
 import type { JSX } from "react";
 import ElevatedCard from "../ui/elevated-card";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -12,9 +12,11 @@ import { EnhancedButton } from "../ui/enhanced-button";
 import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { AlertCircle, Plus } from "lucide-react";
+import HealthCell from "./row-cells/HealthCell";
+import ModelPreparingBanner from "./ModelPreparingBanner";
+import NoModelsRunning from "./NoModelsRunning";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
-import { NoModelsDialog } from "../NoModelsDeployed";
 import { useModels } from "../../hooks/useModels";
 import { useRefresh } from "../../hooks/useRefresh";
 import { useHealthRefresh } from "../../hooks/useHealthRefresh";
@@ -175,8 +177,13 @@ export default function ModelsDeployedCard(): JSX.Element {
   }, [loadModels, refreshTrigger]);
 
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
+  const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
 
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
+
+  const preparingModels = useMemo(() => {
+    return rows.filter((r) => healthMap[r.id] === "starting");
+  }, [rows, healthMap]);
 
   const showVoiceBanner = useMemo(() => {
     if (voiceBannerDismissed) return false;
@@ -330,10 +337,11 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return <NoModelsDialog messageKey="reset" />;
+    return <NoModelsRunning />;
   }
 
   return (
+    <>
     <ElevatedCard accent="neutral" depth="lg" hover>
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between gap-3">
@@ -423,6 +431,15 @@ export default function ModelsDeployedCard(): JSX.Element {
         </TooltipProvider>
       )}
 
+      {/* Model preparing banner */}
+      {!preparingBannerDismissed && preparingModels.length > 0 && (
+        <ModelPreparingBanner
+          models={preparingModels}
+          onViewLogs={(id) => setSelectedContainerId(id)}
+          onDismiss={() => setPreparingBannerDismissed(true)}
+        />
+      )}
+
       {/* Chip slot visualization for multi-chip boards (hidden on QB2/P300Cx2) */}
       {isMultiChipBoard && chipStatus && chipStatus.board_type !== "P300Cx2" && (
         <div className="px-6 pb-4">
@@ -462,10 +479,6 @@ export default function ModelsDeployedCard(): JSX.Element {
                   const encoded = encodeURIComponent(id);
                   window.location.href = `/api-info/${encoded}`;
                 }}
-                registerHealthRef={mirroredRegister}
-                onHealthChange={(id: string, h: HealthStatus) =>
-                  setHealthMap((prev) => ({ ...prev, [id]: h }))
-                }
                 refreshHealthById={refreshHealthById}
                 density={prefs.density}
               />
@@ -505,5 +518,21 @@ export default function ModelsDeployedCard(): JSX.Element {
         }}
       />
     </ElevatedCard>
+
+    {/* Hidden HealthCell container — keeps health polling alive without rendering in the table */}
+    <div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", visibility: "hidden" }}>
+      {rows.map((row) => (
+        <Fragment key={row.id}>
+          <HealthCell
+            id={row.id}
+            register={mirroredRegister}
+            onHealthChange={(id: string, h: HealthStatus) =>
+              setHealthMap((prev) => ({ ...prev, [id]: h }))
+            }
+          />
+        </Fragment>
+      ))}
+    </div>
+    </>
   );
 }

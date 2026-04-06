@@ -13,7 +13,6 @@ import {
 import {
   Activity,
   Cpu,
-  Heart,
   Network,
   // Settings,
   Tag,
@@ -29,7 +28,6 @@ import ContainerLogsCell from "./row-cells/ContainerLogsCell";
 import ModelNameCell from "./row-cells/ModelNameCell";
 import ImageCell from "./row-cells/ImageCell";
 import StatusCell from "./row-cells/StatusCell";
-import HealthCell from "./row-cells/HealthCell";
 import PortsCell from "./row-cells/PortsCell";
 import ManageCell from "./row-cells/ManageCell";
 import CopyableText from "../CopyableText";
@@ -44,8 +42,6 @@ interface Props {
   onRedeploy: (image?: string) => void;
   onNavigateToModel: (id: string, name: string, navigate?: any) => void; // navigate optional for compatibility
   onOpenApi: (id: string) => void;
-  registerHealthRef: (id: string, node: any | null) => void;
-  onHealthChange: (id: string, h: HealthStatus) => void;
   refreshHealthById?: (id: string) => void;
   density?: "compact" | "normal" | "comfortable";
   hideDeviceId?: boolean;
@@ -59,9 +55,7 @@ export default function ModelsTable({
   onRedeploy,
   onNavigateToModel,
   onOpenApi,
-  registerHealthRef,
   healthMap,
-  onHealthChange,
   refreshHealthById,
   density = "normal",
   hideDeviceId = false,
@@ -159,13 +153,6 @@ export default function ModelsTable({
             />
             Status
           </TableHead>
-          <TableHead className="text-right font-semibold">
-            <Heart
-              className="inline-block mr-2 text-TT-purple-accent"
-              size={16}
-            />
-            Health
-          </TableHead>
           {ports && (
             <TableHead className="text-right font-semibold">
               <div className="flex items-center">
@@ -192,7 +179,6 @@ export default function ModelsTable({
             1 /* name */ +
             (hideDeviceId ? 0 : 1) /* chip */ +
             1 /* status */ +
-            1 /* health */ +
             1 /* manage */ +
             (containerId ? 1 : 0) +
             (image ? 1 : 0) +
@@ -238,13 +224,6 @@ export default function ModelsTable({
                 ) : null}
                 <TableCell className="text-right">
                   <StatusCell status={row.status} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <HealthCell
-                    id={row.id}
-                    register={registerHealthRef}
-                    onHealthChange={onHealthChange}
-                  />
                 </TableCell>
                 {ports ? (
                   <TableCell className="text-right">
