@@ -93,6 +93,16 @@ export const uploadDocument = async ({
   }
 };
 
+export const fetchPreinstallStatus = async () => {
+  try {
+    const response = await axios.get(`${collectionsAPIURL}/preinstall-status`);
+    return Array.isArray(response?.data) ? response.data : [];
+  } catch (error) {
+    console.error("Error fetching preinstall status:", error);
+    return [];
+  }
+};
+
 export const fetchDocuments = async (collectionName: string) => {
   try {
     const response = await axios.get(

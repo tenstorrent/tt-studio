@@ -16,6 +16,7 @@ import {
   createCollection,
   uploadDocument,
   fetchDocuments,
+  fetchPreinstallStatus,
 } from "@/src/components/rag";
 import {
   FileType,
@@ -27,6 +28,11 @@ import {
   ChevronDown,
   ChevronUp,
   Database,
+  Github,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
 } from "lucide-react";
 import { GentleFileUpload } from "@/src/components/ui/gentle-file-upload";
 import { RagManagementSkeleton } from "@/src/components/rag/RagSkeletons";
@@ -114,6 +120,15 @@ interface DocumentInfo {
   upload_date: string;
 }
 
+interface PreinstallStatus {
+  collection_name: string;
+  url: string;
+  description: string;
+  status: "pending" | "building" | "ready" | "failed";
+  error: string | null;
+  doc_count: number;
+}
+
 const TableWrapper = ({ children }: { children: React.ReactNode }) => {
   return (
     <div className="w-full h-full dark:bg-black bg-white p-4">
@@ -135,6 +150,7 @@ export default function RagManagement() {
     []
   );
   const [isDragging, setIsDragging] = useState(false);
+  const [preinstallStatuses, setPreinstallStatuses] = useState<PreinstallStatus[]>([]);
 
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
@@ -153,6 +169,22 @@ export default function RagManagement() {
   useEffect(() => {
     // This just makes sure browser ID is initialized
     getBrowserId();
+  }, []);
+
+  // Poll preinstall status every 5s; stop once all are settled
+  useEffect(() => {
+    let id: ReturnType<typeof setInterval>;
+    const load = () =>
+      fetchPreinstallStatus().then((statuses: PreinstallStatus[]) => {
+        setPreinstallStatuses(statuses);
+        const anyActive = statuses.some(
+          (s) => s.status === "pending" || s.status === "building"
+        );
+        if (!anyActive) clearInterval(id);
+      });
+    load();
+    id = setInterval(load, 5000);
+    return () => clearInterval(id);
   }, []);
 
   // Load data effect similar to ModelsDeployedTable approach
@@ -623,9 +655,9 @@ export default function RagManagement() {
       !item.metadata?.last_uploaded_document;
 
     // Check if this is the system-created internal knowledge collection
+    // Note: repo_knowledge collections are handled separately — don't catch them here
     const isSystemInternalCollection =
       item.metadata?.type === "internal_knowledge" ||
-      item.metadata?.created_by === "system" ||
       item.name === "tenstorrent_internal_knowledge";
 
     // A collection is internal knowledge if:
@@ -957,6 +989,83 @@ export default function RagManagement() {
           style={{ display: "none" }}
         />
 
+        {/* Pre-installed Knowledge Bases */}
+        {preinstallStatuses.length > 0 && (
+          <Card
+            className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 p-4`}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Github className="h-5 w-5 text-[#7C68FA]" />
+              <span className="font-semibold text-base">Pre-installed Knowledge Bases</span>
+            </div>
+            <div className="space-y-2">
+              {preinstallStatuses.map((s) => (
+                <div
+                  key={s.collection_name}
+                  className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-zinc-800"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {s.status === "ready" && (
+                      <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                    )}
+                    {(s.status === "building" || s.status === "pending") && (
+                      <Loader2 className="h-5 w-5 text-[#7C68FA] shrink-0 animate-spin" />
+                    )}
+                    {s.status === "failed" && (
+                      <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
+                    )}
+                    {s.status === "pending" && (
+                      <Clock className="h-5 w-5 text-gray-400 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{s.collection_name}</div>
+                      {s.description && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {s.description}
+                        </div>
+                      )}
+                      <a
+                        href={s.url.replace(/\.git$/, "")}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-[#7C68FA] hover:underline truncate block"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {s.url.replace(/\.git$/, "").replace("https://github.com/", "")}
+                      </a>
+                    </div>
+                  </div>
+                  <div className="shrink-0 ml-3 text-right">
+                    {s.status === "ready" && (
+                      <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-1 rounded-full">
+                        {s.doc_count > 0 ? `${s.doc_count} chunks` : "Ready"}
+                      </span>
+                    )}
+                    {s.status === "building" && (
+                      <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-2 py-1 rounded-full">
+                        Building…
+                      </span>
+                    )}
+                    {s.status === "pending" && (
+                      <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-1 rounded-full">
+                        Pending
+                      </span>
+                    )}
+                    {s.status === "failed" && (
+                      <span
+                        className="text-xs bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-2 py-1 rounded-full"
+                        title={s.error ?? undefined}
+                      >
+                        Failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         {/* File Upload Area */}
         <Card
           className={`${theme === "dark" ? "bg-zinc-900 text-zinc-200" : "bg-white text-black border-gray-500"} border-2 rounded-lg mb-4 transition-all duration-300 ease-in-out hover:shadow-lg hover:scale-[1.01] ${
@@ -1027,7 +1136,9 @@ export default function RagManagement() {
           <ScrollArea className="h-[600px] w-full">
             <div className="min-w-full px-4 pb-6">
               {Array.isArray(ragDataSources) &&
-                ragDataSources.map((rds: RagDataSource) => (
+                ragDataSources
+                  .filter((rds) => rds.metadata?.type !== "repo_knowledge")
+                  .map((rds: RagDataSource) => (
                   <div
                     key={rds.id}
                     className="border-b border-gray-200 dark:border-gray-700 last:border-b-0"

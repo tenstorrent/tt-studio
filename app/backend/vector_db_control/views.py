@@ -651,6 +651,13 @@ class VectorCollectionsAPIView(ViewSet):
             )
 
 
+@api_view(['GET'])
+def rag_preinstall_status(request):
+    """Return the ingestion status of all pre-installed repo collections."""
+    from vector_db_control.repo_ingester import INGESTION_STATUS
+    return Response(list(INGESTION_STATUS.values()))
+
+
 @api_view(['POST'])
 def rag_admin_authenticate(request):
     """

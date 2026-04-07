@@ -73,3 +73,14 @@ class VectorDbConfig(AppConfig):
                 
         except Exception as e:
             logger.error(f"Error creating internal knowledge collection: {str(e)}", exc_info=True)
+
+        # Pre-install GitHub repo collections in a background thread
+        try:
+            from vector_db_control.repo_ingester import RepoIngester, load_preinstall_config
+            repo_configs = load_preinstall_config()
+            if repo_configs:
+                ingester = RepoIngester(embed_model=settings.CHROMA_DB_EMBED_MODEL)
+                ingester.ingest_all(repo_configs)
+                logger.info(f"[VectorDbConfig] Started background ingestion for {len(repo_configs)} repo(s).")
+        except Exception as e:
+            logger.error(f"Error starting repo ingestion: {str(e)}", exc_info=True)

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import React from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { usePersistentState } from "./usePersistentState";
 import {
@@ -46,10 +46,15 @@ import {
   Database,
   Search,
   FolderOpen,
+  Github,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
   // Settings as SettingsIcon,
   Sliders,
   Bot,
 } from "lucide-react";
+import { fetchPreinstallStatus } from "@/src/components/rag";
 // import { Skeleton } from "../ui/skeleton";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { cn } from "../../lib/utils";
@@ -80,7 +85,17 @@ interface RagDataSource {
     created_at?: string;
     embedding_func_name?: string;
     last_uploaded_document?: string;
+    type?: string;
   };
+}
+
+interface PreinstallStatus {
+  collection_name: string;
+  url: string;
+  description: string;
+  status: "pending" | "building" | "ready" | "failed";
+  error: string | null;
+  doc_count: number;
 }
 const ModelSelector = React.forwardRef<
   HTMLButtonElement,
@@ -119,9 +134,10 @@ ModelSelector.displayName = "ModelSelector";
 const ForwardedSelect = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof Select> & {
-    ragDataSources?: any[];
+    ragDataSources?: RagDataSource[];
+    preinstallStatuses?: PreinstallStatus[];
   }
->(({ ragDataSources, value, onValueChange, ...selectProps }, ref) => (
+>(({ ragDataSources, preinstallStatuses = [], value, onValueChange, ...selectProps }, ref) => (
   <Select value={value} onValueChange={onValueChange} {...selectProps}>
     <SelectTrigger
       ref={ref}
@@ -169,6 +185,60 @@ const ForwardedSelect = React.forwardRef<
 
       <SelectSeparator className="my-2 bg-gray-200 dark:bg-gray-800" />
 
+      {/* Pre-installed Knowledge Bases */}
+      {preinstallStatuses.length > 0 && (
+        <>
+          <div className="px-2 py-1">
+            <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
+              <Github className="h-4 w-4" />
+              <span>Pre-installed</span>
+            </div>
+            {preinstallStatuses.map((s) => {
+              const isReady = s.status === "ready";
+              const isBuilding = s.status === "building" || s.status === "pending";
+              const isFailed = s.status === "failed";
+              return isReady ? (
+                <SelectItem
+                  key={s.collection_name}
+                  value={s.collection_name}
+                  className={`rounded-lg my-1 ${
+                    value === s.collection_name
+                      ? "bg-gray-100 dark:bg-[#2A2A2A]"
+                      : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-gray-900 dark:text-white truncate">{s.collection_name}</span>
+                      {s.doc_count > 0 && (
+                        <span className="text-xs text-gray-400">{s.doc_count} chunks</span>
+                      )}
+                    </div>
+                  </div>
+                </SelectItem>
+              ) : (
+                <div
+                  key={s.collection_name}
+                  className="flex items-center gap-2 px-2 py-2 rounded-lg my-1 opacity-60 cursor-not-allowed"
+                >
+                  {isBuilding && <Loader2 className="h-4 w-4 text-[#7C68FA] shrink-0 animate-spin" />}
+                  {isFailed && <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />}
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-gray-700 dark:text-gray-300 text-sm truncate">{s.collection_name}</span>
+                    <span className="text-xs text-gray-400">
+                      {isBuilding ? "Building…" : `Failed: ${s.error ?? "unknown error"}`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <SelectSeparator className="my-2 bg-gray-200 dark:bg-gray-800" />
+        </>
+      )}
+
+      {/* User Collections */}
       <div className="px-2 py-1">
         <div className="flex items-center gap-2 px-2 py-1.5 text-gray-500 dark:text-gray-400">
           <FolderOpen className="h-4 w-4" />
@@ -176,22 +246,28 @@ const ForwardedSelect = React.forwardRef<
         </div>
 
         {Array.isArray(ragDataSources) &&
-          ragDataSources.map((c) => (
-            <SelectItem
-              key={c.id}
-              value={c.name}
-              className={`rounded-lg my-1 ${
-                value === c.name
-                  ? "bg-gray-100 dark:bg-[#2A2A2A]"
-                  : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                <span className="text-gray-900 dark:text-white">{c.name}</span>
-              </div>
-            </SelectItem>
-          ))}
+          ragDataSources
+            .filter(
+              (c) =>
+                c.metadata?.type !== "repo_knowledge" &&
+                c.name !== "tenstorrent_internal_knowledge"
+            )
+            .map((c) => (
+              <SelectItem
+                key={c.id}
+                value={c.name}
+                className={`rounded-lg my-1 ${
+                  value === c.name
+                    ? "bg-gray-100 dark:bg-[#2A2A2A]"
+                    : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                  <span className="text-gray-900 dark:text-white">{c.name}</span>
+                </div>
+              </SelectItem>
+            ))}
       </div>
 
       {value && (
@@ -265,8 +341,25 @@ export default function Header({
     string | null
   >("selectedAIAgent", null);
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
+  const [preinstallStatuses, setPreinstallStatuses] = useState<PreinstallStatus[]>([]);
   // const navigate = useNavigate();
   const { logoUrl } = useLogo();
+
+  // Poll preinstall status every 5s; stop once all are settled
+  useEffect(() => {
+    let id: ReturnType<typeof setInterval>;
+    const load = () =>
+      fetchPreinstallStatus().then((statuses: PreinstallStatus[]) => {
+        setPreinstallStatuses(statuses);
+        const anyActive = statuses.some(
+          (s) => s.status === "pending" || s.status === "building"
+        );
+        if (!anyActive) clearInterval(id);
+      });
+    load();
+    id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, []);
 
   // Add the special "All Collections" option to handle querying across all collections
   const allCollectionsOption: RagDataSource = {
@@ -632,6 +725,7 @@ export default function Header({
                   }
                 }}
                 ragDataSources={ragDataSources}
+                preinstallStatuses={preinstallStatuses}
               >
                 <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-xs">
                   <SelectGroup>
@@ -778,6 +872,7 @@ export default function Header({
                     }
                   }}
                   ragDataSources={ragDataSources}
+                preinstallStatuses={preinstallStatuses}
                 >
                   <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
                     <SelectGroup>
