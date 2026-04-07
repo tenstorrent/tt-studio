@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import {
   Cpu,
@@ -42,6 +42,7 @@ type ResetStep = "deleting" | "resetting" | "done" | "failed" | null;
 
 interface ResetIconProps {
   onReset?: () => void;
+  forceOpen?: boolean;
 }
 
 // ── Shared step-row (mirrors DeleteModelDialog) ──────────────────────────────
@@ -161,7 +162,7 @@ function BoardStatusBanner({
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
+const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
   const { theme } = useTheme();
   const { models, refreshModels } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
@@ -292,6 +293,10 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
       setShowOutput(false);
     }
   };
+
+  useEffect(() => {
+    if (forceOpen) handleOpen();
+  }, [forceOpen]);
 
   const handleClose = () => {
     setIsDialogOpen(false);

@@ -38,7 +38,8 @@ export default function LogView({
           No logs available - waiting for container output...
         </div>
       ) : (
-        logs.filter(filterLog).map((log, index) => {
+        logs.map((log, originalIndex) => {
+          if (!filterLog(log)) return null;
           const parsed = parseAnsiColors(log);
           const isError =
             log.includes("ERROR") ||
@@ -49,7 +50,8 @@ export default function LogView({
             log.includes("WARNING") || log.includes("WARN");
           return (
             <div
-              key={index}
+              key={originalIndex}
+              data-log-index={originalIndex}
               className={`whitespace-pre-wrap py-0.5 px-1 rounded transition-colors duration-100 ${
                 isError
                   ? "bg-red-950/30 text-red-400"
@@ -63,7 +65,7 @@ export default function LogView({
               }}
             >
               <span className="text-gray-600 text-xs mr-3 select-none inline-block w-8 text-right">
-                {index + 1}
+                {originalIndex + 1}
               </span>
               {parsed.level && (
                 <span

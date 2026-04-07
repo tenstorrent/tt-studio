@@ -30,6 +30,7 @@ import {
 } from "../components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import WorkflowLogDialog from "../components/deployment/WorkflowLogDialog";
+import ResetIcon from "../components/ResetIcon";
 
 interface Deployment {
   id: number;
@@ -115,6 +116,9 @@ export default function DeploymentHistoryPage() {
   const [selectedModelName, setSelectedModelName] = useState<
     string | undefined
   >(undefined);
+  const [selectedDiedUnexpectedly, setSelectedDiedUnexpectedly] =
+    useState(false);
+  const [boardResetTrigger, setBoardResetTrigger] = useState(false);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["deploymentHistory"],
@@ -128,6 +132,10 @@ export default function DeploymentHistoryPage() {
     if (deployment.workflow_log_path) {
       setSelectedDeploymentId(deployment.id);
       setSelectedModelName(deployment.model_name);
+      setSelectedDiedUnexpectedly(
+        !deployment.stopped_by_user &&
+          (deployment.status === "exited" || deployment.status === "dead")
+      );
     }
   };
 
@@ -274,11 +282,25 @@ export default function DeploymentHistoryPage() {
         open={selectedDeploymentId !== null}
         deploymentId={selectedDeploymentId}
         modelName={selectedModelName}
+        diedUnexpectedly={selectedDiedUnexpectedly}
         onClose={() => {
           setSelectedDeploymentId(null);
           setSelectedModelName(undefined);
+          setSelectedDiedUnexpectedly(false);
+        }}
+        onRequestBoardReset={() => {
+          setSelectedDeploymentId(null);
+          setSelectedModelName(undefined);
+          setSelectedDiedUnexpectedly(false);
+          setBoardResetTrigger(true);
         }}
       />
+      <div className="hidden">
+        <ResetIcon
+          forceOpen={boardResetTrigger}
+          onReset={() => setBoardResetTrigger(false)}
+        />
+      </div>
     </div>
   );
 }

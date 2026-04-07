@@ -10,13 +10,16 @@ export function useWorkflowLogStream(
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutIdRef = useRef<number | null>(null);
+  const hasConnectedRef = useRef(false);
 
   const resetState = useCallback(() => {
     setLogs([]);
     setError(null);
+    setIsComplete(false);
   }, []);
 
   useEffect(() => {
@@ -36,11 +39,12 @@ export function useWorkflowLogStream(
 
     resetState();
     setIsLoading(true);
+    hasConnectedRef.current = false;
 
     const endpoint = `/docker-api/workflow-logs/${deploymentId}/`;
 
     timeoutIdRef.current = window.setTimeout(() => {
-      if (isLoading) {
+      if (!hasConnectedRef.current) {
         setError("Failed to connect to log stream. Please try again.");
         setIsLoading(false);
         if (eventSourceRef.current) {
@@ -56,6 +60,7 @@ export function useWorkflowLogStream(
       });
 
       const connectionEstablished = () => {
+        hasConnectedRef.current = true;
         setIsLoading(false);
         if (timeoutIdRef.current) {
           clearTimeout(timeoutIdRef.current);
@@ -75,6 +80,7 @@ export function useWorkflowLogStream(
             setLogs((prev) => [...prev, data.message]);
           } else if (data.type === "complete") {
             // End of log file reached
+            setIsComplete(true);
             if (eventSourceRef.current) {
               eventSourceRef.current.close();
               eventSourceRef.current = null;
@@ -96,7 +102,7 @@ export function useWorkflowLogStream(
           clearTimeout(timeoutIdRef.current);
           timeoutIdRef.current = null;
         }
-        if (isLoading) {
+        if (!hasConnectedRef.current) {
           setError(
             "Failed to connect to log stream. The log file may not be available."
           );
@@ -135,6 +141,7 @@ export function useWorkflowLogStream(
     logs,
     error,
     isLoading,
+    isComplete,
   } as const;
 }
 
