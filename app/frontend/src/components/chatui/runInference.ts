@@ -24,6 +24,8 @@ export const runInference = async (
   threadId: number,
   abortController?: AbortController,
   systemPrompt: string | null = null,
+  hardwareContext: string | null = null,
+  modelName: string | null = null,
 ) => {
   console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
     request,
@@ -78,6 +80,8 @@ export const runInference = async (
           chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
           ragContext,
           systemPrompt,
+          hardwareContext,
+          modelName,
         );
       } else if (file.image_url?.url || file) {
         console.log(
@@ -139,6 +143,8 @@ export const runInference = async (
         chatHistory.map((msg) => ({ sender: msg.sender, text: msg.text })),
         ragContext,
         systemPrompt,
+        hardwareContext,
+        modelName,
       );
     }
 

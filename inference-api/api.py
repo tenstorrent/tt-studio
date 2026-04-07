@@ -62,6 +62,45 @@ def _patched_get_repo_root_path(marker: str = ".git") -> Path:
 
 workflows_utils.get_repo_root_path = _patched_get_repo_root_path
 
+# default_dotenv_path is computed at import time before the patch above takes effect,
+# so explicitly override it to point to the artifact directory instead of the repo root.
+if artifact_path:
+    workflows_utils.default_dotenv_path = Path(artifact_path) / ".env"
+
+# Patch setup_run_logger so run_log file handler is always present even when
+# other handlers were attached to run_log before run_main() executes.
+import workflows.log_setup as workflows_log_setup  # noqa: E402
+original_setup_run_logger = workflows_log_setup.setup_run_logger
+
+
+def _patched_setup_run_logger(logger, run_id, run_log_path, log_level=logging.DEBUG):
+    configured_logger = original_setup_run_logger(logger, run_id, run_log_path, log_level)
+    run_logger = logging.getLogger("run_log")
+    target_run_log_path = Path(run_log_path)
+    target_run_log_file = target_run_log_path.expanduser()
+
+    handler_exists = any(
+        isinstance(h, logging.FileHandler)
+        and getattr(h, "baseFilename", None)
+        and Path(h.baseFilename).expanduser() == target_run_log_file
+        for h in run_logger.handlers
+    )
+    if handler_exists:
+        return configured_logger
+
+    target_run_log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(target_run_log_path)
+    file_handler.setLevel(log_level)
+    formatter = workflows_log_setup.ConditionalFormatter(
+        "%(asctime)s - %(filename)s:%(lineno)d - %(levelname)s: %(message)s"
+    )
+    file_handler.setFormatter(formatter)
+    run_logger.addHandler(file_handler)
+    return configured_logger
+
+
+workflows_log_setup.setup_run_logger = _patched_setup_run_logger
+
 # Import from tt-inference-server
 try:
     from run import main as run_main, WorkflowType, DeviceTypes  # noqa: E402
@@ -77,6 +116,7 @@ except ImportError as e:
 # Instead, configure logging manually
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Set level on the logger itself
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 # Configure FastAPI logger to also write to file
 def setup_fastapi_file_logging():
@@ -89,6 +129,8 @@ def setup_fastapi_file_logging():
         root_log_dir.mkdir(parents=True, exist_ok=True)
         root_log_file = root_log_dir / "fastapi.log"
 
+        # Keep append mode here. run.py also streams uvicorn output to this file,
+        # so truncate mode can create confusing interleaving/overwrite artifacts.
         root_handler = logging.FileHandler(root_log_file, mode="a", encoding="utf-8")
         root_handler.setLevel(logging.DEBUG)
 
@@ -534,6 +576,10 @@ class ProgressHandler(logging.Handler):
                 stage = "complete"
                 progress = 100
                 status = "completed"
+            elif any(p in message.lower() for p in ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token"]) and any(p in message.lower() for p in ["huggingface", "hugging face", "hf_token", "token"]):
+                status = "error"
+                stage = "error"
+                message = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
             elif any(keyword in message for keyword in ["⛔", "Error", "Failed", "error"]):
                 false_positives = [
                     "any errors will be in the logs",
@@ -573,6 +619,17 @@ class ProgressHandler(logging.Handler):
                             "message": message[:200],
                             "last_updated": time.time()
                         }
+
+
+class FastAPIHandler(logging.Handler):
+    """Forward run.py logs into FastAPI logger output."""
+
+    def emit(self, record):
+        # Forward run.py logs as plain text to avoid carriage-return and ANSI artifacts.
+        message = record.getMessage().replace("\r", "\n")
+        message = ANSI_ESCAPE_RE.sub("", message)
+        for line in message.splitlines() or [""]:
+            logger.info(f"[RUN.PY] {line}")
 
 app = FastAPI(
     title="TT Inference Server API",
@@ -656,23 +713,14 @@ def setup_run_logging_to_fastapi():
     """Configure run.py logging to also write to FastAPI logger"""
     # Get the run_log logger that run.py uses
     run_logger = logging.getLogger("run_log")
-    
-    # Create a custom handler that forwards to FastAPI logger
-    class FastAPIHandler(logging.Handler):
-        def emit(self, record):
-            # Forward the log record to FastAPI logger
-            logger.info(f"[RUN.PY] {record.getMessage()}")
-    
+
     # Add the FastAPI handler to run_logger
     fastapi_handler = FastAPIHandler()
     fastapi_handler.setLevel(logging.DEBUG)  # Capture DEBUG messages too
-    
+
     # Check if this handler is already added to avoid duplicates
-    handler_exists = any(isinstance(h, type(fastapi_handler)) and 
-                        hasattr(h, 'emit') and 
-                        h.emit.__func__ == fastapi_handler.emit.__func__ 
-                        for h in run_logger.handlers)
-    
+    handler_exists = any(isinstance(h, FastAPIHandler) for h in run_logger.handlers)
+
     if not handler_exists:
         run_logger.addHandler(fastapi_handler)
         logger.info("Added FastAPI logging handler to run_log logger")
@@ -834,7 +882,7 @@ def sync_tokens_from_tt_studio():
                     if '=' in line:
                         key, value = line.split('=', 1)
                         key = key.strip()
-                        value = value.strip()
+                        value = value.strip().strip('"').strip("'")
                         if key == 'JWT_SECRET':
                             tt_studio_jwt = value
                         elif key == 'HF_TOKEN':
@@ -857,7 +905,7 @@ def sync_tokens_from_tt_studio():
                     if '=' in line_stripped:
                         key, value = line_stripped.split('=', 1)
                         key = key.strip()
-                        value = value.strip()
+                        value = value.strip().strip('"').strip("'")
                         if key == 'JWT_SECRET':
                             inference_jwt = value
                         elif key == 'HF_TOKEN':
@@ -1054,6 +1102,9 @@ async def run_inference(request: RunRequest):
                 def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
                     """Execute run_main() for one attempt and return (code, container_info)."""
                     sys.argv = argv_for_attempt
+                    logger.info(
+                        f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}"
+                    )
                     logger.info(f"Job {job_id}: Starting run_main(): {' '.join(argv_for_attempt)}")
                     run_result = run_main()
                     if isinstance(run_result, tuple):
@@ -1140,6 +1191,7 @@ async def run_inference(request: RunRequest):
                     container_name = container_info.get("container_name") if isinstance(container_info, dict) else None
                     container_id = container_info.get("container_id") if isinstance(container_info, dict) else None
                     docker_log_file_path = container_info.get("docker_log_file_path") if isinstance(container_info, dict) else None
+                    run_log_file_path = container_info.get("run_log_file_path") if isinstance(container_info, dict) else None
 
                     response_data = {
                         "job_id": job_id,
@@ -1149,6 +1201,7 @@ async def run_inference(request: RunRequest):
                         "container_name": container_name,
                         "container_id": container_id,
                         "docker_log_file_path": docker_log_file_path,
+                        "run_log_file_path": run_log_file_path,
                         "message": "Deployment completed successfully",
                     }
 
@@ -1221,9 +1274,18 @@ async def run_inference(request: RunRequest):
                                     "container_name": response_data.get("container_name"),
                                     "container_id": response_data.get("container_id"),
                                     "docker_log_file_path": response_data.get("docker_log_file_path"),
+                                    "run_log_file_path": response_data.get("run_log_file_path"),
                                 }
                             )
                 else:
+                    # Scan recent logs for auth errors to surface a clear message
+                    auth_patterns = ["401", "403", "token invalid", "access not granted", "gated repo", "unauthorized", "hf_token", "gatedrepoerror"]
+                    auth_error_msg = None
+                    for entry in reversed(list(log_store.get(job_id, []))):
+                        msg = entry.get("message", "").lower()
+                        if any(p in msg for p in auth_patterns) and any(p in msg for p in ["huggingface", "hugging face", "hf_token", "token"]):
+                            auth_error_msg = "HF_TOKEN authentication failed: your Hugging Face token is invalid, expired, or does not have access to this model. Re-run 'python run.py' to update your token."
+                            break
                     with progress_lock:
                         if job_id in progress_store:
                             progress_store[job_id].update(
@@ -1231,7 +1293,7 @@ async def run_inference(request: RunRequest):
                                     "status": "failed",
                                     "stage": "error",
                                     "progress": 0,
-                                    "message": f"Deployment failed with return code: {return_code}",
+                                    "message": auth_error_msg or f"Deployment failed with return code: {return_code}",
                                     "last_updated": time.time(),
                                 }
                             )
