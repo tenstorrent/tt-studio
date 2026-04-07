@@ -43,15 +43,15 @@ export interface ChatMessage {
 
 export type MessageContent =
   | {
-      type: "text";
-      text: string;
-    }
+    type: "text";
+    text: string;
+  }
   | {
-      type: "image_url";
-      image_url: {
-        url: string;
-      };
+    type: "image_url";
+    image_url: {
+      url: string;
     };
+  };
 
 export type InferenceMessage = {
   role: "user" | "assistant";
@@ -233,6 +233,9 @@ export interface Model {
   task?: string;
   status?: string;
 }
+
+// CI TEST: deliberate type error — remove before merging
+const _ciTypeError: number = "this is not a number";
 
 // Global Type Declarations
 declare global {
