@@ -434,21 +434,27 @@ class DeployView(APIView):
 def _find_workflow_log_for_deployment(deployment) -> str | None:
     """Derive the docker-server workflow log path for a deployment.
 
-    Log files are named: vllm_{YYYY-MM-DD}_{HH-MM-SS}_{model_name}_{device}_server.log
+    Log files are named: {prefix}_{YYYY-MM-DD}_{HH-MM-SS}_{model_name}_{device}_server.log
+    where prefix is typically 'vllm' or 'media' depending on the model type.
     The timestamp in the filename matches deployment.deployed_at in UTC.
 
     Tries two candidate base directories to handle both Docker-mounted and
     local-run scenarios.  Returns the first path that exists on disk.
+
+    Falls back progressively:
+    1. Exact timestamp match (both known prefixes)
+    2. Fuzzy timestamp match (model+device, within 300s window)
+    3. Most-recent file matching model+device pattern (no timestamp constraint)
     """
     if not deployment.deployed_at:
         return None
+
+    from datetime import datetime, timezone
 
     dt = deployment.deployed_at  # stored as UTC-aware datetime
     ts = dt.strftime("%Y-%m-%d_%H-%M-%S")
     model = deployment.model_name or ""
     device = deployment.device or ""
-
-    filename = f"vllm_{ts}_{model}_{device}_server.log"
 
     tt_studio_root = backend_config.host_tt_studio_root
     candidate_dirs = [
@@ -456,12 +462,18 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
         Path(tt_studio_root) / "tt-inference-server" / "workflow_logs" / "docker_server",
     ]
 
-    for base in candidate_dirs:
-        candidate = base / filename
-        if candidate.exists():
-            return str(candidate)
+    # Pass 1: exact timestamp match — try common prefixes (vllm, media, and bare model name)
+    for prefix in ("vllm", "media", model.lower()):
+        filename = f"{prefix}_{ts}_{model}_{device}_server.log"
+        for base in candidate_dirs:
+            candidate = base / filename
+            if candidate.exists():
+                logger.debug(f"Found exact log match for deployment {deployment.id}: {candidate}")
+                return str(candidate)
 
-    # Fuzzy fallback: scan and find closest match by model+device with timestamp within 60s
+    # Pass 2: fuzzy timestamp match — scan all *_server.log files for model+device,
+    # accept the closest one within a 300-second window (increased from 60s to handle
+    # slow deployments where the log file is created well after deployed_at is recorded).
     for base in candidate_dirs:
         if not base.is_dir():
             continue
@@ -472,22 +484,45 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
                 continue
             if model not in f.name or device not in f.name:
                 continue
-            # Parse timestamp from filename
             try:
                 parts = f.name.split("_")
-                # filename: vllm_YYYY-MM-DD_HH-MM-SS_...
+                # filename: prefix_YYYY-MM-DD_HH-MM-SS_...
                 file_ts_str = f"{parts[1]}_{parts[2]}"
-                from datetime import datetime, timezone
                 file_dt = datetime.strptime(file_ts_str, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=timezone.utc)
                 delta = abs((file_dt - dt).total_seconds())
-                if delta <= 60 and (best_delta is None or delta < best_delta):
+                if delta <= 300 and (best_delta is None or delta < best_delta):
                     best = f
                     best_delta = delta
             except (IndexError, ValueError):
                 continue
         if best:
+            logger.debug(
+                f"Found fuzzy log match for deployment {deployment.id} "
+                f"(delta={best_delta:.0f}s): {best}"
+            )
             return str(best)
 
+    # Pass 3: last-resort — return the most-recently modified file that contains both
+    # model name and device in its filename, regardless of timestamp.
+    for base in candidate_dirs:
+        if not base.is_dir():
+            continue
+        matches = [
+            f for f in base.iterdir()
+            if f.name.endswith("_server.log") and model in f.name and device in f.name
+        ]
+        if matches:
+            best = max(matches, key=lambda p: p.stat().st_mtime)
+            logger.warning(
+                f"Using last-resort log match for deployment {deployment.id} "
+                f"(no timestamp match found): {best}"
+            )
+            return str(best)
+
+    logger.warning(
+        f"No workflow log found for deployment {deployment.id} "
+        f"(model={model!r}, device={device!r}, deployed_at={dt.isoformat()!r})"
+    )
     return None
 
 
@@ -1519,8 +1554,15 @@ class DeploymentHistoryView(APIView):
             deployment_data = []
             for deployment in deployments:
                 if not deployment.workflow_log_path:
+                    logger.debug(
+                        f"Attempting lazy backfill for deployment {deployment.id} "
+                        f"({deployment.model_name}, deployed_at={deployment.deployed_at})"
+                    )
                     found_path = _find_workflow_log_for_deployment(deployment)
                     if found_path:
+                        logger.info(
+                            f"Backfilled workflow_log_path for deployment {deployment.id}: {found_path}"
+                        )
                         deployment.workflow_log_path = found_path
                         try:
                             deployment.save()
