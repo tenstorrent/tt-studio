@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+#
+# Metrics measurement approach adapted from the vLLM project (Apache-2.0):
+# https://github.com/vllm-project/vllm/blob/main/vllm/benchmarks/lib/endpoint_request_func.py
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 """
 Backend Metrics Tracker for Inference Performance
 
-Clean, accurate metrics calculation for:
-- TTFT (Time to First Token)
-- TPOT (Time Per Output Token)
+Accurate metrics calculation following vLLM's measurement approach:
+- TTFT (Time to First Token): time from request start to first content chunk
+- ITL (Inter-Token Latency): list of intervals between consecutive content chunks
+- TPOT (Time Per Output Token): mean of ITL
 - Token counting and timing
 """
 
@@ -15,21 +20,47 @@ from typing import Optional, Dict, List
 
 
 class InferenceMetricsTracker:
-    """Track inference metrics during streaming"""
+    """Track inference metrics during streaming, following vLLM's measurement approach."""
 
     def __init__(self):
-        self.start_time: float = time.time()
-        self.first_token_time: Optional[float] = None
-        self.token_times: List[float] = []  # Timestamp of each token arrival
+        self.start_time: float = time.perf_counter()
+        self.first_token_time: Optional[float] = None          # first token of any kind
+        self.first_content_token_time: Optional[float] = None  # first non-thinking token (true TTFT)
+        self.most_recent_token_time: Optional[float] = None    # vLLM-style: advances per content chunk
+        self.itl: List[float] = []          # inter-token latency list (seconds) — vLLM style
+        self.token_times: List[float] = []  # kept for backwards compat / detailed stats
         self.num_tokens: int = 0
         self.prompt_tokens: int = 0
         self.last_token_count: int = 0
+        # Thinking/reasoning tracking
+        self.thinking_start_time: Optional[float] = None
+        self.thinking_end_time: Optional[float] = None
+        self.num_thinking_tokens: int = 0
+
+    def record_thinking_token(self) -> None:
+        """Record arrival of a reasoning/thinking chunk."""
+        current_time = time.perf_counter()
+        if self.thinking_start_time is None:
+            self.thinking_start_time = current_time
+            if self.first_token_time is None:
+                self.first_token_time = current_time
+        self.num_thinking_tokens += 1
 
     def record_content_token(self) -> None:
-        """Record arrival of a single content token (from delta chunks)"""
-        current_time = time.time()
-        if self.first_token_time is None:
-            self.first_token_time = current_time
+        """Record arrival of a content chunk, tracking ITL exactly as vLLM does."""
+        current_time = time.perf_counter()
+        # Close thinking window on first content token
+        if self.thinking_start_time is not None and self.thinking_end_time is None:
+            self.thinking_end_time = current_time
+        # Track first content token separately (true TTFT for thinking models)
+        if self.first_content_token_time is None:
+            self.first_content_token_time = current_time
+            if self.first_token_time is None:
+                self.first_token_time = current_time
+            # No ITL entry for the first content token
+        else:
+            self.itl.append(current_time - self.most_recent_token_time)
+        self.most_recent_token_time = current_time
         self.token_times.append(current_time)
         self.num_tokens += 1
         self.last_token_count = self.num_tokens
@@ -41,13 +72,13 @@ class InferenceMetricsTracker:
 
     def record_token(self, completion_tokens: int, prompt_tokens: int = 0) -> None:
         """
-        Record token arrival from usage data
+        Record token arrival from usage data (cloud path).
 
         Args:
             completion_tokens: Current completion token count
             prompt_tokens: Number of prompt tokens (captured once)
         """
-        current_time = time.time()
+        current_time = time.perf_counter()
 
         # Record first token
         if completion_tokens == 1 and self.first_token_time is None:
@@ -68,116 +99,67 @@ class InferenceMetricsTracker:
             self.last_token_count = completion_tokens
 
     def get_ttft(self) -> float:
-        """
-        Calculate Time to First Token
-
-        Returns:
-            TTFT in seconds, or 0 if no tokens received
-        """
-        if self.first_token_time is None:
+        """Time to first *content* token, in seconds (thinking models: excludes thinking time).
+        Falls back to first_token_time for non-thinking models."""
+        anchor = self.first_content_token_time or self.first_token_time
+        if anchor is None:
             return 0.0
-        return self.first_token_time - self.start_time
+        return anchor - self.start_time
 
     def get_tpot(self) -> float:
         """
-        Calculate Time Per Output Token (average)
-
-        This is the average time between token arrivals.
-        Formula: (total_time - ttft) / (num_tokens - 1)
+        Calculate Time Per Output Token as mean of ITL — matches vLLM's approach.
 
         Returns:
-            Average TPOT in seconds, or 0 if insufficient data
+            Mean inter-token latency in seconds, or 0 if insufficient data
         """
-        if len(self.token_times) < 2:
+        if not self.itl:
             return 0.0
-
-        # Time from first token to last token
-        total_generation_time = self.token_times[-1] - self.token_times[0]
-
-        # Average across all tokens (excluding first)
-        num_intervals = len(self.token_times) - 1
-        if num_intervals == 0:
-            return 0.0
-
-        return total_generation_time / num_intervals
+        return sum(self.itl) / len(self.itl)
 
     def get_accurate_tpot(self) -> float:
-        """
-        Calculate TPOT using inter-token intervals (more accurate)
-
-        This calculates the median of all inter-token intervals,
-        which is more robust to outliers than a simple average.
-
-        Returns:
-            Median TPOT in seconds, or 0 if insufficient data
-        """
-        if len(self.token_times) < 2:
+        """Median of ITL — more robust to outliers than the mean."""
+        if not self.itl:
             return 0.0
+        sorted_itl = sorted(self.itl)
+        mid = len(sorted_itl) // 2
+        if len(sorted_itl) % 2 == 0:
+            return (sorted_itl[mid - 1] + sorted_itl[mid]) / 2
+        return sorted_itl[mid]
 
-        # Calculate intervals between consecutive tokens
-        intervals = []
-        for i in range(1, len(self.token_times)):
-            interval = self.token_times[i] - self.token_times[i-1]
-            # Only count non-zero intervals (filter out batch arrivals)
-            if interval > 0:
-                intervals.append(interval)
-
-        if not intervals:
-            return 0.0
-
-        # Return median interval
-        intervals.sort()
-        mid = len(intervals) // 2
-        if len(intervals) % 2 == 0:
-            return (intervals[mid-1] + intervals[mid]) / 2
-        return intervals[mid]
-
-    def get_stats(self) -> Dict[str, float]:
-        """
-        Get final statistics
-
-        Returns:
-            Dictionary with all metrics
-        """
+    def get_stats(self) -> Dict:
+        """Get final statistics in vLLM-compatible format."""
+        thinking_duration = (
+            self.thinking_end_time - self.thinking_start_time
+            if (self.thinking_start_time is not None and self.thinking_end_time is not None)
+            else None
+        )
         return {
             "ttft": self.get_ttft(),
             "tpot": self.get_tpot(),
+            "itl": self.itl,              # list of inter-token latencies in seconds
             "tokens_decoded": self.num_tokens,
             "tokens_prefilled": self.prompt_tokens,
             "context_length": self.prompt_tokens + self.num_tokens,
-            "total_time": time.time() - self.start_time,
+            "total_time": time.perf_counter() - self.start_time,
+            "reasoning_tokens": self.num_thinking_tokens,
+            "thinking_duration": thinking_duration,  # seconds, None if no thinking
         }
 
     def get_detailed_stats(self) -> Dict:
-        """
-        Get detailed statistics including per-token timing
-
-        Returns:
-            Dictionary with detailed metrics
-        """
+        """Get detailed statistics with ITL percentiles."""
         basic_stats = self.get_stats()
 
-        # Calculate inter-token intervals
-        intervals = []
-        if len(self.token_times) > 1:
-            for i in range(1, len(self.token_times)):
-                interval = self.token_times[i] - self.token_times[i-1]
-                if interval > 0:
-                    intervals.append(interval)
-
-        # Calculate percentiles if we have data
-        if intervals:
-            intervals.sort()
-            n = len(intervals)
-            detailed_stats = {
+        if self.itl:
+            sorted_itl = sorted(self.itl)
+            n = len(sorted_itl)
+            return {
                 **basic_stats,
-                "tpot_median": intervals[n // 2] if n > 0 else 0,
-                "tpot_p95": intervals[int(n * 0.95)] if n > 0 else 0,
-                "tpot_p99": intervals[int(n * 0.99)] if n > 0 else 0,
-                "tpot_min": min(intervals) if intervals else 0,
-                "tpot_max": max(intervals) if intervals else 0,
+                "tpot_median": sorted_itl[n // 2],
+                "tpot_p95": sorted_itl[int(n * 0.95)],
+                "tpot_p99": sorted_itl[int(n * 0.99)],
+                "tpot_min": sorted_itl[0],
+                "tpot_max": sorted_itl[-1],
             }
-        else:
-            detailed_stats = basic_stats
 
-        return detailed_stats
+        return basic_stats

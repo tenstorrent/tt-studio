@@ -431,6 +431,66 @@ class DeployView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _find_workflow_log_for_deployment(deployment) -> str | None:
+    """Derive the docker-server workflow log path for a deployment.
+
+    Log files are named: vllm_{YYYY-MM-DD}_{HH-MM-SS}_{model_name}_{device}_server.log
+    The timestamp in the filename matches deployment.deployed_at in UTC.
+
+    Tries two candidate base directories to handle both Docker-mounted and
+    local-run scenarios.  Returns the first path that exists on disk.
+    """
+    if not deployment.deployed_at:
+        return None
+
+    dt = deployment.deployed_at  # stored as UTC-aware datetime
+    ts = dt.strftime("%Y-%m-%d_%H-%M-%S")
+    model = deployment.model_name or ""
+    device = deployment.device or ""
+
+    filename = f"vllm_{ts}_{model}_{device}_server.log"
+
+    tt_studio_root = backend_config.host_tt_studio_root
+    candidate_dirs = [
+        Path(tt_studio_root) / ".artifacts" / "tt-inference-server" / "workflow_logs" / "docker_server",
+        Path(tt_studio_root) / "tt-inference-server" / "workflow_logs" / "docker_server",
+    ]
+
+    for base in candidate_dirs:
+        candidate = base / filename
+        if candidate.exists():
+            return str(candidate)
+
+    # Fuzzy fallback: scan and find closest match by model+device with timestamp within 60s
+    for base in candidate_dirs:
+        if not base.is_dir():
+            continue
+        best = None
+        best_delta = None
+        for f in base.iterdir():
+            if not f.name.endswith("_server.log"):
+                continue
+            if model not in f.name or device not in f.name:
+                continue
+            # Parse timestamp from filename
+            try:
+                parts = f.name.split("_")
+                # filename: vllm_YYYY-MM-DD_HH-MM-SS_...
+                file_ts_str = f"{parts[1]}_{parts[2]}"
+                from datetime import datetime, timezone
+                file_dt = datetime.strptime(file_ts_str, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=timezone.utc)
+                delta = abs((file_dt - dt).total_seconds())
+                if delta <= 60 and (best_delta is None or delta < best_delta):
+                    best = f
+                    best_delta = delta
+            except (IndexError, ValueError):
+                continue
+        if best:
+            return str(best)
+
+    return None
+
+
 def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
     """Keep the ModelDeployment placeholder record in sync with FastAPI progress.
 
@@ -456,10 +516,14 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
                 if real_container_name:
                     dep.container_name = real_container_name
                 dep.status = "running"
+                docker_log_path = progress_data.get("docker_log_file_path")
+                if docker_log_path:
+                    dep.workflow_log_path = docker_log_path
                 dep.save()
                 logger.info(
                     f"Updated ModelDeployment for {dep.model_name}: "
-                    f"container_id={real_container_id}, status=running"
+                    f"container_id={real_container_id}, status=running, "
+                    f"workflow_log_path={dep.workflow_log_path}"
                 )
                 try:
                     update_deploy_cache()
@@ -1451,9 +1515,18 @@ class DeploymentHistoryView(APIView):
             # Get all deployments, ordered by most recent first
             deployments = ModelDeployment.objects.all().order_by('-deployed_at')
             
-            # Serialize the data
+            # Serialize the data, lazily backfilling workflow_log_path when missing
             deployment_data = []
             for deployment in deployments:
+                if not deployment.workflow_log_path:
+                    found_path = _find_workflow_log_for_deployment(deployment)
+                    if found_path:
+                        deployment.workflow_log_path = found_path
+                        try:
+                            deployment.save()
+                        except Exception as save_err:
+                            logger.warning(f"Could not save workflow_log_path for deployment {deployment.id}: {save_err}")
+
                 deployment_data.append({
                     'id': deployment.id,
                     'container_id': deployment.container_id,

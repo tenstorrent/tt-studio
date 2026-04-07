@@ -78,9 +78,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     refetch,
   } = useGitHubReleases();
 
-  // Check if we should hide the footer
-  const shouldHideFooter = location.pathname === "/chat";
-
   // Fetch only CPU/memory resources (board info comes from DeviceStateContext)
   const fetchSystemResources = async () => {
     try {
@@ -196,7 +193,6 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
             10
         ) / 10
       : 0;
-  const isHardwareHealthy = deviceStateName === "HEALTHY";
   const isHardwareError =
     deviceStateName === "BAD_STATE" || deviceStateName === "NOT_PRESENT";
   const normalizedBoardName = boardName.toLowerCase();

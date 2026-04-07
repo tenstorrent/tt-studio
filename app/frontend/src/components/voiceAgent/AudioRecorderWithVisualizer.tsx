@@ -163,11 +163,6 @@ export const AudioRecorderWithVisualizer = ({
 
   const isActive = isRecording || isTTSGenerating;
 
-  // Generate fake TTS animation levels
-  const ttsLevels = isTTSGenerating
-    ? levels.map((_, i) => 0.2 + 0.5 * Math.abs(Math.sin(Date.now() / 300 + i * 0.5)))
-    : levels;
-
   // Use TTS animation frame when generating
   useEffect(() => {
     if (!isTTSGenerating) return;

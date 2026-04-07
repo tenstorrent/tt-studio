@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -22,6 +22,12 @@ import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
 import { Button } from "../components/ui/button";
 import { AlertCircle, RefreshCw, FileText } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import WorkflowLogDialog from "../components/deployment/WorkflowLogDialog";
 
@@ -60,7 +66,20 @@ const getStatusBadge = (status: string, stoppedByUser: boolean) => {
     return <Badge variant="outline">Stopped by User</Badge>;
   }
   if (status === "exited" || status === "dead") {
-    return <Badge variant="destructive">Died Unexpectedly</Badge>;
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="destructive" className="cursor-help">Died Unexpectedly</Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-sm">
+              The container exited without being stopped by the user. This may indicate an out-of-memory error, a crash, or a hardware issue. Check workflow logs for details.
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   }
   return <Badge variant="outline">{status}</Badge>;
 };
@@ -232,7 +251,7 @@ export default function DeploymentHistoryPage() {
                           </Button>
                         ) : (
                           <span className="text-xs text-muted-foreground">
-                            N/A
+                            Logs not available
                           </span>
                         )}
                       </TableCell>
