@@ -182,6 +182,16 @@ export default {
           "0%, 100%": { height: "20%" },
           "50%": { height: "100%" },
         },
+        "warmup-slide": {
+          "0%": { transform: "translateX(-100%)" },
+          "50%": { transform: "translateX(200%)" },
+          "100%": { transform: "translateX(200%)" },
+        },
+        "deploy-slide": {
+          "0%": { transform: "translateX(-100%)" },
+          "60%": { transform: "translateX(300%)" },
+          "100%": { transform: "translateX(300%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -195,6 +205,8 @@ export default {
         "gradient-flow":
           "gradientFlow 10s ease 0s infinite normal none running",
         waveform: "waveform 0.8s ease-in-out infinite",
+        "warmup-slide": "warmup-slide 2.4s ease-in-out infinite",
+        "deploy-slide": "deploy-slide 2s ease-in-out infinite",
       },
     },
   },

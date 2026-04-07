@@ -14,7 +14,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/
 import { AlertCircle, Plus } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
 import ModelPreparingBanner from "./ModelPreparingBanner";
+import ActiveDeploymentBanner from "./ActiveDeploymentBanner";
 import NoModelsRunning from "./NoModelsRunning";
+import { safeGetItem } from "../../lib/storage";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
 import { useModels } from "../../hooks/useModels";
@@ -178,6 +180,13 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
   const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
+  const [hasActiveDeployment, setHasActiveDeployment] = useState(() => {
+    const stored = safeGetItem<{ jobId?: string; startedAt?: number } | null>(
+      "tt_studio_active_deployment_job",
+      null
+    );
+    return !!(stored?.jobId);
+  });
 
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
 
@@ -337,7 +346,19 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return <NoModelsRunning />;
+    return (
+      <>
+        {hasActiveDeployment && (
+          <ActiveDeploymentBanner
+            onComplete={() => {
+              setHasActiveDeployment(false);
+              loadModels();
+            }}
+          />
+        )}
+        <NoModelsRunning />
+      </>
+    );
   }
 
   return (
@@ -431,11 +452,13 @@ export default function ModelsDeployedCard(): JSX.Element {
         </TooltipProvider>
       )}
 
+      {/* Active deployment progress banner — shown while a model is still deploying */}
+      <ActiveDeploymentBanner onComplete={loadModels} />
+
       {/* Model preparing banner */}
       {!preparingBannerDismissed && preparingModels.length > 0 && (
         <ModelPreparingBanner
           models={preparingModels}
-          onViewLogs={(id) => setSelectedContainerId(id)}
           onDismiss={() => setPreparingBannerDismissed(true)}
         />
       )}

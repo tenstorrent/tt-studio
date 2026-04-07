@@ -16,6 +16,8 @@ import { Switch } from "../../ui/switch";
 import LogView from "./LogView";
 import EventsView from "./EventsView";
 import MetricsView from "./MetricsView";
+import { useNavigate } from "react-router-dom";
+import { OctagonX, ExternalLink } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -24,12 +26,18 @@ interface Props {
   onClose: () => void;
 }
 
+const CONTAINER_STOPPED_ERRORS = [
+  "Connection to log stream lost. The container may have stopped.",
+  "Failed to connect to log stream. The container may have stopped.",
+];
+
 export default function LogStreamDialog({
   open,
   containerId,
   modelName,
   onClose,
 }: Props) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("logs");
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -129,30 +137,70 @@ export default function LogStreamDialog({
     );
   };
 
-  const renderError = () => (
-    <div className="flex flex-col gap-4">
-      <div className="bg-red-950/40 border border-red-800 rounded-lg p-4 text-sm font-mono">
-        <div className="flex items-start gap-2">
-          <span className="text-red-400 font-bold shrink-0">Error</span>
-          <span className="text-red-300">{error}</span>
+  const renderError = () => {
+    const isContainerStopped = error ? CONTAINER_STOPPED_ERRORS.includes(error) : false;
+
+    if (isContainerStopped) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-5 py-10 px-6 text-center">
+          <div className="flex items-center justify-center w-12 h-12 rounded-full bg-stone-800/60 border border-stone-700/50">
+            <OctagonX className="w-6 h-6 text-stone-400" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium text-stone-200">Container stopped</p>
+            <p className="text-xs text-stone-500 max-w-xs leading-relaxed">
+              The log stream disconnected because this container is no longer running.
+              Check deployment history to see what happened.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => { onClose(); navigate("/deployment-history"); }}
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-stone-600 text-stone-300 hover:text-white hover:border-stone-400"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Deployment History
+            </Button>
+            <Button
+              onClick={onClose}
+              variant="ghost"
+              size="sm"
+              className="text-stone-500 hover:text-stone-300"
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="bg-red-950/40 border border-red-800 rounded-lg p-4 text-sm font-mono">
+          <div className="flex items-start gap-2">
+            <span className="text-red-400 font-bold shrink-0">Error</span>
+            <span className="text-red-300">{error}</span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="bg-green-700 hover:bg-green-600 text-white w-32"
+          >
+            Retry
+          </Button>
+          <Button
+            onClick={onClose}
+            className="bg-gray-700 hover:bg-gray-600 text-white w-32"
+          >
+            Close
+          </Button>
         </div>
       </div>
-      <div className="flex gap-2">
-        <Button
-          onClick={() => setReloadKey((k) => k + 1)}
-          className="bg-green-700 hover:bg-green-600 text-white w-32"
-        >
-          Retry
-        </Button>
-        <Button
-          onClick={onClose}
-          className="bg-gray-700 hover:bg-gray-600 text-white w-32"
-        >
-          Close
-        </Button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderContent = () => {
     if (isLoading) return renderLoading();
