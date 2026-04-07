@@ -187,8 +187,12 @@ export default function DeploymentHistoryPage() {
 
           {data && data.deployments.length === 0 && (
             <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>No deployments found</AlertTitle>
               <AlertDescription>
-                No deployments found. Deploy a model to see it here.
+                Deploy a model to see it here. If you changed the inference
+                server artifact version or branch, or deleted the artifact,
+                previous deployments may be lost.
               </AlertDescription>
             </Alert>
           )}
