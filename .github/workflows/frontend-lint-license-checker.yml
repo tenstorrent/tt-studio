@@ -3,7 +3,7 @@ name: TT-Studio Frontend Linter SPDX Licenses Checker
 on:
   push:
     branches:
-      - main
+      - "*"
   pull_request:
     branches:
       - "main"
@@ -37,6 +37,37 @@ jobs:
       - name: Install dependencies
         working-directory: app/frontend
         run: npm ci
+
+      - name: TypeScript type check
+        working-directory: app/frontend
+        id: typecheck
+        run: |
+          set +e
+          output=$(npm run type-check 2>&1)
+          exit_code=$?
+          echo "TS_EXIT_CODE=$exit_code" >> $GITHUB_ENV
+          echo "TS_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          exit 0
+
+      - name: Show TypeScript errors
+        if: env.TS_EXIT_CODE != '0'
+        run: |
+          echo "=================================================="
+          echo "🚨 TYPESCRIPT TYPE ERRORS FOUND"
+          echo "=================================================="
+          echo ""
+          echo "$TS_OUTPUT"
+          echo ""
+          echo "=================================================="
+          echo "These errors must be fixed before this PR can merge."
+          echo "Run 'npm run type-check' locally to reproduce."
+          echo "=================================================="
+
+      - name: Fail workflow for TypeScript errors
+        if: env.TS_EXIT_CODE != '0'
+        run: exit 1
 
       # Fetch git history for PR comparisons (must happen before header check)
       - name: Fetch Git History for PR

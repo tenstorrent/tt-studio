@@ -1,0 +1,142 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+name: TT-Studio Build & Smoke Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "*"
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - assigned
+      - review_requested
+
+jobs:
+  frontend-build:
+    name: Frontend Build (tsc + vite)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: "app/frontend/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: app/frontend
+        run: npm ci
+
+      - name: Build frontend (tsc + vite)
+        working-directory: app/frontend
+        id: build
+        run: |
+          set +e
+          output=$(npm run build 2>&1)
+          exit_code=$?
+          echo "BUILD_EXIT_CODE=$exit_code" >> $GITHUB_ENV
+          echo "BUILD_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          exit 0
+
+      - name: Show build errors
+        if: env.BUILD_EXIT_CODE != '0'
+        run: |
+          echo "=================================================="
+          echo "🚨 FRONTEND BUILD FAILED"
+          echo "=================================================="
+          echo ""
+          echo "$BUILD_OUTPUT"
+          echo ""
+          echo "=================================================="
+          echo "The frontend could not be built. This usually means:"
+          echo "  - TypeScript errors (look for 'error TS' in the output above)"
+          echo "  - Missing or broken imports (look for 'Could not resolve')"
+          echo "  - Invalid JSX/TSX syntax"
+          echo ""
+          echo "Run 'npm run build' locally in app/frontend to reproduce."
+          echo "=================================================="
+
+      - name: Fail workflow for build errors
+        if: env.BUILD_EXIT_CODE != '0'
+        run: exit 1
+
+  backend-check:
+    name: Backend Django System Check
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          cache-dependency-path: "app/backend/requirements.txt"
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y build-essential
+
+      - name: Install Python dependencies
+        working-directory: app/backend
+        run: pip install -r requirements.txt
+
+      - name: Django system check
+        working-directory: app/backend
+        id: django_check
+        env:
+          BACKEND_API_HOSTNAME: localhost
+          TT_STUDIO_ROOT: /tmp/tt-studio
+          HOST_PERSISTENT_STORAGE_VOLUME: /tmp/tt-studio-storage
+          INTERNAL_PERSISTENT_STORAGE_VOLUME: /tmp/tt-studio-storage
+          JWT_SECRET: ci-smoke-check-secret
+        run: |
+          set +e
+          output=$(python manage.py check 2>&1)
+          exit_code=$?
+          echo "DJANGO_EXIT_CODE=$exit_code" >> $GITHUB_ENV
+          echo "DJANGO_OUTPUT<<EOF" >> $GITHUB_ENV
+          echo "$output" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          exit 0
+
+      - name: Show Django check errors
+        if: env.DJANGO_EXIT_CODE != '0'
+        run: |
+          echo "=================================================="
+          echo "🚨 BACKEND DJANGO CHECK FAILED"
+          echo "=================================================="
+          echo ""
+          echo "$DJANGO_OUTPUT"
+          echo ""
+          echo "=================================================="
+          echo "The Django backend failed its system check. This usually means:"
+          echo "  - A Python import error in one of the apps"
+          echo "    (look for 'ImportError' or 'ModuleNotFoundError' above)"
+          echo "  - A misconfigured app in INSTALLED_APPS"
+          echo "  - A missing required environment variable"
+          echo "  - A broken URL pattern or view"
+          echo ""
+          echo "Run locally to reproduce:"
+          echo "  cd app/backend"
+          echo "  BACKEND_API_HOSTNAME=localhost TT_STUDIO_ROOT=/tmp JWT_SECRET=test \\"
+          echo "  HOST_PERSISTENT_STORAGE_VOLUME=/tmp INTERNAL_PERSISTENT_STORAGE_VOLUME=/tmp \\"
+          echo "  python manage.py check"
+          echo "=================================================="
+
+      - name: Fail workflow for Django check errors
+        if: env.DJANGO_EXIT_CODE != '0'
+        run: exit 1
