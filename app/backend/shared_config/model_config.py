@@ -5,7 +5,7 @@
 import json
 import os
 from dataclasses import dataclass, asdict
-from typing import Set, Dict, Any, Union
+from typing import Set, Dict, Any, Union, Optional
 from pathlib import Path
 
 from shared_config.device_config import DeviceConfigurations
@@ -64,6 +64,7 @@ class ModelImpl:
     health_route: str = "/health"
     display_model_type: str = "LLM"
     inference_engine: str = "vllm"
+    param_count: Optional[int] = None
 
     def __post_init__(self):
         # _init methods compute values that are dependent on other values
@@ -294,6 +295,7 @@ def load_model_implementations_from_json(json_path: Path) -> list:
             shm_size=entry.get("shm_size", "32G"),
             display_model_type=entry.get("display_model_type", "LLM"),
             inference_engine=entry.get("inference_engine", "vllm"),
+            param_count=entry.get("param_count"),
         )
         impls.append(impl)
     return impls

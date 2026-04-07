@@ -6,7 +6,8 @@ import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
 import { useLogo } from "../../utils/logo";
-import { fetchModels } from "../../api/modelsDeployedApis";
+import { fetchModels, fetchDeployedModelsInfo } from "../../api/modelsDeployedApis";
+import { getTokenLimitsForModel } from "./tokenLimits";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCollections } from "@/src/components/rag";
 import Header from "./Header";
@@ -115,13 +116,14 @@ export default function ChatComponent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [modelSettings, setModelSettings] = useState({
     temperature: 1,
-    maxLength: 512,
+    maxLength: 1024,
     topP: 0.9,
     topK: 20,
     toggleableInlineStats: true,
     systemPrompt: "",
     seed: 0,
   });
+  const [maxTokensSliderMax, setMaxTokensSliderMax] = useState<number>(4096);
 
   // Add the missing state variables
   const [userScrolled, setUserScrolled] = useState(false);
@@ -210,6 +212,22 @@ export default function ChatComponent() {
 
     loadModels();
   }, [location.state]);
+
+  // Set dynamic token defaults when the selected model changes
+  useEffect(() => {
+    if (!modelID) return;
+    fetchDeployedModelsInfo().then((deployedModels) => {
+      const match = deployedModels.find((m) => m.id === modelID);
+      const { defaultMaxTokens, sliderMax } = getTokenLimitsForModel(
+        match?.model_impl?.param_count,
+        match?.max_model_len
+      );
+      setMaxTokensSliderMax(sliderMax);
+      setModelSettings((prev: typeof modelSettings) => ({ ...prev, maxLength: defaultMaxTokens }));
+    }).catch(() => {
+      // fall back to initial defaults
+    });
+  }, [modelID]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -1353,6 +1371,7 @@ export default function ChatComponent() {
         settings={modelSettings}
         onSettingsChange={handleSettingsChange}
         defaultSystemPrompt={buildDefaultSystemPrompt(modelName, hardwareContext)}
+        maxTokensSliderMax={maxTokensSliderMax}
       />
     </div>
   );

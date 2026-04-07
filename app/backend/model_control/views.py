@@ -5,6 +5,8 @@
 # model_control/views.py
 import os
 from pathlib import Path
+import asyncio
+import threading
 import requests
 from PIL import Image
 import io
@@ -16,8 +18,10 @@ import jwt
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import StreamingHttpResponse
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse, HttpResponse, JsonResponse
+from django.views import View
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.renderers import JSONRenderer
 from rest_framework.parsers import JSONParser
 from rest_framework.negotiation import DefaultContentNegotiation
@@ -43,6 +47,7 @@ from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
     get_model_name_from_container,
+    get_max_tokens_limit,
     messages_to_prompt,
     stream_response_from_external_api,
     stream_response_from_agent_api,
@@ -70,86 +75,104 @@ CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_
 CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
 CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 
-class InferenceCloudView(APIView):
-    def post(self, request, *args, **kwargs):
-        data = request.data
+@method_decorator(csrf_exempt, name="dispatch")
+class InferenceCloudView(View):
+    async def post(self, request, *args, **kwargs):
+        data = json.loads(request.body)
         logger.info(f"InferenceCloudView data:={data}")
-        response_stream = stream_to_cloud_model(CLOUD_CHAT_UI_URL, data)
-        return StreamingHttpResponse(response_stream, content_type="text/plain")
 
-class InferenceView(APIView):
-    def post(self, request, *args, **kwargs):
-        data = request.data
+        async def generate():
+            async for chunk in stream_to_cloud_model(CLOUD_CHAT_UI_URL, data):
+                yield chunk
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+@method_decorator(csrf_exempt, name="dispatch")
+class InferenceView(View):
+    async def post(self, request, *args, **kwargs):
+        data = json.loads(request.body)
         logger.info(f"InferenceView data:={data}")
         serializer = InferenceSerializer(data=data)
-        if serializer.is_valid():
-            deploy_id = data.pop("deploy_id")
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            logger.info(f"internal_url:= {internal_url}")
-            logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
-            data["model"] = get_model_name_from_container(
-                deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
-            )
+        if not serializer.is_valid():
+            return JsonResponse(serializer.errors, status=400)
 
-            # Route base/completion models to /v1/completions with a plain prompt
-            service_route = deploy["model_impl"].service_route
-            logger.info(f"service_route:= {service_route}")
-            if service_route == "/v1/completions":
-                messages = data.pop("messages", [])
-                data["prompt"] = messages_to_prompt(messages)
-                data.pop("stream_options", None)
+        deploy_id = data.pop("deploy_id")
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        logger.info(f"internal_url:= {internal_url}")
+        logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
+        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+        )
 
-            # Create a generator that can be cancelled
-            def generate_response():
-                try:
-                    for chunk in stream_response_from_external_api(internal_url, data):
-                        yield chunk
-                except Exception as e:
-                    logger.error(f"Error in stream: {str(e)}")
-                    yield f"error: {str(e)}"
-            
-            response = StreamingHttpResponse(generate_response(), content_type="text/plain")
-            return response
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-class AgentView(APIView):
-    def post(self, request, *agrs, **kwargs):
-        logger.info('[TRACE_FLOW_STEP_2_BACKEND_AGENT_ENTRY] AgentView.post called', extra={'request_data': request.data})        
-        data = request.data.copy()  # Make a copy to avoid modifying the original
+        # Clamp max_tokens to 75% of the model's context window so there is
+        # always headroom for input tokens (conversation history, system prompt, etc).
+        # Falls back to a param_count-based estimate when max_model_len is not yet cached.
+        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(deploy["model_impl"].param_count)
+        max_tokens_limit = max(1, raw_limit * 3 // 4)
+        if data.get("max_tokens"):
+            data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
+
+        # Route base/completion models to /v1/completions with a plain prompt
+        service_route = deploy["model_impl"].service_route
+        logger.info(f"service_route:= {service_route}")
+        if service_route == "/v1/completions":
+            messages = data.pop("messages", [])
+            data["prompt"] = messages_to_prompt(messages)
+            data.pop("stream_options", None)
+
+        async def generate():
+            try:
+                async for chunk in stream_response_from_external_api(internal_url, data):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error in stream: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+@method_decorator(csrf_exempt, name="dispatch")
+class AgentView(View):
+    async def post(self, request, *args, **kwargs):
+        logger.info('[TRACE_FLOW_STEP_2_BACKEND_AGENT_ENTRY] AgentView.post called')
+        data = json.loads(request.body)
         logger.info(f"AgentView data:={data}")
-        
-        # For agent requests, we don't need to validate deploy_id since agents can work with cloud models
+
         deploy_id = data.get("deploy_id", "")
         logger.info(f"Deploy ID: {deploy_id}")
-        
-        # Check if we have a valid deployment, if not, proceed without it (for cloud/agent mode)
+
         deploy_cache = get_deploy_cache()
         if deploy_id and deploy_id in deploy_cache:
             deploy = deploy_cache[deploy_id]
             logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
-            data["model"] = get_model_name_from_container(
+            data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
                 deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
             )
         else:
             logger.info("No valid deployment found, proceeding with agent-only mode (cloud LLM)")
-            # Remove deploy_id from data since it's not needed for agent
             data.pop("deploy_id", None)
-        
-        # Use the enhanced agent service with discovery capabilities
+
         agent_url = "http://tt_studio_agent:8080/poll_requests"
         logger.info(f"agent_url:= {agent_url}")
-        logger.info(f"Using enhanced agent with auto-discovery: {agent_url}")
-        
-        # Add agent-specific metadata to help with discovery
+
         if not deploy_id:
-            # If no specific deploy_id, let the agent use its discovery mechanism
             data["use_agent_discovery"] = True
             logger.info("Enabling agent auto-discovery mode")
-        
-        response_stream = stream_response_from_agent_api(agent_url, data)
-        return StreamingHttpResponse(response_stream, content_type="text/plain")
+
+        async def generate():
+            async for chunk in stream_response_from_agent_api(agent_url, data):
+                yield chunk
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
 
 class AgentStatusView(APIView):
@@ -981,7 +1004,7 @@ class ContainerLogsView(View):
         
         return "log"
     
-    def get(self, request, container_id, *args, **kwargs):
+    async def get(self, request, container_id, *args, **kwargs):
         """Stream logs from a Docker container using Server-Sent Events via docker-control-service"""
         logger.info(f"ContainerLogsView received request for container_id: {container_id}")
 
@@ -992,21 +1015,50 @@ class ContainerLogsView(View):
 
             logger.info(f"Setting up log stream for container: {container_id}")
 
-            def generate_container_data():
-                try:
-                    # Stream logs from docker-control-service
-                    # The docker-control-service already formats logs as SSE, so we just proxy them
-                    for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
-                        yield log_line
+            async def generate_container_data():
+                queue: asyncio.Queue = asyncio.Queue()
+                loop = asyncio.get_running_loop()
 
-                except Exception as e:
-                    logger.error(f"Error in data stream: {str(e)}")
-                    error_data = {
-                        "type": "error",
-                        "message": f"Error streaming data: {str(e)}",
-                        "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                def sync_stream():
+                    try:
+                        for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
+                            loop.call_soon_threadsafe(queue.put_nowait, log_line)
+
+                    except requests.exceptions.ConnectionError as e:
+                        logger.error(f"docker-control-service unreachable: {str(e)}")
+                        error_data = {
+                            "type": "service_unavailable",
+                            "message": "Cannot reach the docker-control-service (port 8002). Make sure it is running on the host.",
+                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                        )
+
+                    except Exception as e:
+                        logger.error(f"Error in data stream: {str(e)}")
+                        error_data = {
+                            "type": "error",
+                            "message": f"Error streaming data: {str(e)}",
+                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                        )
+
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+                thread = threading.Thread(target=sync_stream, daemon=True)
+                thread.start()
+
+                while True:
+                    chunk = await queue.get()
+                    if chunk is None:
+                        break
+                    yield chunk
 
             response = StreamingHttpResponse(
                 generate_container_data(),
@@ -1021,10 +1073,19 @@ class ContainerLogsView(View):
 
         except Exception as e:
             logger.error(f"Error streaming container data: {str(e)}")
-            return HttpResponse(
-                status=500,
-                content=str(e)
-            )
+
+            async def error_stream():
+                error_data = {
+                    "type": "service_unavailable",
+                    "message": f"Failed to initialize log stream: {str(e)}",
+                    "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+
+            response = StreamingHttpResponse(error_stream(), content_type='text/event-stream')
+            response['Cache-Control'] = 'no-cache, no-transform'
+            response['X-Accel-Buffering'] = 'no'
+            return response
 
 
 class ModelAPIInfoView(APIView):

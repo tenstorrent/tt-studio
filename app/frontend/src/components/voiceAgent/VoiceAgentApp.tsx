@@ -394,8 +394,6 @@ export default function VoiceAgentApp() {
 
   const isProcessing = stage === "transcribing" || stage === "thinking" || stage === "speaking";
   const stageConfig = STAGE_CONFIG[stage];
-  const allModelsConnected = !!models.whisper && !!models.llm && !!models.tts;
-  const someModelsConnected = !!models.whisper || !!models.llm || !!models.tts;
 
   return (
     <motion.div

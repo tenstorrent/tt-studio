@@ -30,6 +30,9 @@ export default function LogStreamDialog({
   modelName,
   onClose,
 }: Props) {
+  const [activeTab, setActiveTab] = useState("logs");
+  const [reloadKey, setReloadKey] = useState(0);
+
   const {
     logs,
     events,
@@ -39,8 +42,7 @@ export default function LogStreamDialog({
     filters,
     setFilters,
     filterLog,
-  } = useLogStream(open, containerId);
-  const [activeTab, setActiveTab] = useState("logs");
+  } = useLogStream(open, containerId, reloadKey);
 
   const shortName = useMemo(
     () => (modelName ? modelName.split("/").slice(-1)[0] : undefined),
@@ -129,13 +131,26 @@ export default function LogStreamDialog({
 
   const renderError = () => (
     <div className="flex flex-col gap-4">
-      <div className="text-red-500">{error}</div>
-      <Button
-        onClick={onClose}
-        className="bg-blue-500 hover:bg-blue-600 text-white w-32"
-      >
-        Close
-      </Button>
+      <div className="bg-red-950/40 border border-red-800 rounded-lg p-4 text-sm font-mono">
+        <div className="flex items-start gap-2">
+          <span className="text-red-400 font-bold shrink-0">Error</span>
+          <span className="text-red-300">{error}</span>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="bg-green-700 hover:bg-green-600 text-white w-32"
+        >
+          Retry
+        </Button>
+        <Button
+          onClick={onClose}
+          className="bg-gray-700 hover:bg-gray-600 text-white w-32"
+        >
+          Close
+        </Button>
+      </div>
     </div>
   );
 

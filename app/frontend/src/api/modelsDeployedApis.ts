@@ -54,10 +54,12 @@ interface DeployedModelInfo {
   model_type?: string;
   internal_url?: string;
   health_url?: string;
+  max_model_len?: number | null;
   model_impl?: {
     model_name?: string;
     hf_model_id?: string;
     model_type?: string;
+    param_count?: number | null;
   };
 }
 
@@ -487,6 +489,7 @@ export const fetchDeployedModelsInfo = async (): Promise<
         model_type: modelData.model_impl?.model_type,
         internal_url: modelData.internal_url,
         health_url: modelData.health_url,
+        max_model_len: modelData.max_model_len ?? null,
         model_impl: modelData.model_impl,
       })
     );
