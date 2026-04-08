@@ -48,7 +48,7 @@ import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
 export default function ModelsDeployedCard(): JSX.Element {
-  const { models, setModels, refreshModels } = useModels();
+  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel } = useModels();
   const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
     useRefresh();
 
@@ -225,6 +225,10 @@ export default function ModelsDeployedCard(): JSX.Element {
 
     const finished = deleteStream.status === "success" || deleteStream.status === "partial" || deleteStream.status === "error";
     if (finished) {
+      if (deleteStream.status === "success" || deleteStream.status === "partial") {
+        localStorage.setItem("hasEverDeployed", "true");
+        setUserStoppedModel(true);
+      }
       refreshModels();
       triggerHardwareRefresh();
       window.setTimeout(() => refreshAllHealth(), 1000);
@@ -239,6 +243,8 @@ export default function ModelsDeployedCard(): JSX.Element {
   const autoCloseTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (deleteStream.status === "success" && showDeleteModal) {
+      localStorage.setItem("hasEverDeployed", "true");
+      setUserStoppedModel(true);
       autoCloseTimerRef.current = window.setTimeout(() => {
         refreshModels();
         triggerHardwareRefresh();
@@ -349,7 +355,7 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return <NoModelsRunning />;
+    return <NoModelsRunning userStopped={userStoppedModel} />;
   }
 
   return (
