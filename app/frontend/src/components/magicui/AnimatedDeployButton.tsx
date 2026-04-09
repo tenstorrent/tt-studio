@@ -45,7 +45,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         setIsDeployed(true);
         setIsDeploying(false);
         setIsRocketFlying(false);
-        setDisplayText(<span>Model Deployed!</span>);
+        setDisplayText(<span>Deployment Started</span>);
         safeRemoveItem(ACTIVE_DEPLOYMENT_KEY);
         stopPolling();
       } else if (progress.status === 'error' || progress.status === 'failed' || progress.status === 'timeout') {
