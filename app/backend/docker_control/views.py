@@ -269,6 +269,10 @@ class ChipStatusView(APIView):
         Returns JSON with board type, total slots, and per-slot occupancy info.
         """
         try:
+            # Prune deploy cache of containers that are no longer running
+            # so dead containers don't block device slots.
+            update_deploy_cache()
+
             from docker_control.chip_allocator import ChipSlotAllocator
 
             allocator = ChipSlotAllocator()

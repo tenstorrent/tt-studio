@@ -178,6 +178,28 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
   const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
 
+  // Auto-refresh model list when any model becomes unavailable/unknown
+  // (container likely stopped or crashed). Uses a ref so the timer
+  // isn't torn down every time healthMap changes from polling.
+  const staleRefreshTimer = useRef<number | null>(null);
+  const hasStaleModel = useMemo(
+    () => Object.values(healthMap).some((h) => h === "unavailable" || h === "unknown"),
+    [healthMap],
+  );
+
+  useEffect(() => {
+    if (hasStaleModel && !showDeleteModal && !staleRefreshTimer.current) {
+      staleRefreshTimer.current = window.setTimeout(() => {
+        staleRefreshTimer.current = null;
+        loadModels();
+      }, 5000);
+    }
+    if (!hasStaleModel && staleRefreshTimer.current) {
+      clearTimeout(staleRefreshTimer.current);
+      staleRefreshTimer.current = null;
+    }
+  }, [hasStaleModel, showDeleteModal, loadModels]);
+
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
 
   const preparingModels = useMemo(() => {
