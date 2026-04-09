@@ -191,6 +191,7 @@ export default function ModelsDeployedCard(): JSX.Element {
     if (hasStaleModel && !showDeleteModal && !staleRefreshTimer.current) {
       staleRefreshTimer.current = window.setTimeout(() => {
         staleRefreshTimer.current = null;
+        setUserStoppedModel(false);
         loadModels();
       }, 5000);
     }
@@ -198,7 +199,7 @@ export default function ModelsDeployedCard(): JSX.Element {
       clearTimeout(staleRefreshTimer.current);
       staleRefreshTimer.current = null;
     }
-  }, [hasStaleModel, showDeleteModal, loadModels]);
+  }, [hasStaleModel, showDeleteModal, loadModels, setUserStoppedModel]);
 
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
 
