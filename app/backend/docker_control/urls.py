@@ -7,6 +7,7 @@ from django.urls import path
 from . import views
 from .views import (
     StopView,
+    StopStreamView,
     ContainersView,
     StatusView,
     ChipStatusView,
@@ -36,6 +37,7 @@ urlpatterns = [
     path("deploy/logs/<str:job_id>/", views.DeploymentLogsView.as_view(), name="deployment-logs"),
     path("deploy/progress/stream/<str:job_id>/", views.DeploymentProgressStreamView.as_view(), name="deployment-progress-stream"),
     path("stop/", views.StopView.as_view()),
+    path("stop/stream/<str:container_id>/", views.StopStreamView.as_view(), name="stop-stream"),
     path("status/", views.StatusView.as_view()),
     path("chip-status/", views.ChipStatusView.as_view(), name="chip-status"),
     path("redeploy/", views.RedeployView.as_view()),

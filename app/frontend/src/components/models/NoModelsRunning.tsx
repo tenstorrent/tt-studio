@@ -5,13 +5,24 @@ import type { JSX } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../ui/button";
 
-export default function NoModelsRunning(): JSX.Element {
+interface NoModelsRunningProps {
+  userStopped?: boolean;
+}
+
+export default function NoModelsRunning({ userStopped = false }: NoModelsRunningProps): JSX.Element {
   const navigate = useNavigate();
+  const hasEverDeployed = localStorage.getItem("hasEverDeployed") === "true";
+
+  const message = userStopped
+    ? "Model stopped successfully. Deploy a new model to get started."
+    : !hasEverDeployed
+      ? "Deploy a model to get started."
+      : "Your model may have stopped unexpectedly, or the board was reset. Check deployment history to see what happened and access logs.";
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 py-20 px-4 max-w-md mx-auto text-center">
       {/* Terminal-style status line */}
-      <span className="font-mono text-amber-500/60 text-xs tracking-widest uppercase select-none">
+      <span className="font-mono text-TT-purple-accent/70 text-xs tracking-widest uppercase select-none">
         // STATUS: NO ACTIVE DEPLOYMENTS
       </span>
 
@@ -21,8 +32,7 @@ export default function NoModelsRunning(): JSX.Element {
           No models currently running
         </h2>
         <p className="text-stone-400 text-sm leading-relaxed">
-          Your model may have stopped unexpectedly, or the board was reset.
-          Check deployment history to see what happened and access logs.
+          {message}
         </p>
       </div>
 
