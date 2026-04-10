@@ -212,17 +212,20 @@ _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 
 
 def _resolve_preferred_host_volume() -> Tuple[Optional[str], str]:
-    """Resolve the preferred host-volume path if it is safe to use."""
+    """Resolve the preferred host-volume path for TT Inference Server.
+
+    Defer directory creation and permission repair to tt-inference-server's
+    setup validation. That path can create the directory and attempt chmod
+    fixes, while this FastAPI pre-check only decides whether to forward the
+    user's preferred path at all.
+    """
     candidate = _PREFERRED_HOST_VOLUME_PATH.expanduser()
 
-    if not candidate.exists():
-        return None, f"{candidate} does not exist"
-    if not candidate.is_dir():
+    if candidate.exists() and not candidate.is_dir():
         return None, f"{candidate} is not a directory"
-    if not os.access(candidate, os.R_OK | os.W_OK | os.X_OK):
-        return None, f"{candidate} is not readable/writable by the FastAPI user"
 
-    return str(candidate.resolve()), f"resolved preferred host-volume path {candidate.resolve()}"
+    resolved_candidate = candidate.resolve(strict=False)
+    return str(resolved_candidate), f"resolved preferred host-volume path {resolved_candidate}"
 
 
 def _strip_cli_option(argv: list[str], option: str) -> list[str]:
