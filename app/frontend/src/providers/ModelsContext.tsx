@@ -13,6 +13,17 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [models, setModels] = useState<Model[]>([]);
   const [hasDeployedModels, setHasDeployedModels] = useState<boolean>(false);
+  const [userStoppedModel, setUserStoppedModelState] = useState<boolean>(
+    () => sessionStorage.getItem("userStoppedModel") === "true"
+  );
+
+  const setUserStoppedModel = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setUserStoppedModelState((prev) => {
+      const next = typeof value === "function" ? value(prev) : value;
+      sessionStorage.setItem("userStoppedModel", String(next));
+      return next;
+    });
+  }, []);
 
   const refreshModels = useCallback(async () => {
     try {
@@ -23,6 +34,8 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
       ]);
 
       if (deployedModelsInfo.length > 0) {
+        setUserStoppedModel(false);
+        localStorage.setItem("hasEverDeployed", "true");
         // Merge the deployed models info with Docker container info.
         // model_type from deployed API is required for correct navbar routing (e.g. Speech Recognition -> /speech-to-text).
         const mergedModels = deployedModelsInfo.map((deployedModel) => {
@@ -65,11 +78,11 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
         setHasDeployedModels(false);
       }
     }
-  }, []);
+  }, [setUserStoppedModel]);
 
   return (
     <ModelsContext.Provider
-      value={{ models, setModels, refreshModels, hasDeployedModels }}
+      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel }}
     >
       {children}
     </ModelsContext.Provider>

@@ -14,6 +14,7 @@ from django.utils.decorators import method_decorator
 import json
 import shutil
 import subprocess
+import signal
 import os
 from pathlib import Path
 
@@ -268,6 +269,10 @@ class ChipStatusView(APIView):
         Returns JSON with board type, total slots, and per-slot occupancy info.
         """
         try:
+            # Prune deploy cache of containers that are no longer running
+            # so dead containers don't block device slots.
+            update_deploy_cache()
+
             from docker_control.chip_allocator import ChipSlotAllocator
 
             allocator = ChipSlotAllocator()
@@ -1969,6 +1974,176 @@ class WorkflowLogStreamView(View):
                 status=500,
                 content=str(e)
             )
+
+
+class StopStreamView(View):
+    """Stream model deletion progress as Server-Sent Events.
+
+    Performs stop → remove → board-reset sequentially, emitting real-time
+    log lines so the frontend dialog can mirror what the backend is doing.
+    Each ``log`` event carries a ``step`` field so the UI can slot it under
+    the correct progress row.
+
+    Uses an async generator so that yields flush immediately through
+    uvicorn's event loop instead of being batched by the sync threadpool.
+    """
+
+    @staticmethod
+    def _sse(data: dict) -> str:
+        return f"data: {json.dumps(data)}\n\n"
+
+    async def get(self, request, container_id, *args, **kwargs):
+        import asyncio
+        sse = self._sse
+        ansi_re = re.compile(r'\x1b\[[0-9;]*m|\|[0-9;]*m')
+
+        async def generate():
+            yield "retry: 1000\n\n"
+
+            truncated = container_id[:12]
+            current_step = "deleting"
+
+            # --- Step 1: mark deployment stopped in DB ---
+            yield sse({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
+
+            def _mark_stopped():
+                from docker_control.models import ModelDeployment
+                from django.utils import timezone
+                deployment = ModelDeployment.objects.filter(container_id=container_id).first()
+                if deployment:
+                    deployment.stopped_by_user = True
+                    deployment.status = "stopped"
+                    deployment.stopped_at = timezone.now()
+                    deployment.save()
+                    return f"Marked deployment {truncated} as stopped in database"
+                return "No deployment record found — continuing"
+
+            try:
+                msg = await asyncio.to_thread(_mark_stopped)
+                yield sse({"type": "log", "step": current_step, "message": msg})
+            except Exception as e:
+                yield sse({"type": "log", "step": current_step, "message": f"Warning: failed to update deployment record: {e}"})
+
+            # --- Step 2: stop container ---
+            yield sse({"type": "log", "step": current_step, "message": f"Sending stop signal to container {truncated}…"})
+            docker_client = get_docker_client()
+            container_gone = False
+            try:
+                stop_result = await asyncio.to_thread(docker_client.stop_container, container_id)
+                stop_status = stop_result.get("status", "unknown")
+                yield sse({"type": "log", "step": current_step, "message": f"Stop result: {stop_status}"})
+
+                if stop_status != "success":
+                    yield sse({"type": "complete", "status": "error", "message": f"Failed to stop container: {stop_result.get('message', 'unknown error')}"})
+                    return
+            except Exception as e:
+                error_str = str(e)
+                # 404 / "Not Found" means the container is already gone — not an error
+                if "404" in error_str or "Not Found" in error_str:
+                    container_gone = True
+                    yield sse({"type": "log", "step": current_step, "message": "Container already stopped"})
+                else:
+                    yield sse({"type": "log", "step": current_step, "message": f"Error stopping container: {error_str}"})
+                    yield sse({"type": "complete", "status": "error", "message": f"Failed to stop container {truncated}"})
+                    return
+
+            # --- Step 3: remove container (best-effort, container may already be gone) ---
+            if not container_gone:
+                yield sse({"type": "log", "step": current_step, "message": f"Cleaning up container {truncated}…"})
+                try:
+                    await asyncio.to_thread(docker_client.remove_container, container_id, True)
+                    yield sse({"type": "log", "step": current_step, "message": "Container removed"})
+                except Exception:
+                    yield sse({"type": "log", "step": current_step, "message": "Container already removed"})
+
+            try:
+                await asyncio.to_thread(update_deploy_cache)
+            except Exception:
+                pass
+
+            yield sse({"type": "log", "step": current_step, "message": f"Container {truncated} stopped and removed successfully"})
+
+            # --- Step 4: board reset (stream tt-smi output line-by-line) ---
+            current_step = "resetting"
+            yield sse({"type": "step", "step": "resetting", "message": "Resetting the board…"})
+
+            await asyncio.to_thread(SystemResourceService.set_resetting_state)
+
+            MAX_ATTEMPTS = 2
+            reset_ok = False
+
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                yield sse({"type": "log", "step": current_step, "message": f"Running tt-smi -r (attempt {attempt}/{MAX_ATTEMPTS})…"})
+
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "tt-smi", "-r",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT,
+                        stdin=asyncio.subprocess.DEVNULL,
+                    )
+
+                    try:
+                        async def _read_with_timeout():
+                            while True:
+                                raw_line = await asyncio.wait_for(
+                                    proc.stdout.readline(), timeout=90
+                                )
+                                if not raw_line:
+                                    break
+                                cleaned = ansi_re.sub("", raw_line.decode("utf-8", errors="replace")).strip()
+                                if cleaned:
+                                    yield cleaned
+
+                        async for line in _read_with_timeout():
+                            yield sse({"type": "log", "step": current_step, "message": line})
+
+                        await asyncio.wait_for(proc.wait(), timeout=10)
+
+                    except asyncio.TimeoutError:
+                        yield sse({"type": "log", "step": current_step, "message": "Timed out after 90s"})
+                        try:
+                            proc.terminate()
+                            await asyncio.sleep(2)
+                            proc.kill()
+                        except Exception:
+                            pass
+
+                    returncode = proc.returncode if proc.returncode is not None else -1
+
+                except Exception as exc:
+                    yield sse({"type": "log", "step": current_step, "message": str(exc)})
+                    returncode = -1
+
+                if returncode == 0:
+                    reset_ok = True
+                    yield sse({"type": "log", "step": current_step, "message": f"Board reset succeeded on attempt {attempt}"})
+                    break
+                else:
+                    yield sse({"type": "log", "step": current_step, "message": f"Attempt {attempt} failed (exit code {returncode})"})
+
+            await asyncio.to_thread(SystemResourceService.clear_device_state_cache)
+
+            if reset_ok:
+                try:
+                    await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
+                    yield sse({"type": "log", "step": current_step, "message": "tt-smi cache refreshed"})
+                except Exception as e:
+                    yield sse({"type": "log", "step": current_step, "message": f"Warning: tt-smi cache refresh failed: {e}"})
+
+            final_status = "success" if reset_ok else "partial"
+            final_msg = (
+                "Model deleted and board reset successfully"
+                if reset_ok
+                else "Model deleted but board reset failed"
+            )
+            yield sse({"type": "complete", "status": final_status, "message": final_msg})
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache, no-transform"
+        response["X-Accel-Buffering"] = "no"
+        response["Content-Encoding"] = "identity"
+        return response
 
 
 class AvailableDevicesView(APIView):

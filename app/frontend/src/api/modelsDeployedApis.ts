@@ -191,68 +191,23 @@ export const fetchModels = async (): Promise<Model[]> => {
 };
 
 export const deleteModel = async (modelId: string): Promise<StopResponse> => {
-  const truncatedModelId = modelId.substring(0, 4);
-  try {
-    const payload = JSON.stringify({ container_id: modelId });
-    console.log("Payload:", payload);
+  const payload = JSON.stringify({ container_id: modelId });
 
-    const response = await axios.post<StopResponse>(stopModelsURL, payload, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    console.log("Response: on ts from backend", response);
+  const response = await axios.post<StopResponse>(stopModelsURL, payload, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 
-    if (
-      response.data.status !== "success" ||
-      !response.data.stop_response ||
-      response.data.stop_response.status !== "success"
-    ) {
-      customToast.error("Failed to stop the container");
-      throw new Error("Failed to stop the container");
-    } else {
-      customToast.success(
-        `Model ID: ${truncatedModelId} has been deleted successfully.`
-      );
-
-      if (
-        response.data.reset_response &&
-        response.data.reset_response.status === "success"
-      ) {
-        customToast.success(
-          `Model ID: ${truncatedModelId} has been reset successfully.`
-        );
-      } else {
-        customToast.error(`Board Reset failed.`);
-      }
-
-      console.log(
-        `Reset Output: ${response.data.reset_response?.output || "No reset output available"}`
-      );
-    }
-
-    return response.data;
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error("Error stopping the container:", error.response?.data);
-      customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - ${
-          error.response?.data.message || error.message
-        }`
-      );
-    } else if (error instanceof Error) {
-      console.error("Error stopping the container:", error.message);
-      customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - ${error.message}`
-      );
-    } else {
-      console.error("Unknown error stopping the container", error);
-      customToast.error(
-        `Failed to delete Model ID: ${truncatedModelId} - Unknown error`
-      );
-    }
-    throw error;
+  if (
+    response.data.status !== "success" ||
+    !response.data.stop_response ||
+    response.data.stop_response.status !== "success"
+  ) {
+    throw new Error("Failed to stop the container");
   }
+
+  return response.data;
 };
 
 export const handleRedeploy = (modelName: string): void => {
