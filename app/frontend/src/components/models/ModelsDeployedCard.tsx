@@ -16,6 +16,7 @@ import HealthCell from "./row-cells/HealthCell";
 import ModelPreparingBanner from "./ModelPreparingBanner";
 import ActiveDeploymentBanner from "./ActiveDeploymentBanner";
 import NoModelsRunning from "./NoModelsRunning";
+import ModelReadyGuide, { GUIDE_KEY } from "../tour/ModelReadyGuide";
 import { safeGetItem } from "../../lib/storage";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
@@ -92,6 +93,7 @@ export default function ModelsDeployedCard(): JSX.Element {
   const navigate = useNavigate();
   const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   const loadModels = useCallback(async () => {
     setLoadError(null);
@@ -353,10 +355,14 @@ export default function ModelsDeployedCard(): JSX.Element {
             onComplete={() => {
               setHasActiveDeployment(false);
               loadModels();
+              if (!localStorage.getItem(GUIDE_KEY)) {
+                setShowGuide(true);
+              }
             }}
           />
         )}
         <NoModelsRunning />
+        <ModelReadyGuide open={showGuide} onClose={() => setShowGuide(false)} />
       </>
     );
   }
@@ -397,6 +403,7 @@ export default function ModelsDeployedCard(): JSX.Element {
             visibleCount={Object.values(columns).filter(Boolean).length}
             totalCount={Object.keys(columns).length}
             onRefreshHealthNow={refreshAllHealth}
+            onOpenGuide={() => setShowGuide(true)}
           />
         </div>
       </CardHeader>
@@ -453,7 +460,14 @@ export default function ModelsDeployedCard(): JSX.Element {
       )}
 
       {/* Active deployment progress banner — shown while a model is still deploying */}
-      <ActiveDeploymentBanner onComplete={loadModels} />
+      <ActiveDeploymentBanner
+        onComplete={() => {
+          loadModels();
+          if (!localStorage.getItem(GUIDE_KEY)) {
+            setShowGuide(true);
+          }
+        }}
+      />
 
       {/* Model preparing banner */}
       {!preparingBannerDismissed && preparingModels.length > 0 && (
@@ -541,6 +555,8 @@ export default function ModelsDeployedCard(): JSX.Element {
         }}
       />
     </ElevatedCard>
+
+    <ModelReadyGuide open={showGuide} onClose={() => setShowGuide(false)} />
 
     {/* Hidden HealthCell container — keeps health polling alive without rendering in the table */}
     <div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", visibility: "hidden" }}>
