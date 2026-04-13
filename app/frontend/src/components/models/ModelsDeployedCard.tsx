@@ -26,7 +26,6 @@ import { useHealthRefresh } from "../../hooks/useHealthRefresh";
 import { useOpenLogsFromUrl } from "../../hooks/useOpenLogsFromUrl";
 import { useColumnPrefs } from "../../hooks/useColumnPrefs";
 import {
-  deleteModel,
   handleRedeploy,
   handleModelNavigationClick,
   fetchModels,
@@ -42,16 +41,17 @@ import type {
 } from "../../types/models";
 import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
-import DeleteModelDialog, { type DeleteStep } from "./DeleteModelDialog.tsx";
+import DeleteModelDialog from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
 import RegisterModelDialog from "./RegisterModelDialog.tsx";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
+import { useDeleteStream } from "../../hooks/useDeleteStream";
 import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
 export default function ModelsDeployedCard(): JSX.Element {
-  const { models, setModels, refreshModels } = useModels();
+  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel } = useModels();
   const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
     useRefresh();
 
@@ -173,8 +173,7 @@ export default function ModelsDeployedCard(): JSX.Element {
   // Delete state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
-  const [deleteStep, setDeleteStep] = useState<DeleteStep>(null);
+  const deleteStream = useDeleteStream();
 
   useEffect(() => {
     loadModels();
@@ -182,13 +181,29 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
   const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
-  const [hasActiveDeployment, setHasActiveDeployment] = useState(() => {
-    const stored = safeGetItem<{ jobId?: string; startedAt?: number } | null>(
-      "tt_studio_active_deployment_job",
-      null
-    );
-    return !!(stored?.jobId);
-  });
+
+  // Auto-refresh model list when any model becomes unavailable/unknown
+  // (container likely stopped or crashed). Uses a ref so the timer
+  // isn't torn down every time healthMap changes from polling.
+  const staleRefreshTimer = useRef<number | null>(null);
+  const hasStaleModel = useMemo(
+    () => Object.values(healthMap).some((h) => h === "unavailable" || h === "unknown"),
+    [healthMap],
+  );
+
+  useEffect(() => {
+    if (hasStaleModel && !showDeleteModal && !staleRefreshTimer.current) {
+      staleRefreshTimer.current = window.setTimeout(() => {
+        staleRefreshTimer.current = null;
+        setUserStoppedModel(false);
+        loadModels();
+      }, 5000);
+    }
+    if (!hasStaleModel && staleRefreshTimer.current) {
+      clearTimeout(staleRefreshTimer.current);
+      staleRefreshTimer.current = null;
+    }
+  }, [hasStaleModel, showDeleteModal, loadModels, setUserStoppedModel]);
 
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
 
@@ -227,35 +242,54 @@ export default function ModelsDeployedCard(): JSX.Element {
     loadModels();
   };
 
-  const handleConfirmDelete = useCallback(async () => {
+  const handleConfirmDelete = useCallback(() => {
     if (!deleteTargetId) return;
-    setIsProcessingDelete(true);
-    const truncatedModelId = deleteTargetId.substring(0, 4);
-    try {
-      // Step 1: stop & remove the model (backend also runs tt-smi -r internally)
-      setDeleteStep("deleting");
-      await customToast.promise(deleteModel(deleteTargetId), {
-        loading: `Stopping model ${truncatedModelId}…`,
-        success: `Model ${truncatedModelId} stopped.`,
-        error: `Failed to stop model ${truncatedModelId}.`,
-      });
+    deleteStream.start(deleteTargetId);
+  }, [deleteTargetId, deleteStream]);
 
-      // Step 2: board reset is handled by the stop API, show progress while cleanup settles
-      setDeleteStep("resetting");
-      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+  const handleCloseDeleteModal = useCallback(() => {
+    if (deleteStream.status === "running") return;
 
-      await refreshModels();
+    const finished = deleteStream.status === "success" || deleteStream.status === "partial" || deleteStream.status === "error";
+    if (finished) {
+      if (deleteStream.status === "success" || deleteStream.status === "partial") {
+        localStorage.setItem("hasEverDeployed", "true");
+        setUserStoppedModel(true);
+      }
+      refreshModels();
       triggerHardwareRefresh();
-      setShowDeleteModal(false);
-      setDeleteTargetId(null);
-      window.setTimeout(() => {
-        refreshAllHealth();
-      }, 1000);
-    } finally {
-      setIsProcessingDelete(false);
-      setDeleteStep(null);
+      window.setTimeout(() => refreshAllHealth(), 1000);
     }
-  }, [deleteTargetId, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
+
+    setShowDeleteModal(false);
+    setDeleteTargetId(null);
+    deleteStream.reset();
+  }, [deleteStream, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
+
+  // Auto-close the dialog once deletion finishes successfully
+  const autoCloseTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (deleteStream.status === "success" && showDeleteModal) {
+      localStorage.setItem("hasEverDeployed", "true");
+      setUserStoppedModel(true);
+      autoCloseTimerRef.current = window.setTimeout(() => {
+        refreshModels();
+        triggerHardwareRefresh();
+        window.setTimeout(() => refreshAllHealth(), 1000);
+        setShowDeleteModal(false);
+        setDeleteTargetId(null);
+        deleteStream.reset();
+      }, 1500);
+    }
+    return () => {
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+        autoCloseTimerRef.current = null;
+      }
+    };
+  // Only re-run when status changes, not on every render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deleteStream.status]);
 
   const exportVisible = useCallback(() => {
     const visibleRows = rows.map((r) => ({
@@ -348,23 +382,7 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return (
-      <>
-        {hasActiveDeployment && (
-          <ActiveDeploymentBanner
-            onComplete={() => {
-              setHasActiveDeployment(false);
-              loadModels();
-              if (!localStorage.getItem(GUIDE_KEY)) {
-                setShowGuide(true);
-              }
-            }}
-          />
-        )}
-        <NoModelsRunning />
-        <ModelReadyGuide open={showGuide} onClose={() => setShowGuide(false)} />
-      </>
-    );
+    return <NoModelsRunning userStopped={userStoppedModel} />;
   }
 
   return (
@@ -540,10 +558,13 @@ export default function ModelsDeployedCard(): JSX.Element {
       <DeleteModelDialog
         open={showDeleteModal}
         modelId={deleteTargetId || ""}
-        isLoading={isProcessingDelete}
-        deleteStep={deleteStep}
+        isLoading={deleteStream.status === "running"}
+        deleteStep={deleteStream.step}
+        streamStatus={deleteStream.status}
+        stepLogs={deleteStream.stepLogs}
+        errorMessage={deleteStream.errorMessage}
         onConfirm={handleConfirmDelete}
-        onCancel={() => !isProcessingDelete && setShowDeleteModal(false)}
+        onCancel={handleCloseDeleteModal}
       />
 
       <RegisterModelDialog
