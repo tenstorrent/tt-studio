@@ -207,6 +207,47 @@ _DOCKER_WORKFLOW_LOG_PATH_RE = re.compile(r"Running docker container with log fi
 # Host-setup / weights download hints (from tt-inference-server logs)
 _HF_DOWNLOAD_REPO_RE = re.compile(r"Downloading model from Hugging Face:\s*(?P<repo>[^\s]+)")
 _HOST_HF_HOME_RE = re.compile(r"HOST_HF_HOME set to\s*(?P<path>\S+)")
+_HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist for\s*(?P<model>.+?)\.")
+_PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
+
+
+def _resolve_preferred_host_volume() -> Tuple[Optional[str], str]:
+    """Resolve the preferred host-volume path for TT Inference Server.
+
+    Defer directory creation and permission repair to tt-inference-server's
+    setup validation. That path can create the directory and attempt chmod
+    fixes, while this FastAPI pre-check only decides whether to forward the
+    user's preferred path at all.
+    """
+    candidate = _PREFERRED_HOST_VOLUME_PATH.expanduser()
+
+    if candidate.exists() and not candidate.is_dir():
+        return None, f"{candidate} is not a directory"
+
+    resolved_candidate = candidate.resolve(strict=False)
+    return str(resolved_candidate), f"resolved preferred host-volume path {resolved_candidate}"
+
+
+def _strip_cli_option(argv: list[str], option: str) -> list[str]:
+    """Return argv without a single `--option value` pair."""
+    stripped_argv: list[str] = []
+    idx = 0
+    while idx < len(argv):
+        if argv[idx] == option:
+            idx += 2
+            continue
+        stripped_argv.append(argv[idx])
+        idx += 1
+    return stripped_argv
+
+
+def _job_has_host_volume_weights_warning(job_id: str) -> bool:
+    with progress_lock:
+        entries = list(log_store.get(job_id, []))
+    return any(
+        _HOST_VOLUME_WEIGHTS_MISSING_RE.search(entry.get("message", ""))
+        for entry in entries
+    )
 
 
 def _format_bytes(num_bytes: Optional[float]) -> str:
@@ -1035,46 +1076,65 @@ async def run_inference(request: RunRequest):
 
         
         # Convert the request to command line arguments
-        sys.argv = ["run.py"]  # Reset sys.argv
+        base_argv = ["run.py"]
         
         # Add required arguments
-        sys.argv.extend(["--model", request.model])
-        sys.argv.extend(["--workflow", request.workflow])
-        sys.argv.extend(["--device", normalized_device])
-        sys.argv.extend(["--docker-server"])
+        base_argv.extend(["--model", request.model])
+        base_argv.extend(["--workflow", request.workflow])
+        base_argv.extend(["--device", normalized_device])
+        base_argv.extend(["--docker-server"])
          # Add dev-mode if requested (used for auto-retry on failure)
         if request.dev_mode:
-            sys.argv.extend(["--dev-mode"])
+            base_argv.extend(["--dev-mode"])
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
         if request.skip_system_sw_validation:
-            sys.argv.extend(["--skip-system-sw-validation"])
-        sys.argv.extend(["--service-port", request.service_port or "7000"])
+            base_argv.extend(["--skip-system-sw-validation"])
+        base_argv.extend(["--service-port", request.service_port or "7000"])
         
         # Add optional arguments if they are set
         if request.impl:
-            sys.argv.extend(["--impl", request.impl])
+            base_argv.extend(["--impl", request.impl])
         if request.local_server:
-            sys.argv.append("--local-server")
+            base_argv.append("--local-server")
         if request.interactive:
-            sys.argv.append("--interactive")
+            base_argv.append("--interactive")
         if request.workflow_args:
-            sys.argv.extend(["--workflow-args", request.workflow_args])
+            base_argv.extend(["--workflow-args", request.workflow_args])
         if request.disable_trace_capture:
-            sys.argv.append("--disable-trace-capture")
+            base_argv.append("--disable-trace-capture")
         if request.override_docker_image:
-            sys.argv.extend(["--override-docker-image", request.override_docker_image])
+            base_argv.extend(["--override-docker-image", request.override_docker_image])
         if request.device_id:
-            sys.argv.extend(["--device-id", request.device_id])
+            base_argv.extend(["--device-id", request.device_id])
         if request.override_tt_config:
-            sys.argv.extend(["--override-tt-config", request.override_tt_config])
+            base_argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
-            sys.argv.extend(["--vllm-override-args", request.vllm_override_args])
+            base_argv.extend(["--vllm-override-args", request.vllm_override_args])
+
+        preferred_host_volume, host_volume_resolution_reason = _resolve_preferred_host_volume()
+        initial_argv = list(base_argv)
+        if preferred_host_volume:
+            initial_argv.extend(["--host-volume", preferred_host_volume])
+            logger.info(
+                "Job %s: starting in host-volume mode with %s (%s)",
+                job_id,
+                preferred_host_volume,
+                host_volume_resolution_reason,
+            )
+        else:
+            logger.info(
+                "Job %s: preferred host-volume unavailable, using baseline startup (%s)",
+                job_id,
+                host_volume_resolution_reason,
+            )
+
+        sys.argv = list(initial_argv)
 
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
             # Save global state (best-effort; TT Studio typically runs one deployment at a time)
-            prev_argv = list(sys.argv)
+            prev_argv = list(initial_argv)
             prev_cwd = Path.cwd()
             prev_env = os.environ.copy()
             run_logger = logging.getLogger("run_log")
@@ -1101,11 +1161,17 @@ async def run_inference(request: RunRequest):
 
                 def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
                     """Execute run_main() for one attempt and return (code, container_info)."""
+                    attempt_mode = "host-volume" if "--host-volume" in argv_for_attempt else "baseline"
                     sys.argv = argv_for_attempt
                     logger.info(
                         f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}"
                     )
-                    logger.info(f"Job {job_id}: Starting run_main(): {' '.join(argv_for_attempt)}")
+                    logger.info(
+                        "Job %s: Starting run_main() in %s mode: %s",
+                        job_id,
+                        attempt_mode,
+                        " ".join(argv_for_attempt),
+                    )
                     run_result = run_main()
                     if isinstance(run_result, tuple):
                         attempt_return_code, attempt_container_info = run_result
@@ -1119,6 +1185,9 @@ async def run_inference(request: RunRequest):
                 def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
                     retry_argv = list(sys.argv)
                     retry_reason_parts: list[str] = []
+                    if "--host-volume" in retry_argv:
+                        retry_argv = _strip_cli_option(retry_argv, "--host-volume")
+                        retry_reason_parts.append("baseline startup without --host-volume")
                     if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                         retry_argv.append("--skip-system-sw-validation")
                         retry_reason_parts.append("--skip-system-sw-validation")
@@ -1131,6 +1200,11 @@ async def run_inference(request: RunRequest):
                     # run_main() can raise directly (e.g. local setup validation errors)
                     # and bypass return-code based retry logic.
                     retry_argv, retry_reason = _build_retry_argv_and_reason()
+                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                        logger.warning(
+                            "Job %s: host-volume attempt logged a missing weights directory warning before the retry.",
+                            job_id,
+                        )
                     logger.warning(
                         "Job %s: first run raised (%s), retrying once with %s",
                         job_id,
@@ -1154,6 +1228,11 @@ async def run_inference(request: RunRequest):
                 # Retry once when the initial run fails.
                 if return_code != 0:
                     retry_argv, retry_reason = _build_retry_argv_and_reason()
+                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                        logger.warning(
+                            "Job %s: host-volume attempt logged a missing weights directory warning before the retry.",
+                            job_id,
+                        )
                     logger.warning(
                         "Job %s: first run failed (code %s), retrying once with %s",
                         job_id,
