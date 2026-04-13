@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 # docker_control/docker_utils.py
 import socket, os, subprocess, json, signal, time
+import ipaddress
 import copy
 from pathlib import Path
+from urllib.parse import urlunsplit
 
 import requests
 from django.core.cache import caches
@@ -27,7 +29,62 @@ logger.info(f"importing {__name__}")
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
-FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+_ALLOWED_INTERNAL_HTTP_HOSTS = {
+    "127.0.0.1",
+    "localhost",
+    "host.docker.internal",
+    "tt_studio_agent",
+    "172.18.0.1",
+}
+
+
+def _is_private_or_internal_host(host: str) -> bool:
+    if host in _ALLOWED_INTERNAL_HTTP_HOSTS:
+        return True
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # Docker Compose service names are plain hostnames without a public suffix.
+        return "." not in host
+
+    return address.is_private or address.is_loopback or address.is_link_local
+
+
+def _build_service_url(
+    *,
+    env_prefix: str,
+    default_host: str,
+    default_port: str,
+    path: str = "",
+) -> str:
+    scheme = os.getenv(f"{env_prefix}_SCHEME", "http").lower()
+    host = os.getenv(f"{env_prefix}_HOST", default_host)
+    port = os.getenv(f"{env_prefix}_PORT", default_port)
+
+    if scheme not in {"http", "https"}:
+        raise ValueError(f"Unsupported URL scheme for {env_prefix}: {scheme}")
+
+    # Plain HTTP is only allowed for trusted local/container-network services.
+    if scheme == "http" and not _is_private_or_internal_host(host):
+        raise ValueError(
+            f"{env_prefix} must use HTTPS for non-private hosts: {host}"
+        )
+
+    return urlunsplit((scheme, f"{host}:{port}", path, "", ""))
+
+
+FASTAPI_BASE_URL = _build_service_url(
+    env_prefix="TT_INFERENCE_SERVER",
+    default_host="172.18.0.1",
+    default_port="8001",
+)
+AGENT_REFRESH_URL = _build_service_url(
+    env_prefix="TT_STUDIO_AGENT",
+    default_host="tt_studio_agent",
+    default_port="8080",
+    path="/refresh",
+)
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
@@ -1141,8 +1198,7 @@ def notify_agent_of_new_container(container_name):
     """Notify the agent about a new container deployment"""
     try:
         import requests
-        agent_url = "http://tt_studio_agent:8080/refresh"
-        response = requests.post(agent_url, timeout=10)
+        response = requests.post(AGENT_REFRESH_URL, timeout=10)
         
         if response.status_code == 200:
             logger.info(f"Successfully notified agent about new container: {container_name}")
