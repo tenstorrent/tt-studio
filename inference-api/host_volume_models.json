@@ -1,0 +1,8 @@
+{
+  "models": [
+    "Qwen3-32B"
+  ],
+  "directory_overrides": {
+    "Qwen3-32B": "volume_id_tt_transformers-Qwen3-32B-vqb2_launch"
+  }
+}
