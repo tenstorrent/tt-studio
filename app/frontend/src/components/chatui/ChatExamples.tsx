@@ -6,7 +6,7 @@ import { Button } from "../ui/button";
 import {
   MessageCircle,
   Smile,
-  CloudSun,
+  Feather,
   Lightbulb,
   Code,
   Book,
@@ -32,8 +32,8 @@ const allExamples = [
     color: "text-red-500 dark:text-red-400",
   },
   {
-    icon: <CloudSun className="h-6 w-6" />,
-    text: "What's the weather like?",
+    icon: <Feather className="h-6 w-6" />,
+    text: "Write me a poem.",
     color: "text-yellow-500 dark:text-yellow-400",
   },
   {
