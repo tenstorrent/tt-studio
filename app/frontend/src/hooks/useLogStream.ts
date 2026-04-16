@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -27,6 +27,12 @@ export function useLogStream(
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutIdRef = useRef<number | null>(null);
+  const isLoadingRef = useRef(false);
+
+  const setLoading = (val: boolean) => {
+    isLoadingRef.current = val;
+    setIsLoading(val);
+  };
 
   const resetState = useCallback(() => {
     setLogs([]);
@@ -46,20 +52,20 @@ export function useLogStream(
         timeoutIdRef.current = null;
       }
       resetState();
-      setIsLoading(false);
+      setLoading(false);
       return;
     }
 
     // Avoid resetting visible UI when switching tabs; only when opening or id changes
     resetState();
-    setIsLoading(true);
+    setLoading(true);
 
     const endpoint = `/models-api/logs/${containerId}/`;
 
     timeoutIdRef.current = window.setTimeout(() => {
-      if (isLoading) {
+      if (isLoadingRef.current) {
         setError("Failed to connect to log stream. Please try again.");
-        setIsLoading(false);
+        setLoading(false);
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
           eventSourceRef.current = null;
@@ -73,7 +79,7 @@ export function useLogStream(
       });
 
       const connectionEstablished = () => {
-        setIsLoading(false);
+        setLoading(false);
         if (timeoutIdRef.current) {
           clearTimeout(timeoutIdRef.current);
           timeoutIdRef.current = null;
@@ -88,12 +94,37 @@ export function useLogStream(
         connectionEstablished();
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "log") {
-            setLogs((prev) => [...prev, data.message]);
-          } else if (data.type === "event") {
-            setEvents((prev) => [...prev, data.message]);
-          } else if (data.type === "metric") {
-            setMetrics((prev) => ({ ...prev, [data.name]: data.value }));
+          const msg = data.message;
+          switch (data.type) {
+            case "log":
+              setLogs((prev) => [...prev, msg]);
+              break;
+            case "event":
+              setEvents((prev) => [...prev, msg]);
+              break;
+            case "error":
+            case "warning":
+              // Errors and warnings appear in both logs and events
+              setLogs((prev) => [...prev, msg]);
+              setEvents((prev) => [...prev, msg]);
+              break;
+            case "service_unavailable":
+              setError(
+                data.message ||
+                  "The docker-control-service is not running. Start it on port 8002 and retry."
+              );
+              setLoading(false);
+              if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+                eventSourceRef.current = null;
+              }
+              break;
+            case "metric":
+              setMetrics((prev) => ({ ...prev, [data.name]: data.value }));
+              break;
+            default:
+              setLogs((prev) => [...prev, msg]);
+              break;
           }
         } catch {
           setLogs((prev) => [...prev, event.data]);
@@ -105,7 +136,7 @@ export function useLogStream(
           clearTimeout(timeoutIdRef.current);
           timeoutIdRef.current = null;
         }
-        if (isLoading) {
+        if (isLoadingRef.current) {
           setError(
             "Failed to connect to log stream. The container may have stopped."
           );
@@ -114,6 +145,7 @@ export function useLogStream(
             "Connection to log stream lost. The container may have stopped."
           );
         }
+        setLoading(false);
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
           eventSourceRef.current = null;
@@ -121,7 +153,7 @@ export function useLogStream(
       };
     } catch {
       setError("Failed to create log stream connection. Please try again.");
-      setIsLoading(false);
+      setLoading(false);
       if (timeoutIdRef.current) {
         clearTimeout(timeoutIdRef.current);
         timeoutIdRef.current = null;

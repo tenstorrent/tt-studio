@@ -20,7 +20,8 @@ services:
       - tt_studio_network
     ports:
       - "8000:8000"
-    command: gunicorn --workers 3 --bind 0.0.0.0:8000 --preload --timeout 1200 api.wsgi:application
+    command: >
+      uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 1200
     depends_on:
       tt_studio_chroma:
         condition: service_healthy
@@ -35,6 +36,7 @@ services:
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
       - BACKEND_API_HOSTNAME
       - JWT_SECRET
+      - TTS_API_KEY
       - TAVILY_API_KEY
       - CLOUD_CHAT_UI_URL
       - CLOUD_CHAT_UI_AUTH_TOKEN
@@ -58,7 +60,7 @@ services:
       # Mount the local api directory for live code changes
       - ./backend:/backend
       # Mount tt-inference-server workflow logs for viewing deployment logs
-      - ${TT_STUDIO_ROOT}/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/tt-inference-server/workflow_logs:ro
+      - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
 
     healthcheck:
       # On first application load resources for transformers/etc

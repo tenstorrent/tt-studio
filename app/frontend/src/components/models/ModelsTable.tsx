@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React from "react";
 import type { JSX } from "react";
@@ -12,7 +12,7 @@ import {
 } from "../ui/table";
 import {
   Activity,
-  Heart,
+  Cpu,
   Network,
   // Settings,
   Tag,
@@ -27,12 +27,63 @@ import type {
 import ContainerLogsCell from "./row-cells/ContainerLogsCell";
 import ModelNameCell from "./row-cells/ModelNameCell";
 import ImageCell from "./row-cells/ImageCell";
-import StatusCell from "./row-cells/StatusCell";
-import HealthCell from "./row-cells/HealthCell";
 import PortsCell from "./row-cells/PortsCell";
 import ManageCell from "./row-cells/ManageCell";
 import CopyableText from "../CopyableText";
 import { ChevronDown } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
+
+function HealthStatusCell({ health }: { health?: HealthStatus }) {
+  const status = health ?? "unknown";
+
+  const getBgColor = () => {
+    switch (status) {
+      case "healthy":
+        return "bg-[#4CAF50] text-white";
+      case "unhealthy":
+        return "bg-red-500 text-white";
+      default:
+        return "bg-yellow-500 text-white";
+    }
+  };
+
+  const getDotColor = () => {
+    switch (status) {
+      case "healthy":
+        return "bg-[#A5D6A7]";
+      case "unhealthy":
+        return "bg-red-300";
+      default:
+        return "bg-yellow-300";
+    }
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap leading-none ${getBgColor()} transition-colors duration-200`}
+            style={{ minHeight: 28 }}
+          >
+            <div
+              className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${status === "healthy" || status === "starting" ? "animate-pulse" : ""}`}
+            />
+            {status}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Model Health: {status}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 interface Props {
   rows: ModelRow[];
@@ -43,10 +94,9 @@ interface Props {
   onRedeploy: (image?: string) => void;
   onNavigateToModel: (id: string, name: string, navigate?: any) => void; // navigate optional for compatibility
   onOpenApi: (id: string) => void;
-  registerHealthRef: (id: string, node: any | null) => void;
-  onHealthChange: (id: string, h: HealthStatus) => void;
   refreshHealthById?: (id: string) => void;
   density?: "compact" | "normal" | "comfortable";
+  hideDeviceId?: boolean;
 }
 
 export default function ModelsTable({
@@ -57,11 +107,10 @@ export default function ModelsTable({
   onRedeploy,
   onNavigateToModel,
   onOpenApi,
-  registerHealthRef,
   healthMap,
-  onHealthChange,
   refreshHealthById,
   density = "normal",
+  hideDeviceId = false,
 }: Props): JSX.Element {
   const { containerId, image, ports } = visibleMap;
 
@@ -129,6 +178,15 @@ export default function ModelsTable({
             />
             Model Name
           </TableHead>
+          {!hideDeviceId && (
+            <TableHead className="text-right font-semibold">
+              <Cpu
+                className="inline-block mr-2 text-TT-purple-accent"
+                size={16}
+              />
+              Chip
+            </TableHead>
+          )}
           {image && (
             <TableHead className="text-right font-semibold">
               <div className="flex items-center">
@@ -146,13 +204,6 @@ export default function ModelsTable({
               size={16}
             />
             Status
-          </TableHead>
-          <TableHead className="text-right font-semibold">
-            <Heart
-              className="inline-block mr-2 text-TT-purple-accent"
-              size={16}
-            />
-            Health
           </TableHead>
           {ports && (
             <TableHead className="text-right font-semibold">
@@ -178,8 +229,8 @@ export default function ModelsTable({
           const isExpanded = !!expanded[row.id];
           const colCount =
             1 /* name */ +
+            (hideDeviceId ? 0 : 1) /* chip */ +
             1 /* status */ +
-            1 /* health */ +
             1 /* manage */ +
             (containerId ? 1 : 0) +
             (image ? 1 : 0) +
@@ -206,20 +257,25 @@ export default function ModelsTable({
                     <ModelNameCell name={row.name} />
                   </button>
                 </TableCell>
+                {!hideDeviceId && (
+                  <TableCell className="text-right">
+                    {row.device_id != null ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-full bg-TT-purple-shade/40 text-TT-purple border border-TT-purple-accent/30">
+                        <Cpu className="w-3 h-3" />
+                        Device {String(row.device_id).padStart(2, "0")}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">—</span>
+                    )}
+                  </TableCell>
+                )}
                 {image ? (
                   <TableCell className="text-right">
                     <ImageCell image={row.image} />
                   </TableCell>
                 ) : null}
                 <TableCell className="text-right">
-                  <StatusCell status={row.status} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <HealthCell
-                    id={row.id}
-                    register={registerHealthRef}
-                    onHealthChange={onHealthChange}
-                  />
+                  <HealthStatusCell health={healthMap[row.id]} />
                 </TableCell>
                 {ports ? (
                   <TableCell className="text-right">
@@ -231,6 +287,7 @@ export default function ModelsTable({
                     id={row.id}
                     name={row.name}
                     image={row.image}
+                    model_type={row.model_type}
                     health={healthMap[row.id]}
                     onDelete={onDelete}
                     onRedeploy={onRedeploy}
@@ -259,6 +316,12 @@ export default function ModelsTable({
                         </div>
                         <CopyableText text={row.image ?? ""} />
                       </div>
+                      {!hideDeviceId && (
+                        <div className="min-w-0">
+                          <div className="text-xs text-stone-500 mb-1">Device</div>
+                          <CopyableText text={row.device_id != null ? `Device ${row.device_id}` : "N/A"} />
+                        </div>
+                      )}
                       <div className="min-w-0">
                         <div className="text-xs text-stone-500 mb-1">Ports</div>
                         <CopyableText text={row.ports ?? ""} />
