@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+
 """
 startup_checks.py — Pre-flight freshness checks for tt-studio.
 
