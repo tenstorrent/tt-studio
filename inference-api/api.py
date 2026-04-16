@@ -104,7 +104,7 @@ workflows_log_setup.setup_run_logger = _patched_setup_run_logger
 # Import from tt-inference-server
 try:
     from run import main as run_main, WorkflowType, DeviceTypes  # noqa: E402
-    from workflows.model_spec import MODEL_SPECS  # noqa: E402
+    from workflows.model_spec import MODEL_SPECS, get_runtime_model_spec  # noqa: E402
 except ImportError as e:
     raise ImportError(
         f"Failed to import from tt-inference-server: {e}\n"
@@ -207,6 +207,242 @@ _DOCKER_WORKFLOW_LOG_PATH_RE = re.compile(r"Running docker container with log fi
 # Host-setup / weights download hints (from tt-inference-server logs)
 _HF_DOWNLOAD_REPO_RE = re.compile(r"Downloading model from Hugging Face:\s*(?P<repo>[^\s]+)")
 _HOST_HF_HOME_RE = re.compile(r"HOST_HF_HOME set to\s*(?P<path>\S+)")
+_HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist for\s*(?P<model>.+?)\.")
+_PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
+_HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
+_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
+_DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES = {
+    "qwen3-32b": "volume_id_tt_transformers-Qwen3-32B-vqb2_launch"
+}
+
+
+def _load_host_volume_model_config() -> Tuple[set[str], Dict[str, str]]:
+    try:
+        raw_config = json.loads(_HOST_VOLUME_MODELS_CONFIG_PATH.read_text())
+    except FileNotFoundError:
+        logging.getLogger(__name__).warning(
+            "Host-volume models config not found at %s; using default allowlist %s",
+            _HOST_VOLUME_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+        )
+        return (
+            set(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+            dict(_DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES),
+        )
+    except json.JSONDecodeError as exc:
+        logging.getLogger(__name__).warning(
+            "Host-volume models config at %s is invalid JSON (%s); using default allowlist %s",
+            _HOST_VOLUME_MODELS_CONFIG_PATH,
+            exc,
+            sorted(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+        )
+        return (
+            set(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+            dict(_DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES),
+        )
+
+    configured_models = raw_config.get("models")
+    if not isinstance(configured_models, list):
+        logging.getLogger(__name__).warning(
+            "Host-volume models config at %s is missing a 'models' list; using default allowlist %s",
+            _HOST_VOLUME_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+        )
+        return (
+            set(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+            dict(_DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES),
+        )
+
+    normalized_models = {
+        str(model_name).strip().lower()
+        for model_name in configured_models
+        if str(model_name).strip()
+    }
+    if not normalized_models:
+        logging.getLogger(__name__).warning(
+            "Host-volume models config at %s did not contain any usable model names; using default allowlist %s",
+            _HOST_VOLUME_MODELS_CONFIG_PATH,
+            sorted(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+        )
+        return (
+            set(_DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST),
+            dict(_DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES),
+        )
+
+    directory_overrides = dict(_DEFAULT_HOST_VOLUME_DIRECTORY_OVERRIDES)
+    raw_overrides = raw_config.get("directory_overrides", {})
+    if isinstance(raw_overrides, dict):
+        for model_name, directory_name in raw_overrides.items():
+            normalized_model_name = str(model_name).strip().lower()
+            normalized_directory_name = str(directory_name).strip()
+            if normalized_model_name and normalized_directory_name:
+                directory_overrides[normalized_model_name] = normalized_directory_name
+
+    logging.getLogger(__name__).info(
+        "Loaded host-volume model allowlist from %s: %s",
+        _HOST_VOLUME_MODELS_CONFIG_PATH,
+        sorted(normalized_models),
+    )
+    logging.getLogger(__name__).info(
+        "Loaded host-volume directory overrides from %s: %s",
+        _HOST_VOLUME_MODELS_CONFIG_PATH,
+        directory_overrides,
+    )
+    return normalized_models, directory_overrides
+
+
+_HOST_VOLUME_MODEL_ALLOWLIST, _HOST_VOLUME_DIRECTORY_OVERRIDES = (
+    _load_host_volume_model_config()
+)
+
+
+def _resolve_preferred_host_volume(
+    model_name: str, device: str, impl: Optional[str]
+) -> Tuple[Optional[str], Optional[Path], Optional[Path], Optional[Path], str]:
+    """Resolve the preferred host-volume root for preloaded Qwen data."""
+    candidate_root = _PREFERRED_HOST_VOLUME_PATH.expanduser()
+    resolved_candidate_root = candidate_root.resolve(strict=False)
+
+    try:
+        model_spec, _, _ = get_runtime_model_spec(model_name, device, impl=impl)
+    except Exception as exc:
+        return (
+            None,
+            None,
+            None,
+            None,
+            f"could not derive expected host-volume directory for {model_name} on {device}: {exc}",
+        )
+
+    normalized_model_name = (model_name or "").strip().lower()
+    directory_override = _HOST_VOLUME_DIRECTORY_OVERRIDES.get(normalized_model_name)
+    if directory_override:
+        expected_volume_dir = resolved_candidate_root / directory_override
+    else:
+        expected_volume_dir = (
+            resolved_candidate_root
+            / f"volume_id_{model_spec.impl.impl_id}-{model_spec.model_name}-v{model_spec.version}"
+        )
+    expected_weights_dir = expected_volume_dir / "weights" / model_spec.model_name
+    expected_tt_metal_cache_dir = expected_volume_dir / "tt_metal_cache"
+
+    if candidate_root.exists() and not candidate_root.is_dir():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"preferred host-volume root {resolved_candidate_root} is not a directory",
+        )
+    if not expected_volume_dir.exists():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected preloaded host-volume directory is missing: {expected_volume_dir}",
+        )
+    if not expected_volume_dir.is_dir():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected preloaded host-volume path is not a directory: {expected_volume_dir}",
+        )
+    if not expected_weights_dir.exists():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected preloaded weights directory is missing: {expected_weights_dir}",
+        )
+    if not expected_weights_dir.is_dir():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected preloaded weights path is not a directory: {expected_weights_dir}",
+        )
+    if not expected_tt_metal_cache_dir.exists():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected tt_metal_cache directory is missing: {expected_tt_metal_cache_dir}",
+        )
+    if not expected_tt_metal_cache_dir.is_dir():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected tt_metal_cache path is not a directory: {expected_tt_metal_cache_dir}",
+        )
+    if not (expected_weights_dir / "config.json").exists():
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected config.json is missing from preloaded weights directory: {expected_weights_dir}",
+        )
+    if not (
+        (expected_weights_dir / "tokenizer.json").exists()
+        or (expected_weights_dir / "tokenizer_config.json").exists()
+    ):
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected tokenizer.json or tokenizer_config.json is missing from preloaded weights directory: {expected_weights_dir}",
+        )
+    if not list(expected_weights_dir.glob("model*.safetensors")):
+        return (
+            None,
+            expected_volume_dir,
+            expected_weights_dir,
+            expected_tt_metal_cache_dir,
+            f"expected model*.safetensors files are missing from preloaded weights directory: {expected_weights_dir}",
+        )
+
+    return (
+        str(resolved_candidate_root),
+        expected_volume_dir,
+        expected_weights_dir,
+        expected_tt_metal_cache_dir,
+        f"accepted expected preloaded host-volume layout: volume_dir={expected_volume_dir}, weights_dir={expected_weights_dir}, tt_metal_cache_dir={expected_tt_metal_cache_dir}",
+    )
+
+
+def _model_uses_preferred_host_volume(model_name: str) -> bool:
+    return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
+
+
+def _strip_cli_option(argv: list[str], option: str) -> list[str]:
+    """Return argv without a single `--option value` pair."""
+    stripped_argv: list[str] = []
+    idx = 0
+    while idx < len(argv):
+        if argv[idx] == option:
+            idx += 2
+            continue
+        stripped_argv.append(argv[idx])
+        idx += 1
+    return stripped_argv
+
+
+def _job_has_host_volume_weights_warning(job_id: str) -> bool:
+    with progress_lock:
+        entries = list(log_store.get(job_id, []))
+    return any(
+        _HOST_VOLUME_WEIGHTS_MISSING_RE.search(entry.get("message", ""))
+        for entry in entries
+    )
 
 
 def _format_bytes(num_bytes: Optional[float]) -> str:
@@ -1035,46 +1271,88 @@ async def run_inference(request: RunRequest):
 
         
         # Convert the request to command line arguments
-        sys.argv = ["run.py"]  # Reset sys.argv
+        base_argv = ["run.py"]
         
         # Add required arguments
-        sys.argv.extend(["--model", request.model])
-        sys.argv.extend(["--workflow", request.workflow])
-        sys.argv.extend(["--device", normalized_device])
-        sys.argv.extend(["--docker-server"])
+        base_argv.extend(["--model", request.model])
+        base_argv.extend(["--workflow", request.workflow])
+        base_argv.extend(["--device", normalized_device])
+        base_argv.extend(["--docker-server"])
          # Add dev-mode if requested (used for auto-retry on failure)
         if request.dev_mode:
-            sys.argv.extend(["--dev-mode"])
+            base_argv.extend(["--dev-mode"])
         # Skip system software validation if requested (handles prerelease versions like '2.6.0-rc1')
         if request.skip_system_sw_validation:
-            sys.argv.extend(["--skip-system-sw-validation"])
-        sys.argv.extend(["--service-port", request.service_port or "7000"])
+            base_argv.extend(["--skip-system-sw-validation"])
+        base_argv.extend(["--service-port", request.service_port or "7000"])
         
         # Add optional arguments if they are set
         if request.impl:
-            sys.argv.extend(["--impl", request.impl])
+            base_argv.extend(["--impl", request.impl])
         if request.local_server:
-            sys.argv.append("--local-server")
+            base_argv.append("--local-server")
         if request.interactive:
-            sys.argv.append("--interactive")
+            base_argv.append("--interactive")
         if request.workflow_args:
-            sys.argv.extend(["--workflow-args", request.workflow_args])
+            base_argv.extend(["--workflow-args", request.workflow_args])
         if request.disable_trace_capture:
-            sys.argv.append("--disable-trace-capture")
+            base_argv.append("--disable-trace-capture")
         if request.override_docker_image:
-            sys.argv.extend(["--override-docker-image", request.override_docker_image])
+            base_argv.extend(["--override-docker-image", request.override_docker_image])
         if request.device_id:
-            sys.argv.extend(["--device-id", request.device_id])
+            base_argv.extend(["--device-id", request.device_id])
         if request.override_tt_config:
-            sys.argv.extend(["--override-tt-config", request.override_tt_config])
+            base_argv.extend(["--override-tt-config", request.override_tt_config])
         if request.vllm_override_args:
-            sys.argv.extend(["--vllm-override-args", request.vllm_override_args])
+            base_argv.extend(["--vllm-override-args", request.vllm_override_args])
+
+        preferred_host_volume = None
+        expected_host_volume_dir: Optional[Path] = None
+        expected_host_weights_dir: Optional[Path] = None
+        expected_host_tt_metal_cache_dir: Optional[Path] = None
+        host_volume_resolution_reason = "model not in host-volume allowlist"
+        if _model_uses_preferred_host_volume(request.model):
+            (
+                preferred_host_volume,
+                expected_host_volume_dir,
+                expected_host_weights_dir,
+                expected_host_tt_metal_cache_dir,
+                host_volume_resolution_reason,
+            ) = _resolve_preferred_host_volume(
+                request.model, normalized_device, request.impl
+            )
+        initial_argv = list(base_argv)
+        if expected_host_volume_dir is not None:
+            logger.info(
+                "Job %s: checking Qwen preloaded host-volume layout: volume_dir=%s, weights_dir=%s, tt_metal_cache_dir=%s",
+                job_id,
+                expected_host_volume_dir,
+                expected_host_weights_dir,
+                expected_host_tt_metal_cache_dir,
+            )
+        if preferred_host_volume:
+            initial_argv.extend(["--host-volume", preferred_host_volume])
+            logger.info(
+                "Job %s: Qwen preloaded host-volume directory accepted: %s; using --host-volume %s (%s)",
+                job_id,
+                expected_host_volume_dir,
+                preferred_host_volume,
+                host_volume_resolution_reason,
+            )
+        else:
+            logger.info(
+                "Job %s: using baseline startup without host-volume (%s)",
+                job_id,
+                host_volume_resolution_reason,
+            )
+
+        sys.argv = list(initial_argv)
 
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
             # Save global state (best-effort; TT Studio typically runs one deployment at a time)
-            prev_argv = list(sys.argv)
+            prev_argv = list(initial_argv)
             prev_cwd = Path.cwd()
             prev_env = os.environ.copy()
             run_logger = logging.getLogger("run_log")
@@ -1101,11 +1379,17 @@ async def run_inference(request: RunRequest):
 
                 def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
                     """Execute run_main() for one attempt and return (code, container_info)."""
+                    attempt_mode = "host-volume" if "--host-volume" in argv_for_attempt else "baseline"
                     sys.argv = argv_for_attempt
                     logger.info(
                         f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}"
                     )
-                    logger.info(f"Job {job_id}: Starting run_main(): {' '.join(argv_for_attempt)}")
+                    logger.info(
+                        "Job %s: Starting run_main() in %s mode: %s",
+                        job_id,
+                        attempt_mode,
+                        " ".join(argv_for_attempt),
+                    )
                     run_result = run_main()
                     if isinstance(run_result, tuple):
                         attempt_return_code, attempt_container_info = run_result
@@ -1119,6 +1403,9 @@ async def run_inference(request: RunRequest):
                 def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
                     retry_argv = list(sys.argv)
                     retry_reason_parts: list[str] = []
+                    if "--host-volume" in retry_argv:
+                        retry_argv = _strip_cli_option(retry_argv, "--host-volume")
+                        retry_reason_parts.append("baseline startup without --host-volume")
                     if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
                         retry_argv.append("--skip-system-sw-validation")
                         retry_reason_parts.append("--skip-system-sw-validation")
@@ -1131,6 +1418,13 @@ async def run_inference(request: RunRequest):
                     # run_main() can raise directly (e.g. local setup validation errors)
                     # and bypass return-code based retry logic.
                     retry_argv, retry_reason = _build_retry_argv_and_reason()
+                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                        logger.warning(
+                            "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
+                            job_id,
+                            expected_host_volume_dir,
+                            expected_host_weights_dir,
+                        )
                     logger.warning(
                         "Job %s: first run raised (%s), retrying once with %s",
                         job_id,
@@ -1154,6 +1448,13 @@ async def run_inference(request: RunRequest):
                 # Retry once when the initial run fails.
                 if return_code != 0:
                     retry_argv, retry_reason = _build_retry_argv_and_reason()
+                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                        logger.warning(
+                            "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
+                            job_id,
+                            expected_host_volume_dir,
+                            expected_host_weights_dir,
+                        )
                     logger.warning(
                         "Job %s: first run failed (code %s), retrying once with %s",
                         job_id,

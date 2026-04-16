@@ -20,6 +20,8 @@ export interface ModelsContextType {
   setModels: React.Dispatch<React.SetStateAction<Model[]>>;
   refreshModels: () => Promise<void>;
   hasDeployedModels: boolean;
+  userStoppedModel: boolean;
+  setUserStoppedModel: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export const ModelsContext = createContext<ModelsContextType | undefined>(
