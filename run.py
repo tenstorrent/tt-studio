@@ -49,6 +49,7 @@ except ImportError:
     HAS_REQUESTS = False
 
 from venv_utils import recreate_venv_if_stale, print_manual_fix_steps
+from startup_checks import check_startup_freshness
 
 # --- Color Definitions ---
 C_RESET = '\033[0m'
@@ -4274,6 +4275,7 @@ def main():
             return
         
         display_welcome_banner()
+        check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
 
         # Get git hash for startup log
         try:
