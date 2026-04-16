@@ -5,6 +5,8 @@
 # model_control/views.py
 import os
 from pathlib import Path
+import asyncio
+import threading
 import requests
 from PIL import Image
 import io
@@ -16,8 +18,10 @@ import jwt
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.http import StreamingHttpResponse
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse, HttpResponse, JsonResponse
+from django.views import View
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.renderers import JSONRenderer
 from rest_framework.parsers import JSONParser
 from rest_framework.negotiation import DefaultContentNegotiation
@@ -42,6 +46,9 @@ from .serializers import InferenceSerializer, ModelWeightsSerializer
 from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
+    get_model_name_from_container,
+    get_max_tokens_limit,
+    messages_to_prompt,
     stream_response_from_external_api,
     stream_response_from_agent_api,
     health_check,
@@ -57,6 +64,7 @@ logger.info(f"importing {__name__}")
 
 
 
+TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
 CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
@@ -67,74 +75,104 @@ CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_
 CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
 CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 
-class InferenceCloudView(APIView):
-    def post(self, request, *args, **kwargs):
-        data = request.data
+@method_decorator(csrf_exempt, name="dispatch")
+class InferenceCloudView(View):
+    async def post(self, request, *args, **kwargs):
+        data = json.loads(request.body)
         logger.info(f"InferenceCloudView data:={data}")
-        response_stream = stream_to_cloud_model(CLOUD_CHAT_UI_URL, data)
-        return StreamingHttpResponse(response_stream, content_type="text/plain")
 
-class InferenceView(APIView):
-    def post(self, request, *args, **kwargs):
-        data = request.data
+        async def generate():
+            async for chunk in stream_to_cloud_model(CLOUD_CHAT_UI_URL, data):
+                yield chunk
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+@method_decorator(csrf_exempt, name="dispatch")
+class InferenceView(View):
+    async def post(self, request, *args, **kwargs):
+        data = json.loads(request.body)
         logger.info(f"InferenceView data:={data}")
         serializer = InferenceSerializer(data=data)
-        if serializer.is_valid():
-            deploy_id = data.pop("deploy_id")
-            deploy = get_deploy_cache()[deploy_id]
-            internal_url = "http://" + deploy["internal_url"]
-            logger.info(f"internal_url:= {internal_url}")
-            logger.info(f"using vllm model:= {deploy["model_impl"].model_name}")
-            data["model"] = deploy["model_impl"].hf_model_id
-            
-            # Create a generator that can be cancelled
-            def generate_response():
-                try:
-                    for chunk in stream_response_from_external_api(internal_url, data):
-                        yield chunk
-                except Exception as e:
-                    logger.error(f"Error in stream: {str(e)}")
-                    yield f"error: {str(e)}"
-            
-            response = StreamingHttpResponse(generate_response(), content_type="text/plain")
-            return response
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-class AgentView(APIView):
-    def post(self, request, *agrs, **kwargs):
-        logger.info('[TRACE_FLOW_STEP_2_BACKEND_AGENT_ENTRY] AgentView.post called', extra={'request_data': request.data})        
-        data = request.data.copy()  # Make a copy to avoid modifying the original
+        if not serializer.is_valid():
+            return JsonResponse(serializer.errors, status=400)
+
+        deploy_id = data.pop("deploy_id")
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        logger.info(f"internal_url:= {internal_url}")
+        logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
+        data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+            deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+        )
+
+        # Clamp max_tokens to 75% of the model's context window so there is
+        # always headroom for input tokens (conversation history, system prompt, etc).
+        # Falls back to a param_count-based estimate when max_model_len is not yet cached.
+        raw_limit = deploy.get("max_model_len") or get_max_tokens_limit(deploy["model_impl"].param_count)
+        max_tokens_limit = max(1, raw_limit * 3 // 4)
+        if data.get("max_tokens"):
+            data["max_tokens"] = min(int(data["max_tokens"]), max_tokens_limit)
+
+        # Route base/completion models to /v1/completions with a plain prompt
+        service_route = deploy["model_impl"].service_route
+        logger.info(f"service_route:= {service_route}")
+        if service_route == "/v1/completions":
+            messages = data.pop("messages", [])
+            data["prompt"] = messages_to_prompt(messages)
+            data.pop("stream_options", None)
+
+        async def generate():
+            try:
+                async for chunk in stream_response_from_external_api(internal_url, data):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error in stream: {str(e)}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+@method_decorator(csrf_exempt, name="dispatch")
+class AgentView(View):
+    async def post(self, request, *args, **kwargs):
+        logger.info('[TRACE_FLOW_STEP_2_BACKEND_AGENT_ENTRY] AgentView.post called')
+        data = json.loads(request.body)
         logger.info(f"AgentView data:={data}")
-        
-        # For agent requests, we don't need to validate deploy_id since agents can work with cloud models
+
         deploy_id = data.get("deploy_id", "")
         logger.info(f"Deploy ID: {deploy_id}")
-        
-        # Check if we have a valid deployment, if not, proceed without it (for cloud/agent mode)
+
         deploy_cache = get_deploy_cache()
         if deploy_id and deploy_id in deploy_cache:
             deploy = deploy_cache[deploy_id]
             logger.info(f"using vllm model:= {deploy['model_impl'].model_name}")
-            data["model"] = deploy["model_impl"].hf_model_id
+            data["model"] = deploy.get("cached_model_name") or get_model_name_from_container(
+                deploy["internal_url"], fallback=deploy["model_impl"].hf_model_id
+            )
         else:
             logger.info("No valid deployment found, proceeding with agent-only mode (cloud LLM)")
-            # Remove deploy_id from data since it's not needed for agent
             data.pop("deploy_id", None)
-        
-        # Use the enhanced agent service with discovery capabilities
+
         agent_url = "http://tt_studio_agent:8080/poll_requests"
         logger.info(f"agent_url:= {agent_url}")
-        logger.info(f"Using enhanced agent with auto-discovery: {agent_url}")
-        
-        # Add agent-specific metadata to help with discovery
+
         if not deploy_id:
-            # If no specific deploy_id, let the agent use its discovery mechanism
             data["use_agent_discovery"] = True
             logger.info("Enabling agent auto-discovery mode")
-        
-        response_stream = stream_response_from_agent_api(agent_url, data)
-        return StreamingHttpResponse(response_stream, content_type="text/plain")
+
+        async def generate():
+            async for chunk in stream_response_from_agent_api(agent_url, data):
+                yield chunk
+
+        response = StreamingHttpResponse(generate(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
 
 class AgentStatusView(APIView):
@@ -195,9 +233,12 @@ class ModelHealthView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             health_url = "http://" + deploy["health_url"]
             check_passed, health_content = health_check(health_url, json_data=None)
-            if check_passed:
+            if check_passed is True:
                 ret_status = status.HTTP_200_OK
                 content = {"message": "Healthy", "details": health_content}
+            elif check_passed is None:
+                ret_status = status.HTTP_202_ACCEPTED
+                content = {"message": "Starting", "details": health_content}
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
                 content = {"message": "Unavailable", "details": health_content}
@@ -401,9 +442,14 @@ class SpeechRecognitionInferenceView(APIView):
             audio_file = data.get("file")  # we should only receive 1 file
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
                 inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
                 inference_data.raise_for_status()
             except requests.exceptions.HTTPError as http_err:
@@ -443,7 +489,12 @@ class SpeechRecognitionInferenceCloudView(APIView):
         else:
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
-            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
         file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
         
@@ -460,6 +511,161 @@ class SpeechRecognitionInferenceCloudView(APIView):
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+class FaceRecognitionRecognizeView(APIView):
+    """Proxy view for face recognition - recognize faces in an image"""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+
+        deploy_id = data.get("deploy_id")
+        image = data.get("image")
+        if not image:
+            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            internal_url = f"{base_url}/recognize-face"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            files = {"image": (image.name, image.file, image.content_type)}
+            inference_data = requests.post(internal_url, files=files, headers=headers, timeout=30)
+            inference_data.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response({"error": "Models not loaded"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            else:
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face recognition error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+
+class FaceRecognitionRegisterView(APIView):
+    """Proxy view for face recognition - register a new face"""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+
+        deploy_id = data.get("deploy_id")
+        image = data.get("image")
+        name = data.get("name")
+
+        if not image:
+            return Response({"error": "image is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            internal_url = f"{base_url}/register-face"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            files = {"image": (image.name, image.file, image.content_type)}
+            form_data = {"name": name}
+            inference_data = requests.post(internal_url, files=files, data=form_data, headers=headers, timeout=30)
+            inference_data.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif inference_data.status_code == status.HTTP_409_CONFLICT:
+                return Response({"error": "Identity already exists"}, status=status.HTTP_409_CONFLICT)
+            elif inference_data.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response({"error": "Models not loaded"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            else:
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face registration error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(inference_data.json(), status=status.HTTP_200_OK)
+
+
+class FaceRecognitionListView(APIView):
+    """Proxy view for face recognition - list registered faces"""
+    def get(self, request, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        logger.info(f"{self.__class__.__name__} deploy_id:={deploy_id}")
+
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            internal_url = f"{base_url}/registered-faces"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            response = requests.get(internal_url, headers=headers, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face list error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(response.json(), status=status.HTTP_200_OK)
+
+
+class FaceRecognitionDeleteView(APIView):
+    """Proxy view for face recognition - delete a registered face"""
+    def delete(self, request, name, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        logger.info(f"{self.__class__.__name__} deploy_id:={deploy_id} name:={name}")
+
+        if not deploy_id or deploy_id == "null":
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not name:
+            return Response({"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            deploy = get_deploy_cache()[deploy_id]
+            base_url = "http://" + deploy["internal_url"].rsplit('/', 1)[0]
+            internal_url = f"{base_url}/registered-faces/{name}"
+        except KeyError:
+            return Response({"error": f"No deployment found for {deploy_id}"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            response = requests.delete(internal_url, headers=headers, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.Timeout:
+            return Response({"error": "Request timeout"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+        except requests.exceptions.HTTPError:
+            if response.status_code == status.HTTP_404_NOT_FOUND:
+                return Response({"error": f"Identity '{name}' not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Face delete error: {e}")
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(response.json(), status=status.HTTP_200_OK)
+
 
 class ImageGenerationInferenceCloudView(APIView):
     def post(self, request, *args, **kwargs):
@@ -555,9 +761,14 @@ class SpeechRecognitionInferenceView(APIView):
             audio_file = data.get("file")  # we should only receive 1 file
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
                 inference_data = requests.post(internal_url, files=file, headers=headers, timeout=5)
                 inference_data.raise_for_status()
             except requests.exceptions.HTTPError as http_err:
@@ -597,7 +808,12 @@ class SpeechRecognitionInferenceCloudView(APIView):
         else:
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
-            headers = {"Authorization": f"Bearer {encoded_jwt}"}
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
         file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
         
@@ -615,10 +831,114 @@ class SpeechRecognitionInferenceCloudView(APIView):
 
         return Response(inference_data.json(), status=status.HTTP_200_OK)
 
+class TtsInferenceView(APIView):
+    """Text-to-speech inference: supports both OpenAI-style and enqueue-style endpoints."""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        logger.info(f"{self.__class__.__name__} data:={data}")
+        serializer = InferenceSerializer(data=data)
+        if serializer.is_valid():
+            deploy_id = data.get("deploy_id")
+            text = data.get("text") or data.get("prompt")
+            if not text:
+                return Response({"error": "text is required"}, status=status.HTTP_400_BAD_REQUEST)
+            deploy = get_deploy_cache()[deploy_id]
+            internal_url = "http://" + deploy["internal_url"]
+            try:
+                model_impl = deploy.get("model_impl")
+                model_name = getattr(model_impl, "model_name", None) if model_impl else None
+                inference_engine = getattr(model_impl, "inference_engine", None)
+                
+                if inference_engine == "media":
+                    headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                    payload = {"model": model_name, "text": text, "voice": "default"}
+                else:
+                    headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                    payload = {"model": model_name, "input": text, "voice": "default"}
+                
+                audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
+                
+                # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
+                if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
+                    logger.info(f"TTS 404 on {internal_url}, retrying with /v1/audio/speech")
+                    fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
+                    audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
+                
+                audio_resp.raise_for_status()
+
+                content_type = audio_resp.headers.get("Content-Type", "audio/wav")
+                django_response = HttpResponse(audio_resp.content, content_type=content_type)
+                django_response["Content-Disposition"] = "attachment; filename=tts_output.wav"
+                django_response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                return django_response
+
+            except requests.exceptions.HTTPError as http_err:
+                logger.error(f"TTS HTTP error: {http_err}")
+                return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class OpenAIAudioSpeechView(APIView):
+    """OpenAI-compatible POST /v1/audio/speech — looks up deployed TTS model by name."""
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        model_name = data.get("model")
+        text = data.get("input") or data.get("text")
+        if not model_name:
+            return Response({"error": "model is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not text:
+            return Response({"error": "input is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find a running TTS deployment matching the requested model name
+        deploy = None
+        for entry in get_deploy_cache().values():
+            impl = entry.get("model_impl")
+            if impl and getattr(impl, "model_name", None) == model_name:
+                deploy = entry
+                break
+        if deploy is None:
+            return Response(
+                {"error": f"No running deployment found for model '{model_name}'"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        internal_url = "http://" + deploy["internal_url"]
+        try:
+            model_impl = deploy.get("model_impl")
+            inference_engine = getattr(model_impl, "inference_engine", None)
+            
+            if inference_engine == "media":
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
+            else:
+                headers = {"Authorization": f"Bearer {encoded_jwt}"}
+                payload = {"model": model_name, "input": text, "voice": data.get("voice", "default")}
+            
+            audio_resp = requests.post(internal_url, json=payload, headers=headers, timeout=120)
+            
+            # If 404 on /enqueue for TTS media model, retry with /v1/audio/speech
+            if audio_resp.status_code == 404 and inference_engine == "media" and "/enqueue" in internal_url:
+                logger.info(f"OpenAI audio/speech 404 on {internal_url}, retrying with /v1/audio/speech")
+                fallback_url = internal_url.replace("/enqueue", "/v1/audio/speech")
+                audio_resp = requests.post(fallback_url, json=payload, headers=headers, timeout=120)
+            
+            audio_resp.raise_for_status()
+
+            content_type = audio_resp.headers.get("Content-Type", "audio/wav")
+            django_response = HttpResponse(audio_resp.content, content_type=content_type)
+            django_response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"OpenAI audio/speech HTTP error: {http_err}")
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ContainerLogsView(View):
     # Define event detection configuration before the get method
     SIMPLE_EVENT_KEYWORDS = [
-        '[ERROR]', '[FATAL]', '[CRITICAL]', 
+        '[ERROR]', '[FATAL]', '[CRITICAL]',
         '[WARN]', '[WARNING]',
         'RESPONSE_Q OUT OF SYNC',
         'ABORTED', 'CORE DUMPED',
@@ -684,7 +1004,7 @@ class ContainerLogsView(View):
         
         return "log"
     
-    def get(self, request, container_id, *args, **kwargs):
+    async def get(self, request, container_id, *args, **kwargs):
         """Stream logs from a Docker container using Server-Sent Events via docker-control-service"""
         logger.info(f"ContainerLogsView received request for container_id: {container_id}")
 
@@ -695,21 +1015,50 @@ class ContainerLogsView(View):
 
             logger.info(f"Setting up log stream for container: {container_id}")
 
-            def generate_container_data():
-                try:
-                    # Stream logs from docker-control-service
-                    # The docker-control-service already formats logs as SSE, so we just proxy them
-                    for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
-                        yield log_line
+            async def generate_container_data():
+                queue: asyncio.Queue = asyncio.Queue()
+                loop = asyncio.get_running_loop()
 
-                except Exception as e:
-                    logger.error(f"Error in data stream: {str(e)}")
-                    error_data = {
-                        "type": "error",
-                        "message": f"Error streaming data: {str(e)}",
-                        "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                def sync_stream():
+                    try:
+                        for log_line in client.get_logs_stream(container_id, follow=True, tail=100):
+                            loop.call_soon_threadsafe(queue.put_nowait, log_line)
+
+                    except requests.exceptions.ConnectionError as e:
+                        logger.error(f"docker-control-service unreachable: {str(e)}")
+                        error_data = {
+                            "type": "service_unavailable",
+                            "message": "Cannot reach the docker-control-service (port 8002). Make sure it is running on the host.",
+                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                        )
+
+                    except Exception as e:
+                        logger.error(f"Error in data stream: {str(e)}")
+                        error_data = {
+                            "type": "error",
+                            "message": f"Error streaming data: {str(e)}",
+                            "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+                        )
+
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+                thread = threading.Thread(target=sync_stream, daemon=True)
+                thread.start()
+
+                while True:
+                    chunk = await queue.get()
+                    if chunk is None:
+                        break
+                    yield chunk
 
             response = StreamingHttpResponse(
                 generate_container_data(),
@@ -724,10 +1073,19 @@ class ContainerLogsView(View):
 
         except Exception as e:
             logger.error(f"Error streaming container data: {str(e)}")
-            return HttpResponse(
-                status=500,
-                content=str(e)
-            )
+
+            async def error_stream():
+                error_data = {
+                    "type": "service_unavailable",
+                    "message": f"Failed to initialize log stream: {str(e)}",
+                    "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+
+            response = StreamingHttpResponse(error_stream(), content_type='text/event-stream')
+            response['Cache-Control'] = 'no-cache, no-transform'
+            response['X-Accel-Buffering'] = 'no'
+            return response
 
 
 class ModelAPIInfoView(APIView):

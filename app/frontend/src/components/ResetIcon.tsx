@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import axios from "axios";
-import { Cpu, CheckCircle, AlertTriangle } from "lucide-react";
+import {
+  Cpu,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Loader2,
+  Trash2,
+  RotateCcw,
+  ChevronDown,
+} from "lucide-react";
 import { Spinner } from "./ui/spinner";
-import { customToast } from "./CustomToaster";
 import { useTheme } from "../hooks/useTheme";
 import { Button } from "./ui/button";
 import {
@@ -15,372 +23,569 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogDescription,
 } from "./ui/dialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "./ui/accordion";
 import { ScrollArea } from "./ui/scroll-area";
 import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
+import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
+import MultiCardResetDialog from "./MultiCardResetDialog";
+
+// Board types that have multiple individually-resettable chips
+const MULTI_CHIP_BOARDS = new Set([
+  "T3K", "T3000", "N150X4", "N300x4",
+  "P150X4", "P150X8", "P300Cx2", "P300Cx4",
+  "GALAXY", "GALAXY_T3K",
+]);
+
+type ResetStep = "deleting" | "resetting" | "done" | "failed" | null;
 
 interface ResetIconProps {
   onReset?: () => void;
 }
 
-// Board info interface
-interface BoardInfo {
-  type: string;
-  name: string;
+// ── Shared step-row (mirrors DeleteModelDialog) ──────────────────────────────
+function StepRow({
+  number,
+  icon,
+  label,
+  sublabel,
+  state,
+}: {
+  number: number;
+  icon: React.ReactNode;
+  label: string;
+  sublabel?: string;
+  state: "pending" | "active" | "done" | "skipped";
+}) {
+  return (
+    <div
+      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${
+        state === "active"
+          ? "bg-blue-900/30 border-blue-500/40"
+          : state === "done"
+            ? "bg-green-900/20 border-green-600/30"
+            : state === "skipped"
+              ? "bg-stone-800/30 border-stone-700/30"
+              : "bg-stone-800/50 border-stone-700/40"
+      }`}
+    >
+      <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
+        {state === "active" ? (
+          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+        ) : state === "done" ? (
+          <CheckCircle className="w-5 h-5 text-green-400" />
+        ) : state === "skipped" ? (
+          <CheckCircle className="w-5 h-5 text-stone-500" />
+        ) : (
+          <div className="w-6 h-6 rounded-full bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-300">
+            {number}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div
+          className={`font-medium text-sm inline-flex items-center gap-1.5 ${
+            state === "pending" || state === "skipped"
+              ? "text-stone-400"
+              : "text-white"
+          }`}
+        >
+          {icon}
+          {label}
+        </div>
+        {sublabel && state === "active" && (
+          <div className="text-xs text-blue-300 mt-1">{sublabel}</div>
+        )}
+        {state === "done" && (
+          <div className="text-xs text-green-400 mt-0.5">Completed</div>
+        )}
+        {state === "skipped" && (
+          <div className="text-xs text-stone-500 mt-0.5">
+            No models deployed — skipped
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
+// ── Board status banner ───────────────────────────────────────────────────────
+function BoardStatusBanner({
+  state,
+  boardType,
+}: {
+  state: string;
+  boardType: string;
+}) {
+  if (state === "BAD_STATE") {
+    return (
+      <div className="flex items-start gap-3 p-3 bg-orange-900/30 border border-orange-500/40 rounded-lg text-orange-200 text-sm">
+        <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
+        <div>
+          <strong className="text-orange-300">Board unresponsive</strong>
+          <p className="mt-0.5 text-orange-200/80">
+            The board is present but not responding. A reset is strongly
+            recommended.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (state === "NOT_PRESENT") {
+    return (
+      <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg text-red-200 text-sm">
+        <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+        <div>
+          <strong className="text-red-300">No device detected</strong>
+          <p className="mt-0.5 text-red-200/80">
+            <code className="bg-red-900/50 px-1 rounded">/dev/tenstorrent</code>{" "}
+            not found. Check your hardware connection.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  if (state === "HEALTHY" && boardType !== "unknown") {
+    return (
+      <div className="flex items-center gap-2 p-3 bg-green-900/20 border border-green-600/30 rounded-lg text-green-200 text-sm">
+        <CheckCircle className="h-4 w-4 text-green-400 shrink-0" />
+        <span>
+          Board is <strong className="text-green-300">healthy</strong> — reset
+          is available if needed.
+        </span>
+      </div>
+    );
+  }
+  return null;
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 const ResetIcon: React.FC<ResetIconProps> = ({ onReset }) => {
   const { theme } = useTheme();
-  const { refreshModels } = useModels();
-  const [isLoading, setIsLoading] = useState(false);
-  const [isCompleted, setIsCompleted] = useState(false);
+  const { models, refreshModels } = useModels();
+  const { deviceState, refresh: refreshDeviceState } = useDeviceState();
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isMultiCardOpen, setIsMultiCardOpen] = useState(false);
+  const [resetStep, setResetStep] = useState<ResetStep>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [cmdOutput, setCmdOutput] = useState<string | null>(null);
+  const [showOutput, setShowOutput] = useState(false);
   const [resetHistory, setResetHistory] = useState<Date[]>([]);
-  const [fullOutput, setFullOutput] = useState<string | null>(null);
-  const [boardInfo, setBoardInfo] = useState<BoardInfo | null>(null);
-  const [boardLoading, setBoardLoading] = useState(false);
 
-  // Fetch board information when dialog opens
-  useEffect(() => {
-    if (isDialogOpen && !boardInfo) {
-      fetchBoardInfo();
-    }
-  }, [isDialogOpen]);
+  const isLoading =
+    resetStep === "deleting" || resetStep === "resetting";
+  const isCompleted = resetStep === "done";
+  const isFailed = resetStep === "failed";
 
-  const fetchBoardInfo = async () => {
-    setBoardLoading(true);
+  const boardType = deviceState?.board_type ?? "unknown";
+  const deviceStateName = deviceState?.state ?? "UNKNOWN";
+  const isMultiChip = MULTI_CHIP_BOARDS.has(boardType);
+  const isBadState = deviceStateName === "BAD_STATE";
+  const isNotPresent = deviceStateName === "NOT_PRESENT";
+  const isResettingContext = deviceStateName === "RESETTING";
+  const deployedCount = models.length;
+
+  // Step states for the progress rows
+  const step1State: "pending" | "active" | "done" | "skipped" =
+    resetStep === "deleting"
+      ? "active"
+      : resetStep === "resetting" || resetStep === "done" || resetStep === "failed"
+        ? deployedCount === 0
+          ? "skipped"
+          : "done"
+        : "pending";
+
+  const step2State: "pending" | "active" | "done" | "skipped" =
+    resetStep === "resetting"
+      ? "active"
+      : resetStep === "done"
+        ? "done"
+        : "pending";
+
+  // ── Reset execution ─────────────────────────────────────────────────────────
+  const executeReset = async () => {
+    setErrorMessage(null);
+    setCmdOutput(null);
+    setShowOutput(false);
+
     try {
-      const response = await axios.get<{ type: string; name: string }>(
-        "/docker-api/board-info/"
+      // Step 1: delete deployed models
+      setResetStep("deleting");
+      const currentModels = await fetchModels();
+      for (const model of currentModels) {
+        await deleteModel(model.id);
+      }
+      await refreshModels();
+
+      // Step 2: run board reset
+      setResetStep("resetting");
+      const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
+        responseType: "blob",
+      });
+
+      const reader = response.data.stream().getReader();
+      const decoder = new TextDecoder();
+      let output = "";
+      let success = true;
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        output += chunk;
+        if (
+          chunk.includes("Command failed") ||
+          chunk.includes("No Tenstorrent devices detected") ||
+          chunk.includes("Error")
+        ) {
+          success = false;
+        }
+      }
+      const tail = decoder.decode();
+      if (tail) {
+        output += tail;
+        if (
+          tail.includes("Command failed") ||
+          tail.includes("No Tenstorrent devices detected") ||
+          tail.includes("Error")
+        ) {
+          success = false;
+        }
+      }
+
+      setCmdOutput(output);
+
+      if (!success) {
+        throw new Error(
+          response.status === 501
+            ? "No Tenstorrent devices detected. Check hardware connection."
+            : "Board reset failed. See command output for details."
+        );
+      }
+
+      setResetStep("done");
+      setResetHistory((prev) => [...prev, new Date()]);
+      refreshDeviceState();
+      if (onReset) onReset();
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "An unknown error occurred."
       );
-      setBoardInfo(response.data);
-    } catch (error) {
-      console.error("Error fetching board info:", error);
-      // Set default values if detection fails
-      setBoardInfo({ type: "unknown", name: "Unknown Board" });
-    } finally {
-      setBoardLoading(false);
+      setResetStep("failed");
     }
   };
 
+  const handleOpen = () => {
+    if (isMultiChip) {
+      setIsMultiCardOpen(true);
+      return;
+    }
+    setIsDialogOpen(true);
+    // Only reset state when there's nothing in progress — otherwise re-show current progress
+    if (!isLoading) {
+      setResetStep(null);
+      setErrorMessage(null);
+      setCmdOutput(null);
+      setShowOutput(false);
+    }
+  };
+
+  const handleClose = () => {
+    setIsDialogOpen(false);
+    // Do NOT reset state — any in-progress reset continues in the background.
+    // State is only cleared on the next fresh open (see handleOpen above).
+  };
+
+  // ── Navbar trigger button ───────────────────────────────────────────────────
   const iconColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const hoverIconColor =
     theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
-  const buttonBackgroundColor = theme === "dark" ? "bg-zinc-900" : "bg-white";
-  const hoverButtonBackgroundColor =
+  const btnBg = theme === "dark" ? "bg-zinc-900" : "bg-white";
+  const btnHover =
     theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-200";
 
-  // Function to delete all deployed models
-  const deleteAllModels = async (): Promise<void> => {
-    try {
-      const models = await fetchModels(); // Fetch all deployed models
-      console.log("Models to delete:", models);
-      for (const model of models) {
-        await customToast.promise(deleteModel(model.id), {
-          loading: `Deleting Model ID: ${model.id.substring(0, 4)}...`,
-          success: `Model ID: ${model.id.substring(0, 4)} deleted successfully.`,
-          error: `Failed to delete Model ID: ${model.id.substring(0, 4)}.`,
-        });
-      }
-
-      // Refresh the ModelsContext to sync with backend
-      await refreshModels();
-    } catch (error) {
-      console.error("Error deleting models:", error);
-      throw new Error("Failed to delete all models.");
-    }
-  };
-
-  const resetBoardAsync = async (): Promise<void> => {
-    const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
-      responseType: "blob",
-    });
-
-    const reader = response.data.stream().getReader();
-    const decoder = new TextDecoder();
-    let output = "";
-    let success = true;
-    const statusCode = response.status;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      output += chunk;
-
-      // Check for failure in each chunk
-      if (
-        chunk.includes("Command failed") ||
-        chunk.includes("No Tenstorrent devices detected") ||
-        chunk.includes("Exiting") ||
-        chunk.includes("Error")
-      ) {
-        success = false;
-      }
-    }
-
-    const finalChunk = decoder.decode();
-    if (finalChunk) {
-      output += finalChunk;
-      if (
-        finalChunk.includes("Command failed") ||
-        finalChunk.includes("No Tenstorrent devices detected") ||
-        finalChunk.includes("Exiting") ||
-        finalChunk.includes("Error")
-      ) {
-        success = false;
-      }
-    }
-
-    const styledOutput = success
-      ? `
-        <span style="color: green;">Board Reset Successfully</span>
-        -----------------------
-        <pre style="color: yellow; white-space: pre-wrap;">${output}</pre>
-      `
-      : `
-        <span style="color: red;">Board Reset Failed</span>
-        -----------------------
-        <pre style="color: yellow; white-space: pre-wrap;">${output}</pre>
-      `;
-
-    setFullOutput(styledOutput);
-
-    if (!success) {
-      if (statusCode === 501) {
-        throw new Error(
-          "No Tenstorrent devices detected. Please check your hardware connection and try again."
-        );
-      } else {
-        // Parse the error message from the output
-        const errorLines = output
-          .split("\n")
-          .filter(
-            (line) =>
-              line.includes("tt-smi reset failed") ||
-              line.includes("Please check if:") ||
-              line.includes("1.") ||
-              line.includes("2.") ||
-              line.includes("3.") ||
-              line.includes("4.")
-          );
-        if (errorLines.length > 0) {
-          throw new Error(errorLines.join("\n"));
-        } else {
-          throw new Error(
-            "Board reset failed. Please check the command output for details."
-          );
-        }
-      }
-    }
-
-    setIsCompleted(true);
-    setResetHistory((prevHistory) => [...prevHistory, new Date()]);
-    setTimeout(() => setIsCompleted(false), 5000);
-  };
-
-  const resetBoard = async (): Promise<void> => {
-    setIsLoading(true);
-    setIsCompleted(false);
-    setErrorMessage(null);
-    setIsDialogOpen(false);
-
-    try {
-      await deleteAllModels();
-
-      await customToast.promise(resetBoardAsync(), {
-        loading: "Resetting board...",
-        success: "Board reset successfully!",
-        error: "Failed to reset board.",
-      });
-
-      if (onReset) {
-        console.log("Calling onReset prop function");
-        onReset();
-      }
-    } catch (error) {
-      console.error("Error resetting board:", error);
-
-      if (error instanceof Error) {
-        const errorOutput = `
-          <span style="color: red;">Error Resetting Board</span>
-          -----------------------
-          <pre style="color: red; white-space: pre-wrap;">${error.message}</pre>
-        `;
-        setFullOutput(errorOutput);
-        setErrorMessage(error.message);
-      } else {
-        setErrorMessage("An unknown error occurred");
-      }
-
-      setIsDialogOpen(true);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDialogOpenChange = (isOpen: boolean) => {
-    setIsDialogOpen(isOpen);
-    if (isOpen) {
-      setErrorMessage(null);
-    }
-  };
-
   return (
-    <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
+    <>
+      {/* Multi-chip board: show the per-device grid dialog */}
+      <MultiCardResetDialog
+        open={isMultiCardOpen}
+        onOpenChange={setIsMultiCardOpen}
+        onReset={onReset}
+      />
+
+      {/* Single-chip board: show the original single reset dialog */}
+      <Dialog
+        open={isDialogOpen && !isMultiChip}
+        onOpenChange={(open) => (open ? handleOpen() : handleClose())}
+      >
       <DialogTrigger asChild>
         <Button
           variant="navbar"
           size="icon"
-          className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${buttonBackgroundColor} ${hoverButtonBackgroundColor}`}
-          onClick={() => setIsDialogOpen(true)}
+          className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${btnBg} ${btnHover}`}
+          onClick={handleOpen}
         >
           {isLoading ? (
             <Spinner />
           ) : isCompleted ? (
-            <CheckCircle className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+            <CheckCircle className={`w-5 h-5 text-green-500`} />
           ) : (
-            <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+            <>
+              <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+              {/* Red dot if board is unhealthy */}
+              {(isBadState || isNotPresent) && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+              )}
+            </>
           )}
         </Button>
       </DialogTrigger>
+
       <DialogContent
-        className={`sm:max-w-md p-6 rounded-lg shadow-lg ${
-          theme === "dark" ? "bg-zinc-900 text-white" : "bg-white text-black"
-        }`}
+        className="sm:max-w-md p-6 rounded-xl shadow-2xl bg-stone-900 text-white border border-stone-700 backdrop-blur-md"
       >
+        {/* ── HEADER ── */}
         <DialogHeader>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center">
-              <AlertTriangle className="h-8 w-8 text-yellow-500 mr-2" />
-              <DialogTitle className="text-lg font-semibold">
-                Reset Card
-              </DialogTitle>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-3">
+              {isLoading ? (
+                <div className="w-9 h-9 rounded-full bg-blue-900/50 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+                </div>
+              ) : isCompleted ? (
+                <div className="w-9 h-9 rounded-full bg-green-900/50 flex items-center justify-center">
+                  <CheckCircle className="h-5 w-5 text-green-400" />
+                </div>
+              ) : isFailed ? (
+                <div className="w-9 h-9 rounded-full bg-red-900/50 flex items-center justify-center">
+                  <XCircle className="h-5 w-5 text-red-400" />
+                </div>
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-yellow-900/50 flex items-center justify-center">
+                  <RotateCcw className="h-5 w-5 text-yellow-400" />
+                </div>
+              )}
+              <div>
+                <DialogTitle className="text-base font-semibold text-white leading-tight">
+                  {isLoading
+                    ? resetStep === "deleting"
+                      ? "Removing deployed models…"
+                      : "Resetting board…"
+                    : isCompleted
+                      ? "Reset complete"
+                      : isFailed
+                        ? "Reset failed"
+                        : "Reset Card"}
+                </DialogTitle>
+                {isLoading && (
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Step {resetStep === "deleting" ? "1" : "2"} of 2 — do not
+                    close this window
+                  </p>
+                )}
+              </div>
             </div>
-            {boardInfo && boardInfo.type !== "unknown" && (
-              <BoardBadge boardName={boardInfo.type} />
+            {/* Board badge — only when idle */}
+            {!isLoading && !isCompleted && !isFailed && boardType !== "unknown" && (
+              <BoardBadge boardName={boardType} />
             )}
-            {boardLoading && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full">
-                <Spinner />
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  Detecting...
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-3 mt-3">
+          {/* ── IDLE: board status + step overview ── */}
+          {!isLoading && !isCompleted && !isFailed && (
+            <>
+              <BoardStatusBanner
+                state={deviceStateName}
+                boardType={boardType}
+              />
+
+              {isResettingContext && (
+                <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
+                  <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
+                  <span>Board is already resetting…</span>
+                </div>
+              )}
+
+              {/* Step overview */}
+              <StepRow
+                number={1}
+                icon={<Trash2 className="w-3.5 h-3.5" />}
+                label={
+                  deployedCount > 0
+                    ? `Stop ${deployedCount} deployed model${deployedCount > 1 ? "s" : ""}`
+                    : "Stop deployed models"
+                }
+                state="pending"
+              />
+              <StepRow
+                number={2}
+                icon={<RotateCcw className="w-3.5 h-3.5" />}
+                label="Reset the board (tt-smi -r)"
+                state="pending"
+              />
+
+              {/* Warning */}
+              <div className="flex items-start gap-2 p-3 bg-red-950/40 border border-red-500/25 rounded-lg text-red-200 text-sm">
+                <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+                <span>
+                  <strong className="text-red-300">Warning:</strong> This will
+                  interrupt any ongoing processes on the card.
+                  {resetHistory.length > 0 && (
+                    <span className="block mt-1 text-red-300/70">
+                      Last reset:{" "}
+                      {resetHistory[resetHistory.length - 1].toLocaleTimeString()}
+                    </span>
+                  )}
                 </span>
               </div>
-            )}
-          </div>
-          <DialogDescription className="text-left">
-            Are you sure you want to reset the card?
-          </DialogDescription>
-        </DialogHeader>
-        {boardInfo && boardInfo.type === "unknown" && (
-          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-md flex items-start">
-            <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 shrink-0" />
-            <div>
-              <div className="font-bold mb-1">
-                No Tenstorrent device detected
-              </div>
-              <div className="text-sm">
-                Device <code>/dev/tenstorrent</code> not found. Please check
-                your hardware connection and ensure the device is properly
-                installed.
-              </div>
-            </div>
-          </div>
-        )}
-        <div
-          className={`mb-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}
-        >
-          <div className="border-l-4 border-red-600 pl-2">
-            <div className="font-bold">
-              Warning! This action will stop all deployed models and might
-              interrupt ongoing processes.
-            </div>
-            {resetHistory.length > 0 && (
-              <div className="mt-2">
-                Note: This card was reset in the last 5 minutes. Frequent resets
-                may cause issues. Please wait before resetting again.
-              </div>
-            )}
-          </div>
-        </div>
-        {errorMessage && (
-          <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-md">
-            <div className="flex items-start">
-              <AlertTriangle className="h-5 w-5 text-red-700 dark:text-red-300 mr-2 mt-1 shrink-0" />
-              <div className="flex-1">
-                <div className="font-medium mb-2">Error:</div>
-                <pre className="whitespace-pre-wrap text-sm">
-                  {errorMessage}
-                </pre>
-              </div>
-            </div>
-          </div>
-        )}
-        <Accordion type="single" collapsible className="mt-4">
-          <AccordionItem value="history">
-            <AccordionTrigger className="text-md font-semibold">
-              Reset History
-            </AccordionTrigger>
-            <AccordionContent>
-              <ul className="list-disc pl-5 mt-2 text-sm">
-                {resetHistory.length > 0 ? (
-                  resetHistory.map((resetTime, index) => (
-                    <li key={index}>{resetTime.toLocaleString()}</li>
-                  ))
-                ) : (
-                  <li>No resets yet.</li>
-                )}
-              </ul>
-            </AccordionContent>
-          </AccordionItem>
-          {fullOutput && (
-            <AccordionItem value="output">
-              <AccordionTrigger className="text-md font-semibold">
-                Command Output
-              </AccordionTrigger>
-              <AccordionContent>
-                <ScrollArea className="h-48 w-full overflow-auto rounded-md border">
-                  <div
-                    className="text-sm mt-2 px-2 py-1 whitespace-pre-wrap bg-zinc-800 text-green-500 rounded-md"
-                    dangerouslySetInnerHTML={{ __html: fullOutput }}
-                  />
-                </ScrollArea>
-              </AccordionContent>
-            </AccordionItem>
+            </>
           )}
-        </Accordion>
-        <DialogFooter className="mt-4 flex justify-end space-x-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setIsDialogOpen(false)}
-            className={`${theme === "dark" ? "text-white" : "text-black"}`}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="bg-red-600 text-white hover:bg-red-700"
-            onClick={resetBoard}
-          >
-            Yes, Reset
-          </Button>
+
+          {/* ── LOADING: step progress ── */}
+          {isLoading && (
+            <>
+              <StepRow
+                number={1}
+                icon={<Trash2 className="w-3.5 h-3.5" />}
+                label={
+                  deployedCount > 0
+                    ? `Stop ${deployedCount} deployed model${deployedCount > 1 ? "s" : ""}`
+                    : "Stop deployed models"
+                }
+                sublabel="Sending stop signal to all containers…"
+                state={step1State}
+              />
+              <StepRow
+                number={2}
+                icon={<RotateCcw className="w-3.5 h-3.5" />}
+                label="Reset the board"
+                sublabel="Running tt-smi -r, this may take 10–30 seconds…"
+                state={step2State}
+              />
+            </>
+          )}
+
+          {/* ── COMPLETED ── */}
+          {isCompleted && (
+            <>
+              <StepRow
+                number={1}
+                icon={<Trash2 className="w-3.5 h-3.5" />}
+                label="Deployed models removed"
+                state={deployedCount === 0 ? "skipped" : "done"}
+              />
+              <StepRow
+                number={2}
+                icon={<RotateCcw className="w-3.5 h-3.5" />}
+                label="Board reset"
+                state="done"
+              />
+              {cmdOutput && (
+                <button
+                  type="button"
+                  onClick={() => setShowOutput((v) => !v)}
+                  className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 transition-colors"
+                >
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
+                  />
+                  {showOutput ? "Hide" : "Show"} command output
+                </button>
+              )}
+              {showOutput && cmdOutput && (
+                <ScrollArea className="h-36 rounded-lg border border-stone-700">
+                  <pre className="p-3 text-xs text-green-400 whitespace-pre-wrap font-mono bg-stone-950">
+                    {cmdOutput}
+                  </pre>
+                </ScrollArea>
+              )}
+            </>
+          )}
+
+          {/* ── FAILED ── */}
+          {isFailed && (
+            <>
+              <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg">
+                <XCircle className="h-5 w-5 text-red-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-red-200">
+                    {errorMessage}
+                  </p>
+                  {cmdOutput && (
+                    <button
+                      type="button"
+                      onClick={() => setShowOutput((v) => !v)}
+                      className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 mt-2 transition-colors"
+                    >
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
+                      />
+                      {showOutput ? "Hide" : "Show"} command output
+                    </button>
+                  )}
+                </div>
+              </div>
+              {showOutput && cmdOutput && (
+                <ScrollArea className="h-36 rounded-lg border border-stone-700">
+                  <pre className="p-3 text-xs text-red-300 whitespace-pre-wrap font-mono bg-stone-950">
+                    {cmdOutput}
+                  </pre>
+                </ScrollArea>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* ── FOOTER ── */}
+        <DialogFooter className="mt-5 flex justify-end gap-2">
+          {(isCompleted || isFailed) ? (
+            <Button
+              variant="outline"
+              onClick={handleClose}
+              className="border-stone-600 text-stone-300 hover:bg-stone-800"
+            >
+              Close
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={handleClose}
+                className="border-stone-600 text-stone-300 hover:bg-stone-800"
+              >
+                {isLoading ? "Minimize" : "Cancel"}
+              </Button>
+              <Button
+                onClick={executeReset}
+                disabled={isLoading || isResettingContext || isNotPresent}
+                className={`min-w-[120px] border ${
+                  isBadState
+                    ? "bg-orange-600 hover:bg-orange-700 border-orange-500/40 text-white"
+                    : "bg-red-600 hover:bg-red-700 border-red-500/30 text-white"
+                }`}
+              >
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Processing…
+                  </span>
+                ) : isBadState ? (
+                  "Reset (Recommended)"
+                ) : (
+                  "Reset Card"
+                )}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    </>
   );
 };
 

@@ -38,8 +38,8 @@ export const useDeploymentProgress = (
   const notFoundCountRef = useRef<number>(0);
   const pollingStartTimeRef = useRef<number>(0);
 
-  const MAX_NOT_FOUND_RETRIES = 10;
-  const NOT_FOUND_GRACE_PERIOD_MS = 30 * 60 * 1000;
+  const MAX_NOT_FOUND_RETRIES = 5;
+  const NOT_FOUND_GRACE_PERIOD_MS = 90 * 1000; // 90 seconds — covers legitimate startup races, not server restarts
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {

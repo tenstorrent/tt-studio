@@ -1,27 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
 import type { JSX } from "react";
 import ElevatedCard from "../ui/elevated-card";
 import { CardContent, CardHeader, CardTitle } from "../ui/card";
 import { ScrollArea, ScrollBar } from "../ui/scroll-area";
 import { Table } from "../ui/table";
 import { Button } from "../ui/button";
-import { AlertCircle } from "lucide-react";
+import { EnhancedButton } from "../ui/enhanced-button";
+import { PulsatingDot } from "../ui/pulsating-dot";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { AlertCircle, Plus } from "lucide-react";
+import HealthCell from "./row-cells/HealthCell";
+import ModelPreparingBanner from "./ModelPreparingBanner";
+import NoModelsRunning from "./NoModelsRunning";
 import { customToast } from "../CustomToaster";
 import { ModelsDeployedSkeleton } from "../ModelsDeployedSkeleton";
-import { NoModelsDialog } from "../NoModelsDeployed";
 import { useModels } from "../../hooks/useModels";
 import { useRefresh } from "../../hooks/useRefresh";
 import { useHealthRefresh } from "../../hooks/useHealthRefresh";
 import { useOpenLogsFromUrl } from "../../hooks/useOpenLogsFromUrl";
 import { useColumnPrefs } from "../../hooks/useColumnPrefs";
 import {
-  deleteModel,
   handleRedeploy,
   handleModelNavigationClick,
   fetchModels,
+  fetchDeployedModelsInfo,
+  getModelTypeFromBackendType,
+  ModelType,
+  getModelTypeFromName,
 } from "../../api/modelsDeployedApis";
 import type {
   ColumnVisibilityMap,
@@ -32,16 +40,41 @@ import ModelsToolbar from "./ModelsToolbar.tsx";
 import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
+import RegisterModelDialog from "./RegisterModelDialog.tsx";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
+import { useDeleteStream } from "../../hooks/useDeleteStream";
+import axios from "axios";
+import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
 export default function ModelsDeployedCard(): JSX.Element {
-  const { models, setModels, refreshModels } = useModels();
+  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel } = useModels();
   const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
     useRefresh();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Chip slot status for multi-chip boards
+  const [chipStatus, setChipStatus] = useState<{
+    board_type: string;
+    total_slots: number;
+    slots: { slot_id: number; status: string; model_name?: string; deployment_id?: number; is_multi_chip?: boolean }[];
+  } | null>(null);
+
+  useEffect(() => {
+    const fetchChipStatus = () => {
+      axios
+        .get("/docker-api/chip-status/")
+        .then((res) => setChipStatus(res.data))
+        .catch(() => setChipStatus(null));
+    };
+    fetchChipStatus();
+    const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refreshTrigger]);
+
+  const isMultiChipBoard = chipStatus !== null && chipStatus.total_slots > 1;
 
   const { isRefreshing, refreshAllHealth, register } = useHealthRefresh();
   const {
@@ -55,11 +88,17 @@ export default function ModelsDeployedCard(): JSX.Element {
   });
 
   const navigate = useNavigate();
+  const [voiceBannerDismissed, setVoiceBannerDismissed] = useState(false);
+  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+
   const loadModels = useCallback(async () => {
     setLoadError(null);
     try {
       const fetched = await fetchModels();
-      setModels(fetched);
+      const deployedInfo = await fetchDeployedModelsInfo();
+      const typeById = Object.fromEntries(deployedInfo.map(d => [d.id, d.model_type]));
+      const enriched = fetched.map(m => ({ ...m, model_type: m.model_type ?? typeById[m.id] }));
+      setModels(enriched);
       if (fetched.length === 0) {
         triggerRefresh();
       }
@@ -130,52 +169,123 @@ export default function ModelsDeployedCard(): JSX.Element {
   // Delete state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
+  const deleteStream = useDeleteStream();
 
   useEffect(() => {
     loadModels();
   }, [loadModels, refreshTrigger]);
 
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
+  const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
+
+  // Auto-refresh model list when any model becomes unavailable/unknown
+  // (container likely stopped or crashed). Uses a ref so the timer
+  // isn't torn down every time healthMap changes from polling.
+  const staleRefreshTimer = useRef<number | null>(null);
+  const hasStaleModel = useMemo(
+    () => Object.values(healthMap).some((h) => h === "unavailable" || h === "unknown"),
+    [healthMap],
+  );
+
+  useEffect(() => {
+    if (hasStaleModel && !showDeleteModal && !staleRefreshTimer.current) {
+      staleRefreshTimer.current = window.setTimeout(() => {
+        staleRefreshTimer.current = null;
+        setUserStoppedModel(false);
+        loadModels();
+      }, 5000);
+    }
+    if (!hasStaleModel && staleRefreshTimer.current) {
+      clearTimeout(staleRefreshTimer.current);
+      staleRefreshTimer.current = null;
+    }
+  }, [hasStaleModel, showDeleteModal, loadModels, setUserStoppedModel]);
 
   const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
+
+  const preparingModels = useMemo(() => {
+    return rows.filter((r) => healthMap[r.id] === "starting");
+  }, [rows, healthMap]);
+
+  const showVoiceBanner = useMemo(() => {
+    if (voiceBannerDismissed) return false;
+    const getType = (m: (typeof models)[number]) =>
+      m.model_type
+        ? getModelTypeFromBackendType(m.model_type)
+        : getModelTypeFromName(m.name, m.image);
+
+    const llmModel = models.find((m) => {
+      const t = getType(m);
+      return t === ModelType.ChatModel || t === ModelType.VLM;
+    });
+    const sttModel = models.find(
+      (m) => getType(m) === ModelType.SpeechRecognitionModel
+    );
+    const ttsModel = models.find((m) => getType(m) === ModelType.TTS);
+
+    if (!llmModel || !sttModel || !ttsModel) return false;
+
+    // Only show once all three are confirmed healthy
+    return (
+      healthMap[llmModel.id] === "healthy" &&
+      healthMap[sttModel.id] === "healthy" &&
+      healthMap[ttsModel.id] === "healthy"
+    );
+  }, [models, healthMap, voiceBannerDismissed]);
 
   const handleRetry = () => {
     setLoading(true);
     loadModels();
   };
 
-  const handleConfirmDelete = useCallback(async () => {
+  const handleConfirmDelete = useCallback(() => {
     if (!deleteTargetId) return;
-    setIsProcessingDelete(true);
-    const truncatedModelId = deleteTargetId.substring(0, 4);
-    try {
-      await customToast.promise(deleteModel(deleteTargetId), {
-        loading: `Attempting to delete Model ID: ${truncatedModelId}...`,
-        success: `Model ID: ${truncatedModelId} has been deleted.`,
-        error: `Failed to delete Model ID: ${truncatedModelId}.`,
-      });
-      // Simulate resetCard same as original placeholder
-      await customToast.promise(
-        new Promise((resolve) => window.setTimeout(resolve, 2000)),
-        {
-          loading: "Resetting card (tt-smi reset)...",
-          success: "Card reset successfully!",
-          error: "Failed to reset card.",
-        }
-      );
-      await refreshModels();
+    deleteStream.start(deleteTargetId);
+  }, [deleteTargetId, deleteStream]);
+
+  const handleCloseDeleteModal = useCallback(() => {
+    if (deleteStream.status === "running") return;
+
+    const finished = deleteStream.status === "success" || deleteStream.status === "partial" || deleteStream.status === "error";
+    if (finished) {
+      if (deleteStream.status === "success" || deleteStream.status === "partial") {
+        localStorage.setItem("hasEverDeployed", "true");
+        setUserStoppedModel(true);
+      }
+      refreshModels();
       triggerHardwareRefresh();
-      setShowDeleteModal(false);
-      setDeleteTargetId(null);
-      // Slight delay then refresh health
-      window.setTimeout(() => {
-        refreshAllHealth();
-      }, 1000);
-    } finally {
-      setIsProcessingDelete(false);
+      window.setTimeout(() => refreshAllHealth(), 1000);
     }
-  }, [deleteTargetId, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
+
+    setShowDeleteModal(false);
+    setDeleteTargetId(null);
+    deleteStream.reset();
+  }, [deleteStream, refreshModels, triggerHardwareRefresh, refreshAllHealth]);
+
+  // Auto-close the dialog once deletion finishes successfully
+  const autoCloseTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (deleteStream.status === "success" && showDeleteModal) {
+      localStorage.setItem("hasEverDeployed", "true");
+      setUserStoppedModel(true);
+      autoCloseTimerRef.current = window.setTimeout(() => {
+        refreshModels();
+        triggerHardwareRefresh();
+        window.setTimeout(() => refreshAllHealth(), 1000);
+        setShowDeleteModal(false);
+        setDeleteTargetId(null);
+        deleteStream.reset();
+      }, 1500);
+    }
+    return () => {
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+        autoCloseTimerRef.current = null;
+      }
+    };
+  // Only re-run when status changes, not on every render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deleteStream.status]);
 
   const exportVisible = useCallback(() => {
     const visibleRows = rows.map((r) => ({
@@ -268,15 +378,24 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return <NoModelsDialog messageKey="reset" />;
+    return <NoModelsRunning userStopped={userStoppedModel} />;
   }
 
   return (
+    <>
     <ElevatedCard accent="neutral" depth="lg" hover>
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between gap-3">
           {/* Left */}
           <CardTitle className="text-xl">Models Deployed</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowRegisterDialog(true)}
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Register Model
+          </Button>
           {/* Center intentionally empty per redesign */}
           <div className="flex-1" />
           {/* Right */}
@@ -301,6 +420,78 @@ export default function ModelsDeployedCard(): JSX.Element {
           />
         </div>
       </CardHeader>
+
+      {/* Voice Agent discovery banner */}
+      {showVoiceBanner && (
+        <TooltipProvider>
+          <ElevatedCard accent="blue" depth="md" className="mx-6 mb-6">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-2">
+                        <PulsatingDot label="Whisper STT" color="blue" size="md" delay={0} />
+                        <PulsatingDot label="LLM" color="green" size="md" delay={400} />
+                        <PulsatingDot label="TTS" color="purple" size="md" delay={800} />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <p className="text-sm">
+                        TT Studio automatically chains your deployed models: Whisper STT → LLM → TTS for seamless voice conversations
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">Voice Agent Ready</h3>
+                    <p className="text-sm text-muted-foreground">
+                      3 models deployed and auto-chained
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <EnhancedButton 
+                    variant="default" 
+                    effect="shine"
+                    onClick={() => navigate("/voice-agent")}
+                  >
+                    Start Voice Chat
+                  </EnhancedButton>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setVoiceBannerDismissed(true)}
+                    aria-label="Dismiss"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </ElevatedCard>
+        </TooltipProvider>
+      )}
+
+      {/* Model preparing banner */}
+      {!preparingBannerDismissed && preparingModels.length > 0 && (
+        <ModelPreparingBanner
+          models={preparingModels}
+          onViewLogs={(id) => setSelectedContainerId(id)}
+          onDismiss={() => setPreparingBannerDismissed(true)}
+        />
+      )}
+
+      {/* Chip slot visualization for multi-chip boards (hidden on QB2/P300Cx2) */}
+      {isMultiChipBoard && chipStatus && chipStatus.board_type !== "P300Cx2" && (
+        <div className="px-6 pb-4">
+          <ChipStatusDisplay
+            boardType={chipStatus.board_type}
+            totalSlots={chipStatus.total_slots}
+            slots={chipStatus.slots as any}
+          />
+        </div>
+      )}
+
       <div
         className={`${selectedContainerId ? "blur-sm backdrop-blur-sm" : ""} transition-all duration-200`}
       >
@@ -310,6 +501,7 @@ export default function ModelsDeployedCard(): JSX.Element {
               <ModelsTable
                 rows={rows}
                 visibleMap={columns as ColumnVisibilityMap}
+                hideDeviceId={chipStatus?.board_type === "P300Cx2"}
                 healthMap={healthMap}
                 onOpenLogs={(id: string) => setSelectedContainerId(id)}
                 onDelete={(id: string) => {
@@ -317,17 +509,17 @@ export default function ModelsDeployedCard(): JSX.Element {
                   setShowDeleteModal(true);
                 }}
                 onRedeploy={(image?: string) => image && handleRedeploy(image)}
-                onNavigateToModel={(id: string, name: string) =>
-                  handleModelNavigationClick(id, name, navigate)
-                }
+                onNavigateToModel={(id: string, name: string) => {
+                  const row = rows.find((r) => r.id === id);
+                  const frontendType = row?.model_type
+                    ? getModelTypeFromBackendType(row.model_type)
+                    : undefined;
+                  handleModelNavigationClick(id, name, navigate, frontendType);
+                }}
                 onOpenApi={(id: string) => {
                   const encoded = encodeURIComponent(id);
                   window.location.href = `/api-info/${encoded}`;
                 }}
-                registerHealthRef={mirroredRegister}
-                onHealthChange={(id: string, h: HealthStatus) =>
-                  setHealthMap((prev) => ({ ...prev, [id]: h }))
-                }
                 refreshHealthById={refreshHealthById}
                 density={prefs.density}
               />
@@ -352,10 +544,39 @@ export default function ModelsDeployedCard(): JSX.Element {
       <DeleteModelDialog
         open={showDeleteModal}
         modelId={deleteTargetId || ""}
-        isLoading={isProcessingDelete}
+        isLoading={deleteStream.status === "running"}
+        deleteStep={deleteStream.step}
+        streamStatus={deleteStream.status}
+        stepLogs={deleteStream.stepLogs}
+        errorMessage={deleteStream.errorMessage}
         onConfirm={handleConfirmDelete}
-        onCancel={() => setShowDeleteModal(false)}
+        onCancel={handleCloseDeleteModal}
+      />
+
+      <RegisterModelDialog
+        open={showRegisterDialog}
+        onClose={() => setShowRegisterDialog(false)}
+        onSuccess={() => {
+          setShowRegisterDialog(false);
+          loadModels();
+        }}
       />
     </ElevatedCard>
+
+    {/* Hidden HealthCell container — keeps health polling alive without rendering in the table */}
+    <div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", visibility: "hidden" }}>
+      {rows.map((row) => (
+        <Fragment key={row.id}>
+          <HealthCell
+            id={row.id}
+            register={mirroredRegister}
+            onHealthChange={(id: string, h: HealthStatus) =>
+              setHealthMap((prev) => ({ ...prev, [id]: h }))
+            }
+          />
+        </Fragment>
+      ))}
+    </div>
+    </>
   );
 }
