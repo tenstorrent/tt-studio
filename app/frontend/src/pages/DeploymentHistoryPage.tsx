@@ -118,6 +118,7 @@ export default function DeploymentHistoryPage() {
   >(undefined);
   const [selectedDiedUnexpectedly, setSelectedDiedUnexpectedly] =
     useState(false);
+  const [selectedStoppedByUser, setSelectedStoppedByUser] = useState(false);
   const [boardResetTrigger, setBoardResetTrigger] = useState(false);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
@@ -128,14 +129,22 @@ export default function DeploymentHistoryPage() {
     refetchOnWindowFocus: true, // Refetch when window regains focus
   });
 
+  const closeLogDialog = () => {
+    setSelectedDeploymentId(null);
+    setSelectedModelName(undefined);
+    setSelectedDiedUnexpectedly(false);
+    setSelectedStoppedByUser(false);
+  };
+
   const handleOpenLogs = (deployment: Deployment) => {
     if (deployment.workflow_log_path) {
+      const diedUnexpectedly =
+        !deployment.stopped_by_user &&
+        (deployment.status === "exited" || deployment.status === "dead");
       setSelectedDeploymentId(deployment.id);
       setSelectedModelName(deployment.model_name);
-      setSelectedDiedUnexpectedly(
-        !deployment.stopped_by_user &&
-          (deployment.status === "exited" || deployment.status === "dead")
-      );
+      setSelectedDiedUnexpectedly(diedUnexpectedly);
+      setSelectedStoppedByUser(deployment.stopped_by_user && !diedUnexpectedly);
     }
   };
 
@@ -287,15 +296,10 @@ export default function DeploymentHistoryPage() {
         deploymentId={selectedDeploymentId}
         modelName={selectedModelName}
         diedUnexpectedly={selectedDiedUnexpectedly}
-        onClose={() => {
-          setSelectedDeploymentId(null);
-          setSelectedModelName(undefined);
-          setSelectedDiedUnexpectedly(false);
-        }}
+        stoppedByUser={selectedStoppedByUser}
+        onClose={closeLogDialog}
         onRequestBoardReset={() => {
-          setSelectedDeploymentId(null);
-          setSelectedModelName(undefined);
-          setSelectedDiedUnexpectedly(false);
+          closeLogDialog();
           setBoardResetTrigger(true);
         }}
       />

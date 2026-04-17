@@ -296,6 +296,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
 
   useEffect(() => {
     if (forceOpen) handleOpen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forceOpen]);
 
   const handleClose = () => {
