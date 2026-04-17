@@ -129,7 +129,6 @@ class CustomLLM(BaseChatModel):
                 print(f"[DEBUG] hf_model_id from llm_info: {hf_model_id}")
                 print(f"[DEBUG] model_name from llm_info: {model_name}")
                 
-                # Use hf_model_id if it exists and is not None/empty, otherwise fall back to model_name
                 if hf_model_id and hf_model_id.strip():
                     hf_model_path = hf_model_id
                     print(f"[DEBUG] Using hf_model_id: {hf_model_path}")
@@ -141,20 +140,53 @@ class CustomLLM(BaseChatModel):
                 hf_model_path = os.getenv("HF_MODEL_PATH")
                 print(f"Using model from environment variable: {hf_model_path}")
             
-            json_data = {
-                "model": hf_model_path,
-                "messages": message_payload,
-                "temperature": 1,
-                "top_k": 20,
-                "top_p": 0.9,
-                "max_tokens": 512,
-                "stream": True,
-                "stop": ["<|eot_id|>"],
-                "stream_options": {"include_usage": True, "continuous_usage_stats": True}
-            }
+            # Merge caller-provided stop sequences (e.g. "\nObservation:" from
+            # the ReAct agent) with the model's default EOS token so the LLM
+            # stops after "Action Input:" and lets the tool actually run.
+            stop_sequences = ["<|eot_id|>"]
+            if stop:
+                for s in stop:
+                    if s not in stop_sequences:
+                        stop_sequences.append(s)
+
+            is_completions_endpoint = (
+                self.server_url.endswith('/v1/completions')
+                and not self.server_url.endswith('/v1/chat/completions')
+            )
+
+            if is_completions_endpoint:
+                # /v1/completions expects a "prompt" string, not "messages"
+                prompt_parts = []
+                for m in message_payload:
+                    prompt_parts.append(str(m.get("content", "")))
+                prompt_text = "\n".join(prompt_parts)
+
+                json_data = {
+                    "model": hf_model_path,
+                    "prompt": prompt_text,
+                    "temperature": 1,
+                    "top_k": 20,
+                    "top_p": 0.9,
+                    "max_tokens": 512,
+                    "stream": True,
+                    "stop": stop_sequences,
+                    "stream_options": {"include_usage": True, "continuous_usage_stats": True}
+                }
+            else:
+                json_data = {
+                    "model": hf_model_path,
+                    "messages": message_payload,
+                    "temperature": 1,
+                    "top_k": 20,
+                    "top_p": 0.9,
+                    "max_tokens": 512,
+                    "stream": True,
+                    "stop": stop_sequences,
+                    "stream_options": {"include_usage": True, "continuous_usage_stats": True}
+                }
             
-            # Add tools if available
-            if tools:
+            # Add tools if available (chat completions only)
+            if tools and not is_completions_endpoint:
                 json_data["tools"] = tools
                 json_data["tool_choice"] = "auto"
 
@@ -169,7 +201,8 @@ class CustomLLM(BaseChatModel):
         try:
             print(f"[DEBUG] Starting HTTP request to LLM...")
             with requests.post(
-                self.server_url, json=json_data, headers=headers, stream=True, timeout=30
+                self.server_url, json=json_data, headers=headers, stream=True,
+                timeout=(10, 120),  # (connect, read) — TT hardware TTFT can exceed 30s
             ) as response:
                 print(f"[DEBUG] Response received - Status: {response.status_code}")
                 print(f"[DEBUG] Response headers: {dict(response.headers)}")
@@ -231,14 +264,13 @@ class CustomLLM(BaseChatModel):
                                     print(f"[DEBUG] JSON decode error in cloud response: {e}")
                                     continue
                     else:
-                        # Handle local container response format (existing logic)
+                        # Handle local container response format
                         if chunk.startswith("data: "):
                             new_chunk = chunk[len("data: "):]
                             new_chunk = new_chunk.strip()
                             print(f"[DEBUG] Processing local chunk: {repr(new_chunk)}")
                             if new_chunk == "[DONE]":
                                 print(f"[DEBUG] Received [DONE] marker from local LLM")
-                                # Yield [DONE] to signal that streaming is complete
                                 new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=""))
                                 yield new_chunk
                             else:
@@ -247,10 +279,10 @@ class CustomLLM(BaseChatModel):
                                     print(f"[DEBUG] Parsed chunk: {parsed_chunk}")
                                     if "choices" in parsed_chunk and len(parsed_chunk["choices"]) > 0:
                                         choice = parsed_chunk["choices"][0]
+
+                                        # /v1/chat/completions returns "delta"
                                         if "delta" in choice:
                                             delta = choice["delta"]
-                                            
-                                            # Handle tool calls
                                             if "tool_calls" in delta:
                                                 tool_calls = delta["tool_calls"]
                                                 for tool_call in tool_calls:
@@ -269,8 +301,16 @@ class CustomLLM(BaseChatModel):
                                                 yield new_chunk
                                             else:
                                                 print(f"[DEBUG] No content or tool_calls in delta: {delta}")
+
+                                        # /v1/completions returns "text"
+                                        elif "text" in choice:
+                                            content = choice["text"]
+                                            if content:
+                                                print(f"[DEBUG] Extracted text: {repr(content)}")
+                                                new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                                                yield new_chunk
                                         else:
-                                            print(f"[DEBUG] No delta in choice: {choice}")
+                                            print(f"[DEBUG] No delta or text in choice: {choice}")
                                     else:
                                         print(f"[DEBUG] No choices in response: {parsed_chunk}")
                                 except (json.JSONDecodeError, KeyError) as e:

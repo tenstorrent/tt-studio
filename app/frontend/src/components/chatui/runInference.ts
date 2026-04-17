@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   InferenceStats,
   TimingInfo,
+  SourceLink,
 } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
@@ -303,6 +304,13 @@ export const runInference = async (
     let finishReason: string | null = null;
     let sseEventCount = 0;
 
+    // Agent-specific tracking
+    const agentSources: SourceLink[] = [];
+    const seenSourceUrls = new Set<string>();
+    let agentThinkingStarted = false;
+    let agentThinkingEndTime: number | null = null;
+    let agentFirstContentTime: number | null = null;
+
     const scheduleUiUpdate = () => {
       if (!rafScheduled) {
         rafScheduled = true;
@@ -404,11 +412,40 @@ export const runInference = async (
           const content = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
           if (content) {
             if (thinkingText && !thinkingDone) {
-              thinkingDone = true; // close thinking block once content starts arriving
+              thinkingDone = true;
             }
             if (!t.firstToken) t.firstToken = performance.now();
             metricsTracker.recordContentToken();
             contentText += content;
+
+            // Agent: extract Source: [title](url) from the accumulated text and track thinking
+            if (isAgentSelected) {
+              // Scan the full accumulated contentText for source links
+              // (individual chunks are too small to match the full pattern)
+              const sourceRegex = /Source:\s*\[([^\]]*)\]\(([^)]+)\)/g;
+              let sm;
+              while ((sm = sourceRegex.exec(contentText)) !== null) {
+                const url = sm[2].trim();
+                if (url && !seenSourceUrls.has(url)) {
+                  seenSourceUrls.add(url);
+                  agentSources.push({ title: sm[1].trim() || url, url });
+                }
+              }
+
+              if (contentText.includes("<think>") && !agentThinkingStarted) {
+                agentThinkingStarted = true;
+              }
+              if (content.includes("</think>")) {
+                agentThinkingEndTime = performance.now();
+              }
+              if (agentThinkingEndTime && !agentFirstContentTime) {
+                const afterClose = content.split("</think>").pop() || "";
+                if (afterClose.trim()) {
+                  agentFirstContentTime = performance.now();
+                }
+              }
+            }
+
             accumulatedText = thinkingText
               ? `<think>${thinkingText}</think>${contentText}`
               : contentText;
@@ -477,16 +514,36 @@ export const runInference = async (
       inferenceStats.timing = timing;
     }
 
+    // Build client-side metrics for agent requests (no backend stats blob)
+    if (isAgentSelected && !inferenceStats) {
+      inferenceStats = {};
+      if (t.firstToken != null) {
+        inferenceStats.client_ttft_ms = Math.round(t.firstToken - t.start);
+      }
+      if (agentThinkingStarted && agentThinkingEndTime) {
+        inferenceStats.thinking_duration_ms = Math.round(agentThinkingEndTime - t.start);
+      }
+      inferenceStats.timing = timing;
+      inferenceStats.total_time_ms = Math.round(t.end - t.start);
+    }
+
     setIsStreaming(false);
 
-    if (inferenceStats) {
+    // Attach stats and sources to the message
+    const hasSources = isAgentSelected && agentSources.length > 0;
+    if (inferenceStats || hasSources) {
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];
         if (lastMessage?.id === newMessageId) {
-          lastMessage.inferenceStats = inferenceStats;
+          if (inferenceStats) {
+            lastMessage.inferenceStats = inferenceStats;
+          }
           lastMessage.finishReason = finishReason;
           lastMessage.timing = timing;
+          if (hasSources) {
+            lastMessage.sources = agentSources;
+          }
         }
         return updatedHistory;
       });

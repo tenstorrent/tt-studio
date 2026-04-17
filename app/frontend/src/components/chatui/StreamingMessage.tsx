@@ -4,6 +4,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Globe, Search, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import MarkdownComponent from "./MarkdownComponent";
 
 interface StreamingMessageProps {
@@ -18,6 +19,53 @@ interface ProcessedContent {
   cleanedContent: string;
   thinkingBlocks: string[];
 }
+
+interface SourceLink {
+  title: string;
+  url: string;
+}
+
+interface SearchInfo {
+  isSearch: boolean;
+  queries: string[];
+  sources: SourceLink[];
+  isDone: boolean;
+}
+
+const parseSearchInfo = (text: string): SearchInfo => {
+  const queries: string[] = [];
+  const sources: SourceLink[] = [];
+  const seenUrls = new Set<string>();
+
+  const searchRegex = /Searching:\s*(.+)/g;
+  let m;
+  while ((m = searchRegex.exec(text)) !== null) {
+    const q = m[1].trim();
+    if (q) queries.push(q);
+  }
+
+  // Parse "Source: [title](url)" lines emitted by the agent
+  const sourceRegex = /Source:\s*\[([^\]]*)\]\(([^)]+)\)/g;
+  while ((m = sourceRegex.exec(text)) !== null) {
+    const title = m[1].trim();
+    const url = m[2].trim();
+    if (url && !seenUrls.has(url)) {
+      seenUrls.add(url);
+      sources.push({ title: title || url, url });
+    }
+  }
+
+  // [searching] marker signals the agent is about to search,
+  // even before specific queries arrive.
+  const hasSearchSignal = /\[searching\]/.test(text);
+
+  return {
+    isSearch: queries.length > 0 || sources.length > 0 || hasSearchSignal,
+    queries,
+    sources,
+    isDone: /\bDone\b/.test(text) || sources.length > 0,
+  };
+};
 
 const processContent = (content: string): ProcessedContent => {
   const thinkingBlocks: string[] = [];
@@ -150,6 +198,13 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     const liveThinkMatch = !isStreamFinished ? content.match(/^<think>([\s\S]*)$/i) : null;
     const liveThinkingText = liveThinkMatch ? liveThinkMatch[1] : null;
 
+    // Detect whether the thinking block represents a web search
+    const liveSearchInfo = liveThinkingText ? parseSearchInfo(liveThinkingText) : null;
+    const completedSearchInfo = hasThinking
+      ? parseSearchInfo(thinkingBlocksRef.current.join("\n"))
+      : null;
+    const isSearchMode = liveSearchInfo?.isSearch || completedSearchInfo?.isSearch;
+
     // Auto-scroll thinking box to bottom as tokens arrive
     useEffect(() => {
       if (thinkingScrollRef.current) {
@@ -159,7 +214,6 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
 
     return (
       <div className="relative">
-        {/* Single stable thinking panel — morphs between live and collapsed states without unmounting */}
         <AnimatePresence>
           {(isThinkingActive || hasThinking) && (
             <motion.div
@@ -180,25 +234,72 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                     exit={{ opacity: 0, transition: { duration: 0.1 } }}
                     transition={{ duration: 0.2 }}
                   >
-                    <div className="flex items-center gap-2 mb-1">
-                      <motion.span
-                        className="text-gray-400"
-                        animate={{ opacity: [1, 0.5, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      >
-                        💭
-                      </motion.span>
-                      <span className="text-sm italic text-gray-400">Thinking...</span>
-                    </div>
-                    <p className="text-xs text-gray-600 mb-1.5">
-                      The model is reasoning before responding. These thinking tokens are streamed separately and not counted toward output speed.
-                    </p>
-                    <div
-                      ref={thinkingScrollRef}
-                      className="max-h-36 overflow-y-auto rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2 text-sm text-gray-300 font-mono leading-relaxed whitespace-pre-wrap"
-                    >
-                      {liveThinkingText}
-                    </div>
+                    {isSearchMode && liveSearchInfo ? (
+                      <>
+                        <div className="flex items-center gap-2 mb-1">
+                          <motion.div
+                            className="flex-shrink-0"
+                            animate={{ rotate: [0, 360] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                          >
+                            <Globe size={14} className="text-blue-400" />
+                          </motion.div>
+                          <motion.span
+                            className="text-sm italic text-gray-400"
+                            animate={{ opacity: [1, 0.5, 1] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          >
+                            Searching the web…
+                          </motion.span>
+                        </div>
+                        <div className="rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2">
+                          {liveSearchInfo.queries.map((q, i) => (
+                            <div key={i} className="flex items-center gap-2 py-1 text-sm text-gray-300">
+                              <Search size={12} className="flex-shrink-0 text-gray-500" />
+                              <span>{q}</span>
+                            </div>
+                          ))}
+                          {liveSearchInfo.sources.length > 0 && (
+                            <div className="mt-1.5 pt-1.5 border-t border-gray-700/50">
+                              {liveSearchInfo.sources.map((s, i) => (
+                                <a
+                                  key={i}
+                                  href={s.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-2 py-1 text-sm text-blue-400 hover:text-blue-300 transition-colors truncate"
+                                >
+                                  <ExternalLink size={12} className="flex-shrink-0" />
+                                  <span className="truncate">{s.title}</span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 mb-1">
+                          <motion.span
+                            className="text-gray-400"
+                            animate={{ opacity: [1, 0.5, 1] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          >
+                            💭
+                          </motion.span>
+                          <span className="text-sm italic text-gray-400">Thinking...</span>
+                        </div>
+                        <p className="text-xs text-gray-600 mb-1.5">
+                          The model is reasoning before responding.
+                        </p>
+                        <div
+                          ref={thinkingScrollRef}
+                          className="max-h-36 overflow-y-auto rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2 text-sm text-gray-300 font-mono leading-relaxed whitespace-pre-wrap"
+                        >
+                          {liveThinkingText}
+                        </div>
+                      </>
+                    )}
                   </motion.div>
                 ) : (
                   <motion.div
@@ -208,35 +309,90 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                     exit={{ opacity: 0, transition: { duration: 0.1 } }}
                     transition={{ duration: 0.2, delay: 0.05 }}
                   >
-                    <button
-                      onClick={() => setShowThinking(!showThinking)}
-                      className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors"
-                    >
-                      <span className="text-xs">{showThinking ? "▼" : "▶"}</span>
-                      <span className="italic">{showThinking ? "Hide" : "Show"} thinking process</span>
-                    </button>
-                    <AnimatePresence>
-                      {showThinking && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="mt-2 overflow-hidden"
+                    {isSearchMode && completedSearchInfo ? (
+                      <div>
+                        <button
+                          onClick={() => setShowThinking(!showThinking)}
+                          className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors"
                         >
-                          <p className="text-xs text-gray-600 mb-1.5">
-                            The model reasoned before responding. These thinking tokens are tracked separately and not counted toward output speed.
-                          </p>
-                          <div className="max-h-48 overflow-y-auto rounded-md bg-gray-800/50 border border-gray-700 p-3">
-                            {thinkingBlocksRef.current.map((block, index) => (
-                              <div key={index} className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
-                                {block}
+                          <Globe size={14} className="text-blue-400/70" />
+                          <span>Searched the web</span>
+                          {showThinking ? (
+                            <ChevronDown size={14} className="text-gray-500" />
+                          ) : (
+                            <ChevronRight size={14} className="text-gray-500" />
+                          )}
+                        </button>
+                        <AnimatePresence>
+                          {showThinking && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="mt-2 overflow-hidden"
+                            >
+                              <div className="rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2">
+                                {completedSearchInfo.queries.map((q, i) => (
+                                  <div key={i} className="flex items-center gap-2 py-1 text-sm text-gray-300">
+                                    <Search size={12} className="flex-shrink-0 text-gray-500" />
+                                    <span>{q}</span>
+                                  </div>
+                                ))}
+                                {completedSearchInfo.sources.length > 0 && (
+                                  <div className="mt-1.5 pt-1.5 border-t border-gray-700/50">
+                                    {completedSearchInfo.sources.map((s, i) => (
+                                      <a
+                                        key={i}
+                                        href={s.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 py-1 text-sm text-blue-400 hover:text-blue-300 transition-colors truncate"
+                                      >
+                                        <ExternalLink size={12} className="flex-shrink-0" />
+                                        <span className="truncate">{s.title}</span>
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    ) : (
+                      <div>
+                        <button
+                          onClick={() => setShowThinking(!showThinking)}
+                          className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors"
+                        >
+                          <span className="text-xs">{showThinking ? "▼" : "▶"}</span>
+                          <span className="italic">{showThinking ? "Hide" : "Show"} thinking process</span>
+                        </button>
+                        <AnimatePresence>
+                          {showThinking && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="mt-2 overflow-hidden"
+                            >
+                              <p className="text-xs text-gray-600 mb-1.5">
+                                The model reasoned before responding.
+                              </p>
+                              <div className="max-h-48 overflow-y-auto rounded-md bg-gray-800/50 border border-gray-700 p-3">
+                                {thinkingBlocksRef.current.map((block, index) => (
+                                  <div key={index} className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
+                                    {block}
+                                  </div>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -255,7 +411,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
         ) : (
           <MarkdownComponent>{renderedContent}</MarkdownComponent>
         )}
-        {!isStreamFinished && !isStopped && renderedContent.length > 0 && renderedContent.length > 0 && (
+        {!isStreamFinished && !isStopped && renderedContent.length > 0 && (
           <motion.span
             className="absolute bottom-0 right-0 text-white"
             initial={{ opacity: 1 }}

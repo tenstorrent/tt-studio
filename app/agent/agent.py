@@ -115,21 +115,10 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
     print(f"  - Health URL: {llm_info.health_url}")
     print(f"  - Status: {llm_info.status}")
     
-    # Determine the correct endpoint based on model type
+    # Use the internal_url from the deploy cache as-is.  It already contains
+    # the correct service_route assigned by the backend (e.g. /v1/completions
+    # for base models, /v1/chat/completions for instruct models).
     server_url = f"http://{llm_info.internal_url}"
-    
-    # For different model types, we might need different endpoints
-    # Most vLLM models use /v1/chat/completions, but some might use different endpoints
-    if llm_info.model_type == 'chat':
-        # Standard chat completion endpoint
-        if not llm_info.internal_url.endswith('/v1/chat/completions'):
-            server_url = f"http://{llm_info.internal_url}/v1/chat/completions"
-    elif llm_info.model_type == 'completion':
-        # For completion models, use /v1/completions
-        server_url = f"http://{llm_info.internal_url.replace('/v1/chat/completions', '/v1/completions')}"
-    else:
-        # Default to chat completions for unknown types
-        print(f"[WARNING] Unknown model type '{llm_info.model_type}', using chat completions endpoint")
     
     print(f"[DYNAMIC_LLM_SETUP] Final server URL: {server_url}")
     
@@ -219,7 +208,7 @@ def test_llm_connection(llm: CustomLLM, model_name: str, model_type: str) -> boo
         headers = {"Authorization": f"Bearer {llm.encoded_jwt}"}
         print(f"[DEBUG] Testing chat endpoint with simple request")
         
-        response = requests.post(llm.server_url, json=test_payload, headers=headers, timeout=10)
+        response = requests.post(llm.server_url, json=test_payload, headers=headers, timeout=(5, 60))
         print(f"[DEBUG] Test request status: {response.status_code}")
         
         if response.status_code in [200, 400, 422]:  # 400/422 are expected for invalid model names
@@ -323,9 +312,16 @@ def initialize_agent_components():
         
         # Add search tool
         search = TavilySearchResults(
-            max_results=2,
+            max_results=3,
             include_answer=True,
-            include_raw_content=True)
+            include_raw_content=True,
+            description=(
+                "Search the web for up-to-date information. Use this for ANY "
+                "question about facts, travel, recommendations, prices, events, "
+                "news, people, places, or anything that benefits from current data. "
+                "Input should be a focused search query."
+            ),
+        )
         tools.append(search)
         
         # Add code interpreter tool if E2B_API_KEY is available

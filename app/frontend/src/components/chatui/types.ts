@@ -29,6 +29,11 @@ export interface FileData {
 }
 
 // Chat and Message Types
+export interface SourceLink {
+  title: string;
+  url: string;
+}
+
 export interface ChatMessage {
   id: string;
   sender: "user" | "assistant";
@@ -39,6 +44,7 @@ export interface ChatMessage {
   isStopped?: boolean;
   finishReason?: string | null;
   timing?: TimingInfo;
+  sources?: SourceLink[];
 }
 
 export type MessageContent =

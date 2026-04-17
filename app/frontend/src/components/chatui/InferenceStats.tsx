@@ -497,11 +497,26 @@ export default function Component({
         : stats.user_ttft_s != null
           ? Math.round(stats.user_ttft_s * 1000)
           : null;
+    const totalDisplay = stats.total_time_ms != null
+      ? stats.total_time_ms >= 1000
+        ? `${(stats.total_time_ms / 1000).toFixed(1)}s`
+        : `${Math.round(stats.total_time_ms)}ms`
+      : stats.timing?.total != null
+        ? stats.timing.total >= 1000
+          ? `${(stats.timing.total / 1000).toFixed(1)}s`
+          : `${Math.round(stats.timing.total)}ms`
+        : null;
+    const thinkingDisplay = stats.thinking_duration_ms != null
+      ? stats.thinking_duration_ms >= 1000
+        ? `${(stats.thinking_duration_ms / 1000).toFixed(1)}s`
+        : `${Math.round(stats.thinking_duration_ms)}ms`
+      : null;
     type Segment = { label: string | null; value: string; unit?: string; accent?: boolean };
     const segments: (Segment | null)[] = [
       ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
       tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
-      // tokens shown in modal only
+      thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
+      totalDisplay != null && tpsDisplay == null ? { label: "Total", value: totalDisplay } : null,
     ];
     const visibleSegments = segments.filter((s): s is Segment => s !== null);
 
