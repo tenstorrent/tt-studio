@@ -18,12 +18,23 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     import re
     import ast
     import json
+    import time
     from urllib.parse import urlparse
 
     complete_output = ""
     chat_history = memory.buffer_as_messages
     thinking_opened = False
     emitted_queries = set()
+
+    # Token-level timing for inference stats.
+    # We track LLM-only generation time (excluding tool execution pauses)
+    # so that TPS reflects actual hardware throughput.
+    start_time = time.perf_counter()
+    first_token_time = None
+    token_count = 0
+    llm_gen_start = None
+    llm_gen_time = 0.0
+
     print(f"Processing message: {message}")
 
     try:
@@ -37,6 +48,9 @@ async def poll_requests(agent_executor, config, tools, memory, message):
 
             elif kind == "on_chain_end" and event["name"] == "AgentExecutor":
                 print(f"[AGENT] Completed")
+                if llm_gen_start is not None:
+                    llm_gen_time += time.perf_counter() - llm_gen_start
+                    llm_gen_start = None
                 if thinking_opened:
                     yield "</think>"
                     thinking_opened = False
@@ -58,6 +72,12 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                 content = event["data"]["chunk"].content
                 if not content:
                     continue
+                now = time.perf_counter()
+                if first_token_time is None:
+                    first_token_time = now
+                if llm_gen_start is None:
+                    llm_gen_start = now
+                token_count += 1
                 complete_output += content
 
                 # Open the search panel as soon as the LLM decides to
@@ -70,6 +90,9 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                     yield "[searching]\n"
 
             elif kind == "on_tool_start":
+                if llm_gen_start is not None:
+                    llm_gen_time += time.perf_counter() - llm_gen_start
+                    llm_gen_start = None
                 tool_name = event["name"]
                 if tool_name == "_Exception":
                     continue
@@ -146,6 +169,21 @@ async def poll_requests(agent_executor, config, tools, memory, message):
         if thinking_opened:
             yield "</think>"
         yield f"Sorry, I encountered an error: {str(e)}"
+
+    # Emit token-level stats so the frontend can show TPS and GPU comparisons.
+    # tpot uses LLM-only generation time (excludes tool execution pauses)
+    # so TPS reflects actual hardware throughput.
+    elapsed = time.perf_counter() - start_time
+    ttft = (first_token_time - start_time) if first_token_time else None
+    tpot = (llm_gen_time / max(token_count - 1, 1)
+            if token_count > 1 and llm_gen_time > 0 else None)
+    stats = {
+        "tokens_decoded": token_count,
+        "ttft": ttft,
+        "tpot": tpot,
+        "total_time": elapsed,
+    }
+    yield f"[STATS]{json.dumps(stats)}"
 
 REACT_SEARCH_PROMPT = PromptTemplate.from_template(
     """\

@@ -7,6 +7,7 @@ import type {
   RagDataSource,
   ChatMessage,
   InferenceStats,
+  HardwareMetrics,
   TimingInfo,
   SourceLink,
 } from "./types";
@@ -365,8 +366,8 @@ export const runInference = async (
           sseEventCount++;
           if (!t.firstSSE) t.firstSSE = performance.now();
 
-          // Backend custom stats chunk (sent after [DONE] by stream_response_from_external_api)
-          if (!isAgentSelected && jsonData.tokens_decoded !== undefined) {
+          // Backend custom stats chunk (sent after [DONE] or from agent [STATS] blob)
+          if (jsonData.tokens_decoded !== undefined) {
             const backendStats: InferenceStats = {
               user_ttft_s: jsonData.ttft,
               user_tpot: jsonData.tpot,
@@ -525,6 +526,53 @@ export const runInference = async (
       }
       inferenceStats.timing = timing;
       inferenceStats.total_time_ms = Math.round(t.end - t.start);
+    }
+
+    // Fetch live TT device telemetry (non-blocking, best-effort)
+    if (inferenceStats) {
+      try {
+        const hwRes = await fetch("/board-api/status/");
+        if (hwRes.ok) {
+          const hwData = await hwRes.json();
+          const devices: Array<{
+            power?: number;
+            temperature?: number;
+            aiclk?: number;
+            voltage?: number;
+            board_type?: string;
+          }> = hwData.devices ?? [];
+
+          if (devices.length > 0) {
+            const totalPower = devices.reduce((s, d) => s + (d.power ?? 0), 0);
+            const avgTemp =
+              devices.reduce((s, d) => s + (d.temperature ?? 0), 0) / devices.length;
+            const avgClock =
+              devices.reduce((s, d) => s + (d.aiclk ?? 0), 0) / devices.length;
+
+            const hw: HardwareMetrics = {
+              power_watts: Math.round(totalPower * 10) / 10,
+              temperature_c: Math.round(avgTemp * 10) / 10,
+              aiclk_mhz: Math.round(avgClock),
+              voltage: devices[0].voltage,
+              board_type: hwData.board_name ?? devices[0].board_type,
+            };
+            inferenceStats.hardware = hw;
+
+            // Compute efficiency (tok/s per watt)
+            const tps =
+              inferenceStats.tps ??
+              (typeof inferenceStats.user_tpot === "number" && inferenceStats.user_tpot > 0
+                ? 1 / inferenceStats.user_tpot
+                : undefined);
+            if (tps && hw.power_watts && hw.power_watts > 0) {
+              inferenceStats.tps_per_watt =
+                Math.round((tps / hw.power_watts) * 1000) / 1000;
+            }
+          }
+        }
+      } catch {
+        // Hardware telemetry is best-effort; don't break inference flow
+      }
     }
 
     setIsStreaming(false);

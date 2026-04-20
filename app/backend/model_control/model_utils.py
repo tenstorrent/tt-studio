@@ -187,8 +187,12 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
                 if chunk.strip() == "[DONE]":
                     yield f"data: [DONE]\n\n"
                 elif chunk.strip():
-                    json_chunk = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
-                    yield "data: " + json.dumps(json_chunk) + "\n\n"
+                    stripped = chunk.strip()
+                    if stripped.startswith("[STATS]"):
+                        yield "data: " + stripped[len("[STATS]"):] + "\n\n"
+                    else:
+                        json_chunk = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
+                        yield "data: " + json.dumps(json_chunk) + "\n\n"
         logger.info("stream_response_from_agent_api done")
     except httpx.HTTPStatusError as e:
         logger.error(f"Agent HTTPStatusError {e.response.status_code}: {e.response.text[:200]}")
