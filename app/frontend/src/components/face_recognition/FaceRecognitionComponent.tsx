@@ -3,7 +3,7 @@
 
 import { useLocation, useNavigate } from "react-router-dom";
 import { customToast } from "../CustomToaster";
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {

@@ -245,33 +245,19 @@ export default function StepperDemo() {
           const conflicts = errorData?.conflicts || [];
           const message = errorData?.message || 'Multi-chip model requires all slots to be free';
 
-          customToast.error(
-            <div className="max-w-md">
-              <p className="font-bold mb-2">Multi-chip Deployment Conflict</p>
-              <p className="text-sm mb-2">{message}</p>
-
-              {conflicts.length > 0 && (
-                <div className="mt-3 p-2 bg-red-100 dark:bg-red-900/30 rounded">
-                  <p className="text-xs font-semibold mb-1">Stop these models first:</p>
-                  <ul className="text-xs space-y-1">
-                    {conflicts.map((c: any, i: number) => (
-                      <li key={i} className="flex items-center justify-between">
-                        <span>• {c.model} (device {c.slot})</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="text-xs mt-2 italic">Go to Models Deployed page to stop models.</p>
-                </div>
-              )}
-            </div>,
-            { duration: 15000 }
-          );
+          const conflictsSummary =
+            conflicts.length > 0
+              ? ` Stop these first: ${conflicts
+                  .map((c: { model?: string; slot?: number }) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
+                  .join(", ")}.`
+              : "";
+          customToast.error(`Multi-chip Deployment Conflict: ${message}.${conflictsSummary}`);
 
           return { success: false };
         } else if (errorType === 'allocation_failed') {
           // General allocation failure (all slots occupied)
           const message = errorData?.message || 'All devices are occupied';
-          customToast.error(`Chip Allocation Failed: ${message}`, { duration: 10000 });
+          customToast.error(`Chip Allocation Failed: ${message}`);
           return { success: false };
         }
       }

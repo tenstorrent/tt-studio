@@ -3,7 +3,7 @@
 
 import type { HealthBadgeRef } from "../components/HealthBadge";
 
-export type HealthStatus = "healthy" | "unavailable" | "unhealthy" | "unknown";
+export type HealthStatus = "healthy" | "starting" | "unavailable" | "unhealthy" | "unknown";
 
 export interface ModelRow {
   id: string;

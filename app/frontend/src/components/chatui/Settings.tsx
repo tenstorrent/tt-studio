@@ -39,12 +39,13 @@ interface SettingsProps {
   };
   onSettingsChange: (key: string, value: number | boolean | string) => void;
   defaultSystemPrompt: string;
+  maxTokensSliderMax?: number;
 }
 
 // Parameter validation ranges
 const PARAM_RANGES = {
   temperature: { min: 0.1, max: 1.0, step: 0.1 },
-  maxLength: { min: 1, max: 2048, step: 1 },
+  maxLength: { min: 1, max: 131072, step: 1 },
   topP: { min: 0.1, max: 1.0, step: 0.1 },
   topK: { min: 1, max: 50, step: 1 },
   seed: { min: 0, max: 99999, step: 1 },
@@ -53,7 +54,7 @@ const PARAM_RANGES = {
 // Default values
 const DEFAULT_VALUES = {
   temperature: 1,
-  maxLength: 512,
+  maxLength: 1024,
   topP: 0.9,
   topK: 20,
   seed: 0,
@@ -95,6 +96,11 @@ const validateParam = (key: string, value: number): number => {
   return range.min + steps * range.step;
 };
 
+const formatTokenCount = (v: number): string => {
+  if (v >= 1000) return `${(v / 1024).toFixed(0)}K`;
+  return String(v);
+};
+
 interface ParameterProps {
   label: string;
   value: number;
@@ -106,6 +112,7 @@ interface ParameterProps {
   step: number;
   tooltip: string;
   description: string;
+  formatValue?: (v: number) => string;
 }
 
 const Parameter = ({
@@ -119,6 +126,7 @@ const Parameter = ({
   step,
   tooltip,
   description,
+  formatValue,
 }: ParameterProps) => (
   <div className="space-y-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
     <div className="flex items-center justify-between">
@@ -142,16 +150,23 @@ const Parameter = ({
           </TooltipProvider>
         </div>
       </div>
-      <Input
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
-        className="w-20 h-8 text-right"
-        min={min}
-        max={max}
-        step={step}
-      />
+      <div className="flex items-center gap-1.5">
+        {formatValue && (
+          <span className="text-xs text-gray-400 dark:text-gray-500">
+            {formatValue(value)}
+          </span>
+        )}
+        <Input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
+          className="w-24 h-8 text-right"
+          min={min}
+          max={max}
+          step={step}
+        />
+      </div>
     </div>
     <Slider
       value={[value]}
@@ -219,6 +234,7 @@ export default function Settings({
   settings,
   onSettingsChange,
   defaultSystemPrompt,
+  maxTokensSliderMax,
 }: SettingsProps) {
   const handleInputChange = (key: string, value: string) => {
     const numValue = parseFloat(value);
@@ -368,10 +384,11 @@ export default function Settings({
                 }
               }}
               min={PARAM_RANGES.maxLength.min}
-              max={PARAM_RANGES.maxLength.max}
-              step={PARAM_RANGES.maxLength.step}
+              max={maxTokensSliderMax ?? PARAM_RANGES.maxLength.max}
+              step={(maxTokensSliderMax ?? PARAM_RANGES.maxLength.max) > 8192 ? 256 : 1}
               tooltip="Sets the maximum length of the generated response"
-              description="Maximum number of tokens to generate"
+              description={`Maximum output tokens (model context: ${formatTokenCount(maxTokensSliderMax ?? PARAM_RANGES.maxLength.max)})`}
+              formatValue={formatTokenCount}
             />
 
             <Parameter

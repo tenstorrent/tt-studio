@@ -13,7 +13,6 @@ import {
 import {
   Activity,
   Cpu,
-  Heart,
   Network,
   // Settings,
   Tag,
@@ -28,12 +27,63 @@ import type {
 import ContainerLogsCell from "./row-cells/ContainerLogsCell";
 import ModelNameCell from "./row-cells/ModelNameCell";
 import ImageCell from "./row-cells/ImageCell";
-import StatusCell from "./row-cells/StatusCell";
-import HealthCell from "./row-cells/HealthCell";
 import PortsCell from "./row-cells/PortsCell";
 import ManageCell from "./row-cells/ManageCell";
 import CopyableText from "../CopyableText";
 import { ChevronDown } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip";
+
+function HealthStatusCell({ health }: { health?: HealthStatus }) {
+  const status = health ?? "unknown";
+
+  const getBgColor = () => {
+    switch (status) {
+      case "healthy":
+        return "bg-[#4CAF50] text-white";
+      case "unhealthy":
+        return "bg-red-500 text-white";
+      default:
+        return "bg-yellow-500 text-white";
+    }
+  };
+
+  const getDotColor = () => {
+    switch (status) {
+      case "healthy":
+        return "bg-[#A5D6A7]";
+      case "unhealthy":
+        return "bg-red-300";
+      default:
+        return "bg-yellow-300";
+    }
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap leading-none ${getBgColor()} transition-colors duration-200`}
+            style={{ minHeight: 28 }}
+          >
+            <div
+              className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${status === "healthy" || status === "starting" ? "animate-pulse" : ""}`}
+            />
+            {status}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Model Health: {status}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 interface Props {
   rows: ModelRow[];
@@ -44,8 +94,6 @@ interface Props {
   onRedeploy: (image?: string) => void;
   onNavigateToModel: (id: string, name: string, navigate?: any) => void; // navigate optional for compatibility
   onOpenApi: (id: string) => void;
-  registerHealthRef: (id: string, node: any | null) => void;
-  onHealthChange: (id: string, h: HealthStatus) => void;
   refreshHealthById?: (id: string) => void;
   density?: "compact" | "normal" | "comfortable";
   hideDeviceId?: boolean;
@@ -59,9 +107,7 @@ export default function ModelsTable({
   onRedeploy,
   onNavigateToModel,
   onOpenApi,
-  registerHealthRef,
   healthMap,
-  onHealthChange,
   refreshHealthById,
   density = "normal",
   hideDeviceId = false,
@@ -159,13 +205,6 @@ export default function ModelsTable({
             />
             Status
           </TableHead>
-          <TableHead className="text-right font-semibold">
-            <Heart
-              className="inline-block mr-2 text-TT-purple-accent"
-              size={16}
-            />
-            Health
-          </TableHead>
           {ports && (
             <TableHead className="text-right font-semibold">
               <div className="flex items-center">
@@ -192,7 +231,6 @@ export default function ModelsTable({
             1 /* name */ +
             (hideDeviceId ? 0 : 1) /* chip */ +
             1 /* status */ +
-            1 /* health */ +
             1 /* manage */ +
             (containerId ? 1 : 0) +
             (image ? 1 : 0) +
@@ -237,14 +275,7 @@ export default function ModelsTable({
                   </TableCell>
                 ) : null}
                 <TableCell className="text-right">
-                  <StatusCell status={row.status} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <HealthCell
-                    id={row.id}
-                    register={registerHealthRef}
-                    onHealthChange={onHealthChange}
-                  />
+                  <HealthStatusCell health={healthMap[row.id]} />
                 </TableCell>
                 {ports ? (
                   <TableCell className="text-right">
