@@ -4516,6 +4516,19 @@ def main():
             print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
             print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
 
+        # Pre-create workflow_logs before docker compose up.
+        # docker-compose.yml bind-mounts this directory; if Docker creates it first, it
+        # does so as root, which blocks the FastAPI server (running as the current user)
+        # from writing logs on the first deploy. Also fix ownership if already root-owned
+        # from a previous run.
+        for _subdir in ["workflow_logs", os.path.join("workflow_logs", "run_logs")]:
+            _log_dir = os.path.join(INFERENCE_ARTIFACT_DIR, _subdir)
+            try:
+                os.makedirs(_log_dir, exist_ok=True)
+            except PermissionError:
+                subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
+                os.makedirs(_log_dir, exist_ok=True)
+
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
         print(f"\n{C_CYAN}🔨 Building containers (backend, frontend, agent, chroma)...{C_RESET}")
