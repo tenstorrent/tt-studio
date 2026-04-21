@@ -184,6 +184,44 @@ export default function Component({
         } as StatItem] : []),
       ],
     },
+    {
+      title: "Token Metrics",
+      stats: [
+        {
+          icon: (
+            <Hash
+              className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
+            />
+          ),
+          value: stats.tokens_decoded != null ? stats.tokens_decoded.toString() : "N/A",
+          label: "Tokens Decoded",
+          unit: "",
+          isSmall: false,
+        } as StatItem,
+        {
+          icon: (
+            <Hash
+              className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
+            />
+          ),
+          value: stats.tokens_prefilled != null ? stats.tokens_prefilled.toString() : "N/A",
+          label: "Context In",
+          unit: "",
+          isSmall: false,
+        } as StatItem,
+        {
+          icon: (
+            <Hash
+              className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
+            />
+          ),
+          value: stats.context_length != null ? stats.context_length.toString() : "N/A",
+          label: "Context Length",
+          unit: "",
+          isSmall: false,
+        } as StatItem,
+      ].filter((s) => s.value !== "N/A"),
+    },
   ];
 
   // Function to get the display model name
@@ -245,6 +283,10 @@ export default function Component({
     stats.user_tpot != null ||
     (stats.tokens_decoded != null && stats.tokens_decoded > 0);
 
+  // Agent mode: show Search + Response panel instead of TTFT + Generation.
+  // Explicitly set by runInference when the search agent toggle is active.
+  const isAgentMode = stats.isAgentMode === true;
+
   // --- Hardware & efficiency data ---
   const hw = stats.hardware;
   const gpuBaselines = getModelBenchmarks(modelName);
@@ -266,7 +308,7 @@ export default function Component({
     <div className={`space-y-4 sm:space-y-6 ${className}`}>
 
       {/* ── Bar + summary (only for direct LLM inference, not agent) ── */}
-      {hasServerMetrics && ttftMs != null && generationMs != null && (
+      {hasServerMetrics && !isAgentMode && ttftMs != null && generationMs != null && (
         <div className="space-y-1.5">
           {/* Legend */}
           <div className={`flex items-center gap-3 text-xs ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
@@ -344,7 +386,7 @@ export default function Component({
       )}
 
       {/* ── Agent / Search timing summary ── */}
-      {!hasServerMetrics && (stats.thinking_duration_ms != null || stats.total_time_ms != null || stats.timing?.total != null) && (() => {
+      {(isAgentMode || !hasServerMetrics) && (stats.thinking_duration_ms != null || stats.total_time_ms != null || stats.timing?.total != null) && (() => {
         const searchMs = stats.thinking_duration_ms ?? null;
         const agentTotalMs = stats.total_time_ms ?? stats.timing?.total ?? null;
         const agentTtftMs = stats.client_ttft_ms ?? null;
@@ -425,8 +467,8 @@ export default function Component({
         );
       })()}
 
-      {/* Stat-card sections (only when backend reports real metrics) */}
-      {hasServerMetrics && sections.map((section, i) => (
+      {/* Stat-card sections (only when backend reports real metrics, not agent) */}
+      {hasServerMetrics && !isAgentMode && sections.map((section, i) => (
         <div key={i} className="space-y-2 sm:space-y-3">
           <h3
             className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
@@ -464,7 +506,7 @@ export default function Component({
       ))}
 
       {/* Per-Token Timing Details */}
-      {hasServerMetrics && tokenTimingStats && (
+      {hasServerMetrics && !isAgentMode && tokenTimingStats && (
         <div className="space-y-2 sm:space-y-3">
           <h3
             className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
@@ -698,7 +740,7 @@ export default function Component({
       <div
         className={`border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-2 sm:pt-3 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2`}
       >
-        {hasServerMetrics ? (
+        {hasServerMetrics && !isAgentMode ? (
           <div className="flex items-center gap-1">
             <Clock
               className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`}
@@ -790,14 +832,19 @@ export default function Component({
       : null;
 
     type Segment = { label: string | null; value: string; unit?: string; accent?: boolean };
-    const segments: (Segment | null)[] = [
-      ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
-      tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
-      effDisplay != null ? { label: "Eff", value: effDisplay, unit: "t/s/W" } : null,
-      effRatioDisplay != null ? { label: null, value: effRatioDisplay, unit: " vs GPU", accent: true } : null,
-      thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
-      totalDisplay != null && tpsDisplay == null ? { label: "Total", value: totalDisplay } : null,
-    ];
+    const segments: (Segment | null)[] = isAgentMode
+      ? [
+          thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
+          totalDisplay != null ? { label: "Total", value: totalDisplay } : null,
+        ]
+      : [
+          ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
+          tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
+          effDisplay != null ? { label: "Eff", value: effDisplay, unit: "t/s/W" } : null,
+          effRatioDisplay != null ? { label: null, value: effRatioDisplay, unit: " vs GPU", accent: true } : null,
+          thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
+          totalDisplay != null && tpsDisplay == null ? { label: "Total", value: totalDisplay } : null,
+        ];
     const visibleSegments = segments.filter((s): s is Segment => s !== null);
 
     return (

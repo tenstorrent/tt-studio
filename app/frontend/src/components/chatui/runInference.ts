@@ -515,17 +515,26 @@ export const runInference = async (
       inferenceStats.timing = timing;
     }
 
-    // Build client-side metrics for agent requests (no backend stats blob)
-    if (isAgentSelected && !inferenceStats) {
-      inferenceStats = {};
-      if (t.firstToken != null) {
+    // Build or augment client-side metrics for agent requests.
+    // The agent [STATS] blob may have already set inferenceStats with
+    // tokens_decoded/tpot, but we still need the agent-specific fields
+    // (search duration, total time) and the isAgentMode flag so the UI
+    // shows the Search + Response panel instead of the normal TTFT bar.
+    if (isAgentSelected) {
+      if (!inferenceStats) inferenceStats = {};
+      inferenceStats.isAgentMode = true;
+      if (t.firstToken != null && inferenceStats.client_ttft_ms == null) {
         inferenceStats.client_ttft_ms = Math.round(t.firstToken - t.start);
       }
-      if (agentThinkingStarted && agentThinkingEndTime) {
+      if (agentThinkingStarted && agentThinkingEndTime && inferenceStats.thinking_duration_ms == null) {
         inferenceStats.thinking_duration_ms = Math.round(agentThinkingEndTime - t.start);
       }
-      inferenceStats.timing = timing;
-      inferenceStats.total_time_ms = Math.round(t.end - t.start);
+      if (inferenceStats.timing == null) {
+        inferenceStats.timing = timing;
+      }
+      if (inferenceStats.total_time_ms == null) {
+        inferenceStats.total_time_ms = Math.round(t.end - t.start);
+      }
     }
 
     // Fetch live TT device telemetry (non-blocking, best-effort)

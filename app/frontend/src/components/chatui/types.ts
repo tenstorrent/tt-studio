@@ -151,6 +151,9 @@ export interface InferenceStats {
   // Hardware & efficiency metrics
   hardware?: HardwareMetrics;
   tps_per_watt?: number;          // Efficiency: tok/s per watt
+
+  // Mode flag — true when stats come from the search agent flow
+  isAgentMode?: boolean;
 }
 
 // Component Props Types
