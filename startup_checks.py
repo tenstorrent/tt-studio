@@ -58,9 +58,9 @@ def _read_artifact_commit_sha(tt_studio_root: str) -> str | None:
     return None
 
 
-def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> None:
+def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     """
-    Non-blocking freshness check called at the very start of main().
+    Freshness check called at the very start of main(), before any startup work.
 
     Compares:
       1. Local tt-studio HEAD vs the same branch on GitHub.
@@ -69,11 +69,23 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> None:
     Prints green checkmarks when up to date, yellow warnings when behind.
     Never raises — network failures are silently skipped.
 
+    Returns a dict with keys:
+      - tt_studio_behind (bool): True if local branch is behind GitHub.
+      - artifact_behind (bool): True if the artifact branch is behind GitHub.
+      - artifact_branch (str | None): The artifact branch name being tracked,
+          or None when using a pinned version.
+
     Args:
         tt_studio_root:  Absolute path to the tt-studio repo root.
         get_env_var_fn:  run.py's get_env_var() so we can read .env without
                          duplicating its parsing logic.
     """
+    result = {
+        "tt_studio_behind": False,
+        "artifact_behind": False,
+        "artifact_branch": None,
+    }
+
     print(f"\n{C_BLUE}🔍 Checking for updates...{C_RESET}")
 
     # ── 1. tt-studio self-check ───────────────────────────────────────────────
@@ -99,6 +111,7 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> None:
             print(f"{C_YELLOW}⚠️  tt-studio '{local_branch}': behind GitHub "
                   f"({local_sha[:7]} → {remote_sha[:7]}){C_RESET}")
             print(f"   Run: git pull")
+            result["tt_studio_behind"] = True
     else:
         print(f"{C_YELLOW}   tt-studio: could not determine local branch/SHA{C_RESET}")
 
@@ -107,28 +120,33 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> None:
         get_env_var_fn("TT_INFERENCE_ARTIFACT_BRANCH")
         or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", "")
     )
+    result["artifact_branch"] = artifact_branch or None
+
     if not artifact_branch:
         # Version-pinned artifact — no branch to check against
         print()
-        return
+        return result
 
     stored_sha = _read_artifact_commit_sha(tt_studio_root)
-    if not stored_sha:
-        print(f"{C_YELLOW}   Artifact: no stored commit SHA — run once to download artifact{C_RESET}")
-        print()
-        return
-
     remote_sha = _fetch_github_sha("tenstorrent", "tt-inference-server", artifact_branch)
+
     if remote_sha is None:
         print(f"{C_YELLOW}   Artifact: could not reach GitHub to check for updates{C_RESET}")
+    elif not stored_sha:
+        # Artifact exists but no commit SHA was recorded — treat as outdated so
+        # setup_tt_inference_server will re-fetch and record the SHA.
+        print(f"{C_YELLOW}⚠️  Artifact '{artifact_branch}': no stored commit SHA "
+              f"(latest on GitHub: {remote_sha[:7]}) — needs refresh{C_RESET}")
+        result["artifact_behind"] = True
     elif stored_sha == remote_sha:
         print(f"{C_GREEN}✓  Artifact '{artifact_branch}': up to date ({stored_sha[:7]}){C_RESET}")
     else:
         print(f"{C_YELLOW}⚠️  Artifact '{artifact_branch}': behind GitHub "
               f"({stored_sha[:7]} → {remote_sha[:7]}){C_RESET}")
-        print(f"   Run: python run.py --pull-branch")
+        result["artifact_behind"] = True
 
     print()
+    return result
 
 
 if __name__ == "__main__":
@@ -147,4 +165,5 @@ if __name__ == "__main__":
             pass
         return ""
 
-    check_startup_freshness(root, _read_env)
+    status = check_startup_freshness(root, _read_env)
+    print(f"Result: {status}")

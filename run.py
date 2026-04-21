@@ -2566,8 +2566,13 @@ def setup_tt_inference_server(pull_branch=False):
                             branch_mismatch = True
                         elif current_sha and stored_sha:
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]}){C_RESET}")
+                        elif current_sha and not stored_sha:
+                            # Artifact was downloaded without recording a commit SHA — re-fetch
+                            # so we can record the SHA for future freshness checks.
+                            print(f"{C_YELLOW}⚠️  No stored commit SHA for '{artifact_branch}' — re-fetching to record current commit ({current_sha[:7]}){C_RESET}")
+                            branch_mismatch = True
                         else:
-                            # API unreachable or no stored SHA — fall back gracefully
+                            # GitHub unreachable and no stored SHA — fall back gracefully
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
@@ -2707,7 +2712,8 @@ def setup_tt_inference_server(pull_branch=False):
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                        _sha = fetch_branch_commit_sha(artifact_branch)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
                     elif artifact_version:
                         _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
                 return True
@@ -4275,7 +4281,36 @@ def main():
             return
         
         display_welcome_banner()
-        check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+
+        # Block startup if the local tt-studio branch is behind its remote.
+        if freshness.get("tt_studio_behind"):
+            print(f"\n{C_YELLOW}⚠️  tt-studio is behind its remote branch.{C_RESET}")
+            try:
+                resp = input("   Run 'git pull' now? [Y/n]: ").strip().lower()
+            except EOFError:
+                resp = "n"
+            if resp in ("", "y", "yes"):
+                print(f"{C_CYAN}   Running git pull...{C_RESET}")
+                pull_result = subprocess.run(
+                    ["git", "-C", TT_STUDIO_ROOT, "pull"],
+                    check=False,
+                )
+                if pull_result.returncode == 0:
+                    print(f"\n{C_GREEN}✅ tt-studio updated. Please re-run 'python run.py' to start with the updated code.{C_RESET}")
+                else:
+                    print(f"\n{C_RED}⛔ git pull failed. Please resolve any issues and re-run 'python run.py'.{C_RESET}")
+            else:
+                print(f"\n{C_RED}⛔ Please run 'git pull' before starting tt-studio.{C_RESET}")
+            startup_log.summary(exit_code=1)
+            startup_log.close()
+            sys.exit(1)
+
+        # If the inference-server artifact is outdated, auto-fetch the latest.
+        if freshness.get("artifact_behind") and not args.pull_branch:
+            artifact_branch = freshness.get("artifact_branch", "")
+            print(f"{C_CYAN}ℹ️  Artifact '{artifact_branch}' is outdated — auto-fetching latest.{C_RESET}")
+            args.pull_branch = True
 
         # Get git hash for startup log
         try:
