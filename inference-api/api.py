@@ -335,13 +335,38 @@ def _resolve_preferred_host_volume(
             f"preferred host-volume root {resolved_candidate_root} is not a directory",
         )
     if not expected_volume_dir.exists():
-        return (
-            None,
+        # Fall back to scanning for any volume dir that matches the model name under the
+        # candidate root — handles cases where the directory was prepared with a different
+        # version/branch suffix (e.g. v0.10.1 instead of vqb2_launch).
+        fallback_volume_dir = None
+        if resolved_candidate_root.is_dir():
+            model_name_lower = model_spec.model_name.lower()
+            for candidate in sorted(resolved_candidate_root.iterdir()):
+                if not candidate.is_dir():
+                    continue
+                cname = candidate.name.lower()
+                if model_name_lower in cname and "volume_id_" in cname:
+                    candidate_weights = candidate / "weights" / model_spec.model_name
+                    candidate_cache = candidate / "tt_metal_cache"
+                    if candidate_weights.is_dir() and candidate_cache.is_dir():
+                        fallback_volume_dir = candidate
+                        break
+        if fallback_volume_dir is None:
+            return (
+                None,
+                expected_volume_dir,
+                expected_weights_dir,
+                expected_tt_metal_cache_dir,
+                f"expected preloaded host-volume directory is missing: {expected_volume_dir}",
+            )
+        logging.getLogger(__name__).warning(
+            "Expected host-volume dir %s not found; using fuzzy-matched fallback %s",
             expected_volume_dir,
-            expected_weights_dir,
-            expected_tt_metal_cache_dir,
-            f"expected preloaded host-volume directory is missing: {expected_volume_dir}",
+            fallback_volume_dir,
         )
+        expected_volume_dir = fallback_volume_dir
+        expected_weights_dir = expected_volume_dir / "weights" / model_spec.model_name
+        expected_tt_metal_cache_dir = expected_volume_dir / "tt_metal_cache"
     if not expected_volume_dir.is_dir():
         return (
             None,
@@ -1417,6 +1442,20 @@ async def run_inference(request: RunRequest):
                 except Exception as first_attempt_error:
                     # run_main() can raise directly (e.g. local setup validation errors)
                     # and bypass return-code based retry logic.
+                    #
+                    # PermissionError on the log directory means the workflow_logs dir is
+                    # root-owned (leftover from a previous sudo-based startup). Retrying
+                    # with different Docker args won't help — re-raise immediately so the
+                    # caller gets a clear error instead of a misleading retry.
+                    if isinstance(first_attempt_error, PermissionError) and "workflow_logs" in str(first_attempt_error):
+                        logger.error(
+                            "Job %s: PermissionError on workflow_logs directory — directory is likely "
+                            "root-owned from a previous sudo-based startup. Fix with: "
+                            "sudo chown -R $USER: %s/workflow_logs",
+                            job_id,
+                            script_dir,
+                        )
+                        raise
                     retry_argv, retry_reason = _build_retry_argv_and_reason()
                     if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
                         logger.warning(
