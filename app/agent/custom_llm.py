@@ -80,20 +80,44 @@ class CustomLLM(BaseChatModel):
     ) -> AsyncGenerator[ChatGenerationChunk, None]:
         print('[TRACE_FLOW_STEP_5_AGENT_TO_LLM] _astream called', {'server_url': self.server_url, 'is_cloud': self.is_cloud, 'is_discovered': self.is_discovered, 'llm_info': self.llm_info})
         
-        # Convert LangChain messages to standard role/content format
+        # Convert LangChain messages to OpenAI-compatible role/content format.
+        # Native tool calling requires:
+        #   - AI messages preserve their tool_calls array
+        #   - Tool messages use role "tool" with tool_call_id
         message_payload = []
         for msg in messages:
             if msg.type == "system":
-                role = "system"
+                entry = {"role": "system", "content": str(msg.content)}
             elif msg.type in ("human", "chat"):
-                role = "user"
-            elif msg.type == "ai":
-                role = "assistant"
-            elif msg.type == "function" or msg.type == "tool":
-                role = "assistant"  # Treat function calls as assistant responses
+                entry = {"role": "user", "content": str(msg.content)}
+            elif msg.type in ("ai", "AIMessageChunk"):
+                import re as _re
+                raw_content = str(msg.content) if msg.content else ""
+                cleaned_content = _re.sub(r'[\[<|]*python_tag[\]>|]*', '', raw_content).strip()
+                entry = {"role": "assistant", "content": cleaned_content}
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    entry["tool_calls"] = [
+                        {
+                            "id": tc.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc.get("args", {})),
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ]
+            elif msg.type == "tool":
+                entry = {
+                    "role": "tool",
+                    "content": str(msg.content),
+                    "tool_call_id": getattr(msg, "tool_call_id", ""),
+                }
+            elif msg.type == "function":
+                entry = {"role": "assistant", "content": str(msg.content)}
             else:
-                role = "user"  # Fallback
-            message_payload.append({"role": role, "content": str(msg.content)})
+                entry = {"role": "user", "content": str(msg.content)}
+            message_payload.append(entry)
         
         # Check if tools are available in kwargs
         tools = kwargs.get("tools", [])
@@ -105,10 +129,10 @@ class CustomLLM(BaseChatModel):
             headers = {"Authorization": f"Bearer {self.encoded_jwt}"}
             
             json_data = {
-                "model": self.cloud_model_name,  # Use configurable model name
+                "model": self.cloud_model_name,
                 "messages": message_payload,
                 "temperature": 0.7,
-                "max_tokens": 512,
+                "max_tokens": 2048,
                 "stream": True,
             }
             
@@ -167,7 +191,7 @@ class CustomLLM(BaseChatModel):
                     "temperature": 1,
                     "top_k": 20,
                     "top_p": 0.9,
-                    "max_tokens": 512,
+                    "max_tokens": 2048,
                     "stream": True,
                     "stop": stop_sequences,
                     "stream_options": {"include_usage": True, "continuous_usage_stats": True}
@@ -179,7 +203,7 @@ class CustomLLM(BaseChatModel):
                     "temperature": 1,
                     "top_k": 20,
                     "top_p": 0.9,
-                    "max_tokens": 512,
+                    "max_tokens": 2048,
                     "stream": True,
                     "stop": stop_sequences,
                     "stream_options": {"include_usage": True, "continuous_usage_stats": True}
@@ -196,13 +220,11 @@ class CustomLLM(BaseChatModel):
         print(f"[LLM REQUEST PAYLOAD] Sending to LLM: {json.dumps(json_data, indent=2)}")
         print(f"[DEBUG] Request URL: {self.server_url}")
         print(f"[DEBUG] Request method: POST")
-        print(f"[DEBUG] Request timeout: 30 seconds")
-        
         try:
             print(f"[DEBUG] Starting HTTP request to LLM...")
             with requests.post(
                 self.server_url, json=json_data, headers=headers, stream=True,
-                timeout=(10, 120),  # (connect, read) — TT hardware TTFT can exceed 30s
+                timeout=(10, 300),  # (connect, read) — TT hardware TTFT can be 60s+ on first run
             ) as response:
                 print(f"[DEBUG] Response received - Status: {response.status_code}")
                 print(f"[DEBUG] Response headers: {dict(response.headers)}")
@@ -244,13 +266,18 @@ class CustomLLM(BaseChatModel):
                                         
                                         # Handle tool calls
                                         if "tool_calls" in delta:
-                                            tool_calls = delta["tool_calls"]
-                                            for tool_call in tool_calls:
-                                                # Create a tool call message
+                                            for tc in delta["tool_calls"]:
+                                                func = tc.get("function") or {}
+                                                chunk_obj = {
+                                                    "name": func.get("name"),
+                                                    "args": func.get("arguments", ""),
+                                                    "id": tc.get("id"),
+                                                    "index": tc.get("index", 0),
+                                                }
                                                 new_chunk = ChatGenerationChunk(
                                                     message=AIMessageChunk(
                                                         content="",
-                                                        tool_calls=[tool_call]
+                                                        tool_call_chunks=[chunk_obj],
                                                     )
                                                 )
                                                 yield new_chunk
@@ -284,13 +311,19 @@ class CustomLLM(BaseChatModel):
                                         if "delta" in choice:
                                             delta = choice["delta"]
                                             if "tool_calls" in delta:
-                                                tool_calls = delta["tool_calls"]
-                                                for tool_call in tool_calls:
-                                                    print(f"[DEBUG] Tool call: {tool_call}")
+                                                for tc in delta["tool_calls"]:
+                                                    func = tc.get("function") or {}
+                                                    chunk_obj = {
+                                                        "name": func.get("name"),
+                                                        "args": func.get("arguments", ""),
+                                                        "id": tc.get("id"),
+                                                        "index": tc.get("index", 0),
+                                                    }
+                                                    print(f"[DEBUG] Tool call chunk: {chunk_obj}")
                                                     new_chunk = ChatGenerationChunk(
                                                         message=AIMessageChunk(
                                                             content="",
-                                                            tool_calls=[tool_call]
+                                                            tool_call_chunks=[chunk_obj],
                                                         )
                                                     )
                                                     yield new_chunk
@@ -321,6 +354,12 @@ class CustomLLM(BaseChatModel):
                             print(f"[DEBUG] Non-data chunk received: {repr(chunk)}")
                 
                 print(f"[DEBUG] Stream completed after {chunk_count} chunks")
+        except requests.exceptions.ReadTimeout:
+            print(f"[ERROR] Read timeout — LLM took too long to respond")
+            error_chunk = ChatGenerationChunk(message=AIMessageChunk(
+                content="The model is taking too long to respond. It may still be warming up — please try again in a moment."
+            ))
+            yield error_chunk
         except requests.RequestException as e:
             print(f"[ERROR] Request exception: {str(e)}")
             print(f"[ERROR] Request exception type: {type(e)}")

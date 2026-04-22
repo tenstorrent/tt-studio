@@ -130,7 +130,7 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
         'model_name': llm_info.model_name,
         'model_type': llm_info.model_type,
         'status': llm_info.status.value,
-        'hf_model_id': llm_info.hf_model_id if hasattr(llm_info, 'hf_model_id') else None
+        'hf_model_id': llm_info.hf_model_id
     }
     print(f"[DEBUG] Setting up LLM with llm_info: {llm_info_dict}")
     
@@ -267,7 +267,7 @@ def on_llm_change(new_llm: CustomLLM):
     
     # Recreate agent executor with new LLM
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=True)]
+    tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
     agent_executer = setup_executer(new_llm, memory, tools)
     print("Agent executor updated with new LLM")
 
@@ -314,7 +314,7 @@ def initialize_agent_components():
         search = TavilySearchResults(
             max_results=3,
             include_answer=True,
-            include_raw_content=True,
+            include_raw_content=False,
             description=(
                 "Search the web for up-to-date information. Use this for ANY "
                 "question about facts, travel, recommendations, prices, events, "
@@ -598,7 +598,7 @@ def refresh_llm():
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=True)]
+        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring
@@ -674,7 +674,7 @@ def select_model(deploy_id: str):
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=True)]
+        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring

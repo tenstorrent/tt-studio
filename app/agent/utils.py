@@ -2,38 +2,41 @@
 #
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain_core.prompts import PromptTemplate
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 async def poll_requests(agent_executor, config, tools, memory, message):
     """
     Streams the agent's output with <think> tags for the frontend thinking UI.
-    Only tool events appear in the thinking panel; raw ReAct scaffolding is
-    suppressed.  The Final Answer is streamed as clean content after </think>.
+    Tool invocations appear in the thinking panel; the final answer is streamed
+    directly as content tokens.
 
-    Handles multi-iteration correctly: if the agent gives a preliminary answer
-    then decides to use a tool, the earlier answer is discarded and only the
-    final one (after the last tool call) is shown.
+    With native tool calling the LLM returns structured tool_calls (no text
+    parsing needed).  Content tokens produced *after* all tool phases are the
+    final answer and are streamed directly to the user.
     """
-    import re
     import ast
     import json
+    import re
     import time
     from urllib.parse import urlparse
 
-    complete_output = ""
     chat_history = memory.buffer_as_messages
     thinking_opened = False
+    in_tool_phase = False
     emitted_queries = set()
 
-    # Token-level timing for inference stats.
-    # We track LLM-only generation time (excluding tool execution pauses)
-    # so that TPS reflects actual hardware throughput.
     start_time = time.perf_counter()
     first_token_time = None
     token_count = 0
     llm_gen_start = None
     llm_gen_time = 0.0
+
+    # Buffer to catch tool-call JSON that the model leaks as plain text
+    # (e.g. {"name": "tavily_search_results_json", "parameters": {...}})
+    _json_buf = ""
+    _json_buffering = False
+    _TOOL_CALL_RE = re.compile(r'"name"\s*:.*("parameters"|"arguments")\s*:', re.DOTALL)
 
     print(f"Processing message: {message}")
 
@@ -51,74 +54,91 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                 if llm_gen_start is not None:
                     llm_gen_time += time.perf_counter() - llm_gen_start
                     llm_gen_start = None
+                # Flush or discard the JSON buffer at end of agent run
+                if _json_buffering and _json_buf:
+                    if not _TOOL_CALL_RE.search(_json_buf):
+                        yield _json_buf
+                    _json_buf = ""
+                    _json_buffering = False
                 if thinking_opened:
                     yield "</think>"
                     thinking_opened = False
 
-                # Extract the LAST "Final Answer:" from the full accumulated
-                # text so multi-iteration answers don't leak scaffolding.
-                last_fa = complete_output.rfind("Final Answer:")
-                if last_fa != -1:
-                    answer = complete_output[last_fa + len("Final Answer:"):].strip()
-                    if answer:
-                        yield answer
-                else:
-                    # No Final Answer marker — yield whatever we have
-                    stripped = complete_output.strip()
-                    if stripped:
-                        yield stripped
-
             elif kind == "on_chat_model_stream":
-                content = event["data"]["chunk"].content
+                chunk = event["data"]["chunk"]
+
+                # If the chunk carries tool_call_chunks, the model is
+                # generating a tool call — enter tool phase immediately
+                # so we don't accidentally stream tool-call JSON to the UI.
+                if getattr(chunk, "tool_call_chunks", None):
+                    in_tool_phase = True
+
+                content = chunk.content
                 if not content:
                     continue
+
+                # Llama 3.x emits <|python_tag|> in various split forms.
+                # Strip it from content (not drop the chunk, as the tag
+                # can be glued to actual answer text).
+                content = re.sub(r'[\[<|]*python_tag[\]>|]*', '', content)
+                if not content:
+                    continue
+
                 now = time.perf_counter()
                 if first_token_time is None:
                     first_token_time = now
                 if llm_gen_start is None:
                     llm_gen_start = now
                 token_count += 1
-                complete_output += content
 
-                # Open the search panel as soon as the LLM decides to
-                # use the search tool.  The [searching] marker tells the
-                # frontend to show the "Searching the web…" animation
-                # immediately, before the actual query arrives.
-                if not thinking_opened and "Action: tavily" in complete_output:
-                    thinking_opened = True
-                    yield "<think>"
-                    yield "[searching]\n"
+                if not in_tool_phase:
+                    if thinking_opened:
+                        yield "</think>"
+                        thinking_opened = False
+
+                    # Buffer content that might be leaked tool-call JSON.
+                    # Start buffering on '{', flush or discard when we can decide.
+                    combined = _json_buf + content if _json_buffering else content
+                    stripped = combined.lstrip()
+                    if stripped.startswith('{') or _json_buffering:
+                        _json_buf = combined
+                        _json_buffering = True
+                        if _TOOL_CALL_RE.search(_json_buf):
+                            _json_buf = ""
+                            _json_buffering = False
+                            continue
+                        if len(_json_buf) > 300:
+                            yield _json_buf
+                            _json_buf = ""
+                            _json_buffering = False
+                    else:
+                        if _json_buf:
+                            yield _json_buf
+                            _json_buf = ""
+                            _json_buffering = False
+                        yield content
 
             elif kind == "on_tool_start":
                 if llm_gen_start is not None:
                     llm_gen_time += time.perf_counter() - llm_gen_start
                     llm_gen_start = None
+                in_tool_phase = True
                 tool_name = event["name"]
                 if tool_name == "_Exception":
                     continue
 
-                # Extract query from the LLM's ReAct output (event data is
-                # often empty for TavilySearchResults).
-                query = ""
-                matches = list(re.finditer(
-                    r"Action Input:\s*[\"']?(.+?)[\"']?\s*$",
-                    complete_output, re.MULTILINE,
-                ))
-                if matches:
-                    query = matches[-1].group(1).strip()
-
-                if not query:
-                    raw_input = event["data"].get("input", "")
-                    if isinstance(raw_input, dict):
-                        query = raw_input.get("query", raw_input.get("input", ""))
-                    else:
-                        query = str(raw_input) if raw_input else ""
+                raw_input = event["data"].get("input", "")
+                if isinstance(raw_input, dict):
+                    query = raw_input.get("query", raw_input.get("input", ""))
+                else:
+                    query = str(raw_input) if raw_input else ""
 
                 print(f"[TOOL] Starting: {tool_name} with {query}")
 
                 if not thinking_opened:
                     thinking_opened = True
                     yield "<think>"
+                    yield "[searching]\n"
                 if query and query not in emitted_queries:
                     emitted_queries.add(query)
                     yield f"Searching: {query}\n"
@@ -127,16 +147,13 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                 tool_name = event.get("name", "")
                 if tool_name == "_Exception":
                     continue
+                in_tool_phase = False
                 print(f"[TOOL] Completed: {tool_name}")
 
-                # Extract source URLs from Tavily search results
                 if thinking_opened:
                     raw_output = event["data"].get("output", "")
                     sources = []
                     try:
-                        # LangChain BaseTool.invoke() stringifies results
-                        # with str() which uses single quotes — json.loads
-                        # rejects those, so fall back to ast.literal_eval.
                         if isinstance(raw_output, str):
                             try:
                                 parsed = json.loads(raw_output)
@@ -170,9 +187,6 @@ async def poll_requests(agent_executor, config, tools, memory, message):
             yield "</think>"
         yield f"Sorry, I encountered an error: {str(e)}"
 
-    # Emit token-level stats so the frontend can show TPS and GPU comparisons.
-    # tpot uses LLM-only generation time (excludes tool execution pauses)
-    # so TPS reflects actual hardware throughput.
     elapsed = time.perf_counter() - start_time
     ttft = (first_token_time - start_time) if first_token_time else None
     tpot = (llm_gen_time / max(token_count - 1, 1)
@@ -185,55 +199,28 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     }
     yield f"[STATS]{json.dumps(stats)}"
 
-REACT_SEARCH_PROMPT = PromptTemplate.from_template(
-    """\
-You are a helpful Search Agent. Your primary job is to search the web and \
-provide answers grounded in real, up-to-date information.
-
-IMPORTANT: You MUST use the search tool for ANY question that involves facts, \
-recommendations, prices, events, travel, news, people, places, or anything \
-that benefits from current information. NEVER answer from memory alone when a \
-web search could give a better, more accurate answer. When in doubt, search.
-
-TOOLS:
-------
-You have access to the following tools:
-
-{tools}
-
-To use a tool, you MUST use EXACTLY this format:
-
-```
-Thought: Do I need to use a tool? Yes
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-```
-
-IMPORTANT: After writing "Action Input:", you MUST stop and wait for the \
-Observation. Do NOT write the Observation yourself.
-
-When you have gathered enough information and are ready to respond to the \
-Human, you MUST use this format:
-
-```
-Thought: Do I need to use a tool? No
-Final Answer: [your response here, citing the information you found]
-```
-
-Begin!
-
-Previous conversation history:
-{chat_history}
-
-New input: {input}
-{agent_scratchpad}"""
-)
+TOOL_CALLING_PROMPT = ChatPromptTemplate.from_messages([
+    ("system",
+     "You are a helpful Search Agent. Your primary job is to search the web "
+     "and provide answers grounded in real, up-to-date information.\n\n"
+     "RULES:\n"
+     "1. Use the search tool for ANY factual question (weather, travel, news, "
+     "prices, recommendations, people, places, events, etc.).\n"
+     "2. After receiving search results, answer using ONLY information from "
+     "the results. Do NOT invent facts, statistics, or details not present "
+     "in the search results. If the results don't contain specific info, "
+     "say so rather than guessing.\n"
+     "3. Do NOT search again unless the first results were completely "
+     "irrelevant. One search is almost always enough.\n"
+     "4. Cite your sources naturally in the answer when possible."),
+    MessagesPlaceholder("chat_history"),
+    ("human", "{input}"),
+    MessagesPlaceholder("agent_scratchpad"),
+])
 
 
 def setup_executer(llm, memory, tools):
-    agent = create_react_agent(llm, tools, REACT_SEARCH_PROMPT)
-    
-    # Enhanced agent executor with better error handling and performance settings
+    agent = create_tool_calling_agent(llm, tools, TOOL_CALLING_PROMPT)
     agent_executor = AgentExecutor(
         agent=agent,
         tools=tools,
@@ -241,8 +228,7 @@ def setup_executer(llm, memory, tools):
         memory=memory,
         return_intermediate_steps=True,
         handle_parsing_errors=True,
-        max_execution_time=180,  # TT hardware TTFT can be 30s+; allow enough time
+        max_execution_time=None,
         verbose=False,
-    )       
-
+    )
     return agent_executor

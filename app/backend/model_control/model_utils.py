@@ -191,7 +191,11 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
                     if stripped.startswith("[STATS]"):
                         yield "data: " + stripped[len("[STATS]"):] + "\n\n"
                     else:
-                        json_chunk = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
+                        import re
+                        clean = re.sub(r'[\[<|]*python_tag[\]>|]*', '', chunk)
+                        if not clean.strip():
+                            continue
+                        json_chunk = {"choices": [{"index": 0, "delta": {"content": clean}}]}
                         yield "data: " + json.dumps(json_chunk) + "\n\n"
         logger.info("stream_response_from_agent_api done")
     except httpx.HTTPStatusError as e:
