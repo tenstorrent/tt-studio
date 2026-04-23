@@ -411,7 +411,7 @@ export const runInference = async (
 
           // Regular content tokens
           const rawContent = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
-          const content = rawContent.replace(/[\[<|]*python_tag[\]>|]*/g, "");
+          const content = rawContent.replace(/[\[<|]*python_tag[\]>|]*/gi, "");
           if (content) {
             if (thinkingText && !thinkingDone) {
               thinkingDone = true;

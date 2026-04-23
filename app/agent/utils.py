@@ -21,6 +21,15 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     import time
     from urllib.parse import urlparse
 
+    _PTAG_RE = re.compile(r'[\[<|]*python_tag[\]>|]*', re.IGNORECASE)
+    # Partial prefix detector: matches tail strings that could be the
+    # beginning of a <|python_tag|> token split across chunks.
+    _PTAG_PARTIAL = re.compile(
+        r'[\[<|]*(?:p(?:y(?:t(?:h(?:o(?:n(?:_(?:t(?:a(?:g[\]>|]*)?)?)?)?)?)?)?)?)?)?$',
+        re.IGNORECASE,
+    )
+    _PTAG_MAX_LEN = 16  # len("<|python_tag|>")
+
     chat_history = memory.buffer_as_messages
     thinking_opened = False
     in_tool_phase = False
@@ -38,6 +47,9 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     _json_buffering = False
     _TOOL_CALL_RE = re.compile(r'"name"\s*:.*("parameters"|"arguments")\s*:', re.DOTALL)
 
+    # Buffer to catch <|python_tag|> split across SSE chunks
+    _ptag_buf = ""
+
     print(f"Processing message: {message}")
 
     try:
@@ -54,6 +66,12 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                 if llm_gen_start is not None:
                     llm_gen_time += time.perf_counter() - llm_gen_start
                     llm_gen_start = None
+                # Flush remaining python_tag buffer
+                if _ptag_buf:
+                    cleaned = _PTAG_RE.sub('', _ptag_buf)
+                    if cleaned:
+                        yield cleaned
+                    _ptag_buf = ""
                 # Flush or discard the JSON buffer at end of agent run
                 if _json_buffering and _json_buf:
                     if not _TOOL_CALL_RE.search(_json_buf):
@@ -78,11 +96,21 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                     continue
 
                 # Llama 3.x emits <|python_tag|> in various split forms.
-                # Strip it from content (not drop the chunk, as the tag
-                # can be glued to actual answer text).
-                content = re.sub(r'[\[<|]*python_tag[\]>|]*', '', content)
-                if not content:
+                # Buffer content so we can strip the tag even when it
+                # arrives split across consecutive SSE chunks.
+                _ptag_buf += content
+                _ptag_buf = _PTAG_RE.sub('', _ptag_buf)
+                if not _ptag_buf:
                     continue
+
+                # If the tail of the buffer looks like a partial python_tag
+                # prefix (e.g. "<|pyth"), keep buffering.
+                tail = _ptag_buf[-_PTAG_MAX_LEN:]
+                if _PTAG_PARTIAL.search(tail) and len(_ptag_buf) <= _PTAG_MAX_LEN:
+                    continue
+
+                content = _ptag_buf
+                _ptag_buf = ""
 
                 now = time.perf_counter()
                 if first_token_time is None:
@@ -123,6 +151,7 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                     llm_gen_time += time.perf_counter() - llm_gen_start
                     llm_gen_start = None
                 in_tool_phase = True
+                _ptag_buf = ""
                 tool_name = event["name"]
                 if tool_name == "_Exception":
                     continue
@@ -204,15 +233,19 @@ TOOL_CALLING_PROMPT = ChatPromptTemplate.from_messages([
      "You are a helpful Search Agent. Your primary job is to search the web "
      "and provide answers grounded in real, up-to-date information.\n\n"
      "RULES:\n"
-     "1. Use the search tool for ANY factual question (weather, travel, news, "
-     "prices, recommendations, people, places, events, etc.).\n"
-     "2. After receiving search results, answer using ONLY information from "
-     "the results. Do NOT invent facts, statistics, or details not present "
-     "in the search results. If the results don't contain specific info, "
-     "say so rather than guessing.\n"
-     "3. Do NOT search again unless the first results were completely "
-     "irrelevant. One search is almost always enough.\n"
-     "4. Cite your sources naturally in the answer when possible."),
+     "1. ALWAYS use the search tool FIRST for ANY user question — weather, "
+     "travel, news, prices, recommendations, people, places, events, "
+     "itineraries, how-to guides, or anything that benefits from current data.\n"
+     "2. After receiving search results, synthesize a thorough, complete "
+     "answer using ONLY information from the results. Do NOT invent facts, "
+     "statistics, or details not present in the search results.\n"
+     "3. Do NOT search more than once unless the first results were completely "
+     "irrelevant. One well-crafted search query is almost always enough.\n"
+     "4. Cite your sources naturally in the answer when possible.\n"
+     "5. NEVER output raw tags, JSON, or tool-call syntax in your response — "
+     "only produce clean, natural-language text.\n"
+     "6. Provide actionable, detailed answers. For travel, include specific "
+     "recommendations; for factual questions, give precise figures."),
     MessagesPlaceholder("chat_history"),
     ("human", "{input}"),
     MessagesPlaceholder("agent_scratchpad"),

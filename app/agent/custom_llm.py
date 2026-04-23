@@ -25,9 +25,12 @@ from langchain_core.tools import BaseTool
 from langchain_core.runnables import Runnable
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain.callbacks.streaming_stdout_final_only import FinalStreamingStdOutCallbackHandler
+import re
 import requests
 import json 
 import os 
+
+_PYTHON_TAG_RE = re.compile(r'[\[<|]*python_tag[\]>|]*', re.IGNORECASE)
 
 
 class CustomLLM(BaseChatModel):
@@ -91,9 +94,8 @@ class CustomLLM(BaseChatModel):
             elif msg.type in ("human", "chat"):
                 entry = {"role": "user", "content": str(msg.content)}
             elif msg.type in ("ai", "AIMessageChunk"):
-                import re as _re
                 raw_content = str(msg.content) if msg.content else ""
-                cleaned_content = _re.sub(r'[\[<|]*python_tag[\]>|]*', '', raw_content).strip()
+                cleaned_content = _PYTHON_TAG_RE.sub('', raw_content).strip()
                 entry = {"role": "assistant", "content": cleaned_content}
                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                     entry["tool_calls"] = [
@@ -188,7 +190,7 @@ class CustomLLM(BaseChatModel):
                 json_data = {
                     "model": hf_model_path,
                     "prompt": prompt_text,
-                    "temperature": 1,
+                    "temperature": 0.6,
                     "top_k": 20,
                     "top_p": 0.9,
                     "max_tokens": 2048,
@@ -200,7 +202,7 @@ class CustomLLM(BaseChatModel):
                 json_data = {
                     "model": hf_model_path,
                     "messages": message_payload,
-                    "temperature": 1,
+                    "temperature": 0.6,
                     "top_k": 20,
                     "top_p": 0.9,
                     "max_tokens": 2048,
@@ -282,8 +284,9 @@ class CustomLLM(BaseChatModel):
                                                 )
                                                 yield new_chunk
                                         else:
-                                            # Handle regular content
                                             content = delta.get("content", "")
+                                            if content:
+                                                content = _PYTHON_TAG_RE.sub('', content)
                                             if content:
                                                 new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
                                                 yield new_chunk
@@ -328,16 +331,17 @@ class CustomLLM(BaseChatModel):
                                                     )
                                                     yield new_chunk
                                             elif "content" in delta:
-                                                content = delta["content"]
-                                                print(f"[DEBUG] Extracted content: {repr(content)}")
-                                                new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
-                                                yield new_chunk
+                                                content = _PYTHON_TAG_RE.sub('', delta["content"])
+                                                if content:
+                                                    print(f"[DEBUG] Extracted content: {repr(content)}")
+                                                    new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                                                    yield new_chunk
                                             else:
                                                 print(f"[DEBUG] No content or tool_calls in delta: {delta}")
 
                                         # /v1/completions returns "text"
                                         elif "text" in choice:
-                                            content = choice["text"]
+                                            content = _PYTHON_TAG_RE.sub('', choice["text"])
                                             if content:
                                                 print(f"[DEBUG] Extracted text: {repr(content)}")
                                                 new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))

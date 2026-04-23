@@ -79,6 +79,7 @@ const processContent = (content: string): ProcessedContent => {
 
   // Clean the content - be aggressive about removing thinking tokens
   const cleanedContent = content
+    .replace(/[\[<|]*python_tag[\]>|]*/gi, "")
     .replace(/<\|.*?\|>(&gt;)?/g, "")
     .replace(/\b(assistant|user)\b/gi, "")
     .replace(/\|(?:eot_id|start_header_id)\|/g, "")

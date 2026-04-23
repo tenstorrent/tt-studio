@@ -192,7 +192,7 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
                         yield "data: " + stripped[len("[STATS]"):] + "\n\n"
                     else:
                         import re
-                        clean = re.sub(r'[\[<|]*python_tag[\]>|]*', '', chunk)
+                        clean = re.sub(r'[\[<|]*python_tag[\]>|]*', '', chunk, flags=re.IGNORECASE)
                         if not clean.strip():
                             continue
                         json_chunk = {"choices": [{"index": 0, "delta": {"content": clean}}]}
