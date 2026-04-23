@@ -341,6 +341,10 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
         # Multi-chip models need this to specify which configuration to use
         payload["device_id"] = str(device_id)
 
+        # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
+        if impl.model_name == "Qwen3-32B" and device == "p300x2":
+            payload["override_tt_config"] = '{"trace_region_size": 53000000}'
+
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
             payload["skip_system_sw_validation"] = True
