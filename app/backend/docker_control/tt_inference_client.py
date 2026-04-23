@@ -31,6 +31,7 @@ def start_chat_deployment(
     timeout_seconds: int = 30,
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
+    vllm_override_args: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -49,6 +50,8 @@ def start_chat_deployment(
         payload["service_port"] = str(service_port)
     if device_id is not None:
         payload["device_id"] = str(device_id)
+    if vllm_override_args is not None:
+        payload["vllm_override_args"] = vllm_override_args
 
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)

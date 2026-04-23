@@ -338,6 +338,16 @@ class DeployView(APIView):
             BASE_SERVICE_PORT = 7000
             service_port = BASE_SERVICE_PORT + device_id
 
+            # Build vllm_override_args when tool calling is requested
+            vllm_override_args = None
+            if serializer.validated_data.get("enable_tool_calling"):
+                import json as _json
+                vllm_override_args = _json.dumps({
+                    "enable-auto-tool-choice": True,
+                    "tool-call-parser": "llama3_json",
+                })
+                logger.info(f"Tool calling enabled for {impl.model_name}: {vllm_override_args}")
+
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
             # without requiring docker_utils.py to handle async "job started" responses.
@@ -360,6 +370,7 @@ class DeployView(APIView):
                     service_port=service_port,
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
+                    vllm_override_args=vllm_override_args,
                 )
                 if result.status != "success":
                     return Response(
@@ -406,7 +417,7 @@ class DeployView(APIView):
             else:
                 # Continue with deployment using allocated device_id and optional host_port
                 host_port = serializer.validated_data.get("host_port")
-                response = run_container(impl, weights_id, device_id=device_id, host_port=host_port)
+                response = run_container(impl, weights_id, device_id=device_id, host_port=host_port, vllm_override_args=vllm_override_args)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id

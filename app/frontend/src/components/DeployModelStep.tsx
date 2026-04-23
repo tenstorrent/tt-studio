@@ -8,8 +8,9 @@ import { useStepper } from "./ui/stepper";
 import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
-import { Cpu, AlertTriangle, ExternalLink, Info } from "lucide-react";
+import { Cpu, AlertTriangle, ExternalLink, Info, Wrench } from "lucide-react";
 import { Button } from "./ui/button";
+import { Switch } from "./ui/switch";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -22,6 +23,7 @@ export function DeployModelStep({
   handleDeploy: (options?: {
     device_id?: number;
     host_port?: number | null;
+    enable_tool_calling?: boolean;
   }) => Promise<{ success: boolean; job_id?: string }>;
   selectedDeviceId?: number;
 }) {
@@ -39,6 +41,8 @@ export function DeployModelStep({
     availableSlots: 0,
     occupiedDetails: [],
   });
+
+  const [enableToolCalling, setEnableToolCalling] = useState(false);
 
   // Track deployment error state that persists even after deployment stops
   const [deploymentError, setDeploymentError] = useState<{
@@ -232,9 +236,12 @@ export function DeployModelStep({
     });
     setShouldPoll(true);
 
-    const deployOptions: { device_id?: number; host_port?: number | null } = {};
+    const deployOptions: { device_id?: number; host_port?: number | null; enable_tool_calling?: boolean } = {};
     if (selectedDeviceId !== undefined) {
       deployOptions.device_id = selectedDeviceId;
+    }
+    if (enableToolCalling) {
+      deployOptions.enable_tool_calling = true;
     }
     const deployResult = await handleDeploy(deployOptions);
 
@@ -259,6 +266,7 @@ export function DeployModelStep({
     triggerHardwareRefresh,
     isDeployDisabled,
     selectedDeviceId,
+    enableToolCalling,
   ]);
 
   const onDeploymentComplete = useCallback(() => {
@@ -431,6 +439,21 @@ export function DeployModelStep({
               </span>
             </div>
           )}
+          <div className="flex items-center space-x-2 pt-1">
+            <Wrench className="h-4 w-4 text-TT-purple-accent" />
+            <label
+              htmlFor="tool-calling-toggle"
+              className="text-sm text-gray-800 dark:text-gray-400 cursor-pointer select-none"
+            >
+              Enable Tool Calling
+            </label>
+            <Switch
+              id="tool-calling-toggle"
+              checked={enableToolCalling}
+              onCheckedChange={setEnableToolCalling}
+              className="data-[state=checked]:bg-TT-purple-accent"
+            />
+          </div>
         </div>
       </div>
       <StepperFormActions removeDynamicSteps={() => {}} />

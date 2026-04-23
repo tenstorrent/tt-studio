@@ -8,10 +8,12 @@ import {
   Clock,
   Zap,
   Hash,
-  AlignJustify,
-  FileText,
   Activity,
   Timer,
+  Cpu,
+  Thermometer,
+  Gauge,
+  Leaf,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -29,6 +31,9 @@ import {
 } from "../ui/tooltip";
 import { useTheme } from "../../hooks/useTheme"; // Import the existing theme provider
 import type { InferenceStatsProps, TokenTimestamp } from "./types";
+import { getModelBenchmarks } from "./benchmarkData";
+import { computeEfficiencyComparisons } from "./metricsTracker";
+import type { EfficiencyComparison } from "./metricsTracker";
 
 interface InferenceStatsComponentProps extends InferenceStatsProps {
   inline?: boolean;
@@ -188,34 +193,34 @@ export default function Component({
               className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
             />
           ),
-          value: stats.tokens_decoded,
+          value: stats.tokens_decoded != null ? stats.tokens_decoded.toString() : "N/A",
           label: "Tokens Decoded",
           unit: "",
           isSmall: false,
         } as StatItem,
         {
           icon: (
-            <FileText
+            <Hash
               className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
             />
           ),
-          value: stats.tokens_prefilled,
+          value: stats.tokens_prefilled != null ? stats.tokens_prefilled.toString() : "N/A",
           label: "Context In",
           unit: "",
           isSmall: false,
         } as StatItem,
         {
           icon: (
-            <AlignJustify
+            <Hash
               className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`}
             />
           ),
-          value: stats.context_length,
+          value: stats.context_length != null ? stats.context_length.toString() : "N/A",
           label: "Context Length",
           unit: "",
           isSmall: false,
         } as StatItem,
-      ],
+      ].filter((s) => s.value !== "N/A"),
     },
   ];
 
@@ -270,12 +275,40 @@ export default function Component({
   const fmtMs = (ms: number) =>
     ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${Math.round(ms)}ms`;
 
+  // True when the backend returned real per-token metrics (non-agent flow).
+  // When false we hide the bar, stat-card sections, and per-token timing
+  // because they'd be all N/A or misleading.
+  const hasServerMetrics =
+    stats.user_ttft_s != null ||
+    stats.user_tpot != null ||
+    (stats.tokens_decoded != null && stats.tokens_decoded > 0);
+
+  // Agent mode: show Search + Response panel instead of TTFT + Generation.
+  // Explicitly set by runInference when the search agent toggle is active.
+  const isAgentMode = stats.isAgentMode === true;
+
+  // --- Hardware & efficiency data ---
+  const hw = stats.hardware;
+  const gpuBaselines = getModelBenchmarks(modelName);
+  const efficiencyComparisons: EfficiencyComparison[] =
+    gpuBaselines ? computeEfficiencyComparisons(stats, gpuBaselines) : [];
+  const bestEfficiencyRatio =
+    efficiencyComparisons.length > 0
+      ? Math.max(...efficiencyComparisons.map((c) => c.efficiency_ratio))
+      : null;
+
+  const ttTps =
+    stats.tps ??
+    (typeof stats.user_tpot === "number" && stats.user_tpot > 0
+      ? 1 / stats.user_tpot
+      : undefined);
+
   // Reusable stats display component
   const StatsDisplay = ({ className = "" }: { className?: string }) => (
     <div className={`space-y-4 sm:space-y-6 ${className}`}>
 
-      {/* ── Bar + summary ── */}
-      {ttftMs != null && generationMs != null && (
+      {/* ── Bar + summary (only for direct LLM inference, not agent) ── */}
+      {hasServerMetrics && !isAgentMode && ttftMs != null && generationMs != null && (
         <div className="space-y-1.5">
           {/* Legend */}
           <div className={`flex items-center gap-3 text-xs ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
@@ -333,7 +366,7 @@ export default function Component({
               hasThinkingData && stats.reasoning_tokens ? { label: "Reasoning tokens",              value: String(stats.reasoning_tokens) } : null,
               generationMs != null ? { label: "Generation time",           value: fmtMs(generationMs) } : null,
               { label: "Throughput (estimated)",        value: userTPS !== "N/A" ? `${userTPS} t/s` : null },
-              { label: "Tokens",                        value: (stats.tokens_prefilled || stats.tokens_decoded) ? `${stats.tokens_prefilled ?? 0} in / ${stats.tokens_decoded ?? 0} out` : null },
+              { label: "Tokens",                        value: stats.tokens_decoded ? (stats.tokens_prefilled ? `${stats.tokens_prefilled} in / ${stats.tokens_decoded} out` : `${stats.tokens_decoded} out`) : null },
             ]
               .filter((r): r is { label: string; value: string | null } => r != null && r.value != null)
               .map((row, idx) => (
@@ -352,7 +385,90 @@ export default function Component({
         </div>
       )}
 
-      {sections.map((section, i) => (
+      {/* ── Agent / Search timing summary ── */}
+      {(isAgentMode || !hasServerMetrics) && (stats.thinking_duration_ms != null || stats.total_time_ms != null || stats.timing?.total != null) && (() => {
+        const searchMs = stats.thinking_duration_ms ?? null;
+        const agentTotalMs = stats.total_time_ms ?? stats.timing?.total ?? null;
+        const agentTtftMs = stats.client_ttft_ms ?? null;
+        const responseMs =
+          searchMs != null && agentTotalMs != null
+            ? Math.max(0, agentTotalMs - searchMs)
+            : null;
+
+        // 2-segment bar: search + response
+        const searchPct =
+          searchMs != null && agentTotalMs != null && agentTotalMs > 0
+            ? Math.max(8, Math.min(92, Math.round((searchMs / agentTotalMs) * 100)))
+            : 50;
+        const responsePct = 100 - searchPct;
+
+        return (
+          <div className="space-y-1.5">
+            {/* Legend */}
+            <div className={`flex items-center gap-3 text-xs ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
+              {searchMs != null && (
+                <span className="flex items-center gap-1">
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent" : "bg-violet-600"}`} />
+                  Search
+                </span>
+              )}
+              <span className="flex items-center gap-1 ml-auto">
+                Response
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${isDarkMode ? "bg-TT-purple-accent/30" : "bg-violet-200"}`} />
+              </span>
+            </div>
+
+            {/* Bar */}
+            {searchMs != null && agentTotalMs != null && (
+              <div className="flex h-7 w-full overflow-hidden rounded-md text-xs font-medium">
+                <div
+                  className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent" : "bg-violet-600"} text-white`}
+                  style={{ width: `${searchPct}%` }}
+                >
+                  {searchPct > 15 && fmtMs(searchMs)}
+                </div>
+                <div
+                  className={`flex items-center justify-center ${isDarkMode ? "bg-TT-purple-accent/30" : "bg-violet-200"} ${isDarkMode ? "text-white/70" : "text-violet-900"}`}
+                  style={{ width: `${responsePct}%` }}
+                >
+                  {responsePct > 15 && responseMs != null && fmtMs(responseMs)}
+                </div>
+              </div>
+            )}
+
+            {/* Axis labels */}
+            <div className={`flex justify-between text-xs ${isDarkMode ? "text-white/30" : "text-gray-400"}`}>
+              <span>request start</span>
+              <span>response complete</span>
+            </div>
+
+            {/* Key-value rows */}
+            <div className={`mt-1 border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-1.5 space-y-0`}>
+              {[
+                agentTtftMs != null ? { label: "Time to first token", value: fmtMs(agentTtftMs) } : null,
+                searchMs != null ? { label: "Web search duration", value: fmtMs(searchMs) } : null,
+                responseMs != null ? { label: "Response generation", value: fmtMs(responseMs) } : null,
+              ]
+                .filter((r): r is { label: string; value: string } => r != null)
+                .map((row, idx) => (
+                  <div key={idx} className={`flex justify-between py-1 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"}`}>
+                    <span>{row.label}</span>
+                    <span className={isDarkMode ? "text-white/90" : "text-gray-800"}>{row.value}</span>
+                  </div>
+                ))}
+              {agentTotalMs != null && (
+                <div className={`flex justify-between py-1 text-xs font-semibold border-t mt-0.5 ${isDarkMode ? "border-zinc-800 text-white" : "border-gray-200 text-gray-900"}`}>
+                  <span>Total duration</span>
+                  <span>{fmtMs(agentTotalMs)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Stat-card sections (only when backend reports real metrics, not agent) */}
+      {hasServerMetrics && !isAgentMode && sections.map((section, i) => (
         <div key={i} className="space-y-2 sm:space-y-3">
           <h3
             className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
@@ -374,7 +490,9 @@ export default function Component({
                   className={`text-sm sm:text-lg font-light ${isDarkMode ? "text-white" : "text-gray-900"}`}
                 >
                   {stat.value}
-                  {stat.isSmall ? <span>{stat.unit}</span> : stat.unit}
+                  {stat.value !== "N/A" && stat.value != null
+                    ? (stat.isSmall ? <span>{stat.unit}</span> : stat.unit)
+                    : null}
                 </div>
                 <div
                   className={`text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"} overflow-hidden text-ellipsis px-1`}
@@ -384,16 +502,11 @@ export default function Component({
               </div>
             ))}
           </div>
-          {section.title === "Token Metrics" && (
-            <p className={`text-[11px] leading-relaxed ${isDarkMode ? "text-white/30" : "text-gray-400"}`}>
-              <span className={isDarkMode ? "text-white/50" : "text-gray-500"}>Context In</span> includes your message, system prompt, conversation history, and chat template overhead — not just the words you typed.
-            </p>
-          )}
         </div>
       ))}
 
       {/* Per-Token Timing Details */}
-      {tokenTimingStats && (
+      {hasServerMetrics && !isAgentMode && tokenTimingStats && (
         <div className="space-y-2 sm:space-y-3">
           <h3
             className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
@@ -431,41 +544,241 @@ export default function Component({
         </div>
       )}
 
+      {/* ── Hardware Metrics (live from device) ── */}
+      {hw && (hw.power_watts || hw.temperature_c || hw.aiclk_mhz) && (
+        <div className="space-y-2 sm:space-y-3">
+          <h3
+            className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
+          >
+            Hardware Metrics
+            {hw.board_type && (
+              <span className={`ml-2 text-xs font-normal ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
+                {hw.board_type}
+              </span>
+            )}
+          </h3>
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
+            {hw.power_watts != null && (
+              <div className={`text-center space-y-1 rounded-lg p-2 ${isDarkMode ? "bg-zinc-900/50" : "bg-gray-100"}`}>
+                <div className={`flex justify-center mb-1 ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                  <Gauge className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`} />
+                </div>
+                <div className={`text-sm sm:text-lg font-light ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                  {hw.power_watts}<span className="text-xs ml-0.5">W</span>
+                </div>
+                <div className={`text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"}`}>Power Draw</div>
+              </div>
+            )}
+            {hw.temperature_c != null && (
+              <div className={`text-center space-y-1 rounded-lg p-2 ${isDarkMode ? "bg-zinc-900/50" : "bg-gray-100"}`}>
+                <div className={`flex justify-center mb-1 ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                  <Thermometer className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`} />
+                </div>
+                <div className={`text-sm sm:text-lg font-light ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                  {hw.temperature_c}<span className="text-xs ml-0.5">&deg;C</span>
+                </div>
+                <div className={`text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"}`}>Temperature</div>
+              </div>
+            )}
+            {hw.aiclk_mhz != null && hw.aiclk_mhz > 0 && (
+              <div className={`text-center space-y-1 rounded-lg p-2 ${isDarkMode ? "bg-zinc-900/50" : "bg-gray-100"}`}>
+                <div className={`flex justify-center mb-1 ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                  <Cpu className={`h-5 w-5 ${isDarkMode ? "text-TT-purple-accent" : "text-violet-600"}`} />
+                </div>
+                <div className={`text-sm sm:text-lg font-light ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                  {hw.aiclk_mhz >= 1000
+                    ? `${(hw.aiclk_mhz / 1000).toFixed(1)}`
+                    : hw.aiclk_mhz}
+                  <span className="text-xs ml-0.5">{hw.aiclk_mhz >= 1000 ? "GHz" : "MHz"}</span>
+                </div>
+                <div className={`text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"}`}>AI Clock</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Efficiency Score ── */}
+      {stats.tps_per_watt != null && (
+        <div className="space-y-2 sm:space-y-3">
+          <h3
+            className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
+          >
+            Energy Efficiency
+          </h3>
+          <div className={`rounded-xl p-4 text-center ${isDarkMode ? "bg-gradient-to-br from-TT-purple-accent/20 to-zinc-900/80 border border-TT-purple-accent/30" : "bg-gradient-to-br from-violet-50 to-white border border-violet-200"}`}>
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <Leaf className={`h-5 w-5 ${isDarkMode ? "text-green-400" : "text-green-600"}`} />
+              <span className={`text-2xl sm:text-3xl font-semibold tabular-nums ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                {stats.tps_per_watt.toFixed(2)}
+              </span>
+              <span className={`text-sm ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>tok/s/W</span>
+            </div>
+            <p className={`text-xs ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
+              Performance per watt
+              {bestEfficiencyRatio != null && bestEfficiencyRatio > 1 && (
+                <span className={`ml-1.5 font-medium ${isDarkMode ? "text-green-400" : "text-green-600"}`}>
+                  &mdash; {bestEfficiencyRatio.toFixed(1)}x more efficient than GPU
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Comparison vs GPU Baselines ── */}
+      {efficiencyComparisons.length > 0 && ttTps != null && (
+        <div className="space-y-2 sm:space-y-3">
+          <h3
+            className={`text-sm sm:text-base font-medium ${isDarkMode ? "text-white/90" : "text-gray-800"}`}
+          >
+            vs GPU Baselines
+          </h3>
+
+          {/* Speed comparison */}
+          <div className="space-y-2">
+            <p className={`text-xs font-medium ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
+              Throughput (tok/s)
+            </p>
+            {(() => {
+              const allTps = [ttTps, ...efficiencyComparisons.map((c) => c.gpu_tps)];
+              const maxTps = Math.max(...allTps);
+              return (
+                <div className="space-y-1.5">
+                  {/* TT bar */}
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                      {hw?.board_type ?? "Tenstorrent"}
+                    </span>
+                    <div className="flex-1 h-5 rounded overflow-hidden relative" style={{ background: isDarkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)" }}>
+                      <div
+                        className={`h-full rounded ${isDarkMode ? "bg-TT-purple-accent" : "bg-violet-600"}`}
+                        style={{ width: `${Math.max(4, (ttTps / maxTps) * 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs tabular-nums w-14 text-right font-medium ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                      {ttTps.toFixed(1)}
+                    </span>
+                  </div>
+                  {/* GPU bars */}
+                  {efficiencyComparisons.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
+                        {c.gpu.replace("NVIDIA ", "")}
+                      </span>
+                      <div className="flex-1 h-5 rounded overflow-hidden relative" style={{ background: isDarkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)" }}>
+                        <div
+                          className={`h-full rounded ${isDarkMode ? "bg-white/15" : "bg-gray-300"}`}
+                          style={{ width: `${Math.max(4, (c.gpu_tps / maxTps) * 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs tabular-nums w-14 text-right ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
+                        {c.gpu_tps.toFixed(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Efficiency comparison */}
+          {stats.tps_per_watt != null && (
+            <div className="space-y-2 mt-3">
+              <p className={`text-xs font-medium ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
+                Efficiency (tok/s per watt)
+              </p>
+              {(() => {
+                const allEff = [stats.tps_per_watt!, ...efficiencyComparisons.map((c) => c.gpu_tps_per_watt)];
+                const maxEff = Math.max(...allEff);
+                return (
+                  <div className="space-y-1.5">
+                    {/* TT bar */}
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
+                        {hw?.board_type ?? "Tenstorrent"}
+                      </span>
+                      <div className="flex-1 h-5 rounded overflow-hidden relative" style={{ background: isDarkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)" }}>
+                        <div
+                          className={`h-full rounded ${isDarkMode ? "bg-green-500" : "bg-green-500"}`}
+                          style={{ width: `${Math.max(4, (stats.tps_per_watt! / maxEff) * 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs tabular-nums w-14 text-right font-medium ${isDarkMode ? "text-green-400" : "text-green-600"}`}>
+                        {stats.tps_per_watt!.toFixed(2)}
+                      </span>
+                    </div>
+                    {/* GPU bars */}
+                    {efficiencyComparisons.map((c, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
+                          {c.gpu.replace("NVIDIA ", "")}
+                        </span>
+                        <div className="flex-1 h-5 rounded overflow-hidden relative" style={{ background: isDarkMode ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)" }}>
+                          <div
+                            className={`h-full rounded ${isDarkMode ? "bg-white/15" : "bg-gray-300"}`}
+                            style={{ width: `${Math.max(4, (c.gpu_tps_per_watt / maxEff) * 100)}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs tabular-nums w-14 text-right ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
+                          {c.gpu_tps_per_watt.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          <p className={`text-[10px] leading-relaxed ${isDarkMode ? "text-white/25" : "text-gray-300"}`}>
+            GPU baselines are published single-request (batch=1) throughput numbers. TDP is rated board power.
+          </p>
+        </div>
+      )}
+
       <div
         className={`border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-2 sm:pt-3 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2`}
       >
-        <div className="flex items-center gap-1">
-          <Clock
-            className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`}
-          />
-          <span className="whitespace-normal break-words">
-            Round trip time:{" "}
-            {
-              formatValue(
+        {hasServerMetrics && !isAgentMode ? (
+          <div className="flex items-center gap-1">
+            <Clock
+              className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`}
+            />
+            <span className="whitespace-normal break-words">
+              Round trip time:{" "}
+              {
+                formatValue(
+                  (stats.user_ttft_s || 0) +
+                    (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                ).value
+              }
+              {formatValue(
                 (stats.user_ttft_s || 0) +
                   (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
-              ).value
-            }
-            {formatValue(
-              (stats.user_ttft_s || 0) +
-                (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
-            ).isSmall ? (
-              <span className={isDarkMode ? "text-red-400" : "text-red-500"}>
-                {
-                  formatValue(
-                    (stats.user_ttft_s || 0) +
-                      (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
-                  ).unit
-                }
-              </span>
-            ) : (
-              formatValue(
-                (stats.user_ttft_s || 0) +
-                  (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
-              ).unit
-            )}
-          </span>
-        </div>
+              ).isSmall ? (
+                <span className={isDarkMode ? "text-red-400" : "text-red-500"}>
+                  {
+                    formatValue(
+                      (stats.user_ttft_s || 0) +
+                        (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                    ).unit
+                  }
+                </span>
+              ) : (
+                formatValue(
+                  (stats.user_ttft_s || 0) +
+                    (stats.user_tpot || 0) * (stats.tokens_decoded || 0)
+                ).unit
+              )}
+            </span>
+          </div>
+        ) : displayTotalMs != null ? (
+          <div className="flex items-center gap-1">
+            <Clock className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`} />
+            <span>Total time: {fmtMs(displayTotalMs)}</span>
+          </div>
+        ) : null}
         <div className="flex items-center gap-1">
           <Hash
             className={`h-3 w-3 ${isDarkMode ? "text-white/60" : "text-gray-500"}`}
@@ -497,12 +810,41 @@ export default function Component({
         : stats.user_ttft_s != null
           ? Math.round(stats.user_ttft_s * 1000)
           : null;
+    const totalDisplay = stats.total_time_ms != null
+      ? stats.total_time_ms >= 1000
+        ? `${(stats.total_time_ms / 1000).toFixed(1)}s`
+        : `${Math.round(stats.total_time_ms)}ms`
+      : stats.timing?.total != null
+        ? stats.timing.total >= 1000
+          ? `${(stats.timing.total / 1000).toFixed(1)}s`
+          : `${Math.round(stats.timing.total)}ms`
+        : null;
+    const thinkingDisplay = stats.thinking_duration_ms != null
+      ? stats.thinking_duration_ms >= 1000
+        ? `${(stats.thinking_duration_ms / 1000).toFixed(1)}s`
+        : `${Math.round(stats.thinking_duration_ms)}ms`
+      : null;
+    const effDisplay = stats.tps_per_watt != null
+      ? stats.tps_per_watt.toFixed(2)
+      : null;
+    const effRatioDisplay = bestEfficiencyRatio != null && bestEfficiencyRatio > 1
+      ? `${bestEfficiencyRatio.toFixed(1)}x`
+      : null;
+
     type Segment = { label: string | null; value: string; unit?: string; accent?: boolean };
-    const segments: (Segment | null)[] = [
-      ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
-      tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
-      // tokens shown in modal only
-    ];
+    const segments: (Segment | null)[] = isAgentMode
+      ? [
+          thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
+          totalDisplay != null ? { label: "Total", value: totalDisplay } : null,
+        ]
+      : [
+          ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
+          tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
+          effDisplay != null ? { label: "Eff", value: effDisplay, unit: "t/s/W" } : null,
+          effRatioDisplay != null ? { label: null, value: effRatioDisplay, unit: " vs GPU", accent: true } : null,
+          thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
+          totalDisplay != null && tpsDisplay == null ? { label: "Total", value: totalDisplay } : null,
+        ];
     const visibleSegments = segments.filter((s): s is Segment => s !== null);
 
     return (
@@ -511,7 +853,9 @@ export default function Component({
           {visibleSegments.map((seg, i) => (
             <React.Fragment key={i}>
               {i > 0 && <span className="opacity-40">·</span>}
-              <span>{seg.label ? `${seg.label} ` : ""}{seg.value}{seg.unit ?? ""}</span>
+              <span className={seg.accent && seg.unit === " vs GPU" ? (isDarkMode ? "text-green-400/70" : "text-green-600/70") : undefined}>
+                {seg.label ? `${seg.label} ` : ""}{seg.value}{seg.unit ?? ""}
+              </span>
             </React.Fragment>
           ))}
 
@@ -537,7 +881,7 @@ export default function Component({
         {/* Modal dialog for detailed view */}
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent
-            className={`max-w-[95vw] sm:max-w-[500px] p-4 sm:p-6 ${isDarkMode ? "bg-black text-white border-zinc-800" : "bg-white text-gray-900 border-gray-200"} rounded-xl`}
+            className={`max-w-[95vw] sm:max-w-[540px] max-h-[85vh] overflow-y-auto p-4 sm:p-6 ${isDarkMode ? "bg-black text-white border-zinc-800" : "bg-white text-gray-900 border-gray-200"} rounded-xl`}
           >
             <DialogHeader>
               <DialogTitle
@@ -587,7 +931,7 @@ export default function Component({
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
-          className={`max-w-[95vw] sm:max-w-[500px] p-4 sm:p-6 ${isDarkMode ? "bg-black text-white border-zinc-800" : "bg-white text-gray-900 border-gray-200"} rounded-xl`}
+          className={`max-w-[95vw] sm:max-w-[540px] max-h-[85vh] overflow-y-auto p-4 sm:p-6 ${isDarkMode ? "bg-black text-white border-zinc-800" : "bg-white text-gray-900 border-gray-200"} rounded-xl`}
         >
           <DialogHeader>
             <DialogTitle

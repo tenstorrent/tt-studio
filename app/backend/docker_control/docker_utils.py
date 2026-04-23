@@ -279,7 +279,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None):
+def run_container(impl, weights_id, device_id=0, host_port=None, vllm_override_args=None):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -348,6 +348,9 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
         # TTS and Speech Recognition models require dev_mode for proper operation
         if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
             payload["dev_mode"] = True
+
+        if vllm_override_args:
+            payload["vllm_override_args"] = vllm_override_args
 
         logger.info(f"API payload: {payload}")
 

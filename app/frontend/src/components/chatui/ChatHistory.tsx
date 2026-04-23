@@ -358,6 +358,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                           },
                         }));
                       }}
+                      sources={message.sources}
                     />
                   </div>
                 )}
