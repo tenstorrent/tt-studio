@@ -344,6 +344,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
         if impl.model_name == "Qwen3-32B" and device == "p300x2":
             payload["override_tt_config"] = '{"trace_region_size": 53000000}'
+            payload["dev_mode"] = True
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
