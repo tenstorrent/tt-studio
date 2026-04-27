@@ -39,6 +39,7 @@ import {
 } from "./ui/tooltip";
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
+import { BugReportButton } from "./bug-report/BugReportButton";
 
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
@@ -872,7 +873,7 @@ export default function NavBar() {
                   ))}
                 </NavigationMenuList>
               </NavigationMenu>
-              <div className="flex justify-center mt-4 pb-2">
+              <div className="flex justify-center mt-4 pb-2 flex-col items-center gap-1">
                 {actionButtons.map((button) => (
                   <ActionButton
                     key={button.tooltipText}
@@ -881,6 +882,7 @@ export default function NavBar() {
                     tooltipText={button.tooltipText}
                   />
                 ))}
+                <BugReportButton variant="icon" />
               </div>
             </motion.div>
           )}
@@ -979,6 +981,7 @@ export default function NavBar() {
                 tooltipText={button.tooltipText}
               />
             ))}
+            <BugReportButton variant="icon" />
             {/* Dropdown for settings */}
             <div className="relative group">
               <button className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">

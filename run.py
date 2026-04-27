@@ -3468,6 +3468,9 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
     env = os.environ.copy()
     if jwt_secret:
         env["DOCKER_CONTROL_JWT_SECRET"] = jwt_secret
+    env["DOCKER_CONTROL_LOG_FILE"] = DOCKER_CONTROL_LOG_FILE
+    env["STARTUP_LOG_FILE"] = STARTUP_LOG_FILE
+    env["FASTAPI_LOG_FILE"] = FASTAPI_LOG_FILE
 
     # Start the service using uvicorn
     try:
