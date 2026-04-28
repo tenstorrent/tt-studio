@@ -4447,23 +4447,36 @@ def main():
         else:
             # Ensure existing directory has correct permissions (Unix/Linux only)
             if OS_NAME != "Windows":
-                try:
-                    current_stat = os.stat(workflow_logs_dir)
-                    current_uid = current_stat.st_uid
-                    current_user_uid = os.getuid()
-                    if current_uid != current_user_uid and current_uid == 0:  # Owned by root
-                        print(f"{C_YELLOW}⚠️  workflow_logs directory is owned by root, fixing permissions...{C_RESET}")
-                        os.chown(workflow_logs_dir, current_user_uid, os.getgid())
-                        print(f"{C_GREEN}✅ Fixed workflow_logs directory ownership{C_RESET}")
-                except (OSError, PermissionError, AttributeError) as e:
-                    # If we don't have permission or chown is not available, ask user to fix manually then continue
-                    print(f"{C_RED}⛔ Could not fix workflow_logs permissions: {e}{C_RESET}")
+                current_stat = os.stat(workflow_logs_dir)
+                current_uid = current_stat.st_uid
+                current_user_uid = os.getuid()
+                if current_uid != current_user_uid and current_uid == 0:  # Owned by root
+                    print(f"{C_YELLOW}⚠️  The workflow_logs directory is owned by root:{C_RESET}")
+                    print(f"   {C_WHITE}{workflow_logs_dir}{C_RESET}")
                     print()
-                    print(f"{C_YELLOW}The workflow_logs directory is owned by root. Please run the following in another terminal:{C_RESET}")
+                    print(f"{C_YELLOW}This was likely created by Docker and will prevent deployment logs from being written.{C_RESET}")
+                    print(f"{C_YELLOW}TT Studio needs to run the following command to fix it:{C_RESET}")
                     print(f"   {C_WHITE}sudo chown -R $USER:$USER {workflow_logs_dir}{C_RESET}")
                     print()
-                    input("Press Enter once you've run the command above to continue...")
+                    answer = input(f"{C_CYAN}Allow TT Studio to run this automatically? [y/N]: {C_RESET}").strip().lower()
                     print()
+                    if answer in ("y", "yes"):
+                        try:
+                            import subprocess as _sp
+                            _sp.run(
+                                ["sudo", "chown", "-R", f"{current_user_uid}:{os.getgid()}", workflow_logs_dir],
+                                check=True,
+                            )
+                            print(f"{C_GREEN}✅ Fixed workflow_logs directory ownership{C_RESET}")
+                        except Exception as e:
+                            print(f"{C_RED}⛔ sudo chown failed: {e}{C_RESET}")
+                            print(f"{C_YELLOW}Please run the command above manually and restart TT Studio.{C_RESET}")
+                            sys.exit(1)
+                    else:
+                        print(f"{C_YELLOW}Please run the following command and restart TT Studio:{C_RESET}")
+                        print(f"   {C_WHITE}sudo chown -R $USER:$USER {workflow_logs_dir}{C_RESET}")
+                        print()
+                        sys.exit(1)
 
         # Start Docker Control Service BEFORE starting Docker containers
         # This ensures the backend can connect to it when it starts
@@ -4518,6 +4531,19 @@ def main():
             startup_log.step("fastapi_server", "SKIP", "AI Playground mode")
             print(f"\n{C_GREEN}✅ Skipping TT Inference Server FastAPI setup (AI Playground mode enabled){C_RESET}")
             print(f"{C_CYAN}   Note: AI Playground mode uses cloud models, so local FastAPI server is not needed{C_RESET}")
+
+        # Pre-create workflow_logs before docker compose up.
+        # docker-compose.yml bind-mounts this directory; if Docker creates it first, it
+        # does so as root, which blocks the FastAPI server (running as the current user)
+        # from writing logs on the first deploy. Also fix ownership if already root-owned
+        # from a previous run.
+        for _subdir in ["workflow_logs", os.path.join("workflow_logs", "run_logs")]:
+            _log_dir = os.path.join(INFERENCE_ARTIFACT_DIR, _subdir)
+            try:
+                os.makedirs(_log_dir, exist_ok=True)
+            except PermissionError:
+                subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
+                os.makedirs(_log_dir, exist_ok=True)
 
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
