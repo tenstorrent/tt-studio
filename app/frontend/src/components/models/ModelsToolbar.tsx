@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import type { JSX } from "react";
 import SettingsMenu from "./SettingsMenu";
 import type { ColumnVisibilityMap } from "../../types/models";
+import { Button } from "../ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { HelpCircle } from "lucide-react";
 
 interface Props {
   tableId: string;
@@ -23,6 +26,7 @@ interface Props {
   visibleCount?: number;
   totalCount?: number;
   onRefreshHealthNow?: () => void;
+  onOpenGuide?: () => void;
 }
 
 export default function ModelsToolbar({
@@ -43,10 +47,30 @@ export default function ModelsToolbar({
   visibleCount,
   totalCount,
   onRefreshHealthNow,
+  onOpenGuide,
 }: Props): JSX.Element {
   return (
-    <div className="flex items-center gap-3">
-      {/* This component now only renders the Settings dropdown, per redesign */}
+    <div className="flex items-center gap-2">
+      {onOpenGuide && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={onOpenGuide}
+                className="w-8 h-8 text-stone-500 hover:text-stone-300"
+                aria-label="Getting started guide"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p className="text-xs">Getting started guide</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       <SettingsMenu
         tableId={tableId}
         columns={visibleMap}

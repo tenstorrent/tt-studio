@@ -23,7 +23,7 @@ interface DeploymentProgressProps {
   startTime?: number;
 }
 
-const stageDisplayNames: Record<string, string> = {
+export const stageDisplayNames: Record<string, string> = {
   initialization: 'Initializing',
   setup: 'Setting up environment',
   model_preparation: 'Preparing model',
