@@ -20,6 +20,8 @@ export interface BugReportData {
   inference_run_specs: LogEntry[];
   tt_smi: Record<string, unknown>;
   deployments: unknown[];
+  /** Docker + deploy-cache snapshot for currently deployed models (bug report). */
+  current_models: Record<string, unknown>;
 }
 
 export type BugReportStep = "form" | "collecting" | "actions";

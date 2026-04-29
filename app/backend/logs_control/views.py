@@ -43,6 +43,7 @@ BUG_REPORT_MANIFEST = [
     ("inference_run_specs",   "inference_artifacts/run_specs/ (×5)",        "volume mount: …/workflow_logs/run_specs/"),
     ("tt_smi",                "tt_smi.json",                   "in-container: board_control.services.SystemResourceService"),
     ("deployments",           "deployments.json",              "persistent volume: backend_volume/deployments.json"),
+    ("current_models",        "current_models.json",           "docker-control list_containers + model_control deploy cache summary"),
 ]
 
 
@@ -312,6 +313,91 @@ def _read_log_tail(file_path: str, max_lines: int = 500) -> str:
         return f"[Error reading {os.path.basename(file_path)}: {e}]"
 
 
+def _collect_current_models_snapshot() -> dict:
+    """
+    Lightweight snapshot of running containers and deploy-cache entries.
+    Intended for bug reports — JSON-serializable, no secrets.
+    """
+    out: dict = {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "docker_containers": [],
+        "deploy_cache_entries": [],
+    }
+
+    try:
+        from docker_control.docker_control_client import DockerControlClient
+
+        client = DockerControlClient()
+        raw = client.list_containers(all=True)
+        if isinstance(raw, list):
+            container_list = raw
+        elif isinstance(raw, dict):
+            container_list = raw.get("containers", [])
+        else:
+            container_list = []
+
+        for c in container_list:
+            if not isinstance(c, dict):
+                continue
+            cid = str(c.get("id") or "")
+            out["docker_containers"].append(
+                {
+                    "id": (cid[:12] + "…") if len(cid) > 12 else cid,
+                    "name": c.get("name"),
+                    "image": c.get("image") or c.get("image_id"),
+                    "status": c.get("status"),
+                    "health": c.get("health"),
+                }
+            )
+    except Exception as e:
+        out["docker_containers_error"] = str(e)
+        logger.warning("Bug report: could not list docker containers: %s", e)
+
+    try:
+        from model_control.model_utils import get_deploy_cache
+
+        cache = get_deploy_cache()
+        for con_id, entry in cache.items():
+            if not isinstance(entry, dict):
+                continue
+            model_impl = entry.get("model_impl")
+            mi_summary = None
+            if model_impl is not None:
+                mt = getattr(model_impl, "model_type", None)
+                mi_summary = {
+                    "model_name": getattr(model_impl, "model_name", None),
+                    "hf_model_id": getattr(model_impl, "hf_model_id", None),
+                    "model_type": getattr(mt, "value", str(mt)) if mt is not None else None,
+                }
+            pb = entry.get("port_bindings") or {}
+            port_hints = []
+            if isinstance(pb, dict):
+                for cp, bindings in pb.items():
+                    if not bindings:
+                        continue
+                    for b in bindings:
+                        if isinstance(b, dict):
+                            port_hints.append(
+                                f"{b.get('HostIp')}:{b.get('HostPort')}->{cp}"
+                            )
+            cid = str(con_id or "")
+            out["deploy_cache_entries"].append(
+                {
+                    "container_id_prefix": cid[:12] if cid else None,
+                    "internal_url": entry.get("internal_url"),
+                    "health_url": entry.get("health_url"),
+                    "max_model_len": entry.get("max_model_len"),
+                    "cached_model_name": entry.get("cached_model_name"),
+                    "model_impl": mi_summary,
+                    "port_bindings_summary": port_hints[:24],
+                }
+            )
+    except Exception as e:
+        out["deploy_cache_error"] = str(e)
+        logger.warning("Bug report: could not read deploy cache: %s", e)
+
+    return out
+
 
 def _collect_bug_report_data() -> dict:
     """
@@ -449,6 +535,9 @@ def _collect_bug_report_data() -> dict:
     except Exception as e:
         data["deployments"] = {"error": str(e)}
 
+    # 10. Current deployed models / containers snapshot (for bug triage)
+    data["current_models"] = _collect_current_models_snapshot()
+
     return data
 
 
@@ -505,6 +594,10 @@ class BugReportDownloadView(APIView):
 
                 zf.writestr("tt_smi.json", json.dumps(data["tt_smi"], indent=2))
                 zf.writestr("deployments.json", json.dumps(data["deployments"], indent=2, default=str))
+                zf.writestr(
+                    "current_models.json",
+                    json.dumps(data["current_models"], indent=2, default=str),
+                )
 
             buf.seek(0)
             timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
