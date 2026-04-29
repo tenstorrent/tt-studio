@@ -84,9 +84,19 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         "tt_studio_behind": False,
         "artifact_behind": False,
         "artifact_branch": None,
+        "qb2_mode": False,
     }
 
     print(f"\n{C_BLUE}🔍 Checking for updates...{C_RESET}")
+
+    # Detect QB2 mode first — it affects both checks below.
+    qb2_branch = (
+        get_env_var_fn("TT_QB2_LAUNCH_BRANCH")
+        or os.getenv("TT_QB2_LAUNCH_BRANCH", "")
+    )
+    if qb2_branch:
+        result["qb2_mode"] = True
+        print(f"{C_BLUE}   QB2 mode detected (branch: '{qb2_branch}'){C_RESET}")
 
     # ── 1. tt-studio self-check ───────────────────────────────────────────────
     try:
@@ -101,25 +111,31 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     except Exception:
         local_sha = local_branch = ""
 
-    if local_sha and local_branch and local_branch not in ("HEAD", ""):
-        remote_sha = _fetch_github_sha("tenstorrent", "tt-studio", local_branch)
+    # In QB2 mode check studio against the QB2 launch branch, not the local branch.
+    studio_check_branch = qb2_branch if qb2_branch else local_branch
+
+    if local_sha and studio_check_branch and studio_check_branch not in ("HEAD", ""):
+        remote_sha = _fetch_github_sha("tenstorrent", "tt-studio", studio_check_branch)
         if remote_sha is None:
             print(f"{C_YELLOW}   tt-studio: could not reach GitHub to check for updates{C_RESET}")
         elif local_sha == remote_sha:
-            print(f"{C_GREEN}✓  tt-studio '{local_branch}': up to date ({local_sha[:7]}){C_RESET}")
+            print(f"{C_GREEN}✓  tt-studio '{studio_check_branch}': up to date ({local_sha[:7]}){C_RESET}")
         else:
-            print(f"{C_YELLOW}⚠️  tt-studio '{local_branch}': behind GitHub "
+            print(f"{C_YELLOW}⚠️  tt-studio '{studio_check_branch}': behind GitHub "
                   f"({local_sha[:7]} → {remote_sha[:7]}){C_RESET}")
             print(f"   Run: git pull")
             result["tt_studio_behind"] = True
     else:
-        print(f"{C_YELLOW}   tt-studio: could not determine local branch/SHA{C_RESET}")
+        print(f"{C_YELLOW}   tt-studio: could not determine branch/SHA{C_RESET}")
 
     # ── 2. Artifact (tt-inference-server) freshness check ────────────────────
-    artifact_branch = (
-        get_env_var_fn("TT_INFERENCE_ARTIFACT_BRANCH")
-        or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", "")
-    )
+    if qb2_branch:
+        artifact_branch = qb2_branch
+    else:
+        artifact_branch = (
+            get_env_var_fn("TT_INFERENCE_ARTIFACT_BRANCH")
+            or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", "")
+        )
     result["artifact_branch"] = artifact_branch or None
 
     if not artifact_branch:

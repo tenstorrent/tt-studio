@@ -4298,26 +4298,13 @@ def main():
 
         # Block startup if the local tt-studio branch is behind its remote.
         if freshness.get("tt_studio_behind"):
-            print(f"\n{C_YELLOW}⚠️  tt-studio is behind its remote branch.{C_RESET}")
-            try:
-                resp = input("   Run 'git pull' now? [Y/n]: ").strip().lower()
-            except EOFError:
-                resp = "n"
-            if resp in ("", "y", "yes"):
-                print(f"{C_CYAN}   Running git pull...{C_RESET}")
-                pull_result = subprocess.run(
-                    ["git", "-C", TT_STUDIO_ROOT, "pull"],
-                    check=False,
-                )
-                if pull_result.returncode == 0:
-                    print(f"\n{C_GREEN}✅ tt-studio updated. Please re-run 'python run.py' to start with the updated code.{C_RESET}")
-                else:
-                    print(f"\n{C_RED}⛔ git pull failed. Please resolve any issues and re-run 'python run.py'.{C_RESET}")
-            else:
-                print(f"\n{C_RED}⛔ Please run 'git pull' before starting tt-studio.{C_RESET}")
+            print(f"\n{C_RED}⛔ tt-studio is behind its remote branch. Please run 'git pull' then re-run 'python run.py'.{C_RESET}")
             startup_log.summary(exit_code=1)
             startup_log.close()
             sys.exit(1)
+
+        if freshness.get("qb2_mode"):
+            print(f"{C_CYAN}ℹ️  QB2 mode active (branch: {freshness.get('artifact_branch')}){C_RESET}")
 
         # If the inference-server artifact is outdated, auto-fetch the latest.
         if freshness.get("artifact_behind") and not args.pull_branch:
