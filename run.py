@@ -1853,8 +1853,9 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
         if HAS_REQUESTS:
             try:
                 response = requests.get(health_url, timeout=5)
-                if response.status_code == 200:
-                    # Clear the waiting line and return success silently
+                # Any HTTP response means the server is up (200 from /__health,
+                # or 403 from protected endpoints on older builds)
+                if response.status_code < 500:
                     sys.stdout.write(f"\r{' ' * 80}\r")
                     sys.stdout.flush()
                     return True
@@ -1869,11 +1870,18 @@ def wait_for_service_health(service_name, health_url, timeout=300, interval=5):
             try:
                 import urllib.error
                 resp = urllib.request.urlopen(health_url, timeout=5)
-                if resp.getcode() == 200:
+                if resp.getcode() < 500:
                     sys.stdout.write(f"\r{' ' * 80}\r")
                     sys.stdout.flush()
                     return True
                 failure_reason = f"HTTP {resp.getcode()}"
+            except urllib.error.HTTPError as exc:
+                # Any HTTP error (including 403) means nginx is up and responding
+                if exc.code < 500:
+                    sys.stdout.write(f"\r{' ' * 80}\r")
+                    sys.stdout.flush()
+                    return True
+                failure_reason = f"HTTP {exc.code}"
             except urllib.error.URLError as exc:
                 reason = str(exc.reason) if hasattr(exc, 'reason') else str(exc)
                 if "refused" in reason.lower():
