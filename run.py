@@ -36,6 +36,7 @@ import re
 import getpass
 import webbrowser
 import socket
+import secrets
 import tempfile
 import signal
 import json
@@ -2003,6 +2004,18 @@ def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, 
         print(f"  {C_WHITE}python run.py --cleanup && python run.py{C_RESET}")
         print(f"{C_CYAN}   Or check container logs: cd app && docker compose logs -f{C_RESET}")
         return False
+
+def get_local_ip():
+    """Return the machine's primary outbound IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "localhost"
+
 
 def get_frontend_config():
     """
@@ -4555,6 +4568,11 @@ def main():
                 subprocess.run(["sudo", "chown", f"{os.getuid()}:{os.getgid()}", _log_dir], check=False)
                 os.makedirs(_log_dir, exist_ok=True)
 
+        # Generate access token for production nginx secret-link auth
+        if not args.dev:
+            tt_access_token = os.environ.get("TT_ACCESS_TOKEN") or secrets.token_urlsafe(24)
+            os.environ["TT_ACCESS_TOKEN"] = tt_access_token
+
         # Start Docker services with streaming output and comprehensive error reporting
         startup_log.step("docker_compose_up", "START")
         print(f"\n{C_CYAN}🔨 Building containers (backend, frontend, agent, chroma)...{C_RESET}")
@@ -4616,7 +4634,13 @@ def main():
         print(f"{C_GREEN}{'=' * 60}{C_RESET}")
         print(f"{C_GREEN}🚀 TT Studio is ready!{C_RESET}")
         print(f"{C_GREEN}{'=' * 60}{C_RESET}")
-        print(f"  URL:             {C_CYAN}http://localhost:3000{C_RESET}")
+        if not args.dev and os.environ.get("TT_ACCESS_TOKEN"):
+            local_ip = get_local_ip()
+            access_token = os.environ["TT_ACCESS_TOKEN"]
+            print(f"  Local URL:       {C_CYAN}http://localhost:3000{C_RESET}")
+            print(f"  Share URL:       {C_CYAN}http://{local_ip}:3000/__grant?token={access_token}{C_RESET}")
+        else:
+            print(f"  URL:             {C_CYAN}http://localhost:3000{C_RESET}")
         if fastapi_enabled:
             print(f"  FastAPI:         {C_CYAN}http://localhost:8001{C_RESET}")
         if docker_control_enabled:

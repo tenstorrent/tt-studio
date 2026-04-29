@@ -18,13 +18,13 @@ services:
     ports:
       - "3000:80"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/__health"]
       timeout: 30s
       interval: 10s
       retries: 3
       start_period: 60s
-    # Remove runtime environment variables since they're now baked into the build
-    environment: []
+    environment:
+      - TT_ACCESS_TOKEN=${TT_ACCESS_TOKEN}
   
   tt_studio_agent:
     container_name: tt_studio_agent_prod
