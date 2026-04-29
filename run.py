@@ -104,7 +104,7 @@ STARTUP_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "startup.log")
 # We use prefixes and resolve at runtime via _resolve_container_name()
 SERVICE_CONTAINER_PREFIX_MAP = {
     "http://localhost:8000/up/": "tt_studio_backend",
-    "http://localhost:3000/": "tt_studio_frontend",
+    "http://localhost:3000/__health": "tt_studio_frontend",
     "http://localhost:8080/": "tt_studio_agent",
     "http://localhost:8111/api/v1/heartbeat": "tt_studio_chroma",
 }
@@ -1927,7 +1927,7 @@ def wait_for_all_services(skip_fastapi=False, is_deployed_mode=False, skip_docke
     services_to_check = [
         ("ChromaDB", "http://localhost:8111/api/v1/heartbeat"),
         ("Backend API", "http://localhost:8000/up/"),
-        ("Frontend", "http://localhost:3000/"),
+        ("Frontend", "http://localhost:3000/__health"),
     ]
     if not skip_docker_control and os.path.exists(DOCKER_CONTROL_PID_FILE):
         services_to_check.append(("Docker Control Service", "http://localhost:8002/api/v1/health"))
@@ -1979,18 +1979,19 @@ def wait_for_frontend_and_open_browser(host="localhost", port=3000, timeout=60, 
     Returns:
         bool: True if browser opened successfully, False otherwise
     """
-    base_url = f"http://{host}:{port}/"
+    health_url = f"http://{host}:{port}/__health"
+    app_url = f"http://{host}:{port}/"
 
     # Add auto-deploy parameter if specified
     if auto_deploy_model:
         from urllib.parse import urlencode
         params = urlencode({"auto-deploy": auto_deploy_model, "device-id": device_id})
-        frontend_url = f"{base_url}?{params}"
+        frontend_url = f"{app_url}?{params}"
         print(f"\n🤖 Auto-deploying model: {auto_deploy_model} on chip {device_id}")
     else:
-        frontend_url = base_url
-    
-    if wait_for_service_health("Frontend", base_url, timeout=timeout, interval=2):
+        frontend_url = app_url
+
+    if wait_for_service_health("Frontend", health_url, timeout=timeout, interval=2):
         try:
             webbrowser.open(frontend_url)
             return True
