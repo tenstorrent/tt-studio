@@ -17,7 +17,7 @@ import LogView from "./LogView";
 import EventsView from "./EventsView";
 import MetricsView from "./MetricsView";
 import { useNavigate } from "react-router-dom";
-import { OctagonX, ExternalLink } from "lucide-react";
+import { XCircle, ExternalLink } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -144,7 +144,7 @@ export default function LogStreamDialog({
       return (
         <div className="flex flex-col items-center justify-center gap-5 py-10 px-6 text-center">
           <div className="flex items-center justify-center w-12 h-12 rounded-full bg-stone-800/60 border border-stone-700/50">
-            <OctagonX className="w-6 h-6 text-stone-400" />
+            <XCircle className="w-6 h-6 text-stone-400" />
           </div>
           <div className="space-y-1.5">
             <p className="text-sm font-medium text-stone-200">Container stopped</p>
