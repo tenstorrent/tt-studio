@@ -90,10 +90,19 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     print(f"\n{C_BLUE}🔍 Checking for updates...{C_RESET}")
 
     # Detect QB2 mode first — it affects both checks below.
+    # Triggered by TT_QB2_LAUNCH_BRANCH, or implicitly when
+    # TT_INFERENCE_ARTIFACT_BRANCH is set to the QB2 launch branch.
     qb2_branch = (
         get_env_var_fn("TT_QB2_LAUNCH_BRANCH")
         or os.getenv("TT_QB2_LAUNCH_BRANCH", "")
     )
+    if not qb2_branch:
+        artifact_env = (
+            get_env_var_fn("TT_INFERENCE_ARTIFACT_BRANCH")
+            or os.getenv("TT_INFERENCE_ARTIFACT_BRANCH", "")
+        )
+        if artifact_env == "tt_qb2_launch_branch":
+            qb2_branch = artifact_env
     if qb2_branch:
         result["qb2_mode"] = True
         print(f"{C_BLUE}   QB2 mode detected (branch: '{qb2_branch}'){C_RESET}")
