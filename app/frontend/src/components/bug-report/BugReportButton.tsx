@@ -28,17 +28,23 @@ export function BugReportButton({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="ghost"
+            variant={variant === "icon" ? "navbar" : "ghost"}
             size={variant === "icon" ? "icon" : "sm"}
             onClick={() => setOpen(true)}
             className={
               variant === "full"
                 ? `border border-red-200 hover:border-red-300 hover:bg-red-50 dark:border-red-800 dark:hover:border-red-700 dark:hover:bg-red-950/50 text-red-600 dark:text-red-400 ${className ?? ""}`
-                : `hover:bg-gray-100 dark:hover:bg-gray-800 text-muted-foreground hover:text-red-500 ${className ?? ""}`
+                : `relative inline-flex items-center justify-center rounded-full p-2 transition-all duration-300 ease-in-out hover:text-red-500 ${className ?? ""}`
             }
             aria-label="Report a bug"
           >
-            <Bug className={variant === "icon" ? "h-5 w-5" : "h-4 w-4 mr-2"} />
+            <Bug
+              className={
+                variant === "icon"
+                  ? "h-5 w-5 transition-colors duration-300 ease-in-out"
+                  : "mr-2 h-4 w-4"
+              }
+            />
             {variant === "full" && "Report Bug"}
           </Button>
         </TooltipTrigger>

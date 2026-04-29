@@ -145,6 +145,14 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
         {/* ── Step 1: Form ── */}
         {step === "form" && (
           <div className="space-y-4">
+            <div className="rounded-md border border-stone-200 dark:border-stone-800 bg-stone-50/80 dark:bg-stone-900/80 px-4 py-3 text-sm text-stone-700 dark:text-stone-300">
+              Along with your notes, TT-Studio will collect a diagnostic snapshot to
+              help us reproduce the issue faster. This includes service logs,
+              deployment history, inference artifacts, and TT device hardware data
+              from <code className="rounded bg-stone-200 px-1 py-0.5 text-xs dark:bg-stone-800">tt-smi</code>
+              , including board and telemetry details and firmware-related fields
+              when available.
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">
                 Issue title{" "}
@@ -225,6 +233,13 @@ export function BugReportModal({ open, onOpenChange }: BugReportModalProps) {
                 {doneCount}/{totalCount}
               </span>
             </p>
+            <div className="rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50/80 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-900 dark:text-blue-200">
+              We are collecting backend, FastAPI, startup, agent, and docker-control
+              logs, plus deployment history, recent inference artifacts, and TT
+              device details from <code className="rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900/60">tt-smi</code>
+              . This may include board type, telemetry, and firmware-related fields
+              returned by the device.
+            </div>
             <ScrollArea className="h-64 pr-2">
               <div className="space-y-2">
                 {sources.map((source) => (

@@ -3,12 +3,10 @@
 import { DeployedHome } from "../components/aiPlaygroundHome/DeployedHome";
 import { RetroGrid } from "../components/ui/retro-grid";
 import { useTheme } from "../hooks/useTheme";
-import { useHeroSection } from "../hooks/useHeroSection";
 // import NavBar from "../components/NavBar";
 
 const DeployedHomePage = () => {
   const { theme } = useTheme();
-  const { showHero } = useHeroSection();
   return (
     <div className="relative min-h-screen w-full bg-white/95 dark:bg-black/95">
       {/* RetroGrid Background */}
@@ -42,7 +40,8 @@ const DeployedHomePage = () => {
 
       {/* Content */}
       <div className="relative z-10">
-        <DeployedHome onlyCards={!showHero} />
+        {/* Temporarily render the cards-only home while the hero section is removed. */}
+        <DeployedHome onlyCards />
       </div>
     </div>
   );
