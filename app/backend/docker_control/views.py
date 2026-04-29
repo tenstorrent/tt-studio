@@ -353,6 +353,11 @@ class DeployView(APIView):
                 # p300x2 device itself — do not pass device_id so it is omitted from the
                 # run.py invocation entirely.
                 inference_device_id = None if board_type == "P300Cx2" else device_id
+                # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
+                override_tt_config = None
+                qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
+                if qwen32b_p300x2:
+                    override_tt_config = '{"trace_region_size": 53000000}'
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
@@ -360,6 +365,8 @@ class DeployView(APIView):
                     service_port=service_port,
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
+                    override_tt_config=override_tt_config,
+                    dev_mode=qwen32b_p300x2,
                 )
                 if result.status != "success":
                     return Response(
