@@ -1006,6 +1006,29 @@ def display_first_time_welcome():
     print(f"  • You can reset your preferences anytime with {C_WHITE}--reconfigure{C_RESET}")
     print()
     print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset.{C_RESET}")
+    print()
+    print(f"Before getting started please note that by proceeding, you agree to our Terms: https://docs.tenstorrent.com/os-model-terms/")
+    print()
+    print(f"The TL;DR:")
+    print()
+    print(f"{C_GREEN}AS-IS:{C_RESET} These models are for demonstration; we don't guarantee their output.")
+    print(f"{C_GREEN}Liability:{C_RESET} Tenstorrent isn't responsible for damages or AI-generated content.")
+    print(f"{C_GREEN}Compliance:{C_RESET} You agree to follow the original creators' licenses.")
+    print()
+
+    # Terms acceptance confirmation
+    while True:
+        response = input(f"{C_CYAN}Do you agree to these terms? [y/N]: {C_RESET}").strip().lower()
+        if response in ['n', 'no', '']:
+            print(f"{C_RED}Terms not accepted. Exiting TT-Studio.{C_RESET}")
+            sys.exit(0)
+        elif response in ['y', 'yes']:
+            print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
+            break
+        else:
+            print(f"{C_YELLOW}Please enter 'y' for yes or 'n' for no.{C_RESET}")
+
+    print()
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print()
 
@@ -1631,19 +1654,9 @@ def display_welcome_banner():
     # Subtitle
     print(f"{C_CYAN}AI Model Development & Deployment Made Easy{C_RESET}")
     print()
-    
-    # Feature highlights
-    print(f"{C_GREEN}Features:{C_RESET}")
-    print(f"  • Interactive environment setup")
-    print(f"  • Frontend dependencies management")
-    print(f"  • Docker orchestration & management") 
-    print(f"  • TT Inference Server integration")
-    print(f"  • Hardware detection & optimization")
-    print(f"  • AI Playground for cloud models")
-    print()
-    
+        
     # Bottom line
-    print("=" * 68)
+    print(f"{C_TT_PURPLE}{'=' * 68}{C_RESET}")
     print()
 
 def cleanup_resources(args):
