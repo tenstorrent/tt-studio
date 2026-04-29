@@ -157,7 +157,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         id: key,
         image: container.image_name || "Unknown image",
         status: container.status || "unknown",
-        health: container.health || "unknown",
+        health: (typeof container.health === "string" ? container.health : "") || "unknown",
         ports: portMapping,
         name: container.name || "Unnamed container",
         device_id: container.device_id ?? null,

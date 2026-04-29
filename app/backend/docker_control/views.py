@@ -2179,3 +2179,89 @@ class AvailableDevicesView(APIView):
             "devices": devices,
             "count": len(devices)
         }, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for DetectModelFromLogsView
+# ---------------------------------------------------------------------------
+
+def _parse_vllm_logs(text: str) -> dict:
+    result = {}
+    m = re.search(r"\bmodel='([^']+)'", text)
+    if m:
+        result["hf_model_id"] = m.group(1)
+        result["model_type"] = _infer_model_type(m.group(1))
+    m = re.search(r"Uvicorn running on http://[^:]+:(\d+)", text, re.IGNORECASE)
+    if m:
+        result["port"] = int(m.group(1))
+    return result
+
+
+def _infer_model_type(hf_id: str) -> str:
+    lower = hf_id.lower()
+    if any(x in lower for x in ["whisper", "wav2vec", "speech", "asr"]):
+        return "speech_recognition"
+    if any(x in lower for x in ["llava", "clip", "idefics", "vision", "blip"]):
+        return "vlm"
+    if any(x in lower for x in ["stable-diffusion", "sdxl", "dall-e"]):
+        return "image_generation"
+    if any(x in lower for x in ["xtts", "-tts-", "bark", "speecht5", "fastspeech"]):
+        return "tts"
+    if any(x in lower for x in ["-e5-", "/e5-", "gte-", "bge-", "embed", "sentence-t5"]):
+        return "embedding"
+    return "chat"
+
+
+class DetectModelFromLogsView(APIView):
+    """
+    Scan recent container logs for vLLM startup patterns and return detected
+    model info (hf_model_id, model_type, port). Falls back to querying the
+    live /v1/models endpoint if the server is already healthy.
+    """
+
+    def get(self, request, container_id, *args, **kwargs):
+        docker_client = get_docker_client()
+        raw = b""
+        try:
+            for chunk in docker_client.get_logs_stream(container_id, follow=False, tail=300):
+                raw += chunk
+                if len(raw) > 200_000:
+                    break
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # SSE wire format: "data: {json}\n\n" — extract message fields
+        log_lines = []
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            if line.startswith("data: "):
+                try:
+                    data = json.loads(line[6:])
+                    if "message" in data:
+                        log_lines.append(data["message"])
+                except Exception:
+                    pass
+            else:
+                # Plain text fallback (non-SSE chunk)
+                stripped = line.strip()
+                if stripped:
+                    log_lines.append(stripped)
+
+        detected = _parse_vllm_logs("\n".join(log_lines))
+
+        # Bonus: if a port was found, try the live /v1/models endpoint
+        if "port" in detected:
+            try:
+                api_url = f"http://host.docker.internal:{detected['port']}/v1/models"
+                api_resp = requests.get(api_url, timeout=2)
+                model_id = api_resp.json().get("data", [{}])[0].get("id")
+                if model_id:
+                    detected["hf_model_id"] = model_id
+                    detected["model_type"] = _infer_model_type(model_id)
+                    detected["source"] = "api"
+            except Exception:
+                pass
+
+        if "source" not in detected and detected:
+            detected["source"] = "logs"
+
+        return Response(detected, status=status.HTTP_200_OK)
