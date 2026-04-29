@@ -1515,8 +1515,17 @@ async def run_inference(request: RunRequest):
                     return_code, container_info = _execute_run(retry_argv)
 
                 if return_code == 0:
+                    # Always extract from captured job logs — provides docker_log_file_path
+                    # even when run_main() returned a bare int (no container_info dict).
+                    extracted = _extract_from_job_logs(job_id)
+                    logger.info(
+                        f"Job {job_id}: _extract_from_job_logs result: "
+                        f"container_name={extracted.get('container_name')!r} "
+                        f"docker_log_file_path={extracted.get('docker_log_file_path')!r} "
+                        f"run_log_file_path={extracted.get('run_log_file_path')!r}"
+                    )
+
                     if not isinstance(container_info, dict) or not container_info.get("container_name"):
-                        extracted = _extract_from_job_logs(job_id)
                         inferred_name = extracted.get("container_name")
                         if inferred_name:
                             container_info = {
@@ -1530,8 +1539,16 @@ async def run_inference(request: RunRequest):
 
                     container_name = container_info.get("container_name") if isinstance(container_info, dict) else None
                     container_id = container_info.get("container_id") if isinstance(container_info, dict) else None
-                    docker_log_file_path = container_info.get("docker_log_file_path") if isinstance(container_info, dict) else None
-                    run_log_file_path = container_info.get("run_log_file_path") if isinstance(container_info, dict) else None
+                    # Prefer container_info value; fall back to log-extracted value so that
+                    # docker_log_file_path is never lost when container name extraction fails.
+                    docker_log_file_path = (
+                        (container_info.get("docker_log_file_path") if isinstance(container_info, dict) else None)
+                        or extracted.get("docker_log_file_path")
+                    )
+                    run_log_file_path = (
+                        (container_info.get("run_log_file_path") if isinstance(container_info, dict) else None)
+                        or extracted.get("run_log_file_path")
+                    )
 
                     response_data = {
                         "job_id": job_id,
