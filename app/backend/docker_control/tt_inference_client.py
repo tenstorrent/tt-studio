@@ -32,6 +32,7 @@ def start_chat_deployment(
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
     vllm_override_args: Optional[str] = None,
+    override_tt_config: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -52,6 +53,8 @@ def start_chat_deployment(
         payload["device_id"] = str(device_id)
     if vllm_override_args is not None:
         payload["vllm_override_args"] = vllm_override_args
+    if override_tt_config is not None:
+        payload["override_tt_config"] = override_tt_config
 
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)

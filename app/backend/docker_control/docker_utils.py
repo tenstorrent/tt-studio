@@ -341,6 +341,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, vllm_override_a
         # Multi-chip models need this to specify which configuration to use
         payload["device_id"] = str(device_id)
 
+        # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
+        if impl.model_name == "Qwen3-32B" and device == "p300x2":
+            payload["override_tt_config"] = '{"trace_region_size": 53000000}'
+            payload["dev_mode"] = True
+
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
             payload["skip_system_sw_validation"] = True
@@ -720,21 +725,36 @@ def get_container_status():
 
     data = {}
     for con in containers:
-        data[con.id] = {
-            "name": con.name,
-            "status": con.status,
-            "health": con.health,
-            "create": con.attrs.get("Created"),
-            "image_id": con.attrs.get("Image"),
-            "image_name": con.attrs.get("Config").get("Image"),
-            "port_bindings": con.attrs.get("NetworkSettings").get("Ports"),
-            "networks": {
-                k: {"DNSNames": v.get("DNSNames")}
-                for k, v in con.attrs.get("NetworkSettings").get("Networks").items()
-            },
-            "env_vars": parse_env_var_str(con.attrs.get("Config").get("Env")),
-            "device_id": device_id_lookup.get(con.id),
-        }
+        try:
+            attrs = con.attrs or {}
+            config = attrs.get("Config") or {}
+            network_settings = attrs.get("NetworkSettings") or {}
+            raw_networks = network_settings.get("Networks") or {}
+            env_list = config.get("Env") or attrs.get("environment") or []
+
+            data[con.id] = {
+                "name": con.name,
+                "status": con.status,
+                "health": con.health,
+                "create": attrs.get("Created"),
+                "image_id": attrs.get("Image"),
+                "image_name": config.get("Image"),
+                "port_bindings": network_settings.get("Ports") or {},
+                "networks": {
+                    k: {"DNSNames": (v or {}).get("DNSNames")}
+                    for k, v in raw_networks.items()
+                },
+                "env_vars": parse_env_var_str(env_list),
+                "device_id": device_id_lookup.get(con.id),
+            }
+        except Exception as e:
+            # A single malformed container payload should never fail the entire
+            # status endpoint. We skip this container and continue.
+            logger.warning(
+                "Skipping container %s in get_container_status due to parsing error: %s",
+                getattr(con, "id", "unknown"),
+                e,
+            )
     return data
 
 
