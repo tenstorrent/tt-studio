@@ -598,7 +598,7 @@ export default function Component({
         </div>
       )}
 
-      {/* ── Efficiency Score ── */}
+      {/* ── Efficiency Score (commented out) ──
       {stats.tps_per_watt != null && (
         <div className="space-y-2 sm:space-y-3">
           <h3
@@ -616,15 +616,11 @@ export default function Component({
             </div>
             <p className={`text-xs ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
               Performance per watt
-              {/* {bestEfficiencyRatio != null && bestEfficiencyRatio > 1 && (
-                <span className={`ml-1.5 font-medium ${isDarkMode ? "text-green-400" : "text-green-600"}`}>
-                  &mdash; {bestEfficiencyRatio.toFixed(1)}x more efficient than GPU
-                </span>
-              )} */}
             </p>
           </div>
         </div>
       )}
+      */}
 
       {/* ── Comparison vs GPU Baselines (commented out for now) ──
       {efficiencyComparisons.length > 0 && ttTps != null && (
