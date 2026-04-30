@@ -11,8 +11,12 @@ Manages automatic chip slot allocation based on:
 - Board topology
 """
 
+import re
 import threading
+from datetime import timedelta
 from typing import Dict, List, Optional, Set
+
+from django.utils import timezone
 
 from shared_config.logger_config import get_logger
 from shared_config.model_config import get_model_chip_requirement
@@ -60,6 +64,8 @@ MULTI_CHIP_BOARD_SLOTS = {
     "GALAXY": 32,
     "GALAXY_T3K": 32,
 }
+
+STARTING_DEPLOYMENT_GRACE_PERIOD = timedelta(minutes=3)
 
 
 class ChipSlotAllocator:
@@ -309,7 +315,107 @@ class ChipSlotAllocator:
         Returns:
             List of ModelDeployment objects
         """
-        return list(ModelDeployment.objects.filter(status__in=['starting', 'running']))
+        active_deployments = list(ModelDeployment.objects.filter(status__in=["starting", "running"]))
+        if not active_deployments:
+            return []
+
+        live_containers = self._get_live_container_status()
+        live_containers_by_name = {
+            container_data.get("name"): (container_id, container_data)
+            for container_id, container_data in live_containers.items()
+            if container_data.get("name")
+        }
+
+        reconciled_deployments = []
+        for deployment in active_deployments:
+            reconciled = self._reconcile_deployment_record(
+                deployment,
+                live_containers,
+                live_containers_by_name,
+            )
+            if reconciled is not None:
+                reconciled_deployments.append(reconciled)
+
+        return reconciled_deployments
+
+    def _get_live_container_status(self) -> Dict[str, Dict]:
+        """Return a snapshot of currently running managed containers."""
+        from docker_control.docker_utils import get_container_status
+
+        try:
+            return get_container_status()
+        except Exception as e:
+            logger.warning(f"Could not load live container status for chip allocation: {e}")
+            return {}
+
+    def _reconcile_deployment_record(
+        self,
+        deployment: ModelDeployment,
+        live_containers: Dict[str, Dict],
+        live_containers_by_name: Dict[str, tuple[str, Dict]],
+    ) -> Optional[ModelDeployment]:
+        """
+        Reconcile a deployment-store record against live Docker state.
+
+        Returns the deployment if it should still count as active, otherwise None.
+        """
+        live_container = live_containers.get(deployment.container_id)
+        if live_container is not None:
+            if deployment.status != "running":
+                deployment.status = "running"
+                deployment.save()
+            return deployment
+
+        live_container_match = live_containers_by_name.get(deployment.container_name)
+        if live_container_match is not None:
+            live_container_id, _live_container_data = live_container_match
+            deployment.container_id = live_container_id
+            deployment.status = "running"
+            deployment.save()
+            logger.info(
+                "Reconciled deployment %s (%s) to live container %s by name",
+                deployment.id,
+                deployment.model_name,
+                live_container_id,
+            )
+            return deployment
+
+        if deployment.status == "running":
+            self._mark_deployment_terminal(deployment, "dead")
+            return None
+
+        if self._starting_record_is_stale(deployment):
+            terminal_status = "failed" if self._is_placeholder_container_id(deployment.container_id) else "dead"
+            self._mark_deployment_terminal(deployment, terminal_status)
+            return None
+
+        return deployment
+
+    def _starting_record_is_stale(self, deployment: ModelDeployment) -> bool:
+        """Return True when a starting deployment has exceeded its grace period."""
+        if deployment.status != "starting":
+            return False
+        if deployment.deployed_at is None:
+            return True
+        return timezone.now() - deployment.deployed_at > STARTING_DEPLOYMENT_GRACE_PERIOD
+
+    def _is_placeholder_container_id(self, container_id: str) -> bool:
+        """Chat deployments use a short job ID before the real Docker ID is known."""
+        if container_id.startswith("pending_"):
+            return True
+        return re.fullmatch(r"[0-9a-f]{12,64}", container_id) is None
+
+    def _mark_deployment_terminal(self, deployment: ModelDeployment, status_value: str) -> None:
+        """Persist a terminal deployment state once it no longer maps to a live container."""
+        deployment.status = status_value
+        deployment.stopped_at = timezone.now()
+        deployment.save()
+        logger.info(
+            "Marked stale deployment %s (%s) as %s during chip reconciliation",
+            deployment.id,
+            deployment.model_name,
+            status_value,
+        )
 
     def _get_occupied_slots(self) -> Set[int]:
         """
