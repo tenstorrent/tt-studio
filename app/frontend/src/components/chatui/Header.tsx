@@ -4,7 +4,7 @@
 import React from "react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { usePersistentState } from "./usePersistentState";
+
 import {
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -48,7 +48,6 @@ import {
   FolderOpen,
   // Settings as SettingsIcon,
   Sliders,
-  Bot,
 } from "lucide-react";
 // import { Skeleton } from "../ui/skeleton";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
@@ -65,8 +64,6 @@ interface HeaderProps {
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
-  isAgentSelected: boolean;
-  setIsAgentSelected: (value: boolean) => void;
   isMobileView?: boolean;
   setIsRagExplicitlyDeselected?: (value: boolean) => void;
   onOpenSettings?: () => void;
@@ -216,29 +213,6 @@ const ForwardedSelect = React.forwardRef<
 
 ForwardedSelect.displayName = "ForwardedSelect";
 
-const ForwardedAISelect = React.forwardRef<
-  HTMLButtonElement,
-  React.ComponentPropsWithoutRef<typeof Select>
->((props, ref) => (
-  <Select {...props}>
-    <SelectTrigger
-      ref={ref}
-      className="w-full md:w-[180px] bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white text-xs md:text-sm flex items-center gap-2"
-    >
-      <Bot className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-      <SelectValue placeholder="Select AI Agent">
-        {props.value
-          ? props.value === "search-agent"
-            ? "Search Agent"
-            : props.value
-          : null}
-      </SelectValue>
-    </SelectTrigger>
-    {props.children}
-  </Select>
-));
-
-ForwardedAISelect.displayName = "ForwardedAISelect";
 
 export default function Header({
   modelName,
@@ -250,8 +224,6 @@ export default function Header({
   setRagDatasource,
   isHistoryPanelOpen,
   setIsHistoryPanelOpen,
-  isAgentSelected,
-  setIsAgentSelected,
   isMobileView = false,
   // setIsRagExplicitlyDeselected,
   // onOpenSettings,
@@ -261,9 +233,6 @@ export default function Header({
   // Log ragDataSources to console to inspect its structure
   // console.log("RAG Data Sources:", ragDataSources);
 
-  const [selectedAIAgent, setSelectedAIAgent] = usePersistentState<
-    string | null
-  >("selectedAIAgent", null);
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   // const navigate = useNavigate();
   const { logoUrl } = useLogo();
@@ -277,39 +246,10 @@ export default function Header({
     },
   };
 
-  // Handle the AI agent selection change
-  const handleAgentSelection = (value: string) => {
-    console.log("Agent selection changed to:", value);
-    if (value === "remove") {
-      setSelectedAIAgent(null); // Clear the selected agent
-      setIsAgentSelected(false); // Set to false if agent is removed
-      console.log("Agent deselected, isAgentSelected set to false");
-    } else {
-      setSelectedAIAgent(value); // Set the selected agent
-      setIsAgentSelected(true); // Set to true if an agent is selected
-      console.log("Agent selected:", value, "isAgentSelected set to true");
-    }
-  };
-
   // Toggle mobile dropdown menu
   const toggleMobileMenu = () => {
     setShowMobileMenu(!showMobileMenu);
   };
-
-  // Sync agent selection state on mount
-  React.useEffect(() => {
-    if (selectedAIAgent && !isAgentSelected) {
-      console.log(
-        "Syncing agent state: agent is selected but isAgentSelected is false"
-      );
-      setIsAgentSelected(true);
-    } else if (!selectedAIAgent && isAgentSelected) {
-      console.log(
-        "Syncing agent state: no agent selected but isAgentSelected is true"
-      );
-      setIsAgentSelected(false);
-    }
-  }, [selectedAIAgent, isAgentSelected, setIsAgentSelected]);
 
   return (
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-2 md:p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex flex-col md:flex-row justify-between items-start md:items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">
@@ -699,39 +639,7 @@ export default function Header({
               </ForwardedSelect>
             </div>
 
-            <div>
-              <span className="text-white text-xs font-medium block mb-1">
-                AI Agent
-              </span>
-              <ForwardedAISelect
-                value={selectedAIAgent || ""}
-                onValueChange={handleAgentSelection}
-              >
-                <SelectContent className="bg-[#2A2A2A] border-[#7C68FA]/20 text-xs">
-                  <SelectItem
-                    value="search-agent"
-                    className="text-white hover:bg-[#7C68FA]/20 text-xs"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Bot className="h-4 w-4" />
-                      <span>Search Agent</span>
-                    </div>
-                  </SelectItem>
-
-                  {selectedAIAgent && (
-                    <SelectItem
-                      value="remove"
-                      className="text-red-500 hover:bg-red-900/20 text-xs"
-                    >
-                      <span className="flex items-center">
-                        <X className="mr-2 h-3 w-3" />
-                        Remove AI Agent
-                      </span>
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </ForwardedAISelect>
-            </div>
+            {/* Search Agent moved to InputArea plus menu */}
           </div>
 
           {/* Add Settings to mobile menu */}
@@ -856,48 +764,7 @@ export default function Header({
             </Tooltip>
           </TooltipProvider>
 
-          {/* AI Agent Selector - Always show regardless of deployed models */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <ForwardedAISelect
-                  value={selectedAIAgent || ""}
-                  onValueChange={handleAgentSelection}
-                >
-                  <SelectContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20">
-                    <SelectItem
-                      value="search-agent"
-                      className="text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Bot className="h-4 w-4" />
-                        <span>Search Agent</span>
-                      </div>
-                    </SelectItem>
-
-                    {selectedAIAgent && (
-                      <SelectItem
-                        value="remove"
-                        className="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20"
-                      >
-                        <span className="flex items-center">
-                          <X className="mr-2 h-4 w-4" />
-                          Remove AI Agent
-                        </span>
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </ForwardedAISelect>
-              </TooltipTrigger>
-              <TooltipContent className="bg-white dark:bg-[#2A2A2A] border-gray-200 dark:border-[#7C68FA]/20 text-gray-800 dark:text-white">
-                <p>
-                  {selectedAIAgent
-                    ? "Change or remove AI agent"
-                    : "Select AI Agent"}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {/* Search Agent moved to InputArea plus menu */}
 
           {/* Settings Button */}
           <TooltipProvider>

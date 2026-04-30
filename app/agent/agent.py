@@ -114,6 +114,7 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
     print(f"  - Internal URL: {llm_info.internal_url}")
     print(f"  - Health URL: {llm_info.health_url}")
     print(f"  - Status: {llm_info.status}")
+    print(f"  - Tool Calling: {llm_info.tool_calling_enabled}")
     
     # Use the internal_url from the deploy cache as-is.  It already contains
     # the correct service_route assigned by the backend (e.g. /v1/completions
@@ -130,7 +131,8 @@ def setup_discovered_llm(llm_info: LLMInfo) -> CustomLLM:
         'model_name': llm_info.model_name,
         'model_type': llm_info.model_type,
         'status': llm_info.status.value,
-        'hf_model_id': llm_info.hf_model_id
+        'hf_model_id': llm_info.hf_model_id,
+        'tool_calling_enabled': llm_info.tool_calling_enabled,
     }
     print(f"[DEBUG] Setting up LLM with llm_info: {llm_info_dict}")
     
@@ -261,15 +263,21 @@ def initialize_llm() -> CustomLLM:
 
 def on_llm_change(new_llm: CustomLLM):
     """Callback when LLM changes during health monitoring"""
-    global current_llm, agent_executer
+    global current_llm, agent_executer, tool_calling_supported
     print("LLM changed, updating agent executor...")
     current_llm = new_llm
+    if (new_llm.is_discovered and new_llm.llm_info
+            and new_llm.llm_info.get('tool_calling_enabled')):
+        tool_calling_supported = True
+        print("✓ Tool calling enabled via deployment configuration")
+    else:
+        tool_calling_supported = _probe_tool_calling(new_llm)
     
     # Recreate agent executor with new LLM
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
     tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
     agent_executer = setup_executer(new_llm, memory, tools)
-    print("Agent executor updated with new LLM")
+    print(f"Agent executor updated with new LLM (tool_calling={tool_calling_supported})")
 
 def start_health_monitoring():
     """Start health monitoring for the current LLM"""
@@ -294,15 +302,59 @@ agent_executer = None
 memory = None
 tools = []
 llm_initialization_complete = False
+tool_calling_supported = False
+
+def _probe_tool_calling(llm) -> bool:
+    """Send a minimal request with tools to check if the model supports tool calling."""
+    import json as _json
+    try:
+        probe_tools = [{
+            "type": "function",
+            "function": {
+                "name": "test_probe",
+                "description": "Test tool",
+                "parameters": {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]},
+            },
+        }]
+        payload = {
+            "model": llm.cloud_model_name if llm.is_cloud else (
+                llm.llm_info.get("hf_model_id") or llm.llm_info.get("model_name") if llm.llm_info else "default"
+            ),
+            "messages": [{"role": "user", "content": "ping"}],
+            "tools": probe_tools,
+            "max_tokens": 1,
+            "stream": False,
+        }
+        headers = {"Authorization": f"Bearer {llm.encoded_jwt}"} if llm.encoded_jwt else {}
+        resp = requests.post(llm.server_url, json=payload, headers=headers, timeout=(5, 15))
+        if resp.status_code == 200:
+            print("[PROBE] Model accepts tool-calling requests ✓")
+            return True
+        body = resp.text[:300]
+        print(f"[PROBE] Model rejected tool-calling request ({resp.status_code}): {body}")
+        return False
+    except Exception as e:
+        print(f"[PROBE] Tool-calling probe failed: {e}")
+        return False
 
 def initialize_agent_components():
     """Initialize agent components once LLM is available"""
-    global current_llm, agent_executer, memory, tools, llm_initialization_complete
+    global current_llm, agent_executer, memory, tools, llm_initialization_complete, tool_calling_supported
     
     if current_llm is None:
         return False
     
     try:
+        # Check deployment config for tool-calling support first, fall back to probe
+        if (current_llm.is_discovered and current_llm.llm_info
+                and current_llm.llm_info.get('tool_calling_enabled')):
+            tool_calling_supported = True
+            print("✓ Tool calling enabled via deployment configuration (vllm --enable-auto-tool-choice)")
+        else:
+            tool_calling_supported = _probe_tool_calling(current_llm)
+        if not tool_calling_supported:
+            print("⚠ Model does not support tool calling — agent will be limited")
+
         # Setup agent executor
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
         os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
@@ -342,6 +394,7 @@ def initialize_agent_components():
         llm_initialization_complete = True
         print("=== Agent Initialization Complete ===")
         print(f"Available tools: {[tool.name for tool in tools]}")
+        print(f"Tool calling supported: {tool_calling_supported}")
         return True
         
     except Exception as e:
@@ -532,11 +585,20 @@ def get_status():
         # Get discovery service status
         discovery_status = discovery_service.get_llm_status_summary()
         
+        configured_tools = [t.name for t in tools] if tools else []
+        has_search = any("tavily" in t.lower() or "search" in t.lower() for t in configured_tools)
+        tavily_key_set = bool(os.getenv("TAVILY_API_KEY"))
+
         return {
             "status": "ready",
             "current_llm": current_llm_info,
             "available_models": available_models,
             "discovery_summary": discovery_status,
+            "tools": configured_tools,
+            "capabilities": {
+                "web_search": has_search and tavily_key_set and tool_calling_supported,
+                "tool_calling": tool_calling_supported,
+            },
             "configuration": {
                 "auto_discovery_enabled": AgentConfig.AUTO_DISCOVERY_ENABLED,
                 "health_check_enabled": AgentConfig.HEALTH_CHECK_ENABLED,
@@ -557,7 +619,7 @@ def get_status():
 @app.post("/refresh")
 def refresh_llm():
     """Dynamically refresh LLM selection and configuration"""
-    global current_llm, agent_executer, discovery_service
+    global current_llm, agent_executer, discovery_service, tool_calling_supported
     
     print("[DYNAMIC_REFRESH] Starting LLM refresh process...")
     
@@ -596,6 +658,13 @@ def refresh_llm():
         current_llm = new_llm
         new_llm_name = current_llm.llm_info.get('model_name', 'Unknown') if hasattr(current_llm, 'llm_info') else 'Unknown'
         
+        # Check deployment config for tool-calling, fall back to probe
+        if (current_llm.is_discovered and current_llm.llm_info
+                and current_llm.llm_info.get('tool_calling_enabled')):
+            tool_calling_supported = True
+        else:
+            tool_calling_supported = _probe_tool_calling(current_llm)
+        
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
         tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
@@ -604,7 +673,7 @@ def refresh_llm():
         # Restart health monitoring
         start_health_monitoring()
         
-        print(f"[DYNAMIC_REFRESH] Successfully switched from {old_llm_name} to {new_llm_name}")
+        print(f"[DYNAMIC_REFRESH] Successfully switched from {old_llm_name} to {new_llm_name} (tool_calling={tool_calling_supported})")
         
         return {
             "status": "success",
@@ -629,7 +698,7 @@ def refresh_llm():
 @app.post("/select_model")
 def select_model(deploy_id: str):
     """Dynamically select a specific model by deploy_id"""
-    global current_llm, agent_executer, discovery_service
+    global current_llm, agent_executer, discovery_service, tool_calling_supported
     
     print(f"[DYNAMIC_SELECTION] Attempting to select model with deploy_id: {deploy_id}")
     
@@ -672,6 +741,12 @@ def select_model(deploy_id: str):
         old_llm_name = current_llm.llm_info.get('model_name', 'Unknown') if current_llm and hasattr(current_llm, 'llm_info') else 'Unknown'
         current_llm = new_llm
         
+        # Check deployment config for tool-calling, fall back to probe
+        if target_llm.tool_calling_enabled:
+            tool_calling_supported = True
+        else:
+            tool_calling_supported = _probe_tool_calling(current_llm)
+        
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
         tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
@@ -680,7 +755,7 @@ def select_model(deploy_id: str):
         # Restart health monitoring
         start_health_monitoring()
         
-        print(f"[DYNAMIC_SELECTION] Successfully switched to {target_llm.model_name}")
+        print(f"[DYNAMIC_SELECTION] Successfully switched to {target_llm.model_name} (tool_calling={tool_calling_supported})")
         
         return {
             "status": "success",

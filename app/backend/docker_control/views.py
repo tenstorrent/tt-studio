@@ -403,6 +403,7 @@ class DeployView(APIView):
                         device_id=device_id,
                         status="starting",
                         port=service_port,
+                        tool_calling_enabled=bool(vllm_override_args),
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")

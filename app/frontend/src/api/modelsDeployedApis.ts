@@ -47,7 +47,7 @@ interface StopResponse {
   };
 }
 
-interface DeployedModelInfo {
+export interface DeployedModelInfo {
   id: string;
   modelName: string;
   status: string;
@@ -55,6 +55,7 @@ interface DeployedModelInfo {
   internal_url?: string;
   health_url?: string;
   max_model_len?: number | null;
+  tool_calling_enabled?: boolean;
   model_impl?: {
     model_name?: string;
     hf_model_id?: string;
@@ -445,6 +446,7 @@ export const fetchDeployedModelsInfo = async (): Promise<
         internal_url: modelData.internal_url,
         health_url: modelData.health_url,
         max_model_len: modelData.max_model_len ?? null,
+        tool_calling_enabled: modelData.tool_calling_enabled ?? false,
         model_impl: modelData.model_impl,
       })
     );

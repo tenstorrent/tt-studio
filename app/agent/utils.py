@@ -41,11 +41,20 @@ async def poll_requests(agent_executor, config, tools, memory, message):
     llm_gen_start = None
     llm_gen_time = 0.0
 
-    # Buffer to catch tool-call JSON that the model leaks as plain text
-    # (e.g. {"name": "tavily_search_results_json", "parameters": {...}})
+    # Buffer to catch tool-call JSON that the model leaks as plain text.
+    # Covers multiple formats models may emit:
+    #   {"name": "tavily_...", "parameters": {...}}
+    #   {"name": "tavily_...", "arguments": {...}}
+    #   {"tool": "tavily_...", ...}
     _json_buf = ""
     _json_buffering = False
-    _TOOL_CALL_RE = re.compile(r'"name"\s*:.*("parameters"|"arguments")\s*:', re.DOTALL)
+    _TOOL_CALL_RE = re.compile(
+        r'"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"'
+        r'|"(?:parameters|arguments)"\s*:\s*\{'
+        r'|"tool"\s*:\s*"[^"]*(?:tavily|search)[^"]*"'
+        r'|"tool_calls"\s*:',
+        re.DOTALL | re.IGNORECASE,
+    )
 
     # Buffer to catch <|python_tag|> split across SSE chunks
     _ptag_buf = ""
@@ -69,13 +78,15 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                 # Flush remaining python_tag buffer
                 if _ptag_buf:
                     cleaned = _PTAG_RE.sub('', _ptag_buf)
-                    if cleaned:
+                    if cleaned and not _TOOL_CALL_RE.search(cleaned):
                         yield cleaned
                     _ptag_buf = ""
                 # Flush or discard the JSON buffer at end of agent run
                 if _json_buffering and _json_buf:
                     if not _TOOL_CALL_RE.search(_json_buf):
                         yield _json_buf
+                    else:
+                        print(f"[AGENT] Discarded leaked tool-call JSON at end of run ({len(_json_buf)} chars)")
                     _json_buf = ""
                     _json_buffering = False
                 if thinking_opened:
@@ -135,7 +146,7 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                             _json_buf = ""
                             _json_buffering = False
                             continue
-                        if len(_json_buf) > 300:
+                        if len(_json_buf) > 600:
                             yield _json_buf
                             _json_buf = ""
                             _json_buffering = False
@@ -211,10 +222,26 @@ async def poll_requests(agent_executor, config, tools, memory, message):
                         yield "Done.\n"
 
     except Exception as e:
+        import traceback
         print(f"[ERROR] Agent execution failed: {e}")
+        traceback.print_exc()
         if thinking_opened:
             yield "</think>"
-        yield f"Sorry, I encountered an error: {str(e)}"
+        err_msg = str(e)
+        if "Could not parse LLM output" in err_msg or "OutputParserException" in err_msg:
+            yield (
+                "I wasn't able to process that request properly. "
+                "The model had trouble formatting its response. "
+                "Please try rephrasing your question."
+            )
+        elif "rate limit" in err_msg.lower() or "429" in err_msg:
+            yield "The search service is temporarily rate-limited. Please wait a moment and try again."
+        elif "timeout" in err_msg.lower() or "timed out" in err_msg.lower():
+            yield "The request timed out. Please try again with a simpler query."
+        elif "connection" in err_msg.lower() or "unreachable" in err_msg.lower():
+            yield "I'm having trouble connecting to the search service. Please try again shortly."
+        else:
+            yield f"Sorry, I encountered an error while processing your request. Please try again."
 
     elapsed = time.perf_counter() - start_time
     ttft = (first_token_time - start_time) if first_token_time else None
@@ -241,7 +268,11 @@ TOOL_CALLING_PROMPT = ChatPromptTemplate.from_messages([
      "statistics, or details not present in the search results.\n"
      "3. Do NOT search more than once unless the first results were completely "
      "irrelevant. One well-crafted search query is almost always enough.\n"
-     "4. Cite your sources naturally in the answer when possible.\n"
+     "4. Do NOT include a \"Sources\" or \"References\" section at the end of "
+     "your answer. Do NOT list URLs or links in your response. Sources are "
+     "displayed separately by the UI — your job is ONLY to write the answer "
+     "text. You may mention a source name naturally in prose (e.g. "
+     "\"according to Reuters\") but never list bare URLs.\n"
      "5. NEVER output raw tags, JSON, or tool-call syntax in your response — "
      "only produce clean, natural-language text.\n"
      "6. Provide actionable, detailed answers. For travel, include specific "

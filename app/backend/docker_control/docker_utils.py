@@ -783,6 +783,7 @@ def update_deploy_cache():
                     deployment = ModelDeployment.objects.filter(container_id=con_id).first()
 
                     if deployment:
+                        con["tool_calling_enabled"] = getattr(deployment, "tool_calling_enabled", False)
                         # Find the model implementation by model name
                         model_impl = None
                         for k, v in model_implmentations.items():
@@ -858,6 +859,7 @@ def update_deploy_cache():
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl
+        con.setdefault("tool_calling_enabled", False)
         # logger.info(f"con['networks']={con["networks"]}")  # Temporarily hidden
         # handle containers not running within the tt-studio network
         if backend_config.docker_bridge_network_name in con["networks"].keys():

@@ -616,17 +616,17 @@ export default function Component({
             </div>
             <p className={`text-xs ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
               Performance per watt
-              {bestEfficiencyRatio != null && bestEfficiencyRatio > 1 && (
+              {/* {bestEfficiencyRatio != null && bestEfficiencyRatio > 1 && (
                 <span className={`ml-1.5 font-medium ${isDarkMode ? "text-green-400" : "text-green-600"}`}>
                   &mdash; {bestEfficiencyRatio.toFixed(1)}x more efficient than GPU
                 </span>
-              )}
+              )} */}
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Comparison vs GPU Baselines ── */}
+      {/* ── Comparison vs GPU Baselines (commented out for now) ──
       {efficiencyComparisons.length > 0 && ttTps != null && (
         <div className="space-y-2 sm:space-y-3">
           <h3
@@ -635,7 +635,6 @@ export default function Component({
             vs GPU Baselines
           </h3>
 
-          {/* Speed comparison */}
           <div className="space-y-2">
             <p className={`text-xs font-medium ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
               Throughput (tok/s)
@@ -645,7 +644,6 @@ export default function Component({
               const maxTps = Math.max(...allTps);
               return (
                 <div className="space-y-1.5">
-                  {/* TT bar */}
                   <div className="flex items-center gap-2">
                     <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
                       {hw?.board_type ?? "Tenstorrent"}
@@ -660,7 +658,6 @@ export default function Component({
                       {ttTps.toFixed(1)}
                     </span>
                   </div>
-                  {/* GPU bars */}
                   {efficiencyComparisons.map((c, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
@@ -682,7 +679,6 @@ export default function Component({
             })()}
           </div>
 
-          {/* Efficiency comparison */}
           {stats.tps_per_watt != null && (
             <div className="space-y-2 mt-3">
               <p className={`text-xs font-medium ${isDarkMode ? "text-white/50" : "text-gray-500"}`}>
@@ -693,7 +689,6 @@ export default function Component({
                 const maxEff = Math.max(...allEff);
                 return (
                   <div className="space-y-1.5">
-                    {/* TT bar */}
                     <div className="flex items-center gap-2">
                       <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/70" : "text-gray-600"}`}>
                         {hw?.board_type ?? "Tenstorrent"}
@@ -708,7 +703,6 @@ export default function Component({
                         {stats.tps_per_watt!.toFixed(2)}
                       </span>
                     </div>
-                    {/* GPU bars */}
                     {efficiencyComparisons.map((c, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <span className={`text-xs w-24 truncate ${isDarkMode ? "text-white/40" : "text-gray-400"}`}>
@@ -736,6 +730,7 @@ export default function Component({
           </p>
         </div>
       )}
+      */}
 
       <div
         className={`border-t ${isDarkMode ? "border-zinc-800" : "border-gray-200"} pt-2 sm:pt-3 text-xs ${isDarkMode ? "text-white/60" : "text-gray-500"} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2`}
@@ -841,7 +836,7 @@ export default function Component({
           ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
           tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
           effDisplay != null ? { label: "Eff", value: effDisplay, unit: "t/s/W" } : null,
-          effRatioDisplay != null ? { label: null, value: effRatioDisplay, unit: " vs GPU", accent: true } : null,
+          // effRatioDisplay != null ? { label: null, value: effRatioDisplay, unit: " vs GPU", accent: true } : null,
           thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
           totalDisplay != null && tpsDisplay == null ? { label: "Total", value: totalDisplay } : null,
         ];

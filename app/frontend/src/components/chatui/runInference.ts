@@ -278,6 +278,14 @@ export const runInference = async (
       if (response.status === 422 && body.includes('"content"') && body.includes("string")) {
         throw new Error("This model does not support image inputs. Try a vision-capable model, or send text only.");
       }
+      if (isAgentSelected) {
+        if (response.status === 503 || response.status === 502) {
+          throw new Error("The Search Agent service is currently unavailable. Please try again in a moment or disable the Search Agent.");
+        }
+        if (response.status === 500) {
+          throw new Error("The Search Agent encountered an internal error. Please try again.");
+        }
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
@@ -359,7 +367,22 @@ export const runInference = async (
           try {
             jsonData = JSON.parse(data);
           } catch {
-            // Skip malformed chunks silently
+            continue;
+          }
+
+          // Handle agent service "waiting" status (LLM not yet ready)
+          if (isAgentSelected && jsonData.status === "waiting") {
+            contentText = jsonData.message || "Search Agent is initializing, please wait…";
+            accumulatedText = contentText;
+            scheduleUiUpdate();
+            continue;
+          }
+
+          // Handle agent error responses
+          if (isAgentSelected && jsonData.error) {
+            contentText = `Error: ${jsonData.error}`;
+            accumulatedText = contentText;
+            scheduleUiUpdate();
             continue;
           }
 
@@ -411,7 +434,9 @@ export const runInference = async (
 
           // Regular content tokens
           const rawContent = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
-          const content = rawContent.replace(/[\[<|]*python_tag[\]>|]*/gi, "");
+          const content = rawContent
+            .replace(/[\[<|]*python_tag[\]>|]*/gi, "")
+            .replace(/\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi, "");
           if (content) {
             if (thinkingText && !thinkingDone) {
               thinkingDone = true;
@@ -606,8 +631,25 @@ export const runInference = async (
         return updatedHistory;
       });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error running inference:", error);
+
+    const errorMessage = error?.message || "An unexpected error occurred.";
+    setChatHistory((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (last?.sender === "assistant" && !last.text) {
+        last.text = errorMessage;
+      } else {
+        updated.push({
+          id: crypto.randomUUID?.() || String(Date.now()),
+          sender: "assistant",
+          text: errorMessage,
+        });
+      }
+      return updated;
+    });
+
     setIsStreaming(false);
   }
 };

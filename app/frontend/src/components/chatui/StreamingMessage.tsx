@@ -4,7 +4,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Search, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { Globe, Search, ExternalLink, ChevronDown } from "lucide-react";
 import MarkdownComponent from "./MarkdownComponent";
 
 interface StreamingMessageProps {
@@ -67,6 +67,8 @@ const parseSearchInfo = (text: string): SearchInfo => {
   };
 };
 
+const LEAKED_TOOL_CALL_RE = /\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi;
+
 const processContent = (content: string): ProcessedContent => {
   const thinkingBlocks: string[] = [];
 
@@ -83,15 +85,17 @@ const processContent = (content: string): ProcessedContent => {
     .replace(/<\|.*?\|>(&gt;)?/g, "")
     .replace(/\b(assistant|user)\b/gi, "")
     .replace(/\|(?:eot_id|start_header_id)\|/g, "")
-    .replace(/^think\s+.*?\/think\s*/gims, "")  // Remove completed thinking blocks
-    .replace(/^think\s+.*$/ims, "")  // Remove incomplete thinking blocks during streaming
-    .replace(/^\s*think\b.*$/ims, "")  // Extra pass to catch any remaining "think" at start
-    .replace(/^\/think\s*/gim, "")  // Remove any stray /think tokens
-    .replace(/<think>.*?<\/think>/gis, "") // Remove completed thinking blocks
-    .replace(/<think>.*$/is, "") // Remove incomplete thinking blocks during streaming
-    .replace(/<\/think>/gi, "") // Remove any stray closing tags
-    .replace(/[<>]/g, "") // Remove any remaining angle brackets
+    .replace(/^think\s+.*?\/think\s*/gims, "")
+    .replace(/^think\s+.*$/ims, "")
+    .replace(/^\s*think\b.*$/ims, "")
+    .replace(/^\/think\s*/gim, "")
+    .replace(/<think>.*?<\/think>/gis, "")
+    .replace(/<think>.*$/is, "")
+    .replace(/<\/think>/gi, "")
+    .replace(/[<>]/g, "")
     .replace(/&(lt|gt);/g, "")
+    .replace(LEAKED_TOOL_CALL_RE, "")
+    .replace(/Source:\s*\[[^\]]*\]\([^)]+\)\s*/g, "")
     .trim();
 
   return { cleanedContent, thinkingBlocks };
@@ -107,6 +111,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
   }) {
     const [renderedContent, setRenderedContent] = useState("");
     const [showThinking, setShowThinking] = useState(Boolean(externalShowThinking));
+    const [showSearchDetails, setShowSearchDetails] = useState(false);
     const [isThinkingActive, setIsThinkingActive] = useState(false);
     const contentRef = useRef(processContent(content).cleanedContent);
     const thinkingBlocksRef = useRef<string[]>([]);
@@ -313,19 +318,18 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                     {isSearchMode && completedSearchInfo ? (
                       <div>
                         <button
-                          onClick={() => setShowThinking(!showThinking)}
-                          className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors"
+                          onClick={() => setShowSearchDetails(!showSearchDetails)}
+                          className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 transition-colors group"
                         >
                           <Globe size={14} className="text-blue-400/70" />
                           <span>Searched the web</span>
-                          {showThinking ? (
-                            <ChevronDown size={14} className="text-gray-500" />
-                          ) : (
-                            <ChevronRight size={14} className="text-gray-500" />
-                          )}
+                          <ChevronDown
+                            size={14}
+                            className={`text-gray-500 transition-transform duration-200 ${showSearchDetails ? "rotate-180" : ""}`}
+                          />
                         </button>
                         <AnimatePresence>
-                          {showThinking && (
+                          {showSearchDetails && (
                             <motion.div
                               initial={{ opacity: 0, height: 0 }}
                               animate={{ opacity: 1, height: "auto" }}
@@ -333,15 +337,25 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                               transition={{ duration: 0.2 }}
                               className="mt-2 overflow-hidden"
                             >
-                              <div className="rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2">
-                                {completedSearchInfo.queries.map((q, i) => (
-                                  <div key={i} className="flex items-center gap-2 py-1 text-sm text-gray-300">
-                                    <Search size={12} className="flex-shrink-0 text-gray-500" />
-                                    <span>{q}</span>
+                              <div className="rounded-lg bg-gray-800/50 border border-gray-700 overflow-hidden">
+                                {completedSearchInfo.queries.length > 0 && (
+                                  <div className="px-3 py-2">
+                                    <div className="text-xs text-gray-500 font-medium mb-1.5">
+                                      {completedSearchInfo.queries.length} {completedSearchInfo.queries.length === 1 ? "search" : "searches"}
+                                    </div>
+                                    {completedSearchInfo.queries.map((q, i) => (
+                                      <div key={i} className="flex items-center gap-2 py-1 text-sm text-gray-300">
+                                        <Search size={12} className="flex-shrink-0 text-gray-500" />
+                                        <span>{q}</span>
+                                      </div>
+                                    ))}
                                   </div>
-                                ))}
+                                )}
                                 {completedSearchInfo.sources.length > 0 && (
-                                  <div className="mt-1.5 pt-1.5 border-t border-gray-700/50">
+                                  <div className={`px-3 py-2 ${completedSearchInfo.queries.length > 0 ? "border-t border-gray-700/50" : ""}`}>
+                                    <div className="text-xs text-gray-500 font-medium mb-1.5">
+                                      {completedSearchInfo.sources.length} {completedSearchInfo.sources.length === 1 ? "source" : "sources"}
+                                    </div>
                                     {completedSearchInfo.sources.map((s, i) => (
                                       <a
                                         key={i}
