@@ -680,7 +680,7 @@ export default function InputArea({
               </div>
 
               {/* Web search active pill */}
-              {isAgentSelected && (
+              {isAgentSelected && isAgentAvailable && (
                 <button
                   type="button"
                   onClick={() => setIsAgentSelected?.(!isAgentSelected)}

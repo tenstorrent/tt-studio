@@ -162,8 +162,11 @@ export default function ChatComponent() {
           const match = deployedModels.find((m) => m.id === modelID);
           modelHasToolCalling = match?.tool_calling_enabled === true;
         } catch {
-          // If deployed info fails, rely on agent status alone
+          // If deployed info fails, model flag stays false
         }
+      } else {
+        // No model selected — tool calling unavailable
+        modelHasToolCalling = false;
       }
 
       // 2. Check agent service status (supplementary)
@@ -180,7 +183,7 @@ export default function ChatComponent() {
 
       if (cancelled) return;
 
-      const available = modelHasToolCalling || agentHasWebSearch;
+      const available = modelHasToolCalling;
       setIsAgentAvailable(available);
       if (!available) {
         setIsAgentSelected(false);
