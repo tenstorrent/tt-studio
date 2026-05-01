@@ -5,7 +5,7 @@
 try:
     # Try relative imports first (when used as a package)
     from .custom_llm import CustomLLM
-    from .utils import poll_requests, setup_executer
+    from .utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from .code_tool import CodeInterpreterFunctionTool
     from .llm_discovery import LLMDiscoveryService, LLMInfo
     from .health_monitor import LLMHealthMonitor, HealthStatus
@@ -13,7 +13,7 @@ try:
 except ImportError:
     # Fall back to absolute imports (when run directly)
     from custom_llm import CustomLLM
-    from utils import poll_requests, setup_executer
+    from utils import poll_requests, setup_executer, DeduplicatedSearchTool
     from code_tool import CodeInterpreterFunctionTool
     from llm_discovery import LLMDiscoveryService, LLMInfo
     from health_monitor import LLMHealthMonitor, HealthStatus
@@ -275,7 +275,8 @@ def on_llm_change(new_llm: CustomLLM):
     
     # Recreate agent executor with new LLM
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
+    raw_search = TavilySearchResults(max_results=3, include_answer=True, include_raw_content=False)
+    tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
     agent_executer = setup_executer(new_llm, memory, tools)
     print(f"Agent executor updated with new LLM (tool_calling={tool_calling_supported})")
 
@@ -362,18 +363,13 @@ def initialize_agent_components():
         # Initialize tools
         tools = []
         
-        # Add search tool
-        search = TavilySearchResults(
+        # Add search tool (wrapped with deduplication + result trimming)
+        raw_search = TavilySearchResults(
             max_results=3,
             include_answer=True,
             include_raw_content=False,
-            description=(
-                "Search the web for up-to-date information. Use this for ANY "
-                "question about facts, travel, recommendations, prices, events, "
-                "news, people, places, or anything that benefits from current data. "
-                "Input should be a focused search query."
-            ),
         )
+        search = DeduplicatedSearchTool(inner_tool=raw_search)
         tools.append(search)
         
         # Add code interpreter tool if E2B_API_KEY is available
@@ -667,7 +663,8 @@ def refresh_llm():
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
+        raw_search = TavilySearchResults(max_results=3, include_answer=True, include_raw_content=False)
+        tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring
@@ -749,7 +746,8 @@ def select_model(deploy_id: str):
         
         # Recreate agent executor with new LLM
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        tools = [TavilySearchResults(max_results=2, include_answer=True, include_raw_content=False)]
+        raw_search = TavilySearchResults(max_results=3, include_answer=True, include_raw_content=False)
+        tools = [DeduplicatedSearchTool(inner_tool=raw_search)]
         agent_executer = setup_executer(current_llm, memory, tools)
         
         # Restart health monitoring

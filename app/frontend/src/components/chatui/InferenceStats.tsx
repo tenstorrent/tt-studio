@@ -831,7 +831,7 @@ export default function Component({
       : [
           ttftDisplay != null ? { label: "TTFT", value: `${ttftDisplay}ms`, accent: true } : null,
           tpsDisplay != null ? { label: "TPS", value: tpsDisplay, unit: "t/s" } : null,
-          effDisplay != null ? { label: "Eff", value: effDisplay, unit: "t/s/W" } : null,
+          // effDisplay != null ? { label: "Eff", value: effDisplay, unit: "t/s/W" } : null,
           // effRatioDisplay != null ? { label: null, value: effRatioDisplay, unit: " vs GPU", accent: true } : null,
           thinkingDisplay != null ? { label: "Search", value: thinkingDisplay } : null,
           totalDisplay != null && tpsDisplay == null ? { label: "Total", value: totalDisplay } : null,

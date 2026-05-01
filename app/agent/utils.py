@@ -4,6 +4,97 @@
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import BaseTool
+from typing import Optional, Type, Any
+from pydantic import BaseModel, Field
+import json
+
+
+# Maximum characters per search result content before trimming.
+# Keeps context manageable for smaller models (8B).
+MAX_RESULT_CONTENT_CHARS = 800
+
+
+class _DeduplicatedSearchInput(BaseModel):
+    query: str = Field(description="search query to look up")
+
+
+class DeduplicatedSearchTool(BaseTool):
+    """Wraps a search tool with per-request deduplication and result trimming.
+
+    - If the same query (case-insensitive) is submitted twice in one request,
+      returns a short message telling the LLM to answer with what it already has.
+    - Trims each result's content to MAX_RESULT_CONTENT_CHARS so small models
+      don't get overwhelmed by huge context.
+    """
+
+    name: str = "tavily_search_results_json"
+    description: str = (
+        "Search the web for up-to-date information. Use this for ANY "
+        "question about facts, travel, recommendations, prices, events, "
+        "news, people, places, or anything that benefits from current data. "
+        "Input should be a focused search query."
+    )
+    args_schema: Type[BaseModel] = _DeduplicatedSearchInput
+    _inner_tool: Any = None
+    _seen_queries: set = set()
+
+    class Config:
+        arbitrary_types_allowed = True
+        underscore_attrs_are_private = True
+
+    def __init__(self, inner_tool: BaseTool, **kwargs):
+        super().__init__(**kwargs)
+        self._inner_tool = inner_tool
+        self._seen_queries = set()
+
+    def reset(self):
+        """Clear seen queries. Call at the start of each user request."""
+        self._seen_queries = set()
+
+    def _trim_results(self, raw_output: str) -> str:
+        """Truncate individual result content fields to keep context small."""
+        try:
+            results = json.loads(raw_output) if isinstance(raw_output, str) else raw_output
+            if isinstance(results, list):
+                for item in results:
+                    if isinstance(item, dict) and "content" in item:
+                        content = item["content"]
+                        if len(content) > MAX_RESULT_CONTENT_CHARS:
+                            item["content"] = content[:MAX_RESULT_CONTENT_CHARS] + "…"
+                return json.dumps(results)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        if isinstance(raw_output, str) and len(raw_output) > MAX_RESULT_CONTENT_CHARS * 3:
+            return raw_output[: MAX_RESULT_CONTENT_CHARS * 3] + "…"
+        return raw_output if isinstance(raw_output, str) else str(raw_output)
+
+    def _run(self, query: str, **kwargs) -> str:
+        key = query.strip().lower()
+        if key in self._seen_queries:
+            print(f"[DEDUP] Duplicate search blocked: {query!r}")
+            return (
+                "You already searched for this exact query and received results. "
+                "Do NOT search again. Use the search results you already have to "
+                "write your final answer to the user now."
+            )
+        self._seen_queries.add(key)
+        raw = self._inner_tool.run(query, **kwargs)
+        return self._trim_results(raw)
+
+    async def _arun(self, query: str, **kwargs) -> str:
+        key = query.strip().lower()
+        if key in self._seen_queries:
+            print(f"[DEDUP] Duplicate search blocked: {query!r}")
+            return (
+                "You already searched for this exact query and received results. "
+                "Do NOT search again. Use the search results you already have to "
+                "write your final answer to the user now."
+            )
+        self._seen_queries.add(key)
+        raw = await self._inner_tool.arun(query, **kwargs)
+        return self._trim_results(raw)
+
 
 async def poll_requests(agent_executor, config, tools, memory, message):
     """
@@ -29,6 +120,11 @@ async def poll_requests(agent_executor, config, tools, memory, message):
         re.IGNORECASE,
     )
     _PTAG_MAX_LEN = 16  # len("<|python_tag|>")
+
+    # Reset deduplication state for all wrapped search tools
+    for tool in tools:
+        if isinstance(tool, DeduplicatedSearchTool):
+            tool.reset()
 
     chat_history = memory.buffer_as_messages
     thinking_opened = False
@@ -288,7 +384,7 @@ def setup_executer(llm, memory, tools):
     agent_executor = AgentExecutor(
         agent=agent,
         tools=tools,
-        max_iterations=10,
+        max_iterations=5,
         memory=memory,
         return_intermediate_steps=True,
         handle_parsing_errors=True,
