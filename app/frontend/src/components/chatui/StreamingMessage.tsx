@@ -4,7 +4,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Globe, Search, ExternalLink, ChevronDown } from "lucide-react";
+import { Globe, Search, ChevronDown } from "lucide-react";
 import MarkdownComponent from "./MarkdownComponent";
 
 interface StreamingMessageProps {
@@ -265,22 +265,6 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                               <span>{q}</span>
                             </div>
                           ))}
-                          {liveSearchInfo.sources.length > 0 && (
-                            <div className="mt-1.5 pt-1.5 border-t border-gray-700/50">
-                              {liveSearchInfo.sources.map((s, i) => (
-                                <a
-                                  key={i}
-                                  href={s.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-2 py-1 text-sm text-blue-400 hover:text-blue-300 transition-colors truncate"
-                                >
-                                  <ExternalLink size={12} className="flex-shrink-0" />
-                                  <span className="truncate">{s.title}</span>
-                                </a>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       </>
                     ) : (
@@ -348,25 +332,6 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                                         <Search size={12} className="flex-shrink-0 text-gray-500" />
                                         <span>{q}</span>
                                       </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {completedSearchInfo.sources.length > 0 && (
-                                  <div className={`px-3 py-2 ${completedSearchInfo.queries.length > 0 ? "border-t border-gray-700/50" : ""}`}>
-                                    <div className="text-xs text-gray-500 font-medium mb-1.5">
-                                      {completedSearchInfo.sources.length} {completedSearchInfo.sources.length === 1 ? "source" : "sources"}
-                                    </div>
-                                    {completedSearchInfo.sources.map((s, i) => (
-                                      <a
-                                        key={i}
-                                        href={s.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-2 py-1 text-sm text-blue-400 hover:text-blue-300 transition-colors truncate"
-                                      >
-                                        <ExternalLink size={12} className="flex-shrink-0" />
-                                        <span className="truncate">{s.title}</span>
-                                      </a>
                                     ))}
                                   </div>
                                 )}
