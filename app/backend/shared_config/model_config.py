@@ -355,22 +355,6 @@ _hardcoded_impls = [
         model_type=ModelTypes.IMAGE_GENERATION,
         display_model_type="IMAGE",
     ),
-    # Face Recognition - YuNet (detection) + SFace (recognition) on Tenstorrent
-    ModelImpl(
-        model_name="Face-Recognition",
-        model_id="id_face_recognition_v0.0.1",
-        image_name="ghcr.io/tenstorrent/tt-inference-server/face-recognition-docker-ttstudio",
-        image_tag="latest",
-        device_configurations=_ALL_BOARDS,
-        docker_config=base_docker_config(),
-        shm_size="32G",
-        service_port=7070,
-        service_route="/recognize-face",
-        health_route="/health",
-        setup_type=SetupTypes.NO_SETUP,
-        model_type=ModelTypes.FACE_RECOGNITION,
-        display_model_type="CNN",
-    ),
 ]
 
 

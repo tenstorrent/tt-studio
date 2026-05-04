@@ -23,7 +23,7 @@ interface ChipStatus {
 }
 
 interface ChipConfigStepProps {
-  onConfirm: (mode: "single" | "multi", slotId: number) => void;
+  onConfirm: (mode: "single" | "multi", slotIds: number[]) => void;
 }
 
 // Board-specific labels and example models for the chip config cards.
@@ -59,7 +59,7 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
   const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
     null
   );
-  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [selectedSlots, setSelectedSlots] = useState<number[]>([]);
   const [chipStatus, setChipStatus] = useState<ChipStatus | null>(null);
 
   // Fetch chip status on mount and poll every 7 minutes
@@ -83,7 +83,13 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
 
   const handleModeSelect = (mode: "single" | "multi") => {
     setSelectedMode(mode);
-    setSelectedSlot(null); // reset slot when mode changes
+    setSelectedSlots([]); // reset slots when mode changes
+  };
+
+  const toggleSlot = (slotId: number) => {
+    setSelectedSlots((prev) =>
+      prev.includes(slotId) ? prev.filter((s) => s !== slotId) : [...prev, slotId]
+    );
   };
 
   const needsSlotPicker =
@@ -92,14 +98,13 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
     chipStatus.total_slots > 1;
 
   const isConfirmDisabled =
-    !selectedMode || (needsSlotPicker && selectedSlot === null);
+    !selectedMode || (needsSlotPicker && selectedSlots.length === 0);
 
   const handleConfirm = () => {
     if (isConfirmDisabled || !selectedMode) return;
-    // Multi-chip always uses device_id 0; single uses the chosen slot
-    const slotId =
-      selectedMode === "multi" ? 0 : (selectedSlot ?? 0);
-    onConfirm(selectedMode, slotId);
+    // Multi-chip always uses device_id [0]; single uses the chosen slots
+    const slotIds = selectedMode === "multi" ? [0] : selectedSlots;
+    onConfirm(selectedMode, slotIds);
     nextStep();
   };
 
@@ -222,19 +227,23 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
       {/* Slot picker — only shown when "1 Chip" is selected on a multi-slot board */}
       {needsSlotPicker && chipStatus && (
         <div>
-          <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-3">
-            Select Device
+          <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
+            Select Device(s)
           </h3>
+          <p className="text-xs text-gray-500 font-mono mb-3">
+            Select one or more chips — they will be passed as{" "}
+            <code className="bg-gray-800 px-1 rounded">--device-id {selectedSlots.length > 0 ? selectedSlots.slice().sort((a,b)=>a-b).join(",") : "…"}</code>
+          </p>
           <div className="flex flex-row justify-center gap-3 flex-wrap">
             {chipStatus.slots.map((slot) => {
               const isAvailable = slot.status === "available";
-              const isSelected = selectedSlot === slot.slot_id;
+              const isSelected = selectedSlots.includes(slot.slot_id);
               return (
                 <button
                   key={slot.slot_id}
                   type="button"
                   disabled={!isAvailable}
-                  onClick={() => setSelectedSlot(slot.slot_id)}
+                  onClick={() => toggleSlot(slot.slot_id)}
                   className={`
                     flex flex-col items-center px-5 py-4 rounded-lg border-2 transition-all duration-200 min-w-[90px]
                     ${
@@ -270,12 +279,15 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
               );
             })}
           </div>
-          {selectedSlot !== null && (
+          {selectedSlots.length > 0 && (
             <p className="mt-2 text-xs font-mono text-TT-purple-accent">
-              ✓ Device {selectedSlot} selected — model will run on{" "}
-              <code className="bg-gray-800 px-1 rounded">
-                /dev/tenstorrent/{selectedSlot}
-              </code>
+              ✓ {selectedSlots.length > 1 ? `Devices ${selectedSlots.slice().sort((a,b)=>a-b).join(", ")} selected` : `Device ${selectedSlots[0]} selected`}
+              {" — "}
+              {selectedSlots.slice().sort((a,b)=>a-b).map((s) => (
+                <code key={s} className="bg-gray-800 px-1 rounded mr-1">
+                  /dev/tenstorrent/{s}
+                </code>
+              ))}
             </p>
           )}
         </div>

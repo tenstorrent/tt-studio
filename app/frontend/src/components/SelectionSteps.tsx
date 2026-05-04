@@ -50,6 +50,20 @@ export default function StepperDemo() {
   const isQB2 = chipStatus !== null && QB2_BOARD_TYPES.has(chipStatus.board_type);
   const [showHardwareConfig, setShowHardwareConfig] = useState(false);
 
+  // On QB2, auto-enable hardware config when a single-chip model is already deployed
+  // and there is still at least one free slot — lets the user pick which card to use
+  // without needing to find the small toggle.
+  useEffect(() => {
+    if (!isQB2 || !chipStatus) return;
+    const hasOccupiedSingleChip = chipStatus.slots.some(
+      (s) => s.status === "occupied" && !s.is_multi_chip
+    );
+    const hasAvailable = chipStatus.slots.some((s) => s.status === "available");
+    if (hasOccupiedSingleChip && hasAvailable) {
+      setShowHardwareConfig(true);
+    }
+  }, [isQB2, chipStatus]);
+
   // Fetch chip status on mount and poll every 7 minutes
   useEffect(() => {
     const fetchChipStatus = () => {
@@ -73,17 +87,6 @@ export default function StepperDemo() {
   // or when the user explicitly enables it via the toggle on QB2.
   const useHardwareConfigStep = isMultiChipBoard && (!isQB2 || showHardwareConfig);
 
-  const steps = useHardwareConfigStep
-    ? [
-        { label: "Step 1", description: "Hardware Configuration" },
-        { label: "Step 2", description: "Model Selection" },
-        { label: "Final Step", description: "Deploy Model" },
-      ]
-    : [
-        { label: "Step 1", description: "Model Selection" },
-        { label: "Final Step", description: "Deploy Model" },
-      ];
-
   // No-op function for removing dynamic steps (no dynamic steps in this component)
   const removeDynamicSteps = () => {
     // This component uses static steps, so no action needed
@@ -104,10 +107,32 @@ export default function StepperDemo() {
 
   const [chipMode, setChipMode] = useState<"single" | "multi" | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<number>(0);
+  const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<number[]>([]);
+  const [useImageOverride, setUseImageOverride] = useState(true);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
   const [isAutoDeploying, setIsAutoDeploying] = useState(false);
+
+  // Once the user confirms hardware config, show a summary on the completed Step 1 node.
+  const hardwareConfigSummary = chipMode
+    ? chipMode === "multi"
+      ? "All chips"
+      : selectedDeviceIds.length > 0
+        ? `Single · Device${selectedDeviceIds.length > 1 ? "s" : ""} ${selectedDeviceIds.slice().sort((a, b) => a - b).join(", ")}`
+        : "Single chip"
+    : "Hardware Configuration";
+
+  const steps = useHardwareConfigStep
+    ? [
+        { label: "Step 1", description: hardwareConfigSummary },
+        { label: "Step 2", description: "Model Selection" },
+        { label: "Final Step", description: "Deploy Model" },
+      ]
+    : [
+        { label: "Step 1", description: "Model Selection" },
+        { label: "Final Step", description: "Deploy Model" },
+      ];
 
   // Log when selectedModel changes
   useEffect(() => {
@@ -184,7 +209,7 @@ export default function StepperDemo() {
   }, [autoDeployModel]);
 
   const handleDeploy = async (options?: {
-    device_id?: number;
+    device_id?: number | string;
     host_port?: number | null;
   }): Promise<{
     success: boolean;
@@ -211,6 +236,7 @@ export default function StepperDemo() {
       model_id,
       weights_id,
       host_port: options?.host_port ?? null,
+      use_image_override: useImageOverride,
     };
     if (options?.device_id !== undefined) {
       payloadObj.device_id = options.device_id;
@@ -385,10 +411,38 @@ export default function StepperDemo() {
         hover
         className="h-auto py-4 px-8 md:px-12 lg:px-16"
       >
-        {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
-        {isQB2 && (
+        {/* QB2 image override toggle — only shown on P300Cx2 for whisper/speecht5 */}
+        {isQB2 && (selectedModelName === "whisper-large-v3" || selectedModelName === "speecht5_tts") && (
           <div className="flex items-center justify-end gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
             <span className="text-xs font-mono text-gray-500 select-none">
+              Use override image
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={useImageOverride}
+              onClick={() => setUseImageOverride((v) => !v)}
+              className={`
+                relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent
+                transition-colors duration-200 focus:outline-none
+                ${useImageOverride ? "bg-TT-purple-accent" : "bg-gray-700"}
+              `}
+            >
+              <span
+                className={`
+                  pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform
+                  transition-transform duration-200
+                  ${useImageOverride ? "translate-x-4" : "translate-x-0"}
+                `}
+              />
+            </button>
+          </div>
+        )}
+
+        {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
+        {isQB2 && (
+          <div className="flex items-center justify-between gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
+            <span className="text-sm font-mono text-gray-300 select-none">
               Advanced: Configure Hardware
             </span>
             <button
@@ -439,9 +493,9 @@ export default function StepperDemo() {
               {/* Hardware config step — only in full multi-chip flow */}
               {useHardwareConfigStep && step.label === "Step 1" && (
                 <ChipConfigStep
-                  onConfirm={(mode, slotId) => {
+                  onConfirm={(mode, slotIds) => {
                     setChipMode(mode);
-                    setSelectedDeviceId(slotId);
+                    setSelectedDeviceIds(slotIds);
                   }}
                 />
               )}
@@ -452,7 +506,7 @@ export default function StepperDemo() {
                     console.log("🔄 setSelectedModel called with:", modelId);
                     setSelectedModel(modelId);
                   }}
-                  setSelectedDeviceId={setSelectedDeviceId}
+                  onModelNameChange={setSelectedModelName}
                   setFormError={setFormError}
                   autoDeployModel={autoDeployModel}
                   isAutoDeploying={isAutoDeploying}
@@ -466,18 +520,18 @@ export default function StepperDemo() {
                     console.log("🔄 setSelectedModel called with:", modelId);
                     setSelectedModel(modelId);
                   }}
-                  setSelectedDeviceId={setSelectedDeviceId}
+                  onModelNameChange={setSelectedModelName}
                   setFormError={setFormError}
                   autoDeployModel={autoDeployModel}
                   isAutoDeploying={isAutoDeploying}
                 />
               )}
-              {/* Deploy step — pass selectedDeviceId only when hardware config was shown */}
+              {/* Deploy step — pass selectedDeviceIds only when hardware config was shown */}
               {step.label === "Final Step" && (
                 <DeployModelStep
                   selectedModel={selectedModel}
                   handleDeploy={handleDeploy}
-                  selectedDeviceId={useHardwareConfigStep ? selectedDeviceId : undefined}
+                  selectedDeviceIds={useHardwareConfigStep ? selectedDeviceIds : undefined}
                 />
               )}
             </Step>

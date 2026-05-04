@@ -82,17 +82,17 @@ const FirstFormSchema = z.object({
 export function FirstStepForm({
   setSelectedModel,
   setFormError,
-  setSelectedDeviceId: _setSelectedDeviceId,
   autoDeployModel,
   isAutoDeploying,
   chipMode,
+  onModelNameChange,
 }: {
   setSelectedModel: (model: string) => void;
   setFormError: (hasError: boolean) => void;
-  setSelectedDeviceId?: (deviceId: number) => void;
   autoDeployModel?: string | null;
   isAutoDeploying?: boolean;
   chipMode?: "single" | "multi";
+  onModelNameChange?: (name: string) => void;
 }) {
   const { nextStep } = useStepper();
   const {
@@ -180,6 +180,7 @@ export function FirstStepForm({
           selectedModel.id,
         );
         setSelectedModel(selectedModel.id);
+        onModelNameChange?.(selectedModel.name);
         console.log(
           "📝 FirstStepForm: selectedModel set, waiting for status check..."
         );
@@ -256,6 +257,10 @@ export function FirstStepForm({
     EXPERIMENTAL: 1,
   };
 
+  // Audio/TTS models only make sense as single-chip deployments; hide them unless
+  // the user has explicitly chosen single-chip mode via the hardware config step.
+  const SINGLE_CHIP_ONLY_TYPES = new Set(["AUDIO", "TEXT_TO_SPEECH"]);
+
   // Filter models by chip mode, and exclude incompatible models entirely
   const filteredModels = (chipMode
     ? models.filter((m) =>
@@ -264,7 +269,9 @@ export function FirstStepForm({
         : (m.chips_required ?? 1) > 1
     )
     : models
-  ).filter((m) => m.is_compatible !== false);
+  )
+    .filter((m) => m.is_compatible !== false)
+    .filter((m) => chipMode === "single" || !SINGLE_CHIP_ONLY_TYPES.has(m.display_model_type ?? ""));
 
   // Group models by display type, then by status, then by hardware compatibility
   type CompatibilityGroup = { compatible: Model[]; unknown: Model[] };

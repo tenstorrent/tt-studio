@@ -349,6 +349,54 @@ class ChipSlotAllocator:
 
         return reconciled_deployments
 
+    _STARTING_GRACE_SECONDS = 60
+
+    def _reconcile_deployment_record(
+        self,
+        deployment: ModelDeployment,
+        live_containers: Dict[str, Dict],
+        live_containers_by_name: Dict[str, tuple],
+    ) -> Optional[ModelDeployment]:
+        """
+        Reconcile a single deployment record against live Docker state.
+
+        Returns the deployment if still active, or None if it should be
+        considered stopped (marking the DB record accordingly).
+        """
+        from datetime import datetime as _dt
+
+        # Trust recently-created "starting" records — the container may not
+        # yet be visible in Docker and the sync thread will handle transition.
+        if deployment.status == "starting":
+            now_utc = _dt.now(timezone.utc)
+            age = (now_utc - deployment.deployed_at).total_seconds() if deployment.deployed_at else 0
+            if age < self._STARTING_GRACE_SECONDS:
+                return deployment
+
+        # Check by container_id (full or short form)
+        short_id = (deployment.container_id or "")[:12]
+        full_id = deployment.container_id or ""
+        if full_id in live_containers or short_id in live_containers:
+            return deployment
+
+        # Check by container_name
+        if deployment.container_name and deployment.container_name in live_containers_by_name:
+            return deployment
+
+        # Container is gone — free the slot immediately.
+        try:
+            deployment.status = "stopped"
+            deployment.save()
+            logger.info(
+                f"Auto-marked stale deployment {deployment.container_id} "
+                f"({deployment.model_name}) as stopped: container not found in Docker"
+            )
+        except Exception as upd_err:
+            logger.warning(
+                f"Could not update stale deployment status for {deployment.model_name}: {upd_err}"
+            )
+        return None
+
     def _get_live_container_status(self) -> Dict[str, Dict]:
         """Return a snapshot of currently running managed containers."""
         from docker_control.docker_utils import get_container_status
@@ -433,16 +481,10 @@ class ChipSlotAllocator:
         """
         Get number of chips required for a model.
 
-        On P300Cx2 (QB2), every deployment uses --device p300x2 which occupies
-        the entire board, so always return the total slot count regardless of
-        the model's own chip requirement.
-
         Args:
             model_name: Name of the model
 
         Returns:
             Number of chips required (1 or 4)
         """
-        if self.board_type == "P300Cx2":
-            return self.total_slots  # QB2: p300x2 always uses the whole board
         return get_model_chip_requirement(model_name)
