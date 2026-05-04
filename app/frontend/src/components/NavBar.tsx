@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   type LucideIcon,
   History,
+  PackagePlus,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -472,6 +473,13 @@ export default function NavBar() {
       icon: Boxes,
       label: "Models Deployed",
       tooltip: "Manage deployed models",
+    },
+    {
+      type: "link",
+      to: "/register-model",
+      icon: PackagePlus,
+      label: "Register Model",
+      tooltip: "Register an externally running model container",
     },
     {
       type: "link",

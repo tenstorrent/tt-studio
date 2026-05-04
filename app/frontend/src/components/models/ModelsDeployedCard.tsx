@@ -378,7 +378,15 @@ export default function ModelsDeployedCard(): JSX.Element {
   }
 
   if (rows.length === 0) {
-    return <NoModelsRunning userStopped={userStoppedModel} />;
+    return (
+      <div className="w-full flex justify-center px-4 py-6">
+        <div className="w-full max-w-2xl">
+          <ElevatedCard accent="neutral" depth="lg" className="py-6 px-6">
+            <NoModelsRunning userStopped={userStoppedModel} />
+          </ElevatedCard>
+        </div>
+      </div>
+    );
   }
 
   return (
