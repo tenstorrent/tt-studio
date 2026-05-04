@@ -103,8 +103,8 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Blackhole boards → constituent single-chip device
     "P150X4":  "p150",
     "P150X8":  "p150",
-    "P300Cx2": "p300x2",  # QB2: inference server always wants p300x2; device_id selects the chip
-    "P300Cx4": "p300c",
+    "P300Cx2": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
+    "P300Cx4": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
     # Galaxy (N300-based)
     "GALAXY":     "n300",
     "GALAXY_T3K": "n300",
@@ -279,7 +279,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None):
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -330,15 +330,15 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
             "docker_server": True,
         }
 
-        # Use slot-based port allocation for all models (single and multi-chip)
-        # This allows multiple models to run simultaneously on different chip slots
-        # Port mapping: slot 0 -> 7000, slot 1 -> 7001, slot 2 -> 7002, slot 3 -> 7003
-        payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
-        service_port = BASE_SERVICE_PORT + device_id
+        # Use slot-based port allocation for all models (single and multi-chip).
+        # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
+        # single-card deployments; use the first slot for the service port.
+        primary_device_id = int(str(device_id).split(",")[0].strip())
+        payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
+        service_port = BASE_SERVICE_PORT + primary_device_id
 
-        # Pin to specific chip slot (both single and multi-chip models)
-        # Single-chip models need this to pin to a specific slot on multi-chip boards (e.g., slot 0 on T3K)
-        # Multi-chip models need this to specify which configuration to use
+        # Pin to specific chip slot(s). For multi-chip single-card mode this is a
+        # comma-separated string that the inference server passes as --device-id 0,1.
         payload["device_id"] = str(device_id)
 
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
@@ -353,6 +353,10 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
         # TTS and Speech Recognition models require dev_mode for proper operation
         if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
             payload["dev_mode"] = True
+
+        # whisper-large-v3 and speecht5_tts require a specific inference server image on QB2 (P300Cx2)
+        if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300Cx2":
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
         logger.info(f"API payload: {payload}")
 
@@ -430,7 +434,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
                         container_name=container_name,
                         model_name=impl.model_name,
                         device=device,
-                        device_id=device_id,
+                        device_id=primary_device_id,  # store primary slot as int
                         status="running",
                         stopped_by_user=False,
                         port=service_port,
@@ -541,7 +545,9 @@ def get_devices_mounts(impl, device_id=0):
     device_config = get_runtime_device_configuration(impl.device_configurations)
     assert isinstance(device_config, DeviceConfigurations)
 
-    # Single-chip device configurations: pin to the requested chip slot
+    # Single-chip device configurations: pin to the requested chip slot(s).
+    # device_id may be an int, a comma-separated string ("0,1"), or a list of ints
+    # for multi-chip single-card deployments (--device-id 0,1).
     single_chip_configs = {
         DeviceConfigurations.E150,
         DeviceConfigurations.N150,
@@ -557,7 +563,14 @@ def get_devices_mounts(impl, device_id=0):
     all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
 
     if device_config in single_chip_configs:
-        return [f"/dev/tenstorrent/{device_id}:/dev/tenstorrent/{device_id}"]
+        # Normalise device_id to a list of ints
+        if isinstance(device_id, str) and "," in device_id:
+            ids = [int(x.strip()) for x in device_id.split(",")]
+        elif isinstance(device_id, (list, tuple)):
+            ids = [int(x) for x in device_id]
+        else:
+            ids = [int(device_id)]
+        return [f"/dev/tenstorrent/{d}:/dev/tenstorrent/{d}" for d in ids]
 
     # Multi-chip (T3K, Galaxy, N300x4, P150X4, P150X8, etc.)
     multi_chip_configs = {

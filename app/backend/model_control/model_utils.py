@@ -156,7 +156,11 @@ def health_check(url, json_data, timeout=5):
 
     if response.status_code == 200:
         logger.info(f"Health check passed: {response.status_code}")
-        return True, response.json() if response.content else {}
+        try:
+            content = response.json() if response.content else {}
+        except Exception:
+            content = {}
+        return True, content
 
     # 503 with "not ready" means model is still loading (media-server models)
     if response.status_code == 503:

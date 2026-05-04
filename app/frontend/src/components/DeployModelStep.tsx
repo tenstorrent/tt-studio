@@ -16,14 +16,14 @@ import axios from "axios";
 export function DeployModelStep({
   handleDeploy,
   selectedModel,
-  selectedDeviceId,
+  selectedDeviceIds,
 }: {
   selectedModel: string | null;
   handleDeploy: (options?: {
-    device_id?: number;
+    device_id?: number | string;
     host_port?: number | null;
   }) => Promise<{ success: boolean; job_id?: string }>;
-  selectedDeviceId?: number;
+  selectedDeviceIds?: number[];
 }) {
   const { nextStep, isLastStep } = useStepper();
   const { refreshModels } = useModels();
@@ -232,9 +232,10 @@ export function DeployModelStep({
     });
     setShouldPoll(true);
 
-    const deployOptions: { device_id?: number; host_port?: number | null } = {};
-    if (selectedDeviceId !== undefined) {
-      deployOptions.device_id = selectedDeviceId;
+    const deployOptions: { device_id?: number | string; host_port?: number | null } = {};
+    if (selectedDeviceIds !== undefined && selectedDeviceIds.length > 0) {
+      const sorted = selectedDeviceIds.slice().sort((a, b) => a - b);
+      deployOptions.device_id = sorted.length === 1 ? sorted[0] : sorted.join(",");
     }
     const deployResult = await handleDeploy(deployOptions);
 
@@ -258,7 +259,7 @@ export function DeployModelStep({
     triggerRefresh,
     triggerHardwareRefresh,
     isDeployDisabled,
-    selectedDeviceId,
+    selectedDeviceIds,
   ]);
 
   const onDeploymentComplete = useCallback(() => {
@@ -420,14 +421,14 @@ export function DeployModelStep({
               </span>
             </div>
           )}
-          {selectedDeviceId !== undefined && (
+          {selectedDeviceIds !== undefined && selectedDeviceIds.length > 0 && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
               <span className="text-sm text-gray-800 dark:text-gray-400">
-                Device:
+                {selectedDeviceIds.length > 1 ? "Devices:" : "Device:"}
               </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
-                {selectedDeviceId}
+                {selectedDeviceIds.slice().sort((a, b) => a - b).join(", ")}
               </span>
             </div>
           )}

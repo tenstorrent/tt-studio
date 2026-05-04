@@ -410,7 +410,8 @@
       "display_model_type": "TEXT_TO_SPEECH",
       "device_configurations": [
         "N150",
-        "N300"
+        "N300",
+        "P150"
       ],
       "hf_model_id": "microsoft/speecht5_tts",
       "inference_engine": "media",
@@ -585,6 +586,7 @@
       "device_configurations": [
         "GALAXY",
         "N150",
+        "P150",
         "T3K"
       ],
       "hf_model_id": "openai/whisper-large-v3",
