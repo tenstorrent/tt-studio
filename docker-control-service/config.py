@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Docker Control Service Configuration
@@ -44,6 +44,11 @@ class Settings:
     CONTAINER_START_TIMEOUT: int = 300
     CONTAINER_STOP_TIMEOUT: int = 30
     IMAGE_PULL_TIMEOUT: int = 600
+
+    # Host log file paths (passed in as env vars from run.py)
+    SERVICE_LOG_FILE: str = os.getenv("DOCKER_CONTROL_LOG_FILE", "")
+    STARTUP_LOG_FILE: str = os.getenv("STARTUP_LOG_FILE", "")
+    FASTAPI_LOG_FILE: str = os.getenv("FASTAPI_LOG_FILE", "")
 
 
 # Global settings instance
