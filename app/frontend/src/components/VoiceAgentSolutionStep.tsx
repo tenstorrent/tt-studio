@@ -71,6 +71,31 @@ const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPER
 // ---- helpers --------------------------------------------------------------
 
 
+async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
+  const POLL_INTERVAL_MS = 5000;
+  // Poll briefly to catch fast failures (bad config, allocation error, immediate crash).
+  // If no terminal error within this window, assume the job is running normally —
+  // large model downloads can take 30+ min and shouldn't block the next deployment.
+  const EARLY_EXIT_MS = 60 * 1000;
+  const deadline = Date.now() + EARLY_EXIT_MS;
+  const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout", "not_found"];
+  while (Date.now() < deadline) {
+    try {
+      const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.status === "completed") return "done";
+        if (TERMINAL_ERRORS.includes(data.status)) return "error";
+      }
+    } catch (_) {
+      // network hiccup — keep polling
+    }
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  }
+  // No error seen in the window — job is still running, move on to next deployment.
+  return "done";
+}
+
 async function deployOneModel(modelId: string, deviceId: number): Promise<{ jobId?: string; error?: string }> {
   const resp = await fetch("/docker-api/deploy/", {
     method: "POST",
@@ -277,9 +302,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     };
 
     const steps: [string, number, (s: DeployState) => void, DeployState, string, boolean][] = [
-      [selectedLlmId,    0, setLlmState,     llmState,     "LLM",      false],
-      [selectedWhisperId, 1, setWhisperState, whisperState, "Whisper",  false],
-      [speechT5Id,       2, setTtsState,     ttsState,     "SpeechT5", false],
+      [selectedLlmId,    0, setLlmState,     llmState,     "LLM",      true],
+      [selectedWhisperId, 1, setWhisperState, whisperState, "Whisper",  true],
+      [speechT5Id,       2, setTtsState,     ttsState,     "SpeechT5", true],
     ];
 
     for (const [modelId, deviceId, setState, currentState, label, poll] of steps) {

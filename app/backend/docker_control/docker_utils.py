@@ -379,84 +379,35 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
                 logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
 
             job_id = api_result.get("job_id")
-            logger.info(f"Deployment job submitted with job_id={job_id}; polling for completion...")
+            logger.info(f"Deployment job submitted with job_id={job_id}; handing off to background sync")
 
-            # The FastAPI /run endpoint returns 202 immediately (async job).
-            # Poll /run/progress/{job_id} until the job reaches a terminal state.
-            completed_progress: dict = {}
             if job_id:
                 try:
-                    completed_progress = _poll_deployment_to_completion(
-                        job_id, timeout_seconds=DEPLOYMENT_TIMEOUT_SECONDS
-                    )
-                    logger.info(f"Job {job_id} completed: {completed_progress}")
-                except (RuntimeError, TimeoutError) as poll_err:
-                    error_msg = f"Deployment job failed or timed out: {poll_err}"
-                    logger.error(error_msg)
-                    return {"status": "error", "message": error_msg, "job_id": job_id}
-            else:
-                logger.warning("No job_id in 202 response; attempting to use response data directly")
-                completed_progress = api_result
-
-            # Update deploy cache on success
-            update_deploy_cache()
-
-            # Notify agent about new container deployment (best-effort)
-            container_name_for_notify = completed_progress.get("container_name")
-            if container_name_for_notify:
-                notify_agent_of_new_container(container_name_for_notify)
-
-            # Create the deployment record only after successful API response
-            # (never before — avoids stale "starting" records blocking slots on failure)
-            container_id = None
-            container_name = "unknown"
-            try:
-                container_id = completed_progress.get("container_id")
-                container_name = completed_progress.get("container_name", "unknown")
-
-                # If container_id is not in response, try to get it from Docker by name
-                if not container_id and container_name:
-                    try:
-                        docker_client = get_docker_client()
-                        container_info = docker_client.get_container(container_name)
-                        container_id = container_info.get("id")
-                        logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
-                    except Exception as docker_error:
-                        logger.warning(f"Could not get container_id from Docker: {docker_error}")
-                        container_id = container_name
-
-                if container_id:
-                    workflow_log_path = completed_progress.get("docker_log_file_path")
-                    logger.info(f"Extracted workflow_log_path from completed progress: {workflow_log_path}")
-
                     ModelDeployment.objects.create(
-                        container_id=container_id,
-                        container_name=container_name,
+                        container_id=job_id,
+                        container_name=impl.model_name,
                         model_name=impl.model_name,
                         device=device,
-                        device_id=primary_device_id,  # store primary slot as int
-                        status="running",
+                        device_id=primary_device_id,
+                        status="starting",
                         stopped_by_user=False,
                         port=service_port,
-                        workflow_log_path=workflow_log_path
                     )
-                    logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
-                else:
-                    logger.warning(f"Could not save deployment record: no container_id or container_name")
-            except Exception as e:
-                import traceback
-                logger.error(
-                    f"Failed to save deployment record for {container_name} (ID: {container_id}): {type(e).__name__}: {e}\n"
-                    f"Traceback: {traceback.format_exc()}"
-                )
-                # Don't fail the deployment if we can't save the record
+                    logger.info(f"Created starting deployment record for {impl.model_name} (job_id={job_id})")
+                except Exception as e:
+                    logger.warning(f"Could not create ModelDeployment for job {job_id}: {e}")
+                try:
+                    from docker_control.deployment_sync import start_deployment_sync
+                    start_deployment_sync(job_id)
+                except Exception as e:
+                    logger.warning(f"Could not start deployment sync for job {job_id}: {e}")
+            else:
+                logger.warning("No job_id in 202 response")
 
             return {
                 "status": "success",
-                "container_name": completed_progress.get("container_name"),
-                "container_id": completed_progress.get("container_id"),
-                "job_id": job_id or completed_progress.get("job_id"),
-                "api_response": completed_progress
+                "job_id": job_id,
+                "message": "Deployment started",
             }
         else:
             error_msg = f"API call failed with status {response.status_code}: {response.text}"

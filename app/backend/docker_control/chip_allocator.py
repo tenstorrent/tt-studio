@@ -14,10 +14,8 @@ Manages automatic chip slot allocation based on:
 import re
 import threading
 from datetime import timedelta
-from datetime import timezone
+from datetime import timezone as datetime_timezone
 from typing import Dict, List, Optional, Set
-
-from django.utils import timezone
 
 from shared_config.logger_config import get_logger
 from shared_config.model_config import get_model_chip_requirement
@@ -331,6 +329,9 @@ class ChipSlotAllocator:
             return []
 
         live_containers = self._get_live_container_status()
+        if live_containers is None:
+            return active_deployments
+
         live_containers_by_name = {
             container_data.get("name"): (container_id, container_data)
             for container_id, container_data in live_containers.items()
@@ -368,7 +369,7 @@ class ChipSlotAllocator:
         # Trust recently-created "starting" records — the container may not
         # yet be visible in Docker and the sync thread will handle transition.
         if deployment.status == "starting":
-            now_utc = _dt.now(timezone.utc)
+            now_utc = _dt.now(datetime_timezone.utc)
             age = (now_utc - deployment.deployed_at).total_seconds() if deployment.deployed_at else 0
             if age < self._STARTING_GRACE_SECONDS:
                 return deployment
@@ -397,7 +398,7 @@ class ChipSlotAllocator:
             )
         return None
 
-    def _get_live_container_status(self) -> Dict[str, Dict]:
+    def _get_live_container_status(self) -> Optional[Dict[str, Dict]]:
         """Return a snapshot of currently running managed containers."""
         from docker_control.docker_utils import get_container_status
 
@@ -405,52 +406,7 @@ class ChipSlotAllocator:
             return get_container_status()
         except Exception as e:
             logger.warning(f"Could not query Docker for live containers; using DB records as-is: {e}")
-            return db_records
-
-        # Short grace window for 'starting' records.  The deployment_sync
-        # thread transitions them to 'running' in seconds; 60 s is a generous
-        # buffer that still catches truly abandoned records quickly.
-        _STARTING_GRACE_SECONDS = 60
-
-        from datetime import datetime as _dt
-        now_utc = _dt.now(timezone.utc)
-
-        def _mark_stopped(dep: ModelDeployment, reason: str) -> None:
-            """Mark a deployment as stopped in-place so the slot is freed."""
-            try:
-                dep.status = "stopped"
-                dep.save()
-                logger.info(
-                    f"Auto-marked stale deployment {dep.container_id} "
-                    f"({dep.model_name}) as stopped: {reason}"
-                )
-            except Exception as upd_err:
-                logger.warning(
-                    f"Could not update stale deployment status for {dep.model_name}: {upd_err}"
-                )
-
-        active = []
-        for dep in db_records:
-            if dep.status == "starting":
-                # Trust recently-created records — the container may not be in
-                # Docker yet and the sync thread will handle the transition.
-                age = (now_utc - dep.deployed_at).total_seconds() if dep.deployed_at else 0
-                if age < _STARTING_GRACE_SECONDS:
-                    active.append(dep)
-                    continue
-                # Past the grace window — fall through to the Docker check.
-                # If the real Docker container is running (sync thread already
-                # updated container_id to the real one), it will be in live_ids.
-
-            short = (dep.container_id or "")[:12]
-            full = dep.container_id or ""
-            if short in live_ids or full in live_ids:
-                active.append(dep)
-            else:
-                # Container is gone — free the slot immediately.
-                _mark_stopped(dep, "container not found in Docker")
-
-        return active
+            return None
 
     def _get_occupied_slots(self) -> Set[int]:
         """
