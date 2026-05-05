@@ -73,11 +73,10 @@ const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPER
 
 async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
   const POLL_INTERVAL_MS = 5000;
-  // Poll briefly to catch fast failures (bad config, allocation error, immediate crash).
-  // If no terminal error within this window, assume the job is running normally —
-  // large model downloads can take 30+ min and shouldn't block the next deployment.
-  const EARLY_EXIT_MS = 60 * 1000;
-  const deadline = Date.now() + EARLY_EXIT_MS;
+  // Wait for terminal status so cards only mark as deployed after container startup.
+  // Keep a long safety timeout so a stalled backend does not leave UI stuck forever.
+  const SAFETY_TIMEOUT_MS = 30 * 60 * 1000;
+  const deadline = Date.now() + SAFETY_TIMEOUT_MS;
   const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout", "not_found"];
   while (Date.now() < deadline) {
     try {
@@ -92,8 +91,7 @@ async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  // No error seen in the window — job is still running, move on to next deployment.
-  return "done";
+  return "error";
 }
 
 async function deployOneModel(modelId: string, deviceId: number): Promise<{ jobId?: string; error?: string }> {
@@ -283,22 +281,26 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       // Skip already-deployed cards on retry
       if (currentState.status === "done") return true;
       setState({ status: "deploying" });
-      const result = await deployOneModel(modelId, deviceId);
-      if (result.error || !result.jobId) {
-        setState({ status: "error", error: result.error ?? "No job ID returned" });
-        return false;
-      }
-      // For CHAT models (LLM), poll for progress so the backend deployment record
-      // transitions from 'starting' → 'running'/'stopped' and doesn't become a ghost.
-      if (pollProgress) {
-        const outcome = await pollDeployProgress(result.jobId);
-        if (outcome === "error") {
-          setState({ status: "error", error: "Deployment failed or timed out" });
+      try {
+        const result = await deployOneModel(modelId, deviceId);
+        if (result.error || !result.jobId) {
+          setState({ status: "error", error: result.error ?? "No job ID returned" });
           return false;
         }
+        if (pollProgress) {
+          const outcome = await pollDeployProgress(result.jobId);
+          if (outcome === "error") {
+            setState({ status: "error", error: "Deployment failed or timed out" });
+            return false;
+          }
+        }
+        setState({ status: "done" });
+        return true;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Deployment request failed";
+        setState({ status: "error", error: message });
+        return false;
       }
-      setState({ status: "done" });
-      return true;
     };
 
     const steps: [string, number, (s: DeployState) => void, DeployState, string, boolean][] = [
@@ -307,19 +309,26 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       [speechT5Id,       2, setTtsState,     ttsState,     "SpeechT5", true],
     ];
 
-    for (const [modelId, deviceId, setState, currentState, label, poll] of steps) {
-      const ok = await submitOne(modelId, deviceId, setState, currentState, label, poll);
-      if (!ok) {
-        // Stop the pipeline — do not attempt remaining steps if any step fails
-        customToast.error(`${label} deployment failed. Pipeline stopped.`);
-        setIsDeploying(false);
-        return;
-      }
+    const results = await Promise.all(
+      steps.map(async ([modelId, deviceId, setState, currentState, label, poll]) => ({
+        label,
+        ok: await submitOne(modelId, deviceId, setState, currentState, label, poll),
+      }))
+    );
+
+    const failures = results.filter((r) => !r.ok);
+    setIsDeploying(false);
+    if (failures.length === 0) {
+      setAllDone(true);
+      customToast.success("Voice Agent pipeline submitted! Redirecting…");
+      return;
     }
 
-    setIsDeploying(false);
-    setAllDone(true);
-    customToast.success("Voice Agent pipeline submitted! Redirecting…");
+    customToast.error(
+      `Deployed ${results.length - failures.length}/${results.length} — failed: ${failures
+        .map((f) => f.label)
+        .join(", ")}`
+    );
   };
 
   return (
