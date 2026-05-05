@@ -39,7 +39,7 @@ from .docker_utils import (
 )
 from .tt_inference_client import start_chat_deployment
 from .docker_control_client import get_docker_client
-from shared_config.model_config import model_implmentations
+from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
@@ -308,13 +308,18 @@ class DeployView(APIView):
             # for multi-chip single-card deployments (--device-id 0,1).
             raw_device_id = request.data.get("device_id")
             if raw_device_id is not None:
-                device_id_parts = [int(x.strip()) for x in str(raw_device_id).split(",")]
-                manual_device_id = device_id_parts[0]  # primary slot for allocation
+                requested_device_ids = [
+                    int(x.strip()) for x in str(raw_device_id).split(",") if str(x).strip() != ""
+                ]
+                if not requested_device_ids:
+                    requested_device_ids = [0]
+                manual_device_id = requested_device_ids[0]  # primary slot for allocation
             else:
-                device_id_parts = None
+                requested_device_ids = []
                 manual_device_id = None
 
             impl = model_implmentations[impl_id]
+            chips_required = infer_chips_required(impl.device_configurations)
 
             # Stop and clean up any existing starting/running deployments of this
             # model before deploying a new instance. Prevents stale records with
@@ -348,12 +353,42 @@ class DeployView(APIView):
                     impl.model_name,
                     manual_override=manual_device_id
                 )
-                # If multiple device IDs were requested, use them all for the inference
-                # server call; otherwise fall back to the single allocated slot.
-                if device_id_parts and len(device_id_parts) > 1:
-                    device_ids_str = ",".join(str(d) for d in device_id_parts)
+                # If multiple device IDs were requested, validate every slot and pass
+                # them all to the inference server call; otherwise use the allocated slot.
+                if requested_device_ids and len(requested_device_ids) > 1:
+                    if chips_required != 1:
+                        return Response(
+                            {
+                                "status": "error",
+                                "error_type": "allocation_failed",
+                                "message": (
+                                    f"{impl.model_name} does not support explicit multi-slot "
+                                    "single-card device_id selection."
+                                ),
+                            },
+                            status=status.HTTP_409_CONFLICT,
+                        )
+                    normalized_requested_device_ids = []
+                    for requested_slot in requested_device_ids:
+                        if requested_slot in normalized_requested_device_ids:
+                            continue
+                        validation = allocator._validate_manual_allocation(
+                            requested_slot, 1, impl.model_name
+                        )
+                        if not validation["valid"]:
+                            return Response(
+                                {
+                                    "status": "error",
+                                    "error_type": "allocation_failed",
+                                    "message": validation["message"],
+                                },
+                                status=status.HTTP_409_CONFLICT,
+                            )
+                        normalized_requested_device_ids.append(requested_slot)
+                    device_ids = normalized_requested_device_ids
                 else:
-                    device_ids_str = str(device_id)
+                    device_ids = [device_id]
+                device_ids_str = ",".join(str(d) for d in device_ids)
                 logger.info(f"Allocated device_id={device_id} (request={device_ids_str}) for {impl.model_name}")
 
             except MultiChipConflictError as e:
@@ -380,9 +415,7 @@ class DeployView(APIView):
             # We call it directly here so we can return job_id immediately for progress polling,
             # without requiring docker_utils.py to handle async "job started" responses.
             if impl.model_type == ModelTypes.CHAT:
-                from shared_config.model_config import infer_chips_required
                 board_type = detect_board_type()
-                chips_required = infer_chips_required(impl.device_configurations)
                 if chips_required == 1:
                     device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                 else:
@@ -439,6 +472,7 @@ class DeployView(APIView):
                         model_name=impl.model_name,
                         device=device,
                         device_id=device_id,
+                        device_ids=device_ids,
                         status="starting",
                         port=service_port,
                     )

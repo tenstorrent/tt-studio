@@ -26,6 +26,10 @@ import {
 import { Button } from "./ui/button";
 import { customToast } from "./CustomToaster";
 import { Model, getModelsUrl } from "./SelectionSteps";
+import {
+  isLlama31_8BModel,
+  isP300x2Board,
+} from "../utils/p300x2Placement";
 
 // ---- types ----------------------------------------------------------------
 
@@ -94,7 +98,10 @@ async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
   return "error";
 }
 
-async function deployOneModel(modelId: string, deviceId: number): Promise<{ jobId?: string; error?: string }> {
+async function deployOneModel(
+  modelId: string,
+  deviceId: number | string
+): Promise<{ jobId?: string; error?: string }> {
   const resp = await fetch("/docker-api/deploy/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -248,7 +255,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const chatModels = allModels.filter((m) => m.model_type === "chat" && isSingleDevice(m));
   const whisperModels = allModels.filter((m) => m.model_type === "speech_recognition" && isSingleChip(m));
   const ttsModels = allModels.filter((m) => m.model_type === "tts" && isSingleChip(m));
+  const selectedLlmModel = allModels.find((m) => m.id === selectedLlmId);
   const speechT5Model = allModels.find((m) => m.id === speechT5Id);
+  const currentBoard = allModels[0]?.current_board;
+  const useLlamaCardPair =
+    isP300x2Board(currentBoard) &&
+    isLlama31_8BModel(selectedLlmModel?.name ?? selectedLlmModel?.id ?? "");
+  const llmDeviceId: number | string = useLlamaCardPair ? "0,1" : 0;
+  const whisperDeviceId = useLlamaCardPair ? 2 : 1;
+  const ttsDeviceId = useLlamaCardPair ? 3 : 2;
 
   const hasErrors =
     llmState.status === "error" ||
@@ -256,7 +271,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     ttsState.status === "error";
 
   const occupiedByDevice = (id: number) => occupiedDevices.find((d) => d.device_id === id);
-  const occupiedSlots = ([0, 1, 2] as const)
+  const occupiedByDevices = (ids: number[]) => {
+    const names = ids
+      .map((id) => occupiedByDevice(id))
+      .filter((item): item is OccupiedDevice => item !== undefined)
+      .map((device) => `Device ${device.device_id}: ${device.name}`);
+    return names.length > 0 ? names.join(" · ") : undefined;
+  };
+  const targetSlots = useLlamaCardPair ? [0, 1, 2, 3] : [0, 1, 2];
+  const occupiedSlots = targetSlots
     .map((id) => occupiedByDevice(id))
     .filter((d): d is OccupiedDevice => d !== undefined);
 
@@ -272,7 +295,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
     const submitOne = async (
       modelId: string,
-      deviceId: number,
+      deviceId: number | string,
       setState: (s: DeployState) => void,
       currentState: DeployState,
       label: string,
@@ -303,10 +326,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       }
     };
 
-    const steps: [string, number, (s: DeployState) => void, DeployState, string, boolean][] = [
-      [selectedLlmId,    0, setLlmState,     llmState,     "LLM",      true],
-      [selectedWhisperId, 1, setWhisperState, whisperState, "Whisper",  true],
-      [speechT5Id,       2, setTtsState,     ttsState,     "SpeechT5", true],
+    const steps: [string, number | string, (s: DeployState) => void, DeployState, string, boolean][] = [
+      [selectedLlmId, llmDeviceId, setLlmState, llmState, "LLM", true],
+      [selectedWhisperId, whisperDeviceId, setWhisperState, whisperState, "Whisper", true],
+      [speechT5Id, ttsDeviceId, setTtsState, ttsState, "SpeechT5", true],
     ];
 
     const results = await Promise.all(
@@ -352,7 +375,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         <div>
           <h2 className="text-lg font-semibold mb-1">Voice Agent Solution</h2>
           <p className="text-sm text-muted-foreground">
-            Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2.
+            {useLlamaCardPair
+              ? "Deploys the full voice pipeline: Llama 8B on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
+              : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
           </p>
         </div>
 
@@ -363,21 +388,46 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <ModelCard icon={<Bot className="w-5 h-5" />} label="LLM" deviceLabel="Device 0" deployState={llmState} accent="blue" occupiedBy={occupiedByDevice(0)?.name}>
+              <ModelCard
+                icon={<Bot className="w-5 h-5" />}
+                label="LLM"
+                deviceLabel={useLlamaCardPair ? "Device 0,1" : "Device 0"}
+                deployState={llmState}
+                accent="blue"
+                occupiedBy={
+                  useLlamaCardPair
+                    ? occupiedByDevices([0, 1])
+                    : occupiedByDevice(0)?.name
+                }
+              >
                 <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
                   <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select LLM" /></SelectTrigger>
                   <SelectContent><ModelSelectItems models={chatModels} /></SelectContent>
                 </Select>
               </ModelCard>
 
-              <ModelCard icon={<Mic className="w-5 h-5" />} label="Whisper" deviceLabel="Device 1" deployState={whisperState} accent="purple" occupiedBy={occupiedByDevice(1)?.name}>
+              <ModelCard
+                icon={<Mic className="w-5 h-5" />}
+                label="Whisper"
+                deviceLabel={`Device ${whisperDeviceId}`}
+                deployState={whisperState}
+                accent="purple"
+                occupiedBy={occupiedByDevice(whisperDeviceId)?.name}
+              >
                 <Select value={selectedWhisperId} onValueChange={setSelectedWhisperId} disabled={isDeploying || allDone}>
                   <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select Whisper" /></SelectTrigger>
                   <SelectContent><ModelSelectItems models={whisperModels} /></SelectContent>
                 </Select>
               </ModelCard>
 
-              <ModelCard icon={<Volume2 className="w-5 h-5" />} label="SpeechT5 TTS" deviceLabel="Device 2" deployState={ttsState} accent="green" occupiedBy={occupiedByDevice(2)?.name}>
+              <ModelCard
+                icon={<Volume2 className="w-5 h-5" />}
+                label="SpeechT5 TTS"
+                deviceLabel={`Device ${ttsDeviceId}`}
+                deployState={ttsState}
+                accent="green"
+                occupiedBy={occupiedByDevice(ttsDeviceId)?.name}
+              >
                 {ttsModels.length > 1 ? (
                   <Select value={speechT5Id} onValueChange={setSpeechT5Id} disabled={isDeploying || allDone}>
                     <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select TTS" /></SelectTrigger>

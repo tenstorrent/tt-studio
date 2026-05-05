@@ -130,9 +130,11 @@ class ChipSlotAllocator:
                         "port": deployment.port,
                     }
             else:
-                # Single-chip: mark specific slot
-                if deployment.device_id < self.total_slots:
-                    occupied_map[deployment.device_id] = {
+                # Single-chip: mark requested slot(s)
+                for deployment_slot in self._get_deployment_device_ids(deployment):
+                    if deployment_slot >= self.total_slots:
+                        continue
+                    occupied_map[deployment_slot] = {
                         "model_name": deployment.model_name,
                         "deployment_id": deployment.id,
                         "is_multi_chip": False,
@@ -291,7 +293,7 @@ class ChipSlotAllocator:
                 active_deployments = self._get_active_deployments()
                 occupying_model = None
                 for deployment in active_deployments:
-                    if deployment.device_id == device_id:
+                    if device_id in self._get_deployment_device_ids(deployment):
                         occupying_model = deployment.model_name
                         break
                     # Check if a multi-chip model is occupying all slots
@@ -427,11 +429,29 @@ class ChipSlotAllocator:
                 # Multi-chip: occupies all 4 slots
                 occupied.update(range(min(4, self.total_slots)))
             else:
-                # Single-chip: occupies specific slot
-                if deployment.device_id < self.total_slots:
-                    occupied.add(deployment.device_id)
+                # Single-chip: occupies specific slot(s)
+                for deployment_slot in self._get_deployment_device_ids(deployment):
+                    if deployment_slot < self.total_slots:
+                        occupied.add(deployment_slot)
 
         return occupied
+
+    def _get_deployment_device_ids(self, deployment: ModelDeployment) -> List[int]:
+        """Return normalized slot IDs occupied by a deployment."""
+        raw_device_ids = getattr(deployment, "device_ids", None)
+        if isinstance(raw_device_ids, list) and raw_device_ids:
+            normalized_ids = []
+            for slot_id in raw_device_ids:
+                try:
+                    normalized_ids.append(int(slot_id))
+                except (TypeError, ValueError):
+                    continue
+            if normalized_ids:
+                return normalized_ids
+        try:
+            return [int(deployment.device_id)]
+        except (TypeError, ValueError):
+            return [0]
 
     def _get_chips_required(self, model_name: str) -> int:
         """

@@ -249,12 +249,19 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         # Save deployment record
         try:
             if container_id:
+                if isinstance(device_id, str):
+                    deployment_device_ids = [int(x.strip()) for x in device_id.split(",")]
+                elif isinstance(device_id, (list, tuple)):
+                    deployment_device_ids = [int(x) for x in device_id]
+                else:
+                    deployment_device_ids = [int(device_id)]
                 ModelDeployment.objects.create(
                     container_id=container_id,
                     container_name=container_name or run_kwargs.get("name"),
                     model_name=impl.model_name,
                     device=f"device_{device_id}",
-                    device_id=device_id,
+                    device_id=deployment_device_ids[0],
+                    device_ids=deployment_device_ids,
                     status="running",
                     stopped_by_user=False,
                     port=actual_host_port,
@@ -383,12 +390,14 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
 
             if job_id:
                 try:
+                    deployment_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
                     ModelDeployment.objects.create(
                         container_id=job_id,
                         container_name=impl.model_name,
                         model_name=impl.model_name,
                         device=device,
                         device_id=primary_device_id,
+                        device_ids=deployment_device_ids,
                         status="starting",
                         stopped_by_user=False,
                         port=service_port,
