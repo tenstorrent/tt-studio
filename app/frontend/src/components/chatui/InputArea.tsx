@@ -12,6 +12,8 @@ import {
   ExternalLink,
   FileText,
   FileIcon,
+  Globe,
+  Check,
   Info as InfoIcon,
 } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
@@ -130,6 +132,9 @@ interface InputAreaProps {
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
   onStopInference?: () => void;
+  isAgentSelected?: boolean;
+  setIsAgentSelected?: (value: boolean) => void;
+  isAgentAvailable?: boolean;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -152,9 +157,14 @@ export default function InputArea({
   isMobileView = false,
   onCreateNewConversation,
   onStopInference,
+  isAgentSelected = false,
+  setIsAgentSelected,
+  isAgentAvailable = false,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showProgressBar, setShowProgressBar] = useState(false);
   const [showErrorIndicator, setShowErrorIndicator] = useState(false);
@@ -169,6 +179,19 @@ export default function InputArea({
   const [showPdfDialog, setShowPdfDialog] = useState(false);
   const [pdfFileName, setPdfFileName] = useState("");
   const navigate = useNavigate();
+
+  // Close plus menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setIsPlusMenuOpen(false);
+      }
+    };
+    if (isPlusMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isPlusMenuOpen]);
 
   // Add a meta viewport setting effect
   useEffect(() => {
@@ -489,7 +512,6 @@ export default function InputArea({
                 : isHovered
                   ? "border-gray-400/70 dark:border-white/30"
                   : "border-gray-200 dark:border-[#7C68FA]/20",
-            "overflow-hidden"
           )}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -502,7 +524,7 @@ export default function InputArea({
           }}
         >
           {isDragging && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-lg font-semibold z-50 overflow-hidden rounded-lg">
               <div className="bg-white/20 rounded-lg p-8 flex flex-col items-center transition-all duration-300 ease-in-out">
                 <Paperclip className="h-12 w-12 mb-4 animate-bounce" />
                 <span className="text-2xl animate-pulse">
@@ -593,7 +615,8 @@ export default function InputArea({
 
           <div className="flex justify-between items-center mt-2">
             <div className="flex gap-2 items-center">
-              <div className="relative group">
+              {/* ChatGPT-style plus menu */}
+              <div className="relative" ref={plusMenuRef}>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -601,28 +624,73 @@ export default function InputArea({
                         type="button"
                         variant="ghost"
                         size={isMobileView ? "sm" : "default"}
-                        className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-                        onClick={() => setIsFileUploadOpen((prev) => !prev)}
-                        aria-label="Attach files"
-                        onTouchStart={() => handleTouchStart("Attach files")}
-                        onTouchEnd={handleTouchEnd}
+                        className={cn(
+                          "p-1 sm:p-2 rounded-full flex items-center justify-center transition-all duration-200",
+                          isPlusMenuOpen
+                            ? "bg-[#7C68FA]/20 text-[#7C68FA] dark:text-[#7C68FA] rotate-45"
+                            : "text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                        )}
+                        onClick={() => setIsPlusMenuOpen((prev) => !prev)}
+                        aria-label="More options"
                       >
-                        <Paperclip
-                          className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`}
-                        />
+                        <Plus className={isMobileView ? "h-4 w-4" : "h-5 w-5"} />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Attach files (1 image max)</p>
-                    </TooltipContent>
+                    {!isPlusMenuOpen && (
+                      <TooltipContent><p>More options</p></TooltipContent>
+                    )}
                   </Tooltip>
                 </TooltipProvider>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    Attach files
+
+                {isPlusMenuOpen && (
+                  <div className="absolute bottom-full left-0 mb-2 z-30 w-56 rounded-xl bg-white dark:bg-[#1E1E2E] border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#7C68FA]/10 transition-colors"
+                      onClick={() => {
+                        setIsFileUploadOpen((prev) => !prev);
+                        setIsPlusMenuOpen(false);
+                      }}
+                    >
+                      <Paperclip className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                      <span>Attach files</span>
+                    </button>
+
+                    {isAgentAvailable && setIsAgentSelected && (
+                      <button
+                        type="button"
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors",
+                          isAgentSelected
+                            ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20"
+                            : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#7C68FA]/10"
+                        )}
+                        onClick={() => {
+                          setIsAgentSelected(!isAgentSelected);
+                          setIsPlusMenuOpen(false);
+                        }}
+                      >
+                        <Globe className="h-4 w-4" />
+                        <span className="flex-1 text-left">Web search</span>
+                        {isAgentSelected && <Check className="h-4 w-4" />}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
+
+              {/* Web search active pill */}
+              {isAgentSelected && isAgentAvailable && (
+                <button
+                  type="button"
+                  onClick={() => setIsAgentSelected?.(!isAgentSelected)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-medium hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+                >
+                  <Globe className="h-3 w-3" />
+                  <span>Search</span>
+                  <X className="h-3 w-3" />
+                </button>
+              )}
 
               <div className="relative group">
                 <TooltipProvider>

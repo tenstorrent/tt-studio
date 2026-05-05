@@ -200,7 +200,7 @@ export function useBugReport() {
     created_via_api?: boolean;
   } | null>(null);
 
-  const setSourceStatus = useCallback(
+  const _setSourceStatus = useCallback(
     (key: string, status: LogSourceState["status"]) => {
       setSources((prev) =>
         prev.map((s) => (s.key === key ? { ...s, status } : s))

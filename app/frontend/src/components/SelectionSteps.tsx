@@ -171,6 +171,7 @@ export default function StepperDemo() {
   const handleDeploy = async (options?: {
     device_id?: number;
     host_port?: number | null;
+    enable_tool_calling?: boolean;
   }): Promise<{
     success: boolean;
     job_id?: string;
@@ -199,6 +200,9 @@ export default function StepperDemo() {
     };
     if (options?.device_id !== undefined) {
       payloadObj.device_id = options.device_id;
+    }
+    if (options?.enable_tool_calling) {
+      payloadObj.enable_tool_calling = true;
     }
     const payload = JSON.stringify(payloadObj);
 

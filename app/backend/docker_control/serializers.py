@@ -16,6 +16,7 @@ class DeploymentSerializer(serializers.Serializer):
     weights_id = serializers.CharField(required=False, allow_blank=True)
     device_id = serializers.IntegerField(required=False, default=0, min_value=0, max_value=3)
     host_port = serializers.IntegerField(required=False, default=None, min_value=1024, max_value=65535, allow_null=True)
+    enable_tool_calling = serializers.BooleanField(required=False, default=False)
 
     def validate(self, data):
         model_id = data.get("model_id")

@@ -4,10 +4,11 @@
 import type React from "react";
 import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
-import { Clipboard, ThumbsUp, ThumbsDown, Brain } from "lucide-react";
+import { Clipboard, ThumbsUp, ThumbsDown, Brain, Globe, ExternalLink, ChevronDown, ChevronRight } from "lucide-react";
 import { customToast } from "../CustomToaster";
 import InferenceStats from "./InferenceStats";
-import type { InferenceStats as InferenceStatsType } from "./types";
+import type { InferenceStats as InferenceStatsType, SourceLink } from "./types";
+import { AnimatePresence, motion } from "framer-motion";
 
 interface MessageActionsProps {
   messageId: string;
@@ -24,6 +25,7 @@ interface MessageActionsProps {
   hasThinking?: boolean;
   showThinking?: boolean;
   onToggleThinking?: () => void;
+  sources?: SourceLink[];
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -35,12 +37,13 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   inferenceStats,
   messageContent,
   modelName,
-  statsOpen: _statsOpen = false, // Marked as intentionally unused for now
-  onToggleStats: _onToggleStats, // Marked as intentionally unused for now
+  statsOpen: _statsOpen = false,
+  onToggleStats: _onToggleStats,
   toggleableInlineStats = true,
   hasThinking = false,
   showThinking = false,
   onToggleThinking,
+  sources,
 }) => {
   const [completeMessage, setCompleteMessage] = useState<string>(
     messageContent || ""
@@ -174,6 +177,11 @@ const MessageActions: React.FC<MessageActionsProps> = ({
             </Button>
           )}
 
+          {/* Sources button (ChatGPT-style) */}
+          {sources && sources.length > 0 && (
+            <SourcesButton sources={sources} />
+          )}
+
           {/* Always show inline stats when toggleableInlineStats is enabled */}
           {inferenceStats && toggleableInlineStats && (
             <InferenceStats
@@ -190,6 +198,68 @@ const MessageActions: React.FC<MessageActionsProps> = ({
         </div>
       </div>
     </>
+  );
+};
+
+const SourcesButton: React.FC<{ sources: SourceLink[] }> = ({ sources }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(!open)}
+        className={`h-8 px-2 gap-1.5 text-xs transition-colors ${
+          open
+            ? "bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300"
+            : "hover:bg-gray-100 dark:hover:bg-gray-800"
+        }`}
+        style={{ outline: "none" }}
+      >
+        <Globe className="h-3.5 w-3.5" />
+        <span>Sources</span>
+        {open ? (
+          <ChevronDown className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-3 w-3" />
+        )}
+      </Button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            exit={{ opacity: 0, y: -4, height: 0 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-0 top-full mt-1 z-20 w-72 max-h-64 overflow-y-auto rounded-lg bg-gray-800 border border-gray-700 shadow-xl"
+          >
+            <div className="px-3 py-2 border-b border-gray-700">
+              <span className="text-xs font-medium text-gray-400">
+                {sources.length} source{sources.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="py-1">
+              {sources.map((s, i) => (
+                <a
+                  key={i}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700/50 transition-colors"
+                >
+                  <ExternalLink size={13} className="flex-shrink-0 text-blue-400" />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-gray-200">{s.title}</div>
+                    <div className="truncate text-xs text-gray-500">{s.url}</div>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 };
 

@@ -50,6 +50,8 @@ services:
   tt_studio_agent:
     container_name: tt_studio_agent_dev
     image: ghcr.io/tenstorrent/tt-studio/agent-dev:v0.0.0
+    volumes:
+      - ./agent:/app
     environment:
       - HF_MODEL_PATH=meta-llama/Llama-3.1-8B-Instruct
 

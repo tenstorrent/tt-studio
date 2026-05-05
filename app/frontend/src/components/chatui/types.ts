@@ -29,6 +29,11 @@ export interface FileData {
 }
 
 // Chat and Message Types
+export interface SourceLink {
+  title: string;
+  url: string;
+}
+
 export interface ChatMessage {
   id: string;
   sender: "user" | "assistant";
@@ -39,6 +44,7 @@ export interface ChatMessage {
   isStopped?: boolean;
   finishReason?: string | null;
   timing?: TimingInfo;
+  sources?: SourceLink[];
 }
 
 export type MessageContent =
@@ -109,6 +115,14 @@ export interface ProgressiveStats {
   elapsedSeconds: number;
 }
 
+export interface HardwareMetrics {
+  power_watts?: number;
+  temperature_c?: number;
+  aiclk_mhz?: number;
+  voltage?: number;
+  board_type?: string;
+}
+
 export interface InferenceStats {
   user_ttft_s?: number;
   user_tpot?: number;
@@ -133,6 +147,13 @@ export interface InferenceStats {
   timing?: TimingInfo;
   reasoning_tokens?: number;      // Number of tokens spent in thinking phase
   thinking_duration_ms?: number;  // ms from first thinking token → first content token
+
+  // Hardware & efficiency metrics
+  hardware?: HardwareMetrics;
+  tps_per_watt?: number;          // Efficiency: tok/s per watt
+
+  // Mode flag — true when stats come from the search agent flow
+  isAgentMode?: boolean;
 }
 
 // Component Props Types

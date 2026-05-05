@@ -7,7 +7,9 @@ import type {
   RagDataSource,
   ChatMessage,
   InferenceStats,
+  HardwareMetrics,
   TimingInfo,
+  SourceLink,
 } from "./types";
 import { getRagContext } from "./getRagContext";
 import { generatePrompt } from "./templateRenderer";
@@ -276,6 +278,14 @@ export const runInference = async (
       if (response.status === 422 && body.includes('"content"') && body.includes("string")) {
         throw new Error("This model does not support image inputs. Try a vision-capable model, or send text only.");
       }
+      if (isAgentSelected) {
+        if (response.status === 503 || response.status === 502) {
+          throw new Error("The Search Agent service is currently unavailable. Please try again in a moment or disable the Search Agent.");
+        }
+        if (response.status === 500) {
+          throw new Error("The Search Agent encountered an internal error. Please try again.");
+        }
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
@@ -302,6 +312,13 @@ export const runInference = async (
     let rafScheduled = false;
     let finishReason: string | null = null;
     let sseEventCount = 0;
+
+    // Agent-specific tracking
+    const agentSources: SourceLink[] = [];
+    const seenSourceUrls = new Set<string>();
+    let agentThinkingStarted = false;
+    let agentThinkingEndTime: number | null = null;
+    let agentFirstContentTime: number | null = null;
 
     const scheduleUiUpdate = () => {
       if (!rafScheduled) {
@@ -350,15 +367,30 @@ export const runInference = async (
           try {
             jsonData = JSON.parse(data);
           } catch {
-            // Skip malformed chunks silently
+            continue;
+          }
+
+          // Handle agent service "waiting" status (LLM not yet ready)
+          if (isAgentSelected && jsonData.status === "waiting") {
+            contentText = jsonData.message || "Search Agent is initializing, please wait…";
+            accumulatedText = contentText;
+            scheduleUiUpdate();
+            continue;
+          }
+
+          // Handle agent error responses
+          if (isAgentSelected && jsonData.error) {
+            contentText = `Error: ${jsonData.error}`;
+            accumulatedText = contentText;
+            scheduleUiUpdate();
             continue;
           }
 
           sseEventCount++;
           if (!t.firstSSE) t.firstSSE = performance.now();
 
-          // Backend custom stats chunk (sent after [DONE] by stream_response_from_external_api)
-          if (!isAgentSelected && jsonData.tokens_decoded !== undefined) {
+          // Backend custom stats chunk (sent after [DONE] or from agent [STATS] blob)
+          if (jsonData.tokens_decoded !== undefined) {
             const backendStats: InferenceStats = {
               user_ttft_s: jsonData.ttft,
               user_tpot: jsonData.tpot,
@@ -401,14 +433,46 @@ export const runInference = async (
           }
 
           // Regular content tokens
-          const content = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
+          const rawContent = delta?.content ?? jsonData.choices?.[0]?.text ?? "";
+          const content = rawContent
+            .replace(/[\[<|]*python_tag[\]>|]*/gi, "")
+            .replace(/\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"\s*,\s*"(?:parameters|arguments)"\s*:\s*\{[^}]*\}\s*\}/gi, "");
           if (content) {
             if (thinkingText && !thinkingDone) {
-              thinkingDone = true; // close thinking block once content starts arriving
+              thinkingDone = true;
             }
             if (!t.firstToken) t.firstToken = performance.now();
             metricsTracker.recordContentToken();
             contentText += content;
+
+            // Agent: extract Source: [title](url) from the accumulated text and track thinking
+            if (isAgentSelected) {
+              // Scan the full accumulated contentText for source links
+              // (individual chunks are too small to match the full pattern)
+              const sourceRegex = /Source:\s*\[([^\]]*)\]\(([^)]+)\)/g;
+              let sm;
+              while ((sm = sourceRegex.exec(contentText)) !== null) {
+                const url = sm[2].trim();
+                if (url && !seenSourceUrls.has(url)) {
+                  seenSourceUrls.add(url);
+                  agentSources.push({ title: sm[1].trim() || url, url });
+                }
+              }
+
+              if (contentText.includes("<think>") && !agentThinkingStarted) {
+                agentThinkingStarted = true;
+              }
+              if (content.includes("</think>")) {
+                agentThinkingEndTime = performance.now();
+              }
+              if (agentThinkingEndTime && !agentFirstContentTime) {
+                const afterClose = content.split("</think>").pop() || "";
+                if (afterClose.trim()) {
+                  agentFirstContentTime = performance.now();
+                }
+              }
+            }
+
             accumulatedText = thinkingText
               ? `<think>${thinkingText}</think>${contentText}`
               : contentText;
@@ -477,22 +541,115 @@ export const runInference = async (
       inferenceStats.timing = timing;
     }
 
+    // Build or augment client-side metrics for agent requests.
+    // The agent [STATS] blob may have already set inferenceStats with
+    // tokens_decoded/tpot, but we still need the agent-specific fields
+    // (search duration, total time) and the isAgentMode flag so the UI
+    // shows the Search + Response panel instead of the normal TTFT bar.
+    if (isAgentSelected) {
+      if (!inferenceStats) inferenceStats = {};
+      inferenceStats.isAgentMode = true;
+      if (t.firstToken != null && inferenceStats.client_ttft_ms == null) {
+        inferenceStats.client_ttft_ms = Math.round(t.firstToken - t.start);
+      }
+      if (agentThinkingStarted && agentThinkingEndTime && inferenceStats.thinking_duration_ms == null) {
+        inferenceStats.thinking_duration_ms = Math.round(agentThinkingEndTime - t.start);
+      }
+      if (inferenceStats.timing == null) {
+        inferenceStats.timing = timing;
+      }
+      if (inferenceStats.total_time_ms == null) {
+        inferenceStats.total_time_ms = Math.round(t.end - t.start);
+      }
+    }
+
+    // Fetch live TT device telemetry (non-blocking, best-effort)
+    if (inferenceStats) {
+      try {
+        const hwRes = await fetch("/board-api/status/");
+        if (hwRes.ok) {
+          const hwData = await hwRes.json();
+          const devices: Array<{
+            power?: number;
+            temperature?: number;
+            aiclk?: number;
+            voltage?: number;
+            board_type?: string;
+          }> = hwData.devices ?? [];
+
+          if (devices.length > 0) {
+            const totalPower = devices.reduce((s, d) => s + (d.power ?? 0), 0);
+            const avgTemp =
+              devices.reduce((s, d) => s + (d.temperature ?? 0), 0) / devices.length;
+            const avgClock =
+              devices.reduce((s, d) => s + (d.aiclk ?? 0), 0) / devices.length;
+
+            const hw: HardwareMetrics = {
+              power_watts: Math.round(totalPower * 10) / 10,
+              temperature_c: Math.round(avgTemp * 10) / 10,
+              aiclk_mhz: Math.round(avgClock),
+              voltage: devices[0].voltage,
+              board_type: hwData.board_name ?? devices[0].board_type,
+            };
+            inferenceStats.hardware = hw;
+
+            // Compute efficiency (tok/s per watt)
+            const tps =
+              inferenceStats.tps ??
+              (typeof inferenceStats.user_tpot === "number" && inferenceStats.user_tpot > 0
+                ? 1 / inferenceStats.user_tpot
+                : undefined);
+            if (tps && hw.power_watts && hw.power_watts > 0) {
+              inferenceStats.tps_per_watt =
+                Math.round((tps / hw.power_watts) * 1000) / 1000;
+            }
+          }
+        }
+      } catch {
+        // Hardware telemetry is best-effort; don't break inference flow
+      }
+    }
+
     setIsStreaming(false);
 
-    if (inferenceStats) {
+    // Attach stats and sources to the message
+    const hasSources = isAgentSelected && agentSources.length > 0;
+    if (inferenceStats || hasSources) {
       setChatHistory((prevHistory) => {
         const updatedHistory = [...prevHistory];
         const lastMessage = updatedHistory[updatedHistory.length - 1];
         if (lastMessage?.id === newMessageId) {
-          lastMessage.inferenceStats = inferenceStats;
+          if (inferenceStats) {
+            lastMessage.inferenceStats = inferenceStats;
+          }
           lastMessage.finishReason = finishReason;
           lastMessage.timing = timing;
+          if (hasSources) {
+            lastMessage.sources = agentSources;
+          }
         }
         return updatedHistory;
       });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error running inference:", error);
+
+    const errorMessage = error?.message || "An unexpected error occurred.";
+    setChatHistory((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (last?.sender === "assistant" && !last.text) {
+        last.text = errorMessage;
+      } else {
+        updated.push({
+          id: crypto.randomUUID?.() || String(Date.now()),
+          sender: "assistant",
+          text: errorMessage,
+        });
+      }
+      return updated;
+    });
+
     setIsStreaming(false);
   }
 };

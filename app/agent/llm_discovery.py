@@ -25,6 +25,8 @@ class LLMInfo:
     model_name: str
     model_type: str
     status: HealthStatus = HealthStatus.UNKNOWN
+    hf_model_id: Optional[str] = None
+    tool_calling_enabled: bool = False
 
 class LLMDiscoveryService:
     def __init__(self):
@@ -91,10 +93,10 @@ class LLMDiscoveryService:
                     health_url=model_info['health_url'],
                     model_name=model_name,
                     model_type=model_type,
-                    status=status
+                    status=status,
+                    hf_model_id=hf_model_id,
+                    tool_calling_enabled=model_info.get('tool_calling_enabled', False),
                 )
-                # Attach hf_model_id as an extra attribute
-                llm_info.hf_model_id = hf_model_id
                 
                 # Accept healthy and degraded models
                 if status in [HealthStatus.HEALTHY, HealthStatus.DEGRADED]:

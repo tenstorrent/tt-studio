@@ -279,7 +279,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None):
+def run_container(impl, weights_id, device_id=0, host_port=None, vllm_override_args=None):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -353,6 +353,9 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
         # TTS and Speech Recognition models require dev_mode for proper operation
         if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
             payload["dev_mode"] = True
+
+        if vllm_override_args:
+            payload["vllm_override_args"] = vllm_override_args
 
         logger.info(f"API payload: {payload}")
 
@@ -800,6 +803,7 @@ def update_deploy_cache():
                     deployment = ModelDeployment.objects.filter(container_id=con_id).first()
 
                     if deployment:
+                        con["tool_calling_enabled"] = getattr(deployment, "tool_calling_enabled", False)
                         # Find the model implementation by model name
                         model_impl = None
                         for k, v in model_implmentations.items():
@@ -875,6 +879,7 @@ def update_deploy_cache():
         con["model_id"] = model_impl.model_id
         con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
         con["model_impl"] = model_impl
+        con.setdefault("tool_calling_enabled", False)
         # logger.info(f"con['networks']={con["networks"]}")  # Temporarily hidden
         # handle containers not running within the tt-studio network
         if backend_config.docker_bridge_network_name in con["networks"].keys():

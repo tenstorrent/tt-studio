@@ -133,9 +133,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
   };
 
   useEffect(() => {
-    // Fetch CPU/memory once on mount (board info is handled by DeviceStateContext)
     fetchSystemResources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-hide footer when navigating to Chat UI
@@ -259,16 +257,10 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
 
   // Handle logs button click
   const handleLogsClick = () => {
-    console.log("=== FOOTER LOGS BUTTON CLICKED ===");
-    console.log("Available models:", models);
     if (models.length > 0) {
-      console.log("Footer: Opening logs for model ID:", models[0].id);
-      console.log("Footer: Model name:", models[0].name);
       const targetUrl = `/models-deployed?openLogs=${models[0].id}`;
-      console.log("Footer: Navigating to:", targetUrl);
       navigate(targetUrl);
     } else {
-      console.log("Footer: No models available, navigating to models page");
       navigate("/models-deployed");
     }
   };

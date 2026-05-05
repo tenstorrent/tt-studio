@@ -54,7 +54,6 @@ import {
 interface AnimatedIconProps {
   icon: LucideIcon;
   className?: string;
-  [key: string]: any;
 }
 
 interface NavItemProps {
@@ -83,7 +82,7 @@ interface ButtonNavItemProps {
 
 // Type for components used in action buttons
 interface ActionButtonProps {
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<Record<string, unknown>>;
   onClick: (() => void) | null;
   tooltipText: string;
 }
@@ -248,7 +247,7 @@ interface ButtonNavItemType {
 type NavItemData = NavItemType | ButtonNavItemType;
 
 interface ActionButtonType {
-  icon: React.ComponentType<any>;
+  icon: React.ComponentType<Record<string, unknown>>;
   tooltipText: string;
   onClick: (() => void) | null;
 }
@@ -497,23 +496,13 @@ export default function NavBar() {
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
   // When isDeployedEnabled is true, we assume models are already active and available
   const createModelNavItems = (): NavItemData[] => {
-    console.log(
-      "createModelNavItems called - isDeployedEnabled:",
-      isDeployedEnabled
-    );
-    console.log("models array:", models);
-    console.log("models length:", models.length);
-
     if (isDeployedEnabled) {
-      // In AI Playground mode, show navigation based on deployed models
       if (models.length > 0) {
-        // Show navigation items for each deployed model
         return models.map((model) => {
           const modelType = model.model_type
             ? getModelTypeFromBackendType(model.model_type)
             : getModelTypeFromName(model.name, model.image);
           const route = getDestinationFromModelType(modelType);
-          console.log(`Model: ${model.name}, Type: ${modelType}`);
           return {
             type: "button",
             icon: getNavIconFromModelType(modelType),
@@ -572,14 +561,11 @@ export default function NavBar() {
         ];
       }
     } else {
-      // In TT-Studio mode, show only deployed models
-      console.log("TT-Studio mode - creating navigation for deployed models");
       return models.map((model) => {
         const modelType = model.model_type
           ? getModelTypeFromBackendType(model.model_type)
           : getModelTypeFromName(model.name, model.image);
         const route = getDestinationFromModelType(modelType);
-        console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",
           icon: getNavIconFromModelType(modelType),
@@ -599,11 +585,7 @@ export default function NavBar() {
     }
   };
 
-  // Select the appropriate navigation items based on the environment variable
   const navItems: NavItemData[] = [...baseNavItems, ...createModelNavItems()];
-
-  console.log("Final navItems:", navItems);
-  console.log("navItems length:", navItems.length);
 
   // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [
