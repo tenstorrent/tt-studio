@@ -64,5 +64,9 @@ export function parseStreamingCode(text: string): string | null {
     }
   }
 
+  // Fallback: look for raw HTML document without fences (common in edit responses)
+  const docMatch = HTML_DOC_REGEX.exec(text) || HTML_TAG_REGEX.exec(text);
+  if (docMatch) return docMatch[1].trim();
+
   return null;
 }

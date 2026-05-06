@@ -10,6 +10,7 @@ import {
 } from "../components/ui/resizable";
 import { Code2, Eye, MessageSquare } from "lucide-react";
 import { fetchModels } from "../api/modelsDeployedApis";
+import type { Model } from "../contexts/ModelsContext";
 import CanvasChat from "../components/canvas/CanvasChat";
 import CanvasCodeView from "../components/canvas/CanvasCodeView";
 import CanvasPreview from "../components/canvas/CanvasPreview";
@@ -20,6 +21,7 @@ type VisiblePanel = "chat" | "code" | "preview";
 export default function CanvasPage() {
   const location = useLocation();
   const [modelId, setModelId] = useState<string | null>(null);
+  const [modelName, setModelName] = useState<string | null>(null);
   const [visiblePanels, setVisiblePanels] = useState<Set<VisiblePanel>>(
     new Set(["chat", "code", "preview"]),
   );
@@ -30,11 +32,15 @@ export default function CanvasPage() {
   useEffect(() => {
     if (location.state?.containerID) {
       setModelId(location.state.containerID);
+      if (location.state?.modelName) {
+        setModelName(location.state.modelName);
+      }
     } else if (!isDeployedEnabled) {
       fetchModels()
-        .then((models) => {
+        .then((models: Model[]) => {
           if (models.length > 0) {
             setModelId(models[0].id || null);
+            setModelName(models[0].name || null);
           }
         })
         .catch(() => {});
@@ -48,6 +54,8 @@ export default function CanvasPage() {
     streamingText,
     streamingThinking,
     previewErrors,
+    creativity,
+    setCreativity,
     sendMessage,
     stopStreaming,
     resetCanvas,
@@ -132,6 +140,9 @@ export default function CanvasPage() {
                     hasCode={!!currentCode}
                     modelId={modelId}
                     isCloudMode={isDeployedEnabled}
+                    modelName={isDeployedEnabled ? (import.meta.env.VITE_CANVAS_MODEL || "Llama-3.3-70B") : modelName}
+                    creativity={creativity}
+                    onCreativityChange={setCreativity}
                   />
                 </ResizablePanel>
                 {(visiblePanels.has("code") ||

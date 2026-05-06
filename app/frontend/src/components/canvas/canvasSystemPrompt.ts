@@ -19,29 +19,61 @@ RULES:
 
 WHEN EDITING EXISTING CODE:
 - Current code is provided in a <current_code> block.
-- Return the COMPLETE updated HTML document — no partial diffs.
+- You MUST return the COMPLETE updated HTML document inside a \`\`\`html fenced block — no partial diffs, no snippets.
 - Preserve parts the user did not ask to change. Fix any bugs you notice.
+- NEVER respond with only an explanation. ALWAYS include the full updated code.
 
 RESPONSE FORMAT:
 One brief sentence about the approach, then the complete \`\`\`html code block. Nothing after the code block.`;
+
+export type MessageContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >;
+
+export interface CanvasFileAttachment {
+  type: "image_url";
+  image_url: { url: string };
+  name: string;
+}
 
 export function buildCanvasMessages(
   userMessage: string,
   currentCode: string | null,
   conversationHistory: { role: "user" | "assistant"; content: string }[],
-): { role: "system" | "user" | "assistant"; content: string }[] {
-  const messages: { role: "system" | "user" | "assistant"; content: string }[] =
+  files?: CanvasFileAttachment[],
+): { role: "system" | "user" | "assistant"; content: MessageContent }[] {
+  const messages: { role: "system" | "user" | "assistant"; content: MessageContent }[] =
     [{ role: "system", content: CANVAS_SYSTEM_PROMPT }];
 
   for (const msg of conversationHistory) {
     messages.push({ role: msg.role, content: msg.content });
   }
 
-  let userContent = userMessage;
+  let textContent = userMessage;
   if (currentCode) {
-    userContent = `<current_code>\n${currentCode}\n</current_code>\n\n${userMessage}`;
+    textContent = `<current_code>\n${currentCode}\n</current_code>\n\n${userMessage}`;
   }
 
-  messages.push({ role: "user", content: userContent });
+  const imageFiles = files?.filter((f) => f.type === "image_url") ?? [];
+
+  if (imageFiles.length > 0) {
+    const contentParts: Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    > = [];
+
+    for (const img of imageFiles) {
+      contentParts.push({ type: "image_url", image_url: img.image_url });
+    }
+    contentParts.push({ type: "text", text: textContent });
+
+    messages.push({ role: "user", content: contentParts });
+  } else {
+    messages.push({ role: "user", content: textContent });
+  }
+
   return messages;
 }

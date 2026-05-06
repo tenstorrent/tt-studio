@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, type UIEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, Code2, Download, Brain } from "lucide-react";
 import { codeToHtml } from "shiki";
@@ -22,6 +22,7 @@ export default function CanvasCodeView({
   const [highlighted, setHighlighted] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
 
   const displayCode = code || "";
 
@@ -47,10 +48,26 @@ export default function CanvasCodeView({
   const isThinking = isStreaming && !streamingText && !!streamingThinking;
 
   useEffect(() => {
-    if (isStreaming && scrollRef.current) {
+    if (!isStreaming) {
+      userScrolledUp.current = false;
+    }
+  }, [isStreaming]);
+
+  useEffect(() => {
+    if (isStreaming && scrollRef.current && !userScrolledUp.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [streamingText, streamingThinking, isStreaming]);
+
+  const handleScroll = useCallback(
+    (e: UIEvent<HTMLDivElement>) => {
+      if (!isStreaming) return;
+      const el = e.currentTarget;
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      userScrolledUp.current = distFromBottom > 40;
+    },
+    [isStreaming],
+  );
 
   const handleCopy = useCallback(async () => {
     if (!displayCode) return;
@@ -143,6 +160,7 @@ export default function CanvasCodeView({
       {/* Code content */}
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="grow overflow-auto bg-[#0d1117] text-sm text-left [&_*]:text-left"
       >
         {isThinking ? (

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { buildCanvasMessages } from "./canvasSystemPrompt";
+import type { CanvasFileAttachment } from "./canvasSystemPrompt";
 import {
   parseCanvasResponse,
   parseStreamingCode,
@@ -13,6 +14,7 @@ export interface CanvasChatMessage {
   role: "user" | "assistant";
   content: string;
   thinking?: string;
+  files?: Array<{ name: string; url: string }>;
 }
 
 export interface CanvasError {
@@ -21,6 +23,40 @@ export interface CanvasError {
   col?: number;
 }
 
+export type CanvasCreativity = "low" | "medium" | "high";
+
+const STORAGE_KEY = "canvas-session-state";
+
+interface PersistedCanvasState {
+  messages: CanvasChatMessage[];
+  currentCode: string | null;
+  creativity: CanvasCreativity;
+}
+
+function loadPersistedState(): PersistedCanvasState | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedCanvasState;
+  } catch {
+    return null;
+  }
+}
+
+function persistState(state: PersistedCanvasState): void {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Storage full or unavailable - silently ignore
+  }
+}
+
+const CREATIVITY_TEMP: Record<CanvasCreativity, number> = {
+  low: 0.3,
+  medium: 0.7,
+  high: 1.0,
+};
+
 interface UseCanvasStateReturn {
   messages: CanvasChatMessage[];
   currentCode: string | null;
@@ -28,7 +64,9 @@ interface UseCanvasStateReturn {
   streamingText: string;
   streamingThinking: string;
   previewErrors: CanvasError[];
-  sendMessage: (text: string) => Promise<void>;
+  creativity: CanvasCreativity;
+  setCreativity: (c: CanvasCreativity) => void;
+  sendMessage: (text: string, files?: CanvasFileAttachment[]) => Promise<void>;
   stopStreaming: () => void;
   resetCanvas: () => void;
   setPreviewErrors: (errors: CanvasError[]) => void;
@@ -51,14 +89,27 @@ export function useCanvasState(
   modelId: string | null,
   isAgentSelected: boolean,
 ): UseCanvasStateReturn {
-  const [messages, setMessages] = useState<CanvasChatMessage[]>([]);
-  const [currentCode, setCurrentCode] = useState<string | null>(null);
+  const persisted = useRef(loadPersistedState()).current;
+
+  const [messages, setMessages] = useState<CanvasChatMessage[]>(
+    persisted?.messages ?? [],
+  );
+  const [currentCode, setCurrentCode] = useState<string | null>(
+    persisted?.currentCode ?? null,
+  );
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [streamingThinking, setStreamingThinking] = useState("");
   const [previewErrors, setPreviewErrors] = useState<CanvasError[]>([]);
+  const [creativity, setCreativity] = useState<CanvasCreativity>(
+    persisted?.creativity ?? "medium",
+  );
 
   const controllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    persistState({ messages, currentCode, creativity });
+  }, [messages, currentCode, creativity]);
 
   const stopStreaming = useCallback(() => {
     controllerRef.current?.abort();
@@ -67,13 +118,14 @@ export function useCanvasState(
   }, []);
 
   const sendMessage = useCallback(
-    async (text: string) => {
-      if (!text.trim()) return;
+    async (text: string, files?: CanvasFileAttachment[]) => {
+      if (!text.trim() && (!files || files.length === 0)) return;
 
       const userMsg: CanvasChatMessage = {
         id: nextId(),
         role: "user",
         content: text,
+        files: files?.map((f) => ({ name: f.name, url: f.image_url.url })),
       };
       setMessages((prev) => [...prev, userMsg]);
       setIsStreaming(true);
@@ -92,6 +144,7 @@ export function useCanvasState(
         text,
         currentCode,
         conversationHistory,
+        files,
       );
 
       const apiUrlDefined =
@@ -111,7 +164,7 @@ export function useCanvasState(
 
       const requestBody: Record<string, unknown> = {
         messages: apiMessages,
-        temperature: 0.7,
+        temperature: CREATIVITY_TEMP[creativity],
         max_tokens: 8192,
         top_p: 0.95,
         stream: true,
@@ -280,7 +333,7 @@ export function useCanvasState(
       setStreamingThinking("");
       controllerRef.current = null;
     },
-    [messages, currentCode, modelId, isAgentSelected],
+    [messages, currentCode, modelId, isAgentSelected, creativity],
   );
 
   const resetCanvas = useCallback(() => {
@@ -290,6 +343,7 @@ export function useCanvasState(
     setStreamingText("");
     setStreamingThinking("");
     setPreviewErrors([]);
+    sessionStorage.removeItem(STORAGE_KEY);
   }, [stopStreaming]);
 
   return {
@@ -299,6 +353,8 @@ export function useCanvasState(
     streamingText,
     streamingThinking,
     previewErrors,
+    creativity,
+    setCreativity,
     sendMessage,
     stopStreaming,
     resetCanvas,

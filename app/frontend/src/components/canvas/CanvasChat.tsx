@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -17,20 +17,31 @@ import {
   Brain,
   AlertCircle,
   Rocket,
+  Cpu,
+  Cloud,
+  Thermometer,
+  Paperclip,
+  X,
+  Image as ImageIcon,
 } from "lucide-react";
 import type { CanvasChatMessage } from "./useCanvasState";
+import type { CanvasCreativity } from "./useCanvasState";
+import type { CanvasFileAttachment } from "./canvasSystemPrompt";
 
 interface CanvasChatProps {
   messages: CanvasChatMessage[];
   isStreaming: boolean;
   streamingText: string;
   streamingThinking: string;
-  onSend: (text: string) => void;
+  onSend: (text: string, files?: CanvasFileAttachment[]) => void;
   onStop: () => void;
   onReset: () => void;
   hasCode: boolean;
   modelId: string | null;
   isCloudMode: boolean;
+  modelName: string | null;
+  creativity: CanvasCreativity;
+  onCreativityChange: (c: CanvasCreativity) => void;
 }
 
 const STARTER_PROMPTS = [
@@ -129,6 +140,12 @@ function ThinkingBlock({
   );
 }
 
+const CREATIVITY_OPTIONS: { value: CanvasCreativity; label: string }[] = [
+  { value: "low", label: "Precise" },
+  { value: "medium", label: "Balanced" },
+  { value: "high", label: "Creative" },
+];
+
 export default function CanvasChat({
   messages,
   isStreaming,
@@ -140,28 +157,100 @@ export default function CanvasChat({
   hasCode,
   modelId,
   isCloudMode,
+  modelName,
+  creativity,
+  onCreativityChange,
 }: CanvasChatProps) {
   const navigate = useNavigate();
   const [input, setInput] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<CanvasFileAttachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
   const needsModel = !isCloudMode && !modelId;
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (!isStreaming) userScrolledUp.current = false;
+  }, [isStreaming]);
+
+  useEffect(() => {
+    if (scrollRef.current && !userScrolledUp.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, streamingText, streamingThinking]);
+
+  const handleChatScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUp.current = distFromBottom > 40;
+  }, []);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
+  const processImageFile = useCallback(async (file: File) => {
+    const MAX_SIZE = 10 * 1024 * 1024;
+    if (file.size > MAX_SIZE) return;
+    if (!file.type.startsWith("image/")) return;
+
+    return new Promise<CanvasFileAttachment | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        resolve({
+          type: "image_url",
+          image_url: { url: `data:${file.type};base64,${base64}` },
+          name: file.name,
+        });
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+      const results = await Promise.all(imageFiles.map(processImageFile));
+      const valid = results.filter(Boolean) as CanvasFileAttachment[];
+      if (valid.length > 0) {
+        setAttachedFiles((prev) => [...prev, ...valid]);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    [processImageFile],
+  );
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      const files = Array.from(e.dataTransfer.files);
+      const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+      const results = await Promise.all(imageFiles.map(processImageFile));
+      const valid = results.filter(Boolean) as CanvasFileAttachment[];
+      if (valid.length > 0) {
+        setAttachedFiles((prev) => [...prev, ...valid]);
+      }
+    },
+    [processImageFile],
+  );
+
+  const removeFile = useCallback((index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!input.trim() || isStreaming || needsModel) return;
-    onSend(input.trim());
+    if ((!input.trim() && attachedFiles.length === 0) || isStreaming || needsModel) return;
+    onSend(input.trim(), attachedFiles.length > 0 ? attachedFiles : undefined);
     setInput("");
+    setAttachedFiles([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -172,7 +261,7 @@ export default function CanvasChat({
   };
 
   const handleStarterClick = (prompt: string) => {
-    onSend(prompt);
+    onSend(prompt, undefined);
   };
 
   const isEmpty = messages.length === 0;
@@ -200,7 +289,7 @@ export default function CanvasChat({
       </div>
 
       {/* Messages area */}
-      <div ref={scrollRef} className="grow overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} onScroll={handleChatScroll} className="grow overflow-y-auto px-4 py-3">
         {needsModel ? (
           <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
             <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
@@ -283,6 +372,15 @@ export default function CanvasChat({
                   {msg.role === "assistant" && msg.thinking && (
                     <ThinkingBlock thinking={msg.thinking} isLive={false} />
                   )}
+                  {msg.files && msg.files.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {msg.files.map((f, i) => (
+                        <div key={i} className="w-16 h-16 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                          <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <p className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-words leading-relaxed text-left">
                     {msg.content}
                   </p>
@@ -360,7 +458,50 @@ export default function CanvasChat({
       </div>
 
       {/* Input area */}
-      <div className="px-3 pb-3 pt-1 shrink-0">
+      <div
+        className="px-3 pb-3 pt-1 shrink-0 space-y-1.5"
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+      >
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-violet-500/10 border-2 border-dashed border-violet-400 rounded-xl backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-2">
+              <ImageIcon className="w-6 h-6 text-violet-400" />
+              <span className="text-xs font-medium text-violet-400">Drop image here</span>
+            </div>
+          </div>
+        )}
+
+        {/* File previews */}
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-1">
+            {attachedFiles.map((file, idx) => (
+              <div
+                key={`${file.name}-${idx}`}
+                className="relative group w-12 h-12 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700"
+              >
+                <img
+                  src={file.image_url.url}
+                  alt={file.name}
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeFile(idx)}
+                  className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+                <div className="absolute bottom-0 inset-x-0 bg-black/60 px-0.5 py-px">
+                  <span className="text-[8px] text-white truncate block">{file.name}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="relative">
           <textarea
             ref={inputRef}
@@ -373,8 +514,28 @@ export default function CanvasChat({
                 : "Describe what to build..."
             }
             rows={2}
-            className="w-full resize-none rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2.5 pr-10 text-xs text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-400/50 focus:border-violet-400 transition-all"
+            className="w-full resize-none rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-9 py-2.5 pr-10 text-xs text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-violet-400/50 focus:border-violet-400 transition-all"
           />
+          {/* Attach button */}
+          <div className="absolute left-2 bottom-2.5">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+              title="Attach image"
+            >
+              <Paperclip className="w-3.5 h-3.5 text-zinc-400" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+          </div>
+          {/* Send/Stop button */}
           <div className="absolute right-2 bottom-2.5">
             {isStreaming ? (
               <button
@@ -388,7 +549,7 @@ export default function CanvasChat({
             ) : (
               <button
                 type="submit"
-                disabled={!input.trim()}
+                disabled={!input.trim() && attachedFiles.length === 0}
                 className="p-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed transition-colors"
                 title="Send"
               >
@@ -397,6 +558,51 @@ export default function CanvasChat({
             )}
           </div>
         </form>
+
+        {/* Model & creativity bar */}
+        <div className="flex items-center justify-between gap-2 px-1">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Mode badge */}
+            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+              {isCloudMode ? (
+                <Cloud className="w-3 h-3 text-sky-400" />
+              ) : (
+                <Cpu className="w-3 h-3 text-violet-400" />
+              )}
+              <span className="text-[10px] font-medium text-zinc-600 dark:text-zinc-300">
+                {isCloudMode ? "Cloud" : "Local"}
+              </span>
+            </div>
+
+            {/* Model name */}
+            {modelName && (
+              <span className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate max-w-32" title={modelName}>
+                {modelName}
+              </span>
+            )}
+          </div>
+
+          {/* Creativity selector */}
+          <div className="flex items-center gap-1">
+            <Thermometer className="w-3 h-3 text-zinc-400" />
+            <div className="flex rounded-md border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+              {CREATIVITY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => onCreativityChange(opt.value)}
+                  className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                    creativity === opt.value
+                      ? "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300"
+                      : "text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
