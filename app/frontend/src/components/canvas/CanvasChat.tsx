@@ -291,25 +291,32 @@ export default function CanvasChat({
       {/* Messages area */}
       <div ref={scrollRef} onScroll={handleChatScroll} className="grow overflow-y-auto px-4 py-3">
         {needsModel ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
+          <div className="flex flex-col items-center justify-center h-full gap-5 px-6">
             <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
               <AlertCircle className="w-5 h-5 text-amber-400" />
             </div>
             <div className="text-center space-y-1.5">
               <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-                No model deployed
+                No model available
               </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-52 leading-relaxed">
-                Canvas needs a running model to generate code. Deploy a model first to get started.
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-56 leading-relaxed">
+                Canvas needs a running model to generate code. Either deploy a local model or enable cloud inference.
               </p>
             </div>
-            <button
-              onClick={() => navigate("/models-deployed")}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors"
-            >
-              <Rocket className="w-3.5 h-3.5" />
-              Deploy a Model
-            </button>
+            <div className="flex flex-col gap-2 w-full max-w-52">
+              <button
+                onClick={() => navigate("/models-deployed")}
+                className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium transition-colors w-full"
+              >
+                <Rocket className="w-3.5 h-3.5" />
+                Deploy a Model
+              </button>
+              <div className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 text-zinc-400 dark:text-zinc-500 text-xs font-medium w-full cursor-not-allowed">
+                <Cloud className="w-3.5 h-3.5" />
+                Enable Cloud Inference
+                <span className="text-[9px] text-zinc-400 dark:text-zinc-600">(set in .env)</span>
+              </div>
+            </div>
           </div>
         ) : isEmpty && !isStreaming ? (
           <div className="flex flex-col items-center justify-center h-full gap-5">
