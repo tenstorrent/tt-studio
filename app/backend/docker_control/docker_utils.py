@@ -685,13 +685,27 @@ def parse_env_var_str(env_var_list):
 def get_container_status():
     containers = get_managed_containers()
 
-    # Build container_id → device_id lookup from deployment database
+    # Build container_id → device slot lookup from deployment database
     device_id_lookup: dict = {}
+    device_ids_lookup: dict = {}
     try:
         for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
             device_id_lookup[dep.container_id] = dep.device_id
+            dep_device_ids = getattr(dep, "device_ids", None)
+            if isinstance(dep_device_ids, list) and dep_device_ids:
+                normalized = []
+                for slot_id in dep_device_ids:
+                    try:
+                        normalized.append(int(slot_id))
+                    except (TypeError, ValueError):
+                        continue
+                if normalized:
+                    device_ids_lookup[dep.container_id] = normalized
+                    continue
+            if dep.device_id is not None:
+                device_ids_lookup[dep.container_id] = [dep.device_id]
     except Exception as e:
-        logger.warning(f"Could not load device_id lookup: {e}")
+        logger.warning(f"Could not load device slot lookup: {e}")
 
     data = {}
     for con in containers:
@@ -716,6 +730,7 @@ def get_container_status():
                 },
                 "env_vars": parse_env_var_str(env_list),
                 "device_id": device_id_lookup.get(con.id),
+                "device_ids": device_ids_lookup.get(con.id),
             }
         except Exception as e:
             # A single malformed container payload should never fail the entire

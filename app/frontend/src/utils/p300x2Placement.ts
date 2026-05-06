@@ -6,10 +6,7 @@ export interface ChipStatusSlotLike {
   status: string;
 }
 
-const CARD_PAIRS = [
-  [0, 1],
-  [2, 3],
-] as const;
+const LLAMA_P300X2_PAIR = [0, 1] as const;
 
 function normalizeToken(value: string): string {
   return value.toLowerCase().replace(/[\s_]/g, "");
@@ -44,10 +41,7 @@ export function parseDeviceIds(deviceId?: string | number): number[] {
 
 export function isCardPairSelection(deviceIds: number[]): boolean {
   const normalized = toSortedUnique(deviceIds);
-  return (
-    (normalized.length === 2 && normalized[0] === 0 && normalized[1] === 1) ||
-    (normalized.length === 2 && normalized[0] === 2 && normalized[1] === 3)
-  );
+  return normalized.length === 2 && normalized[0] === 0 && normalized[1] === 1;
 }
 
 export function pickPreferredAvailablePair(
@@ -57,10 +51,8 @@ export function pickPreferredAvailablePair(
   const available = new Set(
     slots.filter((slot) => slot.status === "available").map((slot) => slot.slot_id)
   );
-  for (const pair of CARD_PAIRS) {
-    if (pair.every((slotId) => available.has(slotId))) {
-      return [...pair];
-    }
+  if (LLAMA_P300X2_PAIR.every((slotId) => available.has(slotId))) {
+    return [...LLAMA_P300X2_PAIR];
   }
   return null;
 }

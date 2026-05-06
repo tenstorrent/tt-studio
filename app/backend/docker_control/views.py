@@ -72,6 +72,11 @@ except Exception:
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
+
+def _is_llama31_8b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "llama-3.1-8b" in token or "llama3.18b" in token
+
 class StopView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = StopSerializer(data=request.data)
@@ -420,10 +425,18 @@ class DeployView(APIView):
                     device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                 else:
                     device = map_board_type_to_device_name(board_type)
+                # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
+                # should run with --tt-device p300 (not p150).
+                if (
+                    board_type == "P300Cx2"
+                    and _is_llama31_8b_model(impl.model_name)
+                    and sorted(device_ids) == [0, 1]
+                ):
+                    device = "p300"
                 # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
                 # server selects the physical chip itself — omit device_id entirely.
-                # For single-chip p150 mode on QB2, pass device_id so each model lands
-                # on its allocated slot (enabling two single-chip models side-by-side).
+                # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
+                # lands on its allocated slot(s).
                 if board_type == "P300Cx2" and device == "p300x2":
                     inference_device_id = None
                 else:

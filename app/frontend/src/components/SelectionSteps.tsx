@@ -243,7 +243,7 @@ export default function StepperDemo() {
       const pair = pickPreferredAvailablePair(chipStatus?.slots);
       if (!pair) {
         customToast.error(
-          "Llama 3.1 8B on P300Cx2 needs one free card pair (0,1 preferred, else 2,3)."
+          "Llama 3.1 8B on P300Cx2 needs both devices 0 and 1 free."
         );
         return { success: false };
       }

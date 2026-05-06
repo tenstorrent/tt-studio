@@ -3,6 +3,7 @@
 # SPDX-FileCopyrightText: © 2024 Tenstorrent AI ULC
 
 from dataclasses import dataclass
+from typing import List, Optional
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -15,8 +16,8 @@ class _FakeDeployment:
     id: int
     model_name: str
     device_id: int
-    device_ids: list[int] | None = None
-    port: int | None = None
+    device_ids: Optional[List[int]] = None
+    port: Optional[int] = None
 
 
 class ChipAllocatorDeviceIdsTests(TestCase):
