@@ -50,6 +50,41 @@ def _sort_key(record: dict, field: str):
     return val  # ISO strings sort lexicographically = chronologically
 
 
+def _normalize_device_ids(device_ids: Any, fallback_device_id: Any = 0) -> List[int]:
+    """Normalize device IDs into a non-empty list of integers."""
+    if device_ids is None:
+        raw_items = [fallback_device_id]
+    elif isinstance(device_ids, str):
+        raw_items = [part.strip() for part in device_ids.split(",")]
+    elif isinstance(device_ids, (list, tuple, set)):
+        raw_items = list(device_ids)
+    else:
+        raw_items = [device_ids]
+
+    normalized: List[int] = []
+    for item in raw_items:
+        try:
+            normalized.append(int(item))
+        except (TypeError, ValueError):
+            continue
+
+    if not normalized:
+        try:
+            return [int(fallback_device_id)]
+        except (TypeError, ValueError):
+            return [0]
+
+    # De-duplicate while preserving order.
+    deduped: List[int] = []
+    seen = set()
+    for device_id in normalized:
+        if device_id in seen:
+            continue
+        seen.add(device_id)
+        deduped.append(device_id)
+    return deduped
+
+
 def _load_raw() -> dict:
     if not _STORE_PATH.exists():
         return {"next_id": 1, "records": []}
@@ -144,6 +179,10 @@ class _Manager:
     def create(self, **kwargs) -> "ModelDeployment":
         with _lock:
             data = _load_raw()
+            normalized_device_ids = _normalize_device_ids(
+                kwargs.get("device_ids"),
+                kwargs.get("device_id", 0),
+            )
             record = {
                 "id": data["next_id"],
                 "container_id": kwargs.get("container_id", ""),
@@ -155,7 +194,8 @@ class _Manager:
                 "status": kwargs.get("status", "running"),
                 "stopped_by_user": kwargs.get("stopped_by_user", False),
                 "port": kwargs.get("port", None),
-                "device_id": kwargs.get("device_id", 0),
+                "device_id": normalized_device_ids[0],
+                "device_ids": normalized_device_ids,
                 "workflow_log_path": kwargs.get("workflow_log_path", None),
             }
             data["next_id"] += 1
@@ -193,6 +233,7 @@ class ModelDeployment:
         self.stopped_by_user: bool = False
         self.port: Optional[int] = None
         self.device_id: int = 0
+        self.device_ids: List[int] = [0]
         self.workflow_log_path: Optional[str] = None
 
     @classmethod
@@ -208,7 +249,12 @@ class ModelDeployment:
         obj.status = d.get("status", "running")
         obj.stopped_by_user = d.get("stopped_by_user", False)
         obj.port = d.get("port")
-        obj.device_id = d.get("device_id", 0)
+        normalized_device_ids = _normalize_device_ids(
+            d.get("device_ids"),
+            d.get("device_id", 0),
+        )
+        obj.device_ids = normalized_device_ids
+        obj.device_id = normalized_device_ids[0]
         obj.workflow_log_path = d.get("workflow_log_path")
         return obj
 
@@ -224,7 +270,8 @@ class ModelDeployment:
             "status": self.status,
             "stopped_by_user": self.stopped_by_user,
             "port": self.port,
-            "device_id": self.device_id,
+            "device_id": self.device_ids[0] if self.device_ids else self.device_id,
+            "device_ids": self.device_ids if self.device_ids else [self.device_id],
             "workflow_log_path": self.workflow_log_path,
         }
 

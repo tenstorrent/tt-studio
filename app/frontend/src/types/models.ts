@@ -13,6 +13,7 @@ export interface ModelRow {
   ports?: string;
   model_type?: string;
   device_id?: number | null;
+  device_ids?: number[];
 }
 
 export interface ColumnVisibilityMap {

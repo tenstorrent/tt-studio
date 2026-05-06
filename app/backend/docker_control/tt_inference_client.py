@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import requests
 
@@ -25,7 +25,7 @@ def start_chat_deployment(
     *,
     model_name: str,
     device: str,
-    device_id: Optional[int] = None,
+    device_id: Optional[Union[int, str]] = None,
     service_port: Optional[int] = None,
     fastapi_run_url: str = "http://172.18.0.1:8001/run",
     timeout_seconds: int = 30,

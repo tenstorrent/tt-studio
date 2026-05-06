@@ -39,7 +39,7 @@ from .docker_utils import (
 )
 from .tt_inference_client import start_chat_deployment
 from .docker_control_client import get_docker_client
-from shared_config.model_config import model_implmentations
+from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
@@ -71,6 +71,11 @@ except Exception:
 
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
+
+
+def _is_llama31_8b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "llama-3.1-8b" in token or "llama3.18b" in token
 
 class StopView(APIView):
     def post(self, request, *args, **kwargs):
@@ -308,13 +313,42 @@ class DeployView(APIView):
             # for multi-chip single-card deployments (--device-id 0,1).
             raw_device_id = request.data.get("device_id")
             if raw_device_id is not None:
-                device_id_parts = [int(x.strip()) for x in str(raw_device_id).split(",")]
-                manual_device_id = device_id_parts[0]  # primary slot for allocation
+                requested_device_ids = [
+                    int(x.strip()) for x in str(raw_device_id).split(",") if str(x).strip() != ""
+                ]
+                if not requested_device_ids:
+                    requested_device_ids = [0]
+                manual_device_id = requested_device_ids[0]  # primary slot for allocation
             else:
-                device_id_parts = None
+                requested_device_ids = []
                 manual_device_id = None
 
             impl = model_implmentations[impl_id]
+            chips_required = infer_chips_required(impl.device_configurations)
+
+            # Stop and clean up any existing starting/running deployments of this
+            # model before deploying a new instance. Prevents stale records with
+            # wrong device_id from persisting in the UI after a re-deploy.
+            try:
+                from docker_control.models import ModelDeployment
+                from docker_control.docker_utils import stop_container
+                stale = list(ModelDeployment.objects.filter(
+                    model_name=impl.model_name,
+                    status__in=["starting", "running"],
+                ))
+                for old_dep in stale:
+                    try:
+                        stop_container(old_dep.container_id)
+                    except Exception:
+                        pass
+                    old_dep.status = "stopped"
+                    old_dep.save()
+                    logger.info(
+                        f"Cleaned up stale deployment record {old_dep.id} "
+                        f"for {impl.model_name} (container_id={old_dep.container_id})"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not clean up stale deployments for {impl.model_name}: {e}")
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
@@ -324,12 +358,42 @@ class DeployView(APIView):
                     impl.model_name,
                     manual_override=manual_device_id
                 )
-                # If multiple device IDs were requested, use them all for the inference
-                # server call; otherwise fall back to the single allocated slot.
-                if device_id_parts and len(device_id_parts) > 1:
-                    device_ids_str = ",".join(str(d) for d in device_id_parts)
+                # If multiple device IDs were requested, validate every slot and pass
+                # them all to the inference server call; otherwise use the allocated slot.
+                if requested_device_ids and len(requested_device_ids) > 1:
+                    if chips_required != 1:
+                        return Response(
+                            {
+                                "status": "error",
+                                "error_type": "allocation_failed",
+                                "message": (
+                                    f"{impl.model_name} does not support explicit multi-slot "
+                                    "single-card device_id selection."
+                                ),
+                            },
+                            status=status.HTTP_409_CONFLICT,
+                        )
+                    normalized_requested_device_ids = []
+                    for requested_slot in requested_device_ids:
+                        if requested_slot in normalized_requested_device_ids:
+                            continue
+                        validation = allocator._validate_manual_allocation(
+                            requested_slot, 1, impl.model_name
+                        )
+                        if not validation["valid"]:
+                            return Response(
+                                {
+                                    "status": "error",
+                                    "error_type": "allocation_failed",
+                                    "message": validation["message"],
+                                },
+                                status=status.HTTP_409_CONFLICT,
+                            )
+                        normalized_requested_device_ids.append(requested_slot)
+                    device_ids = normalized_requested_device_ids
                 else:
-                    device_ids_str = str(device_id)
+                    device_ids = [device_id]
+                device_ids_str = ",".join(str(d) for d in device_ids)
                 logger.info(f"Allocated device_id={device_id} (request={device_ids_str}) for {impl.model_name}")
 
             except MultiChipConflictError as e:
@@ -356,17 +420,23 @@ class DeployView(APIView):
             # We call it directly here so we can return job_id immediately for progress polling,
             # without requiring docker_utils.py to handle async "job started" responses.
             if impl.model_type == ModelTypes.CHAT:
-                from shared_config.model_config import infer_chips_required
                 board_type = detect_board_type()
-                chips_required = infer_chips_required(impl.device_configurations)
                 if chips_required == 1:
                     device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                 else:
                     device = map_board_type_to_device_name(board_type)
+                # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
+                # should run with --tt-device p300 (not p150).
+                if (
+                    board_type == "P300Cx2"
+                    and _is_llama31_8b_model(impl.model_name)
+                    and sorted(device_ids) == [0, 1]
+                ):
+                    device = "p300"
                 # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
                 # server selects the physical chip itself — omit device_id entirely.
-                # For single-chip p150 mode on QB2, pass device_id so each model lands
-                # on its allocated slot (enabling two single-chip models side-by-side).
+                # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
+                # lands on its allocated slot(s).
                 if board_type == "P300Cx2" and device == "p300x2":
                     inference_device_id = None
                 else:
@@ -415,6 +485,7 @@ class DeployView(APIView):
                         model_name=impl.model_name,
                         device=device,
                         device_id=device_id,
+                        device_ids=device_ids,
                         status="starting",
                         port=service_port,
                     )

@@ -13,6 +13,11 @@ import { DeployModelStep } from "./DeployModelStep";
 import { FirstStepForm } from "./FirstStepForm";
 import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
+import {
+  isLlama31_8BModel,
+  isP300x2Board,
+  pickPreferredAvailablePair,
+} from "../utils/p300x2Placement";
 
 const dockerAPIURL = "/docker-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
@@ -230,6 +235,21 @@ export default function StepperDemo() {
     const model_id = selectedModel || "0";
     const weights_id = ""; // Always use default weights
 
+    let resolvedDeviceId = options?.device_id;
+    const shouldForceLlamaPair =
+      isP300x2Board(chipStatus?.board_type) &&
+      isLlama31_8BModel(selectedModelName ?? selectedModel ?? "");
+    if (shouldForceLlamaPair) {
+      const pair = pickPreferredAvailablePair(chipStatus?.slots);
+      if (!pair) {
+        customToast.error(
+          "Llama 3.1 8B on P300Cx2 needs both devices 0 and 1 free."
+        );
+        return { success: false };
+      }
+      resolvedDeviceId = pair.join(",");
+    }
+
     // Only include device_id when explicitly provided — omitting it lets the backend
     // auto-allocate the best slot (required for QB2 simplified flow).
     const payloadObj: Record<string, unknown> = {
@@ -238,12 +258,17 @@ export default function StepperDemo() {
       host_port: options?.host_port ?? null,
       use_image_override: useImageOverride,
     };
-    if (options?.device_id !== undefined) {
-      payloadObj.device_id = options.device_id;
+    if (resolvedDeviceId !== undefined) {
+      payloadObj.device_id = resolvedDeviceId;
     }
     const payload = JSON.stringify(payloadObj);
 
-    console.log("📦 Deploying with options:", { model_id, weights_id, ...options });
+    console.log("📦 Deploying with options:", {
+      model_id,
+      weights_id,
+      ...options,
+      resolvedDeviceId,
+    });
 
     console.log("Deployment payload:", payload);
     console.log("Deployment URL:", deployUrl);
