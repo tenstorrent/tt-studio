@@ -15,8 +15,9 @@ import {
   Mic,
   Volume2,
   ScanFace,
-  ChevronRight,
-  ChevronLeft,
+  ChevronDown,
+  Cog,
+  Menu,
   type LucideIcon,
   History,
 } from "lucide-react";
@@ -49,6 +50,7 @@ import {
   getModelTypeFromName,
   getModelTypeFromBackendType,
 } from "../api/modelsDeployedApis";
+import { useHeroSection } from "../hooks/useHeroSection";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -132,7 +134,7 @@ const NavItem: React.FC<NavItemProps> = ({
             <TooltipTrigger asChild>
               <AnimatedIcon
                 icon={Icon}
-                className={`${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+                className={`${iconColor} transition-colors duration-200 ease-in-out hover:text-TT-purple-accent shrink-0`}
               />
             </TooltipTrigger>
             <TooltipContent>
@@ -143,9 +145,9 @@ const NavItem: React.FC<NavItemProps> = ({
           <>
             <AnimatedIcon
               icon={Icon}
-              className={`mr-2 ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+              className={`mr-2 ${iconColor} transition-colors duration-200 ease-in-out hover:text-TT-purple-accent shrink-0`}
             />
-            <span>{label}</span>
+            <span className="whitespace-nowrap">{label}</span>
           </>
         )}
       </NavLink>
@@ -176,9 +178,11 @@ const ButtonNavItem: React.FC<ButtonNavItemProps> = ({
           } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
         >
           <Icon
-            className={`${isChatUI || isMobile ? "" : "mr-2"} ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+            className={`${isChatUI || isMobile ? "" : "mr-2"} ${iconColor} transition-colors duration-200 ease-in-out hover:text-TT-purple-accent shrink-0`}
           />
-          {!isChatUI && !isMobile && <span>{label}</span>}
+          {!isChatUI && !isMobile && (
+            <span className="whitespace-nowrap">{label}</span>
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent>
@@ -253,7 +257,31 @@ interface ActionButtonType {
   onClick: (() => void) | null;
 }
 
+function HeroSectionToggleMenuItem({
+  showHero,
+  setShowHero,
+}: {
+  showHero: boolean;
+  setShowHero: (val: boolean) => void;
+}) {
+  const handleToggle = () => {
+    const newVal = !showHero;
+    setShowHero(newVal);
+    localStorage.setItem("showHeroSection", newVal ? "true" : "false");
+  };
+  return (
+    <button
+      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
+      onClick={handleToggle}
+    >
+      <Cog className="w-4 h-4 mr-2" />
+      {showHero ? "Hide Hero Section" : "Show Hero Section"}
+    </button>
+  );
+}
+
 export default function NavBar() {
+  const { showHero, setShowHero } = useHeroSection();
   const location = useLocation();
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -353,16 +381,17 @@ export default function NavBar() {
   const textColor = theme === "dark" ? "text-zinc-200" : "text-black";
   const hoverTextColor =
     theme === "dark" ? "hover:text-zinc-300" : "hover:text-gray-700";
-  const activeBorderColor = "border-TT-purple-accent";
   const hoverBackgroundColor =
-    theme === "dark" ? "hover:bg-zinc-700" : "hover:bg-gray-300";
+    theme === "dark" ? "hover:bg-zinc-700/60" : "hover:bg-gray-200/80";
 
-  const navLinkClass = `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`;
+  const navLinkClass = `flex items-center justify-center px-2.5 py-1.5 xl:px-3 xl:py-2 rounded-lg text-sm font-medium ${textColor} transition-all duration-200 ease-in-out`;
 
   const getNavLinkClass = (isActive: boolean): string => {
-    return `${navLinkClass} ${
-      isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
-    } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
+    return `${navLinkClass} ring-1 ${
+      isActive
+        ? "ring-TT-purple-accent bg-TT-purple-accent/15 text-TT-purple-accent"
+        : "ring-transparent"
+    } ${hoverTextColor} ${hoverBackgroundColor} hover:ring-TT-purple-accent/40 hover:scale-[1.03] transition-all duration-200 ease-in-out`;
   };
 
   const handleReset = (): void => {
@@ -735,69 +764,61 @@ export default function NavBar() {
             </a>
 
             <div className="flex items-center">
-              <div className="flex items-center space-x-1 list-none">
-                {navItems.map((item) => (
-                  <div key={item.label}>
-                    {item.type === "link" ? (
-                      <NavItem
-                        to={item.to}
-                        icon={item.icon}
-                        label={item.label}
-                        tooltip={item.tooltip}
-                        isChatUI={false}
-                        iconColor={iconColor}
-                        getNavLinkClass={getNavLinkClass}
-                        isMobile={true}
-                      />
-                    ) : (
-                      <ButtonNavItem
-                        onClick={item.onClick}
-                        icon={item.icon}
-                        label={item.label}
-                        isChatUI={false}
-                        iconColor={iconColor}
-                        getNavLinkClass={getNavLinkClass}
-                        isActive={
-                          item.type === "button" && item.route
-                            ? isRouteActive(item.route)
-                            : false
-                        }
-                        isDisabled={item.isDisabled}
-                        tooltipText={item.tooltipText}
-                        isMobile={true}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {isHorizontalExpanded ? (
-                <button
-                  onClick={toggleHorizontalExpand}
-                  className="focus:outline-none ml-2"
-                  aria-label="Collapse menu"
-                >
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <ChevronLeft className={`w-6 h-6 ${iconColor}`} />
-                  </motion.div>
-                </button>
-              ) : (
-                <button
-                  onClick={toggleHorizontalExpand}
-                  className="focus:outline-none ml-2"
-                  aria-label="Expand menu"
-                >
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <ChevronRight className={`w-6 h-6 ${iconColor}`} />
-                  </motion.div>
-                </button>
+              {!isHorizontalExpanded && (
+                <div className="flex items-center space-x-1 list-none">
+                  {navItems.map((item) => (
+                    <div key={item.label}>
+                      {item.type === "link" ? (
+                        <NavItem
+                          to={item.to}
+                          icon={item.icon}
+                          label={item.label}
+                          tooltip={item.tooltip}
+                          isChatUI={false}
+                          iconColor={iconColor}
+                          getNavLinkClass={getNavLinkClass}
+                          isMobile={true}
+                        />
+                      ) : (
+                        <ButtonNavItem
+                          onClick={item.onClick}
+                          icon={item.icon}
+                          label={item.label}
+                          isChatUI={false}
+                          iconColor={iconColor}
+                          getNavLinkClass={getNavLinkClass}
+                          isActive={
+                            item.type === "button" && item.route
+                              ? isRouteActive(item.route)
+                              : false
+                          }
+                          isDisabled={item.isDisabled}
+                          tooltipText={item.tooltipText}
+                          isMobile={true}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
+
+              <button
+                onClick={toggleHorizontalExpand}
+                className="focus:outline-none ml-2 p-1.5 rounded-md hover:bg-zinc-700/30 dark:hover:bg-zinc-700/40 transition-colors duration-200"
+                aria-label={
+                  isHorizontalExpanded ? "Collapse menu" : "Expand menu"
+                }
+                aria-expanded={isHorizontalExpanded}
+              >
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  animate={{ rotate: isHorizontalExpanded ? 180 : 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                >
+                  <ChevronDown className={`w-6 h-6 ${iconColor}`} />
+                </motion.div>
+              </button>
             </div>
           </div>
 
@@ -864,22 +885,26 @@ export default function NavBar() {
     );
   }
 
+  // Switch to compact (icon-only) navigation between sm (640) and xl (1280)
+  // so labels don't wrap on medium screens.
+  const useCompactNav = windowWidth < 1280;
+
   return (
     <TooltipProvider>
       <div className="relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
-        <div className="font-tt_a_mono flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3">
+        <div className="font-tt_a_mono flex items-center justify-between gap-2 w-full px-3 py-2 sm:px-4 sm:py-3 xl:px-6">
           {/* Logo */}
           <a
             href="https://www.tenstorrent.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center"
+            className="flex items-center shrink-0"
           >
             {logoUrl && (
               <motion.img
                 src={logoUrl}
                 alt="Tenstorrent Logo"
-                className="w-10 h-10 sm:w-14 sm:h-14"
+                className="w-9 h-9 sm:w-11 sm:h-11 xl:w-14 xl:h-14"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).style.display = "none";
                 }}
@@ -888,11 +913,11 @@ export default function NavBar() {
               />
             )}
             <h4
-              className={`hidden sm:block text-lg sm:text-2xl font-tt_a_mono ${textColor} ml-3 bold font-roboto flex items-center`}
+              className={`hidden md:flex items-center text-base lg:text-lg xl:text-2xl font-tt_a_mono font-bold ${textColor} ml-2 xl:ml-3 whitespace-nowrap tracking-tight`}
             >
               {isDeployedEnabled ? "AI Playground" : "TT-Studio"}
               {import.meta.env.DEV && (
-                <span className="ml-2 px-2 py-1 text-xs bg-orange-500 text-white rounded-md font-mono">
+                <span className="ml-2 px-1.5 py-0.5 text-[10px] xl:text-xs bg-orange-500 text-white rounded-md font-mono leading-none">
                   DEV
                 </span>
               )}
@@ -900,8 +925,8 @@ export default function NavBar() {
           </a>
 
           {/* Navigation Menu */}
-          <NavigationMenu className="w-full px-4">
-            <NavigationMenuList className="flex justify-between list-none">
+          <NavigationMenu className="flex-1 min-w-0 px-1 sm:px-2">
+            <NavigationMenuList className="flex items-center justify-center gap-1 xl:gap-2 list-none">
               {navItems.map((item, index) => (
                 <div key={item.label} className="flex items-center">
                   {item.type === "link" ? (
@@ -913,7 +938,7 @@ export default function NavBar() {
                       isChatUI={false}
                       iconColor={iconColor}
                       getNavLinkClass={getNavLinkClass}
-                      isMobile={isMobile}
+                      isMobile={useCompactNav}
                     />
                   ) : (
                     <ButtonNavItem
@@ -930,12 +955,12 @@ export default function NavBar() {
                       }
                       isDisabled={item.isDisabled}
                       tooltipText={item.tooltipText}
-                      isMobile={isMobile}
+                      isMobile={useCompactNav}
                     />
                   )}
                   {index < navItems.length - 1 && (
                     <Separator
-                      className="h-6 w-px bg-zinc-400 mx-1"
+                      className="hidden xl:block h-5 w-px bg-zinc-400/40 mx-1"
                       orientation="vertical"
                     />
                   )}
@@ -945,7 +970,7 @@ export default function NavBar() {
           </NavigationMenu>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             {actionButtons.map((button) => (
               <ActionButton
                 key={button.tooltipText}
@@ -955,6 +980,21 @@ export default function NavBar() {
               />
             ))}
             <BugReportButton variant="icon" />
+            {/* Dropdown for settings */}
+            <div className="relative group">
+              <button
+                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors duration-200"
+                aria-label="Settings"
+              >
+                <Menu className={`w-5 h-5 xl:w-6 xl:h-6 ${iconColor}`} />
+              </button>
+              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible transition-all duration-200 z-50">
+                <HeroSectionToggleMenuItem
+                  showHero={showHero}
+                  setShowHero={setShowHero}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
