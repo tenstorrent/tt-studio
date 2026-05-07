@@ -17,7 +17,6 @@ export interface SettingsResponse {
 }
 
 export interface UpdateSettingsPayload {
-  jwt_secret?: string;
   tavily_api_key?: string;
 }
 

@@ -21,15 +21,58 @@ except ImportError:
 
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools.tavily_search import TavilySearchResults
+from tavily import TavilyClient
 import os 
 import jwt
 import json
 import asyncio
 import requests
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
+
+
+def _resolve_tavily_api_key() -> Optional[str]:
+    """Read TAVILY_API_KEY fresh from the shared user_config.json (with env fallback)
+    so UI changes apply without restarting the agent container."""
+    base = os.environ.get("INTERNAL_PERSISTENT_STORAGE_VOLUME")
+    if base:
+        path = Path(base) / "backend_volume" / "user_config.json"
+        try:
+            if path.exists():
+                with path.open("r") as f:
+                    data = json.load(f)
+                val = data.get("tavily_api_key") if isinstance(data, dict) else None
+                if val:
+                    return val
+        except (OSError, json.JSONDecodeError):
+            pass
+    return os.environ.get("TAVILY_API_KEY") or None
+
+
+class DynamicTavilySearch(TavilySearchResults):
+    """TavilySearchResults variant that reads TAVILY_API_KEY on every call,
+    so changes saved via the TT Studio Settings UI take effect immediately."""
+
+    def _run(self, query: str, run_manager=None, **kwargs):
+        api_key = _resolve_tavily_api_key()
+        if not api_key:
+            return "Search unavailable: TAVILY_API_KEY is not configured. Set it in TT Studio Settings."
+        try:
+            client = TavilyClient(api_key=api_key)
+            return client.search(
+                query=query,
+                max_results=self.max_results,
+                include_answer=self.include_answer,
+                include_raw_content=self.include_raw_content,
+            )
+        except Exception as e:
+            return repr(e)
+
+    async def _arun(self, query: str, run_manager=None, **kwargs):
+        return self._run(query, run_manager=run_manager, **kwargs)
 
 app = FastAPI()
 
@@ -316,13 +359,13 @@ def initialize_agent_components():
     try:
         # Setup agent executor
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
-        
+
         # Initialize tools
         tools = []
-        
-        # Add search tool
-        search = TavilySearchResults(
+
+        # Add search tool — reads the API key from shared user_config.json on each
+        # call so UI changes apply without restarting the agent container.
+        search = DynamicTavilySearch(
             max_results=2,
             include_answer=True,
             include_raw_content=True)

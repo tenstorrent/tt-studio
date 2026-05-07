@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { Lock } from "lucide-react";
 
 import {
   Dialog,
@@ -27,7 +27,6 @@ import {
 } from "../api/settingsApi";
 
 const formSchema = z.object({
-  jwt_secret: z.string().optional(),
   tavily_api_key: z.string().optional(),
 });
 
@@ -49,34 +48,19 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { jwt_secret: "", tavily_api_key: "" },
+    defaultValues: { tavily_api_key: "" },
   });
 
   useEffect(() => {
-    if (open) form.reset({ jwt_secret: "", tavily_api_key: "" });
+    if (open) form.reset({ tavily_api_key: "" });
   }, [open, form]);
 
-  const [confirmJwt, setConfirmJwt] = useState(false);
-
   const mutation = useMutation({
-    mutationFn: (payload: FormValues) => {
-      const body: Record<string, string> = {};
-      if (payload.jwt_secret && payload.jwt_secret.trim() !== "")
-        body.jwt_secret = payload.jwt_secret.trim();
-      if (payload.tavily_api_key !== undefined)
-        body.tavily_api_key = (payload.tavily_api_key || "").trim();
-      return updateSettings(body);
-    },
-    onSuccess: (res) => {
+    mutationFn: (payload: FormValues) =>
+      updateSettings({ tavily_api_key: (payload.tavily_api_key || "").trim() }),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      if (res.requires_redeploy) {
-        customToast.success(
-          "Settings saved. Redeploy running models/agents to use the new JWT."
-        );
-      } else {
-        customToast.success("Settings saved.");
-      }
-      setConfirmJwt(false);
+      customToast.success("Settings saved.");
       onOpenChange(false);
     },
     onError: (err: any) => {
@@ -86,14 +70,9 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
     },
   });
 
-  const onSubmit = (values: FormValues) => {
-    const changingJwt = !!(values.jwt_secret && values.jwt_secret.trim() !== "");
-    if (changingJwt && !confirmJwt) {
-      setConfirmJwt(true);
-      return;
-    }
-    mutation.mutate(values);
-  };
+  const onSubmit = (values: FormValues) => mutation.mutate(values);
+
+  const jwtMasked = data?.jwt_secret.masked;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -111,26 +90,19 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
           autoComplete="off"
         >
           <div className="space-y-1">
-            <Label htmlFor="jwt_secret">JWT Secret</Label>
+            <Label className="flex items-center gap-1">
+              <Lock className="w-3.5 h-3.5" /> JWT Secret
+            </Label>
             <Input
-              id="jwt_secret"
-              type="password"
-              autoComplete="new-password"
-              placeholder={
-                isLoading
-                  ? "Loading..."
-                  : data?.jwt_secret.set
-                    ? `Set (${data.jwt_secret.masked}) – leave blank to keep`
-                    : "Enter JWT secret"
+              readOnly
+              disabled
+              value={
+                isLoading ? "Loading..." : jwtMasked || "Auto-managed"
               }
-              {...form.register("jwt_secret")}
             />
-            <p className="text-xs text-stone-500 flex items-start gap-1">
-              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-              <span>
-                Changing JWT requires redeploying running models and agents.
-                If left blank, the existing value is kept.
-              </span>
+            <p className="text-xs text-stone-500">
+              Auto-managed by the backend. Generated on first run and persisted
+              across restarts.
             </p>
           </div>
 
@@ -159,16 +131,9 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               >
                 tavily.com
               </a>
-              . Applied to the next agent deployment.
+              . Applied immediately to running agents — no redeploy needed.
             </p>
           </div>
-
-          {confirmJwt && (
-            <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
-              Click Save again to confirm rotating the JWT secret. Already-running
-              containers will continue to use the previous secret until redeployed.
-            </div>
-          )}
 
           <DialogFooter className="gap-2">
             <Button
@@ -180,7 +145,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               Cancel
             </Button>
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? "Saving..." : confirmJwt ? "Confirm Save" : "Save"}
+              {mutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </form>

@@ -505,7 +505,14 @@ def run_agent_container(container_name, port_bindings, impl):
             'TAVILY_API_KEY': get_tavily_api_key() or '',
             'LLM_CONTAINER_NAME': container_name,
             'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
-            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]
+            'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
+            'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
+        },
+        volumes={
+            backend_config.host_peristent_storage_volume: {
+                "bind": backend_config.persistent_storage_volume,
+                "mode": "ro",
+            },
         },
         detach=True
     )

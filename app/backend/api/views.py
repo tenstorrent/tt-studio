@@ -48,9 +48,13 @@ class SettingsView(APIView):
 
     def post(self, request, *args, **kwargs):
         data = request.data or {}
-        updates = {}
         if "jwt_secret" in data:
-            updates["jwt_secret"] = (data.get("jwt_secret") or "").strip()
+            return Response(
+                {"error": "jwt_secret is auto-managed and cannot be set via the UI."},
+                status=400,
+            )
+
+        updates = {}
         if "tavily_api_key" in data:
             updates["tavily_api_key"] = (data.get("tavily_api_key") or "").strip()
 
@@ -58,9 +62,8 @@ class SettingsView(APIView):
             return Response({"error": "No supported fields provided"}, status=400)
 
         save_user_config(updates)
-        requires_redeploy = "jwt_secret" in updates
         return Response({
             "ok": True,
-            "requires_redeploy": requires_redeploy,
+            "requires_redeploy": False,
             "updated": list(updates.keys()),
         })
