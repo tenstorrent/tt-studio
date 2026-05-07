@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   type LucideIcon,
   History,
+  Settings as SettingsIcon,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -38,6 +39,7 @@ import {
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import { BugReportButton } from "./bug-report/BugReportButton";
+import SettingsDialog from "./SettingsDialog";
 
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
@@ -263,6 +265,7 @@ export default function NavBar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [isHorizontalExpanded, setIsHorizontalExpanded] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Sidebar reference removed
   const { logoUrl } = useLogo();
 
@@ -623,10 +626,34 @@ export default function NavBar() {
         ]),
   ];
 
+  const SettingsNavButton = ({ vertical = false }: { vertical?: boolean }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <motion.button
+          type="button"
+          onClick={() => setIsSettingsOpen(true)}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          className={`${vertical ? "" : "ml-1"} ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
+          aria-label="Settings"
+        >
+          <SettingsIcon className="w-5 h-5" />
+        </motion.button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Settings</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+
   // Render vertical navbar for chat UI mode or image generation (regardless of device)
   if (shouldUseVerticalNav) {
     return (
       <TooltipProvider>
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={setIsSettingsOpen}
+        />
         <div className="h-screen w-16 fixed left-0 top-0 dark:border-r-4 dark:border-TT-dark border-r-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
           <div className="font-tt_a_mono flex flex-col items-center justify-between h-full py-4">
             {/* Logo */}
@@ -700,6 +727,7 @@ export default function NavBar() {
                   tooltipText={button.tooltipText}
                 />
               ))}
+              <SettingsNavButton vertical />
             </div>
           </div>
         </div>
@@ -710,6 +738,10 @@ export default function NavBar() {
   if (shouldShowMobileMenu) {
     return (
       <TooltipProvider>
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={setIsSettingsOpen}
+        />
         <div className="fixed top-0 w-full dark:border-b-4 dark:border-TT-dark border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
           <div className="font-tt_a_mono flex items-center justify-between w-full px-2 py-2">
             {/* Logo */}
@@ -855,6 +887,7 @@ export default function NavBar() {
                     tooltipText={button.tooltipText}
                   />
                 ))}
+                <SettingsNavButton />
                 <BugReportButton variant="icon" />
               </div>
             </motion.div>
@@ -866,6 +899,7 @@ export default function NavBar() {
 
   return (
     <TooltipProvider>
+      <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
       <div className="relative w-full dark:border-b-4 dark:border-TT-dark rounded-b-3xl border-b-4 border-secondary dark:bg-TT-black bg-secondary shadow-xl z-50">
         <div className="font-tt_a_mono flex items-center justify-between w-full px-4 py-2 sm:px-5 sm:py-3">
           {/* Logo */}
@@ -954,6 +988,7 @@ export default function NavBar() {
                 tooltipText={button.tooltipText}
               />
             ))}
+            <SettingsNavButton />
             <BugReportButton variant="icon" />
           </div>
         </div>

@@ -15,6 +15,7 @@ from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
+from shared_config.user_config import get_tavily_api_key
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
 from docker_control.docker_control_client import get_docker_client
@@ -501,7 +502,7 @@ def run_agent_container(container_name, port_bindings, impl):
         network='tt_studio_network',
         ports={'8080/tcp': host_agent_port},
         environment={
-            'TAVILY_API_KEY': os.getenv('TAVILY_API_KEY'),
+            'TAVILY_API_KEY': get_tavily_api_key() or '',
             'LLM_CONTAINER_NAME': container_name,
             'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
             'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"]

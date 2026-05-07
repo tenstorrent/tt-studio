@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
+from shared_config.user_config import get_jwt_secret
+
 
 @dataclass(frozen=True)
 class BackendConfig:
@@ -36,7 +38,7 @@ backend_config = BackendConfig(
     docker_bridge_network_name="tt_studio_network",
     weights_dir="model_weights",
     model_container_cache_root="/home/container_app_user/cache_root",
-    jwt_secret=os.environ["JWT_SECRET"],
+    jwt_secret=get_jwt_secret(),
     github_username=os.environ.get("GITHUB_USERNAME", ""),
     github_pat=os.environ.get("GITHUB_PAT", ""),
 )

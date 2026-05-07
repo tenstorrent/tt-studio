@@ -19,12 +19,13 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from api.views import UpStatusView
+from api.views import UpStatusView, SettingsView
 from django.urls import include, path
 from model_control.views import OpenAIAudioSpeechView
 
 urlpatterns = [
     path("up/", UpStatusView.as_view()),
+    path("settings/", SettingsView.as_view()),
     path("docker/", include("docker_control.urls")),
     path("models/", include("model_control.urls")),
     path("reset_board/", include("docker_control.urls")),
