@@ -52,13 +52,20 @@ def _cleanup_stale_starting_records():
                     dep.save()
             else:
                 # FastAPI job_id record that the sync thread did not resolve —
-                # mark failed after 35 minutes as a last-resort safety net.
+                # mark failed after 35 minutes and stop the container if it exists.
                 if dep.deployed_at < jobid_cutoff:
                     logger.warning(
-                        f"Cleaning up long-stale CHAT 'starting' record: {dep.model_name} "
+                        f"Cleaning up long-stale 'starting' record: {dep.model_name} "
                         f"(id={dep.id}, container_id={dep.container_id}, "
                         f"deployed_at={dep.deployed_at})"
                     )
+                    try:
+                        from docker_control.docker_utils import stop_container
+                        stop_container(dep.container_id)
+                    except Exception as stop_err:
+                        logger.debug(
+                            f"Could not stop container {dep.container_id} during timeout cleanup: {stop_err}"
+                        )
                     dep.status = "failed"
                     dep.stopped_at = now
                     dep.save()

@@ -14,10 +14,8 @@ Manages automatic chip slot allocation based on:
 import re
 import threading
 from datetime import timedelta
-from datetime import timezone
+from datetime import timezone as datetime_timezone
 from typing import Dict, List, Optional, Set
-
-from django.utils import timezone
 
 from shared_config.logger_config import get_logger
 from shared_config.model_config import get_model_chip_requirement
@@ -132,9 +130,11 @@ class ChipSlotAllocator:
                         "port": deployment.port,
                     }
             else:
-                # Single-chip: mark specific slot
-                if deployment.device_id < self.total_slots:
-                    occupied_map[deployment.device_id] = {
+                # Single-chip: mark requested slot(s)
+                for deployment_slot in self._get_deployment_device_ids(deployment):
+                    if deployment_slot >= self.total_slots:
+                        continue
+                    occupied_map[deployment_slot] = {
                         "model_name": deployment.model_name,
                         "deployment_id": deployment.id,
                         "is_multi_chip": False,
@@ -293,7 +293,7 @@ class ChipSlotAllocator:
                 active_deployments = self._get_active_deployments()
                 occupying_model = None
                 for deployment in active_deployments:
-                    if deployment.device_id == device_id:
+                    if device_id in self._get_deployment_device_ids(deployment):
                         occupying_model = deployment.model_name
                         break
                     # Check if a multi-chip model is occupying all slots
@@ -331,6 +331,9 @@ class ChipSlotAllocator:
             return []
 
         live_containers = self._get_live_container_status()
+        if live_containers is None:
+            return active_deployments
+
         live_containers_by_name = {
             container_data.get("name"): (container_id, container_data)
             for container_id, container_data in live_containers.items()
@@ -368,7 +371,7 @@ class ChipSlotAllocator:
         # Trust recently-created "starting" records — the container may not
         # yet be visible in Docker and the sync thread will handle transition.
         if deployment.status == "starting":
-            now_utc = _dt.now(timezone.utc)
+            now_utc = _dt.now(datetime_timezone.utc)
             age = (now_utc - deployment.deployed_at).total_seconds() if deployment.deployed_at else 0
             if age < self._STARTING_GRACE_SECONDS:
                 return deployment
@@ -397,7 +400,7 @@ class ChipSlotAllocator:
             )
         return None
 
-    def _get_live_container_status(self) -> Dict[str, Dict]:
+    def _get_live_container_status(self) -> Optional[Dict[str, Dict]]:
         """Return a snapshot of currently running managed containers."""
         from docker_control.docker_utils import get_container_status
 
@@ -405,52 +408,7 @@ class ChipSlotAllocator:
             return get_container_status()
         except Exception as e:
             logger.warning(f"Could not query Docker for live containers; using DB records as-is: {e}")
-            return db_records
-
-        # Short grace window for 'starting' records.  The deployment_sync
-        # thread transitions them to 'running' in seconds; 60 s is a generous
-        # buffer that still catches truly abandoned records quickly.
-        _STARTING_GRACE_SECONDS = 60
-
-        from datetime import datetime as _dt
-        now_utc = _dt.now(timezone.utc)
-
-        def _mark_stopped(dep: ModelDeployment, reason: str) -> None:
-            """Mark a deployment as stopped in-place so the slot is freed."""
-            try:
-                dep.status = "stopped"
-                dep.save()
-                logger.info(
-                    f"Auto-marked stale deployment {dep.container_id} "
-                    f"({dep.model_name}) as stopped: {reason}"
-                )
-            except Exception as upd_err:
-                logger.warning(
-                    f"Could not update stale deployment status for {dep.model_name}: {upd_err}"
-                )
-
-        active = []
-        for dep in db_records:
-            if dep.status == "starting":
-                # Trust recently-created records — the container may not be in
-                # Docker yet and the sync thread will handle the transition.
-                age = (now_utc - dep.deployed_at).total_seconds() if dep.deployed_at else 0
-                if age < _STARTING_GRACE_SECONDS:
-                    active.append(dep)
-                    continue
-                # Past the grace window — fall through to the Docker check.
-                # If the real Docker container is running (sync thread already
-                # updated container_id to the real one), it will be in live_ids.
-
-            short = (dep.container_id or "")[:12]
-            full = dep.container_id or ""
-            if short in live_ids or full in live_ids:
-                active.append(dep)
-            else:
-                # Container is gone — free the slot immediately.
-                _mark_stopped(dep, "container not found in Docker")
-
-        return active
+            return None
 
     def _get_occupied_slots(self) -> Set[int]:
         """
@@ -471,11 +429,29 @@ class ChipSlotAllocator:
                 # Multi-chip: occupies all 4 slots
                 occupied.update(range(min(4, self.total_slots)))
             else:
-                # Single-chip: occupies specific slot
-                if deployment.device_id < self.total_slots:
-                    occupied.add(deployment.device_id)
+                # Single-chip: occupies specific slot(s)
+                for deployment_slot in self._get_deployment_device_ids(deployment):
+                    if deployment_slot < self.total_slots:
+                        occupied.add(deployment_slot)
 
         return occupied
+
+    def _get_deployment_device_ids(self, deployment: ModelDeployment) -> List[int]:
+        """Return normalized slot IDs occupied by a deployment."""
+        raw_device_ids = getattr(deployment, "device_ids", None)
+        if isinstance(raw_device_ids, list) and raw_device_ids:
+            normalized_ids = []
+            for slot_id in raw_device_ids:
+                try:
+                    normalized_ids.append(int(slot_id))
+                except (TypeError, ValueError):
+                    continue
+            if normalized_ids:
+                return normalized_ids
+        try:
+            return [int(deployment.device_id)]
+        except (TypeError, ValueError):
+            return [0]
 
     def _get_chips_required(self, model_name: str) -> int:
         """

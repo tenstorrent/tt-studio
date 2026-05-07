@@ -188,6 +188,7 @@ setup_fastapi_file_logging()
 progress_store: Dict[str, Dict[str, Any]] = {}
 log_store: Dict[str, deque] = {}
 progress_lock = threading.Lock()
+_run_main_lock = threading.Lock()
 
 # Store per-deployment log handlers for cleanup
 deployment_log_handlers: Dict[str, logging.FileHandler] = {}
@@ -1314,15 +1315,6 @@ async def run_inference(request: RunRequest):
         elif not os.getenv("HF_TOKEN"):
             logger.warning("HF_TOKEN not set - this may cause issues with model downloads")
             
-        # Set environment variables
-        for key, value in env_vars_to_set.items():
-            if key in ["JWT_SECRET", "HF_TOKEN"]:
-                logger.info(f"Setting environment variable: {key}=[REDACTED]")
-            else:
-                logger.info(f"Setting environment variable: {key}={value}")
-            os.environ[key] = value
-
-        
         # Convert the request to command line arguments
         base_argv = ["run.py"]
         
@@ -1398,22 +1390,11 @@ async def run_inference(request: RunRequest):
                 job_id,
                 host_volume_resolution_reason,
             )
-
-        sys.argv = list(initial_argv)
-
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
-            # Save global state (best-effort; TT Studio typically runs one deployment at a time)
-            prev_argv = list(initial_argv)
-            prev_cwd = Path.cwd()
-            prev_env = os.environ.copy()
             run_logger = logging.getLogger("run_log")
             try:
-                # Apply env vars (including secrets if provided)
-                for key, value in env_vars_to_set.items():
-                    os.environ[key] = value
-
                 # Start weights progress monitor (keeps progress moving during long hf downloads)
                 threading.Thread(
                     target=_weights_progress_monitor,
@@ -1426,121 +1407,155 @@ async def run_inference(request: RunRequest):
                 progress_handler = ProgressHandler(job_id)
                 run_logger.addHandler(progress_handler)
 
-                # Switch cwd for tt-inference-server execution
-                if prev_cwd != script_dir:
-                    os.chdir(script_dir)
+                # run_main() relies on process globals (sys.argv, os.environ, cwd), so
+                # serialize this setup/execution phase across concurrent /run requests.
+                with _run_main_lock:
+                    prev_argv = list(sys.argv)
+                    prev_cwd = Path.cwd()
+                    prev_env = os.environ.copy()
+                    try:
+                        # Apply env vars (including secrets if provided)
+                        for key, value in env_vars_to_set.items():
+                            if key in ["JWT_SECRET", "HF_TOKEN"]:
+                                logger.info(f"Setting environment variable: {key}=[REDACTED]")
+                            else:
+                                logger.info(f"Setting environment variable: {key}={value}")
+                            os.environ[key] = value
 
-                def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
-                    """Execute run_main() for one attempt and return (code, container_info)."""
-                    attempt_mode = "host-volume" if "--host-volume" in argv_for_attempt else "baseline"
-                    sys.argv = argv_for_attempt
-                    logger.info(
-                        f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}"
-                    )
-                    logger.info(
-                        "Job %s: Starting run_main() in %s mode: %s",
-                        job_id,
-                        attempt_mode,
-                        " ".join(argv_for_attempt),
-                    )
-                    run_result = run_main()
-                    if isinstance(run_result, tuple):
-                        attempt_return_code, attempt_container_info = run_result
-                    else:
-                        attempt_return_code = run_result
-                        attempt_container_info = None
-                    logger.info(f"Job {job_id}: run_main() return code: {attempt_return_code}")
-                    logger.info(f"Job {job_id}: container_info:= {attempt_container_info}")
-                    return attempt_return_code, attempt_container_info
+                        # Switch cwd for tt-inference-server execution
+                        if prev_cwd != script_dir:
+                            os.chdir(script_dir)
 
-                def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
-                    retry_argv = list(sys.argv)
-                    retry_reason_parts: list[str] = []
-                    if "--host-volume" in retry_argv:
-                        retry_argv = _strip_cli_option(retry_argv, "--host-volume")
-                        retry_reason_parts.append("baseline startup without --host-volume")
-                    if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
-                        retry_argv.append("--skip-system-sw-validation")
-                        retry_reason_parts.append("--skip-system-sw-validation")
-                    retry_reason = " and ".join(retry_reason_parts) if retry_reason_parts else "same options"
-                    return retry_argv, retry_reason
+                        sys.argv = list(initial_argv)
 
-                try:
-                    return_code, container_info = _execute_run(sys.argv)
-                except Exception as first_attempt_error:
-                    # run_main() can raise directly (e.g. local setup validation errors)
-                    # and bypass return-code based retry logic.
-                    #
-                    # PermissionError on the log directory means the workflow_logs dir is
-                    # root-owned (leftover from a previous sudo-based startup). Retrying
-                    # with different Docker args won't help — re-raise immediately so the
-                    # caller gets a clear error instead of a misleading retry.
-                    if isinstance(first_attempt_error, PermissionError) and "workflow_logs" in str(first_attempt_error):
-                        logger.error(
-                            "Job %s: PermissionError on workflow_logs directory — directory is likely "
-                            "root-owned from a previous sudo-based startup. Fix with: "
-                            "sudo chown -R $USER: %s/workflow_logs",
-                            job_id,
-                            script_dir,
-                        )
-                        raise
-                    retry_argv, retry_reason = _build_retry_argv_and_reason()
-                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
-                        logger.warning(
-                            "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
-                            job_id,
-                            expected_host_volume_dir,
-                            expected_host_weights_dir,
-                        )
-                    logger.warning(
-                        "Job %s: first run raised (%s), retrying once with %s",
-                        job_id,
-                        type(first_attempt_error).__name__,
-                        retry_reason,
-                    )
-                    with progress_lock:
-                        if job_id in progress_store:
-                            current_progress = progress_store[job_id].get("progress", 0)
-                            progress_store[job_id].update(
-                                {
-                                    "status": "retrying",
-                                    "stage": "container_setup",
-                                    "progress": max(current_progress, 70),
-                                    "message": f"Retrying deployment with {retry_reason}...",
-                                    "last_updated": time.time(),
-                                }
+                        def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
+                            """Execute run_main() for one attempt and return (code, container_info)."""
+                            attempt_mode = "host-volume" if "--host-volume" in argv_for_attempt else "baseline"
+                            sys.argv = argv_for_attempt
+                            logger.info(
+                                f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}"
                             )
-                    return_code, container_info = _execute_run(retry_argv)
-
-                # Retry once when the initial run fails.
-                if return_code != 0:
-                    retry_argv, retry_reason = _build_retry_argv_and_reason()
-                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
-                        logger.warning(
-                            "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
-                            job_id,
-                            expected_host_volume_dir,
-                            expected_host_weights_dir,
-                        )
-                    logger.warning(
-                        "Job %s: first run failed (code %s), retrying once with %s",
-                        job_id,
-                        return_code,
-                        retry_reason,
-                    )
-                    with progress_lock:
-                        if job_id in progress_store:
-                            current_progress = progress_store[job_id].get("progress", 0)
-                            progress_store[job_id].update(
-                                {
-                                    "status": "retrying",
-                                    "stage": "container_setup",
-                                    "progress": max(current_progress, 70),
-                                    "message": f"Retrying deployment with {retry_reason}...",
-                                    "last_updated": time.time(),
-                                }
+                            logger.info(
+                                "Job %s: Starting run_main() in %s mode: %s",
+                                job_id,
+                                attempt_mode,
+                                " ".join(argv_for_attempt),
                             )
-                    return_code, container_info = _execute_run(retry_argv)
+                            run_result = run_main()
+                            if isinstance(run_result, tuple):
+                                attempt_return_code, attempt_container_info = run_result
+                            else:
+                                attempt_return_code = run_result
+                                attempt_container_info = None
+                            logger.info(f"Job {job_id}: run_main() return code: {attempt_return_code}")
+                            logger.info(f"Job {job_id}: container_info:= {attempt_container_info}")
+                            return attempt_return_code, attempt_container_info
+
+                        def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
+                            retry_argv = list(sys.argv)
+                            retry_reason_parts: list[str] = []
+                            if "--host-volume" in retry_argv:
+                                retry_argv = _strip_cli_option(retry_argv, "--host-volume")
+                                retry_reason_parts.append("baseline startup without --host-volume")
+                            if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
+                                retry_argv.append("--skip-system-sw-validation")
+                                retry_reason_parts.append("--skip-system-sw-validation")
+                            retry_reason = " and ".join(retry_reason_parts) if retry_reason_parts else "same options"
+                            return retry_argv, retry_reason
+
+                        try:
+                            return_code, container_info = _execute_run(sys.argv)
+                        except Exception as first_attempt_error:
+                            # run_main() can raise directly (e.g. local setup validation errors)
+                            # and bypass return-code based retry logic.
+                            #
+                            # PermissionError on the log directory means the workflow_logs dir is
+                            # root-owned (leftover from a previous sudo-based startup). Retrying
+                            # with different Docker args won't help — re-raise immediately so the
+                            # caller gets a clear error instead of a misleading retry.
+                            if isinstance(first_attempt_error, PermissionError) and "workflow_logs" in str(first_attempt_error):
+                                logger.error(
+                                    "Job %s: PermissionError on workflow_logs directory — directory is likely "
+                                    "root-owned from a previous sudo-based startup. Fix with: "
+                                    "sudo chown -R $USER: %s/workflow_logs",
+                                    job_id,
+                                    script_dir,
+                                )
+                                raise
+                            retry_argv, retry_reason = _build_retry_argv_and_reason()
+                            if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                                logger.warning(
+                                    "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
+                                    job_id,
+                                    expected_host_volume_dir,
+                                    expected_host_weights_dir,
+                                )
+                            logger.warning(
+                                "Job %s: first run raised (%s), retrying once with %s",
+                                job_id,
+                                type(first_attempt_error).__name__,
+                                retry_reason,
+                            )
+                            with progress_lock:
+                                if job_id in progress_store:
+                                    current_progress = progress_store[job_id].get("progress", 0)
+                                    progress_store[job_id].update(
+                                        {
+                                            "status": "retrying",
+                                            "stage": "container_setup",
+                                            "progress": max(current_progress, 70),
+                                            "message": f"Retrying deployment with {retry_reason}...",
+                                            "last_updated": time.time(),
+                                        }
+                                    )
+                            return_code, container_info = _execute_run(retry_argv)
+
+                        # Retry once when the initial run fails.
+                        if return_code != 0:
+                            retry_argv, retry_reason = _build_retry_argv_and_reason()
+                            if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                                logger.warning(
+                                    "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
+                                    job_id,
+                                    expected_host_volume_dir,
+                                    expected_host_weights_dir,
+                                )
+                            logger.warning(
+                                "Job %s: first run failed (code %s), retrying once with %s",
+                                job_id,
+                                return_code,
+                                retry_reason,
+                            )
+                            with progress_lock:
+                                if job_id in progress_store:
+                                    current_progress = progress_store[job_id].get("progress", 0)
+                                    progress_store[job_id].update(
+                                        {
+                                            "status": "retrying",
+                                            "stage": "container_setup",
+                                            "progress": max(current_progress, 70),
+                                            "message": f"Retrying deployment with {retry_reason}...",
+                                            "last_updated": time.time(),
+                                        }
+                                    )
+                            return_code, container_info = _execute_run(retry_argv)
+                    finally:
+                        # Restore globals while still holding lock so the next run
+                        # starts from a consistent process state.
+                        try:
+                            sys.argv = prev_argv
+                        except Exception:
+                            pass
+                        try:
+                            if Path.cwd() != prev_cwd:
+                                os.chdir(prev_cwd)
+                        except Exception:
+                            pass
+                        try:
+                            os.environ.clear()
+                            os.environ.update(prev_env)
+                        except Exception:
+                            pass
 
                 if return_code == 0:
                     # Always extract from captured job logs — provides docker_log_file_path
@@ -1716,22 +1731,6 @@ async def run_inference(request: RunRequest):
                         with progress_lock:
                             if job_id in deployment_log_handlers:
                                 del deployment_log_handlers[job_id]
-                except Exception:
-                    pass
-
-                # Restore globals
-                try:
-                    sys.argv = prev_argv
-                except Exception:
-                    pass
-                try:
-                    if Path.cwd() != prev_cwd:
-                        os.chdir(prev_cwd)
-                except Exception:
-                    pass
-                try:
-                    os.environ.clear()
-                    os.environ.update(prev_env)
                 except Exception:
                     pass
 
