@@ -298,7 +298,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       deviceId: number | string,
       setState: (s: DeployState) => void,
       currentState: DeployState,
-      label: string,
+      _label: string,
       pollProgress: boolean = false
     ) => {
       // Skip already-deployed cards on retry

@@ -106,7 +106,9 @@ export default function StepperDemo() {
       next.delete("view");
       setSearchParams(next, { replace: true });
     } else {
-      setSearchParams({ ...Object.fromEntries(searchParams), view: mode }, { replace: true });
+      const next = new URLSearchParams(searchParams);
+      next.set("view", mode);
+      setSearchParams(next, { replace: true });
     }
   };
 
