@@ -357,13 +357,13 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         if impl.model_type != ModelTypes.CHAT:
             payload["skip_system_sw_validation"] = True
 
-        # TTS and Speech Recognition models require dev_mode for proper operation
-        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
-            payload["dev_mode"] = True
+        # TEMP: disabled — do not force dev_mode for TTS / Speech Recognition
+        # if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+        #     payload["dev_mode"] = True
 
-        # whisper-large-v3 and speecht5_tts require a specific inference server image on QB2 (P300Cx2)
-        if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300Cx2":
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
+        # TEMP: disabled — do not override docker image for QB2 media models
+        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300Cx2":
+        #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
         logger.info(f"API payload: {payload}")
 
