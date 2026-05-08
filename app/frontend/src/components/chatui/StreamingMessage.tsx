@@ -13,6 +13,7 @@ interface StreamingMessageProps {
   isStopped?: boolean;
   onThinkingBlocksChange?: (hasThinking: boolean, blocks: string[]) => void;
   showThinking?: boolean;
+  hideThinkingPanel?: boolean;
 }
 
 interface ProcessedContent {
@@ -92,8 +93,10 @@ const processContent = (content: string): ProcessedContent => {
     .replace(/<think>.*?<\/think>/gis, "")
     .replace(/<think>.*$/is, "")
     .replace(/<\/think>/gi, "")
+    .replace(/\/think/gi, "")
     .replace(/[<>]/g, "")
     .replace(/&(lt|gt);/g, "")
+    .replace(/^\s*t\s*$/gm, "")
     .replace(LEAKED_TOOL_CALL_RE, "")
     .replace(/Source:\s*\[[^\]]*\]\([^)]+\)\s*/g, "")
     .trim();
@@ -108,6 +111,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     isStopped,
     onThinkingBlocksChange,
     showThinking: externalShowThinking,
+    hideThinkingPanel = false,
   }) {
     const [renderedContent, setRenderedContent] = useState("");
     const [showThinking, setShowThinking] = useState(Boolean(externalShowThinking));
@@ -240,7 +244,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                     exit={{ opacity: 0, transition: { duration: 0.1 } }}
                     transition={{ duration: 0.2 }}
                   >
-                    {isSearchMode && liveSearchInfo ? (
+                    {hideThinkingPanel || (isSearchMode && liveSearchInfo) ? (
                       <>
                         <div className="flex items-center gap-2 mb-1">
                           <motion.div
@@ -258,14 +262,16 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                             Searching the web…
                           </motion.span>
                         </div>
-                        <div className="rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2">
-                          {liveSearchInfo.queries.map((q, i) => (
-                            <div key={i} className="flex items-center gap-2 py-1 text-sm text-gray-300">
-                              <Search size={12} className="flex-shrink-0 text-gray-500" />
-                              <span>{q}</span>
-                            </div>
-                          ))}
-                        </div>
+                        {liveSearchInfo && liveSearchInfo.queries.length > 0 && (
+                          <div className="rounded-md bg-gray-800/50 border border-gray-700 px-3 py-2">
+                            {liveSearchInfo.queries.map((q, i) => (
+                              <div key={i} className="flex items-center gap-2 py-1 text-sm text-gray-300">
+                                <Search size={12} className="flex-shrink-0 text-gray-500" />
+                                <span>{q}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </>
                     ) : (
                       <>
@@ -299,7 +305,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                     exit={{ opacity: 0, transition: { duration: 0.1 } }}
                     transition={{ duration: 0.2, delay: 0.05 }}
                   >
-                    {isSearchMode && completedSearchInfo ? (
+                    {hideThinkingPanel || (isSearchMode && completedSearchInfo) ? (
                       <div>
                         <button
                           onClick={() => setShowSearchDetails(!showSearchDetails)}
@@ -313,7 +319,7 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
                           />
                         </button>
                         <AnimatePresence>
-                          {showSearchDetails && (
+                          {showSearchDetails && completedSearchInfo && (
                             <motion.div
                               initial={{ opacity: 0, height: 0 }}
                               animate={{ opacity: 1, height: "auto" }}
@@ -413,7 +419,8 @@ const StreamingMessage: React.FC<StreamingMessageProps> = React.memo(
     prevProps.isStreamFinished === nextProps.isStreamFinished &&
     prevProps.content === nextProps.content &&
     prevProps.isStopped === nextProps.isStopped &&
-    prevProps.showThinking === nextProps.showThinking
+    prevProps.showThinking === nextProps.showThinking &&
+    prevProps.hideThinkingPanel === nextProps.hideThinkingPanel
 );
 
 export default StreamingMessage;

@@ -264,6 +264,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                             index < chatHistory.length - 1 // If it's not the absolute last message
                           }
                           isStopped={message.isStopped}
+                          hideThinkingPanel={isAgentSelected}
                           onThinkingBlocksChange={(hasThinking, _blocks) => {
                             const messageId = message.id || index.toString();
                             setMessageThinkingState((prev) => ({

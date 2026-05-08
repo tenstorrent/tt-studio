@@ -416,7 +416,7 @@ export function DeployModelStep({
           disabled={isDeployDisabled}
           onDeploymentComplete={onDeploymentComplete}
         />
-        <div className="mt-6 flex flex-col items-start justify-center space-y-2">
+        <div className="mt-6 flex flex-col items-center justify-center space-y-2">
           {modelName && (
             <div className="flex items-center space-x-2">
               <Cpu className="text-TT-purple-accent" />
@@ -439,20 +439,25 @@ export function DeployModelStep({
               </span>
             </div>
           )}
-          <div className="flex items-center space-x-2 pt-1">
-            <Wrench className="h-4 w-4 text-TT-purple-accent" />
-            <label
-              htmlFor="tool-calling-toggle"
-              className="text-sm text-gray-800 dark:text-gray-400 cursor-pointer select-none"
-            >
-              Enable Tool Calling
-            </label>
-            <Switch
-              id="tool-calling-toggle"
-              checked={enableToolCalling}
-              onCheckedChange={setEnableToolCalling}
-              className="data-[state=checked]:bg-TT-purple-accent"
-            />
+          <div className="pt-1 flex flex-col items-center">
+            <div className="flex items-center space-x-2">
+              <Wrench className="h-4 w-4 text-TT-purple-accent" />
+              <label
+                htmlFor="tool-calling-toggle"
+                className="text-sm text-gray-800 dark:text-gray-400 cursor-pointer select-none"
+              >
+                Enable Tool Calling
+              </label>
+              <Switch
+                id="tool-calling-toggle"
+                checked={enableToolCalling}
+                onCheckedChange={setEnableToolCalling}
+                className="data-[state=checked]:bg-TT-purple-accent"
+              />
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1 text-center">
+              Enabling tool calling configures the Search Agent functionality.
+            </p>
           </div>
         </div>
       </div>
