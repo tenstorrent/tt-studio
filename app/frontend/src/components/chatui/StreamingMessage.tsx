@@ -98,6 +98,9 @@ const processContent = (content: string): ProcessedContent => {
     .replace(/&(lt|gt);/g, "")
     .replace(/^\s*t\s*$/gm, "")
     .replace(LEAKED_TOOL_CALL_RE, "")
+    .replace(/\{\s*"name"\s*:\s*"[^"]*(?:tavily|search)[^"]*"[\s\S]*$/i, "")
+    .replace(/\btool_calls?\b.*/gi, "")
+    .replace(/^\s*tool_cal?\s*$/gim, "")
     .replace(/Source:\s*\[[^\]]*\]\([^)]+\)\s*/g, "")
     .trim();
 
