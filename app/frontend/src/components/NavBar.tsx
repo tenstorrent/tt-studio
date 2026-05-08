@@ -18,8 +18,6 @@ import {
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
-  Cog,
-  Menu,
   History,
 } from "lucide-react";
 
@@ -39,6 +37,7 @@ import {
 } from "./ui/tooltip";
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
+import { BugReportButton } from "./bug-report/BugReportButton";
 
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
@@ -50,7 +49,6 @@ import {
   getModelTypeFromName,
   getModelTypeFromBackendType,
 } from "../api/modelsDeployedApis";
-import { useHeroSection } from "../hooks/useHeroSection";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -255,31 +253,7 @@ interface ActionButtonType {
   onClick: (() => void) | null;
 }
 
-function HeroSectionToggleMenuItem({
-  showHero,
-  setShowHero,
-}: {
-  showHero: boolean;
-  setShowHero: (val: boolean) => void;
-}) {
-  const handleToggle = () => {
-    const newVal = !showHero;
-    setShowHero(newVal);
-    localStorage.setItem("showHeroSection", newVal ? "true" : "false");
-  };
-  return (
-    <button
-      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
-      onClick={handleToggle}
-    >
-      <Cog className="w-4 h-4 mr-2" />
-      {showHero ? "Hide Hero Section" : "Show Hero Section"}
-    </button>
-  );
-}
-
 export default function NavBar() {
-  const { showHero, setShowHero } = useHeroSection();
   const location = useLocation();
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -872,7 +846,7 @@ export default function NavBar() {
                   ))}
                 </NavigationMenuList>
               </NavigationMenu>
-              <div className="flex justify-center mt-4 pb-2">
+              <div className="flex justify-center mt-4 pb-2 flex-col items-center gap-1">
                 {actionButtons.map((button) => (
                   <ActionButton
                     key={button.tooltipText}
@@ -881,6 +855,7 @@ export default function NavBar() {
                     tooltipText={button.tooltipText}
                   />
                 ))}
+                <BugReportButton variant="icon" />
               </div>
             </motion.div>
           )}
@@ -979,18 +954,7 @@ export default function NavBar() {
                 tooltipText={button.tooltipText}
               />
             ))}
-            {/* Dropdown for settings */}
-            <div className="relative group">
-              <button className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
-                <Menu className="w-6 h-6" />
-              </button>
-              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-50">
-                <HeroSectionToggleMenuItem
-                  showHero={showHero}
-                  setShowHero={setShowHero}
-                />
-              </div>
-            </div>
+            <BugReportButton variant="icon" />
           </div>
         </div>
       </div>
