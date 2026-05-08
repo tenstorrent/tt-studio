@@ -4637,6 +4637,14 @@ def main():
             mode_parts.append("TT Hardware")
         print(f"  Mode:            {' + '.join(mode_parts)}")
 
+        # Search Agent / Tavily status
+        _tavily_val = get_env_var("TAVILY_API_KEY")
+        if _tavily_val and _tavily_val != "tavily-api-key-not-configured":
+            print(f"  Search Agent:    {C_GREEN}Enabled{C_RESET} (Tavily API key configured)")
+        else:
+            print(f"  Search Agent:    {C_YELLOW}Disabled{C_RESET} — TAVILY_API_KEY not configured")
+            print(f"                   Get your API key from: {C_CYAN}https://app.tavily.com{C_RESET}")
+
         print()
         print(f"{C_CYAN}📋 Logs:{C_RESET}")
         print(f"  Docker containers: cd app && docker compose logs -f")

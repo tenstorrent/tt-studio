@@ -358,19 +358,27 @@ def initialize_agent_components():
 
         # Setup agent executor
         memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-        os.environ["TAVILY_API_KEY"] = os.getenv("TAVILY_API_KEY")
         
         # Initialize tools
         tools = []
         
-        # Add search tool (wrapped with deduplication + result trimming)
-        raw_search = TavilySearchResults(
-            max_results=3,
-            include_answer=True,
-            include_raw_content=False,
-        )
-        search = DeduplicatedSearchTool(inner_tool=raw_search)
-        tools.append(search)
+        # Only enable Tavily search when a real API key is configured
+        tavily_key = os.getenv("TAVILY_API_KEY", "")
+        tavily_placeholder = "tavily-api-key-not-configured"
+        if tavily_key and tavily_key != tavily_placeholder:
+            os.environ["TAVILY_API_KEY"] = tavily_key
+            raw_search = TavilySearchResults(
+                max_results=3,
+                include_answer=True,
+                include_raw_content=False,
+            )
+            search = DeduplicatedSearchTool(inner_tool=raw_search)
+            tools.append(search)
+            print("✓ Tavily web search enabled")
+        else:
+            print("⚠ TAVILY_API_KEY is not configured — Search Agent (web search) is disabled.")
+            print("  To enable the Search Agent, set a valid TAVILY_API_KEY in your .env file.")
+            print("  Get your API key from: https://app.tavily.com")
         
         # Add code interpreter tool if E2B_API_KEY is available
         try:
@@ -583,7 +591,8 @@ def get_status():
         
         configured_tools = [t.name for t in tools] if tools else []
         has_search = any("tavily" in t.lower() or "search" in t.lower() for t in configured_tools)
-        tavily_key_set = bool(os.getenv("TAVILY_API_KEY"))
+        _tavily_raw = os.getenv("TAVILY_API_KEY", "")
+        tavily_key_set = bool(_tavily_raw) and _tavily_raw != "tavily-api-key-not-configured"
 
         return {
             "status": "ready",

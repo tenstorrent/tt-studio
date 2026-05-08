@@ -344,9 +344,9 @@ class DeployView(APIView):
                 import json as _json
                 vllm_override_args = _json.dumps({
                     "enable-auto-tool-choice": True,
-                    "tool-call-parser": "llama3_json",
+                    "tool-call-parser": impl.tool_call_parser,
                 })
-                logger.info(f"Tool calling enabled for {impl.model_name}: {vllm_override_args}")
+                logger.info(f"Tool calling enabled for {impl.model_name} (parser={impl.tool_call_parser}): {vllm_override_args}")
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,

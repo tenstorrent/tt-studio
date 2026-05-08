@@ -169,24 +169,35 @@ export default function ChatComponent() {
         modelHasToolCalling = false;
       }
 
-      // 2. Check agent service status (supplementary)
+      // 2. Check whether Tavily is configured (backend always includes this,
+      //    even when the agent container is unreachable).
+      let tavilyConfigured = false;
       try {
         const res = await fetch("/models-api/agent/status/", { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
         if (res.ok) {
-          const data = await res.json();
           const agent = data?.agent;
           agentHasWebSearch = agent?.status === "ready" && agent?.capabilities?.web_search === true;
         }
+        tavilyConfigured = data?.backend?.tavily_configured === true;
       } catch {
-        // Agent not reachable — that's fine, model flag is primary
+        // Backend not reachable
       }
 
       if (cancelled) return;
 
-      const available = modelHasToolCalling;
+      const available = modelHasToolCalling && (agentHasWebSearch || tavilyConfigured);
       setIsAgentAvailable(available);
       if (!available) {
         setIsAgentSelected(false);
+      }
+
+      if (modelHasToolCalling && !tavilyConfigured) {
+        console.warn(
+          "[TT Studio] Search Agent is disabled — TAVILY_API_KEY is not configured.\n" +
+          "To enable the Search Agent, set a valid TAVILY_API_KEY in your .env file.\n" +
+          "Get your API key from: https://app.tavily.com"
+        );
       }
     };
 
