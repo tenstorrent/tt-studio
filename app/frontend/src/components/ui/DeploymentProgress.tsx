@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from 'react';
 import { Progress } from './progress';
@@ -13,6 +13,7 @@ interface DeploymentProgressProps {
     last_updated?: number;
     weights_repo?: string;
     downloaded_bytes?: number;
+    total_bytes?: number | null;
     eta_seconds?: number | null;
     speed_bps?: number | null;
   } | null;
@@ -81,7 +82,8 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const isRunning = status === 'running' || status === 'starting';
 
   const formatBytes = (bytes?: number | null) => {
-    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes === undefined || bytes === null || bytes < 0) return '—';
+    if (bytes === 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     let value = bytes;
     let u = 0;
@@ -93,15 +95,48 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     return `${value.toFixed(decimals)} ${units[u]}`;
   };
 
+  /** Human-readable remaining time; avoids noisy seconds when minutes or hours fit better. */
+  const formatEtaRemaining = (eta: number | null | undefined): string | null => {
+    if (eta === undefined || eta === null || !Number.isFinite(eta) || eta < 0) return null;
+    if (eta > 86400 * 2) return 'More than 2 days left';
+    if (eta < 50) return `~${Math.max(1, Math.round(eta))} s left`;
+    if (eta < 90) return '~1 min left';
+    if (eta < 3600) {
+      const mins = Math.max(1, Math.round(eta / 60));
+      return `~${mins} min left`;
+    }
+    const hours = Math.floor(eta / 3600);
+    const mins = Math.round((eta % 3600) / 60);
+    if (mins === 0) return `~${hours} h left`;
+    return `~${hours} h ${mins} min left`;
+  };
+
   const weightsDetails =
     stage === 'model_preparation' &&
     (progress.downloaded_bytes !== undefined ||
       progress.speed_bps !== undefined ||
-      progress.eta_seconds !== undefined);
+      progress.eta_seconds !== undefined ||
+      progress.total_bytes !== undefined);
 
   const speedText =
     progress.speed_bps !== null && progress.speed_bps !== undefined
       ? `${formatBytes(progress.speed_bps)}/s`
+      : null;
+
+  const etaText = formatEtaRemaining(progress.eta_seconds);
+
+  const totalBytes =
+    progress.total_bytes !== undefined && progress.total_bytes !== null && progress.total_bytes > 0
+      ? progress.total_bytes
+      : null;
+  const downloadedBytes =
+    progress.downloaded_bytes !== undefined && progress.downloaded_bytes !== null
+      ? progress.downloaded_bytes
+      : null;
+
+  const downloadPercent =
+    totalBytes !== null && downloadedBytes !== null
+      ? Math.min(100, Math.max(0, (downloadedBytes / totalBytes) * 100))
       : null;
 
   const formatTime = (seconds: number) => {
@@ -172,17 +207,42 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
               </div>
             </div>
             <Progress
-              value={100}
+              value={downloadPercent !== null ? downloadPercent : 100}
               className="h-2"
-              indicatorClassName="bg-TT-purple-accent/80 animate-pulse"
+              indicatorClassName={
+                downloadPercent !== null
+                  ? 'bg-TT-purple-accent/90 transition-[width] duration-300'
+                  : 'bg-TT-purple-accent/80 animate-pulse'
+              }
             />
           </div>
 
-          <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono tabular-nums">
-            {progress.downloaded_bytes !== undefined ? (
-              <span>{formatBytes(progress.downloaded_bytes)}</span>
-            ) : null}
-            {speedText ? <span>• {speedText}</span> : null}
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono tabular-nums text-foreground/90">
+              {totalBytes !== null && downloadedBytes !== null ? (
+                <>
+                  <span>
+                    {formatBytes(downloadedBytes)} of {formatBytes(totalBytes)}
+                  </span>
+                  {downloadPercent !== null ? (
+                    <span className="text-muted-foreground font-sans text-[11px]">
+                      ({Math.min(100, Math.round(downloadPercent))}%)
+                    </span>
+                  ) : null}
+                </>
+              ) : downloadedBytes !== null ? (
+                <span>{formatBytes(downloadedBytes)} downloaded</span>
+              ) : totalBytes !== null ? (
+                <span>{formatBytes(totalBytes)} total</span>
+              ) : null}
+            </div>
+            {(speedText || etaText) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-sans text-[11px] text-muted-foreground">
+                {speedText ? <span>{speedText}</span> : null}
+                {speedText && etaText ? <span aria-hidden="true">·</span> : null}
+                {etaText ? <span>{etaText}</span> : null}
+              </div>
+            )}
           </div>
           {progress.weights_repo ? (
             <div className="truncate" title={progress.weights_repo}>

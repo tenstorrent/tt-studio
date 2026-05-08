@@ -11,6 +11,7 @@ interface DeploymentProgress {
   last_updated?: number;
   weights_repo?: string;
   downloaded_bytes?: number;
+  total_bytes?: number | null;
   eta_seconds?: number | null;
   speed_bps?: number | null;
 }

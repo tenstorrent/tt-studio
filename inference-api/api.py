@@ -574,10 +574,13 @@ def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
 
 
 def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterable[str]) -> Optional[int]:
-    """Fetch total expected bytes from Hugging Face model metadata (best-effort)."""
+    """Fetch total expected bytes from Hugging Face repo tree (best-effort).
+    The tree endpoint returns `{type, path, size, oid}` per entry, where `size`
+    reflects the real on-disk size for both regular and LFS files.
+    """
     if not repo_id or "/" not in repo_id:
         return None
-    url = f"https://huggingface.co/api/models/{repo_id}"
+    url = f"https://huggingface.co/api/models/{repo_id}/tree/main?recursive=true"
     headers = {"User-Agent": "tt-studio/weights-progress"}
     if hf_token:
         headers["Authorization"] = f"Bearer {hf_token}"
@@ -585,15 +588,18 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterabl
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = resp.read()
-        payload = json.loads(data.decode("utf-8"))
-        siblings = payload.get("siblings", [])
+        entries = json.loads(data.decode("utf-8"))
+        if not isinstance(entries, list):
+            return None
         total = 0
-        for s in siblings:
+        for entry in entries:
             try:
-                name = s.get("rfilename") or ""
-                if any(name.startswith(pfx) for pfx in exclude_prefixes):
+                if entry.get("type") != "file":
                     continue
-                size = s.get("size")
+                path = entry.get("path") or ""
+                if any(path.startswith(pfx) for pfx in exclude_prefixes):
+                    continue
+                size = entry.get("size")
                 if isinstance(size, int) and size > 0:
                     total += size
             except Exception:
@@ -618,6 +624,8 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
     ema_speed_bps: Optional[float] = None
     repo_id: Optional[str] = None
     hf_home: Optional[Path] = None
+    total_bytes: Optional[int] = None
+    total_bytes_attempted = False
     exclude_prefixes = ("original/",)
 
     # Poll at 1s cadence; keep it lightweight (single dir scan).
@@ -646,6 +654,11 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
             hf_home = _default_hf_home()
 
         if repo_id:
+            if not total_bytes_attempted:
+                total_bytes_attempted = True
+                total_bytes = _fetch_hf_total_bytes(
+                    repo_id, os.getenv("HF_TOKEN") or "", exclude_prefixes
+                )
             downloaded = _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
             now = time.time()
             dt = max(1e-3, now - last_t)
@@ -682,6 +695,15 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                     speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
                     msg = f"Downloading weights: {_format_bytes(downloaded)} • {speed_txt}"
 
+                    eta_seconds: Optional[float] = None
+                    if (
+                        total_bytes is not None
+                        and ema_speed_bps is not None
+                        and ema_speed_bps > 0
+                        and total_bytes > downloaded
+                    ):
+                        eta_seconds = (total_bytes - downloaded) / ema_speed_bps
+
                     cur.update(
                         {
                             "status": "running",
@@ -691,7 +713,9 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                             "last_updated": time.time(),
                             "weights_repo": repo_id,
                             "downloaded_bytes": int(downloaded),
+                            "total_bytes": int(total_bytes) if total_bytes is not None else None,
                             "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
+                            "eta_seconds": float(eta_seconds) if eta_seconds is not None else None,
                         }
                     )
 
