@@ -368,6 +368,7 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
+                needs_dev_mode = qwen32b_p300x2 or bool(vllm_override_args)
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
@@ -377,7 +378,7 @@ class DeployView(APIView):
                     skip_system_sw_validation=True,
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
-                    dev_mode=qwen32b_p300x2,
+                    dev_mode=needs_dev_mode,
                 )
                 if result.status != "success":
                     return Response(
