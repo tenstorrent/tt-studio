@@ -4,6 +4,19 @@
 import React, { useState, useEffect } from 'react';
 import { Progress } from './progress';
 
+/** Log / TT_PROGRESS lines when host setup finished or weights were already present (no long download). */
+function isCacheReadyOrSetupCompleteMessage(msg: string): boolean {
+  const t = msg.toLowerCase();
+  if (!msg.trim()) return false;
+  if (t.includes('setup already completed')) return true;
+  if (t.includes('host setup complete') || t.includes('setup complete')) return true;
+  // e.g. "✅ Host setup complete" or similar from structured progress
+  if (/[\u2705\u2714\u2713✓]/.test(msg) && t.includes('complete') && /\b(setup|host)\b/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
 interface DeploymentProgressProps {
   progress: {
     status: string;
@@ -76,6 +89,8 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
 
   const { status, stage, progress: progressPercent, message } = progress;
   const isError = status === 'error' || status === 'failed';
+  const showProminentSetupMessage =
+    !isError && isCacheReadyOrSetupCompleteMessage(message);
   const isComplete = status === 'completed';
   const isStalled = status === 'stalled';
   const isCancelled = status === 'cancelled';
@@ -188,10 +203,22 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         />
       </div>
 
-      {/* Message */}
-      <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
-        {message}
-      </p>
+      {/* Message (highlight when setup finished / weights already on disk) */}
+      {showProminentSetupMessage ? (
+        <div
+          className="rounded-lg border border-emerald-500/45 bg-emerald-500/[0.12] dark:bg-emerald-400/10 px-3 py-3 shadow-sm"
+          role="status"
+        >
+          {/* `message` is verbatim from the API; any ✅ etc. only appears if the backend sent it. */}
+          <p className="text-sm sm:text-base font-semibold text-emerald-950 dark:text-emerald-50 leading-snug tracking-tight">
+            {message}
+          </p>
+        </div>
+      ) : (
+        <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
+          {message}
+        </p>
+      )}
 
       {/* Weights download details (when available) */}
       {weightsDetails && (
