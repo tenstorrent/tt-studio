@@ -481,8 +481,8 @@ export default function ModelsDeployedCard(): JSX.Element {
         />
       )}
 
-      {/* Chip slot visualization for multi-chip boards (hidden on QB2/P300Cx2) */}
-      {isMultiChipBoard && chipStatus && chipStatus.board_type !== "P300Cx2" && (
+      {/* Chip slot visualization for multi-chip boards */}
+      {isMultiChipBoard && chipStatus && (
         <div className="px-6 pb-4">
           <ChipStatusDisplay
             boardType={chipStatus.board_type}
@@ -501,7 +501,7 @@ export default function ModelsDeployedCard(): JSX.Element {
               <ModelsTable
                 rows={rows}
                 visibleMap={columns as ColumnVisibilityMap}
-                hideDeviceId={chipStatus?.board_type === "P300Cx2"}
+                hideDeviceId={false}
                 healthMap={healthMap}
                 onOpenLogs={(id: string) => setSelectedContainerId(id)}
                 onDelete={(id: string) => {

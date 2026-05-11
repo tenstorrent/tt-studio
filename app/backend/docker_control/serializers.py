@@ -14,8 +14,20 @@ from .docker_utils import get_model_weights_path
 class DeploymentSerializer(serializers.Serializer):
     model_id = serializers.CharField(required=True)
     weights_id = serializers.CharField(required=False, allow_blank=True)
-    device_id = serializers.IntegerField(required=False, default=0, min_value=0, max_value=3)
+    # device_id accepts a single integer OR a comma-separated list (e.g. "0,1") for
+    # multi-chip single-card deployments where --device-id 0,1 is passed to the inference server.
+    device_id = serializers.CharField(required=False, default="0", allow_blank=True)
     host_port = serializers.IntegerField(required=False, default=None, min_value=1024, max_value=65535, allow_null=True)
+
+    def validate_device_id(self, value):
+        parts = str(value).split(",")
+        for part in parts:
+            part = part.strip()
+            if not part.isdigit() or not (0 <= int(part) <= 3):
+                raise serializers.ValidationError(
+                    f"Each device_id value must be an integer between 0 and 3, got '{part}'."
+                )
+        return ",".join(p.strip() for p in parts)
 
     def validate(self, data):
         model_id = data.get("model_id")
