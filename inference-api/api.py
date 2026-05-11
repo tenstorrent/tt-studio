@@ -622,6 +622,10 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
     last_bytes = 0
     last_t = time.time()
     ema_speed_bps: Optional[float] = None
+    stable_speed_bps: Optional[float] = None
+    stagnant_polls = 0
+    MAX_STAGNANT_POLLS = 15  # 15s grace period
+    MIN_SPEED_BPS = 64 * 1024  # Ignore tiny fluctuations under 64KB/s
     repo_id: Optional[str] = None
     hf_home: Optional[Path] = None
     total_bytes: Optional[int] = None
@@ -663,16 +667,34 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
             now = time.time()
             dt = max(1e-3, now - last_t)
             delta = downloaded - last_bytes
-            if delta > 0:
+           
+            if delta > MIN_SPEED_BPS:
+                stagnant_polls = 0
+
                 inst_speed = delta / dt
-                # Exponential moving average to stabilize ETA.
+
+                # Faster convergence early, slower later
+                alpha = 0.35 if ema_speed_bps is None else 0.15
+
                 if ema_speed_bps is None:
                     ema_speed_bps = inst_speed
                 else:
-                    alpha = 0.2
                     ema_speed_bps = alpha * inst_speed + (1 - alpha) * ema_speed_bps
+
+                stable_speed_bps = ema_speed_bps
+
                 last_bytes = downloaded
                 last_t = now
+            else:
+                stagnant_polls += 1
+
+                # Hold previous speed briefly during shard verification/unpacking
+                if stagnant_polls < MAX_STAGNANT_POLLS:
+                    ema_speed_bps = stable_speed_bps
+                else:
+                    # Slowly decay speed instead of hard-dropping
+                    if ema_speed_bps is not None:
+                        ema_speed_bps *= 0.92
 
             # Map weights download into the pre-40% portion of model_preparation.
             # tt-inference-server emits pct=40 when host setup completes; stay below that.
@@ -693,7 +715,12 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                     progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
 
                     speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
-                    msg = f"Downloading weights: {_format_bytes(downloaded)} • {speed_txt}"
+                    
+                    if total_bytes and downloaded >= total_bytes:
+                        msg = "Finalizing model weights and cache..."
+                        eta_seconds = None
+                    else:
+                        msg = f"Downloading weights: {_format_bytes(downloaded)} / {_format_bytes(total_bytes) if total_bytes else '?'} • {speed_txt}"
 
                     eta_seconds: Optional[float] = None
                     if (
@@ -702,7 +729,12 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                         and ema_speed_bps > 0
                         and total_bytes > downloaded
                     ):
-                        eta_seconds = (total_bytes - downloaded) / ema_speed_bps
+                        raw_eta = (total_bytes - downloaded) / ema_speed_bps
+                        # Clamp unrealistic spikes/jitter
+                        if eta_seconds is None:
+                            eta_seconds = raw_eta
+                        else:
+                            eta_seconds = (0.7 * eta_seconds) + (0.3 * raw_eta)
 
                     cur.update(
                         {
