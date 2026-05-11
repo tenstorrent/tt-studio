@@ -56,12 +56,15 @@ import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
+import WelcomePage from "../pages/WelcomePage";
 
 // Define route configuration type
 export interface RouteConfig {
   path: string;
   element: React.ReactNode;
   condition?: boolean;
+  /** When true, the route renders without the MainLayout (no navbar / footer). */
+  bare?: boolean;
 }
 
 // Function to generate routes based on environment variables
@@ -147,6 +150,12 @@ export const getRoutes = (): RouteConfig[] => {
       path: "/voice-pipeline",
       element: <Navigate to="/voice-agent" replace />,
       condition: true,
+    },
+    {
+      path: "/welcome",
+      element: <WelcomePage />,
+      condition: true,
+      bare: true,
     },
     {
       // catch all for all other routes

@@ -47,6 +47,26 @@ if artifact_path is None:
         "or ensure tt-inference-server/ exists at repo root with workflows/utils.py."
     )
 
+def _get_hf_token_from_user_config() -> Optional[str]:
+    """Read hf_token from TT Studio's persistent user_config.json (set via the
+    Settings UI). Returns None if absent so callers can fall back to .env."""
+    root = os.getenv("TT_STUDIO_ROOT")
+    if not root:
+        return None
+    cfg_path = Path(root) / "tt_studio_persistent_volume" / "backend_volume" / "user_config.json"
+    if not cfg_path.exists():
+        return None
+    try:
+        with cfg_path.open("r") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            val = data.get("hf_token")
+            return val or None
+    except (OSError, json.JSONDecodeError):
+        return None
+    return None
+
+
 # Patch get_repo_root_path to return artifact directory when running from artifact
 # This MUST be done before importing any workflows modules that use it
 import workflows.utils as workflows_utils  # noqa: E402
@@ -1150,6 +1170,14 @@ def sync_tokens_from_tt_studio():
                             tt_studio_hf = value
     else:
         logger.warning(f"TT Studio .env file not found at {tt_studio_env}")
+
+    # Prefer the UI-managed hf_token from user_config.json over app/.env so
+    # changes saved via the Settings dialog apply on every /run.
+    ui_hf = _get_hf_token_from_user_config()
+    if ui_hf:
+        tt_studio_hf = ui_hf
+
+    if not tt_studio_jwt and not tt_studio_hf:
         return
     
     # Read inference server .env values
@@ -1280,7 +1308,13 @@ async def run_inference(request: RunRequest):
         elif not os.getenv("JWT_SECRET"):
             logger.warning("JWT_SECRET not set - this may cause issues")
             
-        if request.hf_token and not os.getenv("HF_TOKEN"):
+        # Prefer the UI-managed hf_token (saved via Settings dialog) over env/request
+        # so changes apply without restarting inference-api or redeploying anything.
+        ui_hf = _get_hf_token_from_user_config()
+        if ui_hf:
+            logger.info("Setting HF_TOKEN from TT Studio user_config.json")
+            env_vars_to_set["HF_TOKEN"] = ui_hf
+        elif request.hf_token and not os.getenv("HF_TOKEN"):
             logger.info("Setting HF_TOKEN from request")
             env_vars_to_set["HF_TOKEN"] = request.hf_token
         elif not os.getenv("HF_TOKEN"):

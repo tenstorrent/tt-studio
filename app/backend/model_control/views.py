@@ -57,6 +57,7 @@ from model_control.model_utils import (
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
+from shared_config.user_config import get_tts_api_key
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -64,7 +65,7 @@ logger.info(f"importing {__name__}")
 
 
 
-TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
+# TTS_API_KEY is resolved at request time via get_tts_api_key() so UI changes apply without restart.
 CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
 CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
@@ -445,7 +446,7 @@ class SpeechRecognitionInferenceView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
@@ -492,7 +493,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
@@ -764,7 +765,7 @@ class SpeechRecognitionInferenceView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             file = {"file": (audio_file.name, audio_file, audio_file.content_type)}
@@ -811,7 +812,7 @@ class SpeechRecognitionInferenceCloudView(APIView):
             model_impl = deploy.get("model_impl")
             inference_engine = getattr(model_impl, "inference_engine", None)
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}
             
@@ -850,7 +851,7 @@ class TtsInferenceView(APIView):
                 inference_engine = getattr(model_impl, "inference_engine", None)
                 
                 if inference_engine == "media":
-                    headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                    headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                     payload = {"model": model_name, "text": text, "voice": "default"}
                 else:
                     headers = {"Authorization": f"Bearer {encoded_jwt}"}
@@ -909,7 +910,7 @@ class OpenAIAudioSpeechView(APIView):
             inference_engine = getattr(model_impl, "inference_engine", None)
             
             if inference_engine == "media":
-                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+                headers = {"Authorization": f"Bearer {get_tts_api_key() or ''}"}
                 payload = {"model": model_name, "text": text, "voice": data.get("voice", "default")}
             else:
                 headers = {"Authorization": f"Bearer {encoded_jwt}"}

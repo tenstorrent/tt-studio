@@ -1158,69 +1158,8 @@ def ask_overwrite_preference(existing_vars, force_prompt=False):
             print(f"{C_RED}❌ Please enter 1 to keep existing config or 2 to reconfigure everything.{C_RESET}")
             print()
 
-def _hf_check_repo(token, repo_id):
-    """Return HTTP status code for a HuggingFace repo config.json. Returns None on network error."""
-    url = f"https://huggingface.co/{repo_id}/resolve/main/config.json"
-    headers = {"User-Agent": "tt-studio"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        if HAS_REQUESTS:
-            return requests.get(url, headers=headers, timeout=10, allow_redirects=True).status_code
-        else:
-            req = urllib.request.Request(url, headers=headers)
-            try:
-                urllib.request.urlopen(req, timeout=10)
-                return 200
-            except urllib.error.HTTPError as e:
-                return e.code
-    except Exception:
-        return None
-
-
-def check_hf_access(token):
-    """Check if HF token can access meta-llama and Qwen repos. Returns (ok, message)."""
-    repos = [
-        ("meta-llama/Llama-3.1-8B-Instruct", "Llama 3.1"),
-        ("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3"),
-        ("Qwen/Qwen3-32B", "Qwen3-32B"),
-    ]
-    results = []
-    for repo_id, label in repos:
-        code = _hf_check_repo(token, repo_id)
-        results.append((label, repo_id, code))
-
-    if all(c is None for _, _, c in results):
-        return (None, "⚠️  Could not reach HuggingFace — skipping access check.")
-
-    lines = []
-    any_ok = False
-    any_denied = False
-    invalid = False
-    for label, repo_id, code in results:
-        if code is None:
-            lines.append(f"   ⚠️  {label}: could not reach HuggingFace")
-        elif code == 200:
-            lines.append(f"   ✅ {label}: access confirmed")
-            any_ok = True
-        elif code == 401:
-            lines.append(f"   ✖  {label}: token invalid or expired (401)")
-            invalid = True
-        elif code == 403:
-            lines.append(f"   ✖  {label}: access not granted yet (403) — https://huggingface.co/{repo_id}")
-            any_denied = True
-        else:
-            lines.append(f"   ⚠️  {label}: unexpected HTTP {code}")
-
-    summary = "\n".join(lines)
-    if invalid:
-        return (False, f"HF token access check:\n{summary}")
-    elif any_denied:
-        return (False, f"HF token access check:\n{summary}")
-    elif any_ok:
-        return (True, f"HF token access check:\n{summary}")
-    else:
-        return (None, f"HF token access check:\n{summary}")
+# HF access checking is performed in the UI (Welcome screen / Settings dialog),
+# not in the CLI. See app/backend/api/hf_access.py.
 
 
 def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, easy_mode=True, reconfigure_inference=False):
@@ -1344,29 +1283,8 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     else:
         print(f"✅ DJANGO_SECRET_KEY already configured (keeping existing value).")
 
-    # TTS_API_KEY
-    current_tts_api_key = get_env_var("TTS_API_KEY")
-    if easy_mode:
-        if should_configure_var("TTS_API_KEY", current_tts_api_key):
-            write_env_var("TTS_API_KEY", "your-secret-key")
-    elif should_configure_var("TTS_API_KEY", current_tts_api_key):
-        if is_placeholder(current_tts_api_key):
-            print(f"🔄 TTS_API_KEY has placeholder value '{current_tts_api_key}' - configuring...")
-        dev_default = "your-secret-key" if dev_mode else ""
-        prompt_text = f"🔑 Enter TTS_API_KEY (for TTS inference server authentication){' [dev default: ' + dev_default + ']' if dev_mode else ''}: "
-
-        while True:
-            val = getpass.getpass(prompt_text)
-            if not val and dev_mode:
-                val = dev_default
-            if val and val.strip():
-                write_env_var("TTS_API_KEY", val)
-                print("✅ TTS_API_KEY saved.")
-                break
-            print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
-    else:
-        if not easy_mode:
-            print(f"✅ TTS_API_KEY already configured (keeping existing value).")
+    # TTS_API_KEY — UI-managed. Set later in the TT Studio Settings dialog.
+    pass
 
     # DOCKER_CONTROL_SERVICE_URL
     current_docker_url = get_env_var("DOCKER_CONTROL_SERVICE_URL")
@@ -1411,72 +1329,9 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
         if not easy_mode:
             print(f"✅ DOCKER_CONTROL_JWT_SECRET already configured (keeping existing value).")
 
-    # TAVILY_API_KEY (optional; can also be set later from the TT Studio Settings UI)
-    current_tavily = get_env_var("TAVILY_API_KEY")
-    if easy_mode:
-        # Skip prompting in easy mode; user can set later from Settings UI.
-        pass
-    elif should_configure_var("TAVILY_API_KEY", current_tavily):
-        prompt_text = (
-            "🔍 Enter TAVILY_API_KEY for search agent "
-            "(optional; press Enter to skip and set later in the Settings UI): "
-        )
-        val = getpass.getpass(prompt_text)
-        write_env_var("TAVILY_API_KEY", (val or "").strip().strip('"\''), quote_value=False)
-        print("✅ TAVILY_API_KEY saved.")
-    else:
-        if not easy_mode:
-            print(f"✅ TAVILY_API_KEY already configured (keeping existing value).")
-
-    # HF_TOKEN
-    current_hf = get_env_var("HF_TOKEN")
-    needs_token = should_configure_var("HF_TOKEN", current_hf)
-
-    if easy_mode and needs_token:
-        print(f"\n{C_CYAN}A Hugging Face token is required to download models like Llama.{C_RESET}")
-        print(f"{C_CYAN}Get yours at: https://huggingface.co/settings/tokens{C_RESET}\n")
-
-    retrying = False
-    while True:
-        if needs_token:
-            if retrying:
-                prompt = "🤗 Enter a new HF_TOKEN (or press Enter to keep the current one and continue later): "
-                val = getpass.getpass(prompt)
-                if not val or not val.strip():
-                    # Keep existing token, continue without access
-                    print(f"{C_YELLOW}⚠️  Continuing with existing token. Re-run once you have access.{C_RESET}")
-                    break
-            else:
-                prompt = "🤗 Enter HF_TOKEN: " if easy_mode else "🤗 Enter HF_TOKEN (Hugging Face token): "
-                val = getpass.getpass(prompt)
-                if not val or not val.strip():
-                    print(f"{C_RED}⛔ This value cannot be empty.{C_RESET}")
-                    continue
-            val = val.strip().strip('"\'')
-            write_env_var("HF_TOKEN", val, quote_value=False)
-            print("✅ HF_TOKEN saved.")
-        else:
-            val = current_hf
-            if not easy_mode:
-                print(f"✅ HF_TOKEN already configured (keeping existing value).")
-
-        ok, msg = check_hf_access(val)
-        print(msg)
-        if ok is False:
-            print()
-            print(f"   1. Enter a different token now")
-            print(f"   2. Continue with this token once access is granted, then re-run: python run.py")
-            while True:
-                choice = input("Choose (1 or 2): ").strip()
-                if choice in ("1", "2"):
-                    break
-                print(f"{C_RED}⛔ Enter 1 or 2.{C_RESET}")
-            if choice == "1":
-                needs_token = True
-                retrying = True
-                continue
-            # choice == "2": continue with current token
-        break
+    # TAVILY_API_KEY and HF_TOKEN are UI-managed. The Welcome screen in the
+    # web app captures them on first run; they're editable later in Settings.
+    pass
 
     if not easy_mode:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- ⚙️  Application Configuration  ---{C_RESET}")

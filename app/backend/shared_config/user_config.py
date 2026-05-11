@@ -70,3 +70,35 @@ def get_tavily_api_key() -> Optional[str]:
     if val:
         return val
     return os.environ.get("TAVILY_API_KEY") or None
+
+
+def get_hf_token() -> Optional[str]:
+    cfg = load_user_config()
+    val = cfg.get("hf_token")
+    if val:
+        return val
+    return os.environ.get("HF_TOKEN") or None
+
+
+def get_tts_api_key() -> Optional[str]:
+    cfg = load_user_config()
+    val = cfg.get("tts_api_key")
+    if val:
+        return val
+    return os.environ.get("TTS_API_KEY") or None
+
+
+def get_artifact_info() -> dict:
+    """Read-only metadata about which tt-inference-server release TT Studio is pinned to."""
+    return {
+        "branch": os.environ.get("TT_INFERENCE_ARTIFACT_BRANCH") or None,
+        "version": os.environ.get("TT_INFERENCE_ARTIFACT_VERSION") or None,
+    }
+
+
+def is_setup_complete() -> bool:
+    return bool(load_user_config().get("setup_complete"))
+
+
+def mark_setup_complete() -> None:
+    save_user_config({"setup_complete": True})
