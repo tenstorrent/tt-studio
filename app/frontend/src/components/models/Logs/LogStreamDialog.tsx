@@ -166,8 +166,6 @@ export default function LogStreamDialog({
             filterLog={filterLog}
             onScroll={handleScroll}
             scrollRef={logsRef}
-            showScrollButton={showScrollButton}
-            scrollToBottom={scrollToBottom}
           />
         );
       case "events":

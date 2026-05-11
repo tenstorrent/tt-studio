@@ -30,3 +30,12 @@ class DockerControlConfig(AppConfig):
             logger.info("Container health monitoring service started")
         except Exception as e:
             logger.error(f"Failed to start health monitoring service: {e}")
+
+        # Recover any 'starting' CHAT deployment records left behind by a
+        # previous crash or restart.  Must run after health monitoring is up
+        # so the deployment store is fully initialized.
+        try:
+            from docker_control.deployment_sync import recover_orphaned_starting_records
+            recover_orphaned_starting_records()
+        except Exception as e:
+            logger.warning(f"Could not run startup deployment recovery: {e}")

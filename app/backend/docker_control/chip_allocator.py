@@ -14,9 +14,8 @@ Manages automatic chip slot allocation based on:
 import re
 import threading
 from datetime import timedelta
+from datetime import timezone as datetime_timezone
 from typing import Dict, List, Optional, Set
-
-from django.utils import timezone
 
 from shared_config.logger_config import get_logger
 from shared_config.model_config import get_model_chip_requirement
@@ -131,9 +130,11 @@ class ChipSlotAllocator:
                         "port": deployment.port,
                     }
             else:
-                # Single-chip: mark specific slot
-                if deployment.device_id < self.total_slots:
-                    occupied_map[deployment.device_id] = {
+                # Single-chip: mark requested slot(s)
+                for deployment_slot in self._get_deployment_device_ids(deployment):
+                    if deployment_slot >= self.total_slots:
+                        continue
+                    occupied_map[deployment_slot] = {
                         "model_name": deployment.model_name,
                         "deployment_id": deployment.id,
                         "is_multi_chip": False,
@@ -292,7 +293,7 @@ class ChipSlotAllocator:
                 active_deployments = self._get_active_deployments()
                 occupying_model = None
                 for deployment in active_deployments:
-                    if deployment.device_id == device_id:
+                    if device_id in self._get_deployment_device_ids(deployment):
                         occupying_model = deployment.model_name
                         break
                     # Check if a multi-chip model is occupying all slots
@@ -314,12 +315,25 @@ class ChipSlotAllocator:
 
         Returns:
             List of ModelDeployment objects
+
+        For 'starting' records (CHAT models awaiting FastAPI completion):
+          - A background deployment_sync thread owns the starting->running
+            transition and typically completes within seconds.
+          - We trust 'starting' records that are less than 60 seconds old so
+            the allocator never blocks a slot during the brief launch window.
+          - Records older than 60 s are cross-referenced against Docker like
+            'running' records; if the container is gone the slot is freed.
+          - No per-request FastAPI calls are made here — that would add network
+            latency to every allocation and is redundant with the sync thread.
         """
         active_deployments = list(ModelDeployment.objects.filter(status__in=["starting", "running"]))
         if not active_deployments:
             return []
 
         live_containers = self._get_live_container_status()
+        if live_containers is None:
+            return active_deployments
+
         live_containers_by_name = {
             container_data.get("name"): (container_id, container_data)
             for container_id, container_data in live_containers.items()
@@ -338,84 +352,63 @@ class ChipSlotAllocator:
 
         return reconciled_deployments
 
-    def _get_live_container_status(self) -> Dict[str, Dict]:
+    _STARTING_GRACE_SECONDS = 60
+
+    def _reconcile_deployment_record(
+        self,
+        deployment: ModelDeployment,
+        live_containers: Dict[str, Dict],
+        live_containers_by_name: Dict[str, tuple],
+    ) -> Optional[ModelDeployment]:
+        """
+        Reconcile a single deployment record against live Docker state.
+
+        Returns the deployment if still active, or None if it should be
+        considered stopped (marking the DB record accordingly).
+        """
+        from datetime import datetime as _dt
+
+        # Trust recently-created "starting" records — the container may not
+        # yet be visible in Docker and the sync thread will handle transition.
+        if deployment.status == "starting":
+            now_utc = _dt.now(datetime_timezone.utc)
+            age = (now_utc - deployment.deployed_at).total_seconds() if deployment.deployed_at else 0
+            if age < self._STARTING_GRACE_SECONDS:
+                return deployment
+
+        # Check by container_id (full or short form)
+        short_id = (deployment.container_id or "")[:12]
+        full_id = deployment.container_id or ""
+        if full_id in live_containers or short_id in live_containers:
+            return deployment
+
+        # Check by container_name
+        if deployment.container_name and deployment.container_name in live_containers_by_name:
+            return deployment
+
+        # Container is gone — free the slot immediately.
+        try:
+            deployment.status = "stopped"
+            deployment.save()
+            logger.info(
+                f"Auto-marked stale deployment {deployment.container_id} "
+                f"({deployment.model_name}) as stopped: container not found in Docker"
+            )
+        except Exception as upd_err:
+            logger.warning(
+                f"Could not update stale deployment status for {deployment.model_name}: {upd_err}"
+            )
+        return None
+
+    def _get_live_container_status(self) -> Optional[Dict[str, Dict]]:
         """Return a snapshot of currently running managed containers."""
         from docker_control.docker_utils import get_container_status
 
         try:
             return get_container_status()
         except Exception as e:
-            logger.warning(f"Could not load live container status for chip allocation: {e}")
-            return {}
-
-    def _reconcile_deployment_record(
-        self,
-        deployment: ModelDeployment,
-        live_containers: Dict[str, Dict],
-        live_containers_by_name: Dict[str, tuple[str, Dict]],
-    ) -> Optional[ModelDeployment]:
-        """
-        Reconcile a deployment-store record against live Docker state.
-
-        Returns the deployment if it should still count as active, otherwise None.
-        """
-        live_container = live_containers.get(deployment.container_id)
-        if live_container is not None:
-            if deployment.status != "running":
-                deployment.status = "running"
-                deployment.save()
-            return deployment
-
-        live_container_match = live_containers_by_name.get(deployment.container_name)
-        if live_container_match is not None:
-            live_container_id, _live_container_data = live_container_match
-            deployment.container_id = live_container_id
-            deployment.status = "running"
-            deployment.save()
-            logger.info(
-                "Reconciled deployment %s (%s) to live container %s by name",
-                deployment.id,
-                deployment.model_name,
-                live_container_id,
-            )
-            return deployment
-
-        if deployment.status == "running":
-            self._mark_deployment_terminal(deployment, "dead")
+            logger.warning(f"Could not query Docker for live containers; using DB records as-is: {e}")
             return None
-
-        if self._starting_record_is_stale(deployment):
-            terminal_status = "failed" if self._is_placeholder_container_id(deployment.container_id) else "dead"
-            self._mark_deployment_terminal(deployment, terminal_status)
-            return None
-
-        return deployment
-
-    def _starting_record_is_stale(self, deployment: ModelDeployment) -> bool:
-        """Return True when a starting deployment has exceeded its grace period."""
-        if deployment.status != "starting":
-            return False
-        if deployment.deployed_at is None:
-            return True
-        return timezone.now() - deployment.deployed_at > STARTING_DEPLOYMENT_GRACE_PERIOD
-
-    def _is_placeholder_container_id(self, container_id: str) -> bool:
-        """Chat deployments use a short job ID before the real Docker ID is known."""
-        if container_id.startswith("pending_"):
-            return True
-        return re.fullmatch(r"[0-9a-f]{12,64}", container_id) is None
-
-    def _mark_deployment_terminal(self, deployment: ModelDeployment, status_value: str) -> None:
-        """Persist a terminal deployment state once it no longer maps to a live container."""
-        deployment.status = status_value
-        deployment.stopped_at = timezone.now()
-        deployment.save()
-        logger.info(
-            "Marked stale deployment %s (%s) as %s during chip reconciliation",
-            deployment.id,
-            deployment.model_name,
-            status_value,
-        )
 
     def _get_occupied_slots(self) -> Set[int]:
         """
@@ -436,19 +429,33 @@ class ChipSlotAllocator:
                 # Multi-chip: occupies all 4 slots
                 occupied.update(range(min(4, self.total_slots)))
             else:
-                # Single-chip: occupies specific slot
-                if deployment.device_id < self.total_slots:
-                    occupied.add(deployment.device_id)
+                # Single-chip: occupies specific slot(s)
+                for deployment_slot in self._get_deployment_device_ids(deployment):
+                    if deployment_slot < self.total_slots:
+                        occupied.add(deployment_slot)
 
         return occupied
+
+    def _get_deployment_device_ids(self, deployment: ModelDeployment) -> List[int]:
+        """Return normalized slot IDs occupied by a deployment."""
+        raw_device_ids = getattr(deployment, "device_ids", None)
+        if isinstance(raw_device_ids, list) and raw_device_ids:
+            normalized_ids = []
+            for slot_id in raw_device_ids:
+                try:
+                    normalized_ids.append(int(slot_id))
+                except (TypeError, ValueError):
+                    continue
+            if normalized_ids:
+                return normalized_ids
+        try:
+            return [int(deployment.device_id)]
+        except (TypeError, ValueError):
+            return [0]
 
     def _get_chips_required(self, model_name: str) -> int:
         """
         Get number of chips required for a model.
-
-        On P300Cx2 (QB2), every deployment uses --device p300x2 which occupies
-        the entire board, so always return the total slot count regardless of
-        the model's own chip requirement.
 
         Args:
             model_name: Name of the model
@@ -456,6 +463,4 @@ class ChipSlotAllocator:
         Returns:
             Number of chips required (1 or 4)
         """
-        if self.board_type == "P300Cx2":
-            return self.total_slots  # QB2: p300x2 always uses the whole board
         return get_model_chip_requirement(model_name)
