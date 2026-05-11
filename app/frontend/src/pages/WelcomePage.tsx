@@ -67,8 +67,8 @@ export default function WelcomePage() {
 
   const finishSetup = useMutation({
     mutationFn: () => updateSettings({ setup_complete: true }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
       navigate("/", { replace: true });
     },
     onError: (err: any) => {
