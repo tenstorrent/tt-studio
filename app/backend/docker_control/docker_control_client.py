@@ -9,6 +9,7 @@ This module provides a client wrapper for the docker-control-service API,
 replacing direct Docker SDK usage for improved security.
 """
 
+import json
 import os
 import jwt
 import requests
@@ -160,6 +161,50 @@ class DockerControlClient:
     def inspect_container(self, container_id: str) -> Dict:
         """Inspect a container (alias for get_container)"""
         return self.get_container(container_id)
+
+    def tail_logs(self, container_id: str, tail: int = 200, timeout: float = 5.0) -> List[str]:
+        """Fetch a one-shot snapshot of the most recent container log lines.
+
+        Wraps the SSE-based logs endpoint with follow=false: the upstream stream
+        terminates after emitting the requested tail, so we collect chunks and
+        unwrap the `data: {"message": ...}\\n\\n` payloads into plain strings.
+
+        Args:
+            container_id: container id or name
+            tail: number of trailing lines to fetch
+            timeout: hard cap on total wait, in seconds
+
+        Returns:
+            list of raw log lines (oldest first). Empty list on failure.
+        """
+        url = f"{self.url}/api/v1/containers/{container_id}/logs"
+        params = {"follow": "false", "tail": tail}
+        try:
+            response = requests.get(
+                url,
+                headers=self._get_headers(),
+                params=params,
+                stream=True,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+
+            lines: List[str] = []
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if not raw_line or not raw_line.startswith("data: "):
+                    continue
+                payload = raw_line[len("data: "):]
+                try:
+                    obj = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                msg = obj.get("message")
+                if isinstance(msg, str):
+                    lines.append(msg)
+            return lines
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"tail_logs({container_id[:12]}) failed: {e}")
+            return []
 
     def get_logs_stream(self, container_id: str, follow: bool = True, tail: int = 100):
         """

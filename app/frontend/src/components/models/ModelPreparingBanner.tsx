@@ -2,138 +2,168 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import type { JSX } from "react";
-import { X, Zap } from "lucide-react";
+import { X, Zap, ScrollText } from "lucide-react";
 import { Button } from "../ui/button";
 import type { ModelRow } from "../../types/models";
-import { useEffect, useState } from "react";
+import type { StartupPhase } from "../HealthBadge";
 
 interface ModelPreparingBannerProps {
   models: ModelRow[];
+  phaseMap: Record<string, StartupPhase | null>;
+  onViewLogs: (id: string) => void;
   onDismiss: () => void;
 }
 
-const WARMUP_STEPS = [
-  "Loading weights into device memory",
-  "Compiling inference graph",
-  "Warming up KV cache",
-  "Running preflight checks",
+// Display order used when no phase is reported yet (mirrors the canonical
+// order in app/backend/model_control/log_classifier.py). Keep in sync if you
+// change the backend phase set.
+const PHASE_ORDER: { key: string; label: string }[] = [
+  { key: "container_starting",  label: "Starting container" },
+  { key: "vllm_importing",      label: "Loading vLLM runtime" },
+  { key: "engine_initializing", label: "Initializing inference engine" },
+  { key: "device_init",         label: "Opening Tenstorrent device" },
+  { key: "model_config",        label: "Loading model configuration" },
+  { key: "loading_weights",     label: "Loading model weights" },
+  { key: "compiling_model",     label: "Compiling inference graph" },
+  { key: "engine_ready",        label: "Allocating KV cache" },
+  { key: "server_starting",     label: "Starting API server" },
+  { key: "ready",               label: "Ready" },
 ];
 
-const STEP_DURATION_MS = 30_000; // 30s per step
-
-/** Persists step index in sessionStorage so health-check re-mounts don't reset it */
-function usePersistedStep(modelId: string): number {
-  const storageKey = `warmup_step_${modelId}`;
-
-  const [step, setStep] = useState<number>(() => {
-    try {
-      const raw = sessionStorage.getItem(storageKey);
-      if (raw) {
-        const { step: saved, ts } = JSON.parse(raw) as { step: number; ts: number };
-        const stepsElapsed = Math.floor((Date.now() - ts) / STEP_DURATION_MS);
-        return Math.min(saved + stepsElapsed, WARMUP_STEPS.length - 1);
-      }
-    } catch { }
-    return 0;
-  });
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem(storageKey, JSON.stringify({ step, ts: Date.now() }));
-    } catch { }
-  }, [step, storageKey]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStep((s) => {
-        const next = Math.min(s + 1, WARMUP_STEPS.length - 1);
-        try {
-          sessionStorage.setItem(storageKey, JSON.stringify({ step: next, ts: Date.now() }));
-        } catch { }
-        return next;
-      });
-    }, STEP_DURATION_MS);
-    return () => clearInterval(interval);
-  }, [storageKey]);
-
-  return step;
-}
-
-function StepList({ modelId }: { modelId: string }) {
-  const currentStep = usePersistedStep(modelId);
+function PreparingRow({
+  model,
+  phase,
+  onViewLogs,
+}: {
+  model: ModelRow;
+  phase: StartupPhase | null | undefined;
+  onViewLogs: (id: string) => void;
+}) {
+  const phaseKey = phase?.phase ?? "container_starting";
+  const phaseLabel = phase?.phase_label ?? "Connecting…";
+  const progress = phase?.progress ?? 0;
+  const message = phase?.message ?? "";
+  const currentIdx = PHASE_ORDER.findIndex((p) => p.key === phaseKey);
 
   return (
-    <div className="flex flex-wrap gap-x-5 gap-y-1 mt-1">
-      {WARMUP_STEPS.map((label, i) => (
-        <span
-          key={label}
-          className={`flex items-center gap-1.5 text-xs transition-colors duration-700 ${i < currentStep
-              ? "text-stone-600"
-              : i === currentStep
-                ? "text-amber-300 font-medium"
-                : "text-stone-500"
-            }`}
-        >
-          <span
-            className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 transition-colors duration-700 ${i < currentStep
-                ? "bg-stone-700"
-                : i === currentStep
-                  ? "bg-amber-400 animate-pulse"
-                  : "bg-stone-700/50"
-              }`}
-          />
-          {label}
+    <div className="w-full">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-stone-300 text-sm font-medium truncate">
+          {model.name}
         </span>
-      ))}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono text-xs text-amber-300 tabular-nums">
+            {progress}%
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onViewLogs(model.id)}
+            className="h-6 px-2 border-amber-500/40 text-amber-300 hover:bg-amber-950/40 hover:border-amber-400 gap-1"
+          >
+            <ScrollText className="w-3 h-3" />
+            <span className="text-[10px]">Logs</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Real progress bar driven by backend signal */}
+      <div className="relative h-1 w-full overflow-hidden rounded-full bg-stone-800/80 mb-2">
+        <div
+          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-[width] duration-500 ease-out"
+          style={{ width: `${Math.max(2, Math.min(100, progress))}%` }}
+        />
+      </div>
+
+      {/* Active phase label + a short detail line if we have one */}
+      <div className="flex items-baseline gap-2 mb-1">
+        <span className="text-amber-300 text-xs font-medium">{phaseLabel}</span>
+        {phase?.last_heartbeat_seconds !== null &&
+          phase?.last_heartbeat_seconds !== undefined && (
+            <span className="text-stone-500 text-[11px] font-mono tabular-nums">
+              · {Math.round(phase.last_heartbeat_seconds)}s elapsed
+            </span>
+          )}
+      </div>
+      {message && (
+        <div
+          className="text-stone-500 text-[11px] font-mono truncate"
+          title={message}
+        >
+          {message}
+        </div>
+      )}
+
+      {/* Phase track: previous phases muted, current highlighted, upcoming dim */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+        {PHASE_ORDER.map((p, i) => (
+          <span
+            key={p.key}
+            className={`flex items-center gap-1.5 text-[10px] transition-colors duration-500 ${
+              currentIdx === -1
+                ? "text-stone-600"
+                : i < currentIdx
+                  ? "text-stone-600"
+                  : i === currentIdx
+                    ? "text-amber-300 font-medium"
+                    : "text-stone-600"
+            }`}
+          >
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 transition-colors duration-500 ${
+                currentIdx === -1
+                  ? "bg-stone-700"
+                  : i < currentIdx
+                    ? "bg-stone-700"
+                    : i === currentIdx
+                      ? "bg-amber-400 animate-pulse"
+                      : "bg-stone-700/50"
+              }`}
+            />
+            {p.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
 
 export default function ModelPreparingBanner({
   models,
+  phaseMap,
+  onViewLogs,
   onDismiss,
 }: ModelPreparingBannerProps): JSX.Element {
-  const isSingle = models.length === 1;
-
   return (
     <div className="mx-6 mb-4 rounded-lg border border-amber-500/20 bg-gradient-to-r from-amber-950/25 via-stone-900/30 to-transparent overflow-hidden">
       {/* Thin amber top accent line */}
       <div className="h-px w-full bg-gradient-to-r from-amber-500/60 via-amber-400/30 to-transparent" />
 
       <div className="flex items-start gap-4 px-4 pt-3 pb-4">
-        {/* Left: content */}
         <div className="flex-1 min-w-0">
           {/* Header */}
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-3">
             <Zap className="h-3.5 w-3.5 text-amber-400 shrink-0" />
             <span className="font-mono text-amber-400 text-xs font-semibold tracking-widest uppercase">
               Warming Up
             </span>
-            {isSingle && (
-              <span className="text-stone-400 text-xs truncate">
-                — {models[0].name}
+            {models.length > 1 && (
+              <span className="text-stone-500 text-xs">
+                · {models.length} models
               </span>
             )}
           </div>
 
-          {/* Indeterminate progress bar */}
-          <div className="relative h-1 w-full overflow-hidden rounded-full bg-stone-800/80 mb-3">
-            <div className="absolute inset-y-0 w-2/5 rounded-full bg-gradient-to-r from-transparent via-amber-400/80 to-transparent animate-warmup-slide" />
+          <div className="flex flex-col gap-4">
+            {models.map((m) => (
+              <PreparingRow
+                key={m.id}
+                model={m}
+                phase={phaseMap[m.id]}
+                onViewLogs={onViewLogs}
+              />
+            ))}
           </div>
-
-          {/* All steps listed — current one highlighted, future ones dimmed */}
-          {isSingle ? (
-            <StepList modelId={models[0].id} />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {models.map((m) => (
-                <div key={m.id}>
-                  <span className="text-stone-500 text-xs">{m.name}</span>
-                  <StepList modelId={m.id} />
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Right: dismiss */}

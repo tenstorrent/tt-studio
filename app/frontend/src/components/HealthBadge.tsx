@@ -15,9 +15,21 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 
+export interface StartupPhase {
+  phase: string;
+  phase_label: string;
+  progress: number;
+  message: string;
+  last_heartbeat_seconds: number | null;
+  warmup_seq_len: number | null;
+  trace_count: number;
+  is_stalled: boolean;
+  classified_at: number;
+}
+
 interface HealthBadgeProps {
   deployId: string;
-  onHealthChange?: (status: HealthStatus) => void;
+  onHealthChange?: (status: HealthStatus, phase?: StartupPhase | null) => void;
 }
 
 export interface HealthBadgeRef {
@@ -29,6 +41,7 @@ type HealthStatus = "healthy" | "starting" | "unavailable" | "unhealthy" | "unkn
 const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
   ({ deployId, onHealthChange }, ref) => {
     const [health, setHealth] = useState<HealthStatus>("unknown");
+    const [phase, setPhase] = useState<StartupPhase | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isMonitoring, setIsMonitoring] = useState(false);
 
@@ -43,15 +56,25 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
 
         if (response.status === 200) {
           setHealth("healthy");
+          setPhase(null);
         } else if (response.status === 202) {
           setHealth("starting");
+          try {
+            const body = await response.json();
+            setPhase((body?.phase as StartupPhase) ?? null);
+          } catch {
+            setPhase(null);
+          }
         } else if (response.status === 503) {
           setHealth("unavailable");
+          setPhase(null);
         } else {
           setHealth("unknown");
+          setPhase(null);
         }
       } catch (e) {
         setHealth("unknown");
+        setPhase(null);
       } finally {
         setIsLoading(false);
       }
@@ -122,8 +145,8 @@ const HealthBadge = forwardRef<HealthBadgeRef, HealthBadgeProps>(
     }, [isMonitoring, fetchHealth, deployId]);
 
     useEffect(() => {
-      onHealthChange?.(health);
-    }, [health, onHealthChange]);
+      onHealthChange?.(health, phase);
+    }, [health, phase, onHealthChange]);
 
     const getStatusColor = () => {
       switch (health) {

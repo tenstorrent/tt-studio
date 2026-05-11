@@ -13,6 +13,7 @@ import { PulsatingDot } from "../ui/pulsating-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { AlertCircle, Plus } from "lucide-react";
 import HealthCell from "./row-cells/HealthCell";
+import type { StartupPhase } from "../HealthBadge";
 import ModelPreparingBanner from "./ModelPreparingBanner";
 import NoModelsRunning from "./NoModelsRunning";
 import { customToast } from "../CustomToaster";
@@ -176,6 +177,7 @@ export default function ModelsDeployedCard(): JSX.Element {
   }, [loadModels, refreshTrigger]);
 
   const [healthMap, setHealthMap] = useState<Record<string, HealthStatus>>({});
+  const [phaseMap, setPhaseMap] = useState<Record<string, StartupPhase | null>>({});
   const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
 
   // Auto-refresh model list when any model becomes unavailable/unknown
@@ -476,7 +478,8 @@ export default function ModelsDeployedCard(): JSX.Element {
       {!preparingBannerDismissed && preparingModels.length > 0 && (
         <ModelPreparingBanner
           models={preparingModels}
-          onViewLogs={(id) => setSelectedContainerId(id)}
+          phaseMap={phaseMap}
+          onViewLogs={(id: string) => setSelectedContainerId(id)}
           onDismiss={() => setPreparingBannerDismissed(true)}
         />
       )}
@@ -570,9 +573,14 @@ export default function ModelsDeployedCard(): JSX.Element {
           <HealthCell
             id={row.id}
             register={mirroredRegister}
-            onHealthChange={(id: string, h: HealthStatus) =>
-              setHealthMap((prev) => ({ ...prev, [id]: h }))
-            }
+            onHealthChange={(
+              id: string,
+              h: HealthStatus,
+              phase?: StartupPhase | null,
+            ) => {
+              setHealthMap((prev) => ({ ...prev, [id]: h }));
+              setPhaseMap((prev) => ({ ...prev, [id]: phase ?? null }));
+            }}
           />
         </Fragment>
       ))}

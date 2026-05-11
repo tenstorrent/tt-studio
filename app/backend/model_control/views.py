@@ -43,6 +43,7 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
         return (renderers[0], renderers[0].media_type)
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
+from .log_classifier import classify_startup_phase
 from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
@@ -239,12 +240,34 @@ class ModelHealthView(APIView):
             elif check_passed is None:
                 ret_status = status.HTTP_202_ACCEPTED
                 content = {"message": "Starting", "details": health_content}
+                # Enrich the "starting" response with real phase info parsed from
+                # the container's stdout. Best-effort: if anything fails we still
+                # return the basic 202 so the badge logic is unaffected.
+                content["phase"] = _get_startup_phase(deploy_id)
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
                 content = {"message": "Unavailable", "details": health_content}
             return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _get_startup_phase(deploy_id: str) -> dict | None:
+    """Tail the container's recent logs and run the phase classifier.
+
+    Returns None if the tail fails — callers should treat None as "no phase
+    info available", not as an error.
+    """
+    try:
+        from docker_control.docker_control_client import get_docker_client
+        client = get_docker_client()
+        lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
+        if not lines:
+            return None
+        return classify_startup_phase(lines)
+    except Exception as e:
+        logger.warning(f"startup phase classify failed for {deploy_id[:12]}: {e}")
+        return None
 
 
 class DeployedModelsView(APIView):
