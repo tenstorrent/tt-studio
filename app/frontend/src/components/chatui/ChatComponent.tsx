@@ -1359,6 +1359,7 @@ export default function ChatComponent() {
               isMobileView={screenSize.isMobileView}
               onCreateNewConversation={createNewConversation}
               onStopInference={handleStopInference}
+              hasMessages={getCurrentThread().messages.length > 0}
             />
           </div>
         </div>

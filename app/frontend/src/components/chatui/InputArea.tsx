@@ -43,7 +43,6 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import { useNavigate } from "react-router-dom";
-import { TypingAnimation } from "../ui/typing-animation";
 
 interface PdfDetectionDialogProps {
   open: boolean;
@@ -130,15 +129,8 @@ interface InputAreaProps {
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
   onStopInference?: () => void;
+  hasMessages?: boolean;
 }
-
-const EXAMPLE_PROMPTS = [
-  "How can I help you today?",
-  "What would you like to know?",
-  "Ask me anything!",
-  "I'm here to assist you.",
-  "What's on your mind?",
-];
 
 export default function InputArea({
   textInput,
@@ -152,6 +144,7 @@ export default function InputArea({
   isMobileView = false,
   onCreateNewConversation,
   onStopInference,
+  hasMessages = false,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
@@ -161,6 +154,7 @@ export default function InputArea({
   const [showReplaceDialog, setShowReplaceDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isTouched, setIsTouched] = useState(false);
@@ -187,6 +181,10 @@ export default function InputArea({
       textareaRef.current.focus();
     }
   }, [isStreaming]);
+
+  useEffect(() => {
+    if (!hasMessages) setHasInteracted(false);
+  }, [hasMessages]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -570,7 +568,10 @@ export default function InputArea({
                 WebkitAppearance: "none",
               }}
               aria-label="Chat input"
-              onFocus={() => setIsFocused(true)}
+              onFocus={() => {
+                setIsFocused(true);
+                setHasInteracted(true);
+              }}
               onBlur={() => setIsFocused(false)}
               onTouchStart={() => setIsTouched(true)}
               onTouchEnd={() => {
@@ -579,14 +580,9 @@ export default function InputArea({
                 }, 300);
               }}
             />
-            {!textInput && !isFocused && (
-              <div className="absolute inset-0 pointer-events-none">
-                <TypingAnimation
-                  texts={EXAMPLE_PROMPTS}
-                  duration={50}
-                  cycleDelay={2000}
-                  className="absolute inset-0 flex items-center px-1 text-gray-600 dark:text-gray-200"
-                />
+            {!textInput && !isFocused && !hasInteracted && !hasMessages && (
+              <div className="absolute inset-0 pointer-events-none flex items-center px-1 text-gray-600 dark:text-gray-200">
+                Ask me anything…
               </div>
             )}
           </div>
