@@ -318,9 +318,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       .filter((item): item is OccupiedDevice => item !== undefined)
       .map(withDisplayDeviceIds)
   );
+  const hasConflicts = occupiedSlots.length > 0;
 
   const canDeploy =
-    !isDeploying && !allDone && !!selectedLlmId && !!selectedWhisperId && !!speechT5Id;
+    !isDeploying &&
+    !allDone &&
+    !hasConflicts &&
+    !!selectedLlmId &&
+    !!selectedWhisperId &&
+    !!speechT5Id;
 
   const handleDeploy = async () => {
     if (!selectedLlmId || !selectedWhisperId || !speechT5Id) {
@@ -480,7 +486,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
               </ModelCard>
             </div>
 
-            {occupiedSlots.length > 0 && !isDeploying && !allDone && (
+            {hasConflicts && !isDeploying && !allDone && (
               <div className="rounded-lg border border-amber-500/20 bg-gradient-to-br from-amber-500/[0.04] to-amber-500/[0.02] px-4 py-3">
                 <div className="flex items-start gap-3">
                   <div className="flex items-center justify-center w-6 h-6 rounded-md bg-amber-500/10 shrink-0 mt-0.5">
@@ -567,10 +573,11 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 </div>
               </div>
             ) : (
-              <div className="pt-2">
+              <div className="pt-2 flex flex-col gap-1.5">
                 <Button
                   onClick={handleDeploy}
                   disabled={!canDeploy}
+                  title={hasConflicts ? "Resolve conflicting slots above to deploy." : undefined}
                   className="flex items-center gap-2 relative overflow-hidden"
                   style={isDeploying ? {
                     background: "linear-gradient(90deg, var(--tw-gradient-stops))",
@@ -582,6 +589,11 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                   {isDeploying && <Loader2 className="w-4 h-4 animate-spin" />}
                   {isDeploying ? "Deploying…" : "Deploy Voice Agent"}
                 </Button>
+                {hasConflicts && !isDeploying && (
+                  <p className="text-xs text-muted-foreground">
+                    Resolve conflicting slots above to deploy.
+                  </p>
+                )}
               </div>
             )}
           </>
