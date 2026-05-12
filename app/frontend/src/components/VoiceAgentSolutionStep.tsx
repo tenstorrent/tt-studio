@@ -509,7 +509,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                       ))}
                     </div>
                     <p className="text-[11px] text-amber-200/60 dark:text-amber-200/55 leading-relaxed">
-                      Free these slots before deploying — overlapping containers will cause this run to fail.
+                      Use the Manage slots button to free these slots before deploying — overlapping containers will cause this run to fail.
                     </p>
                   </div>
                   <Button
@@ -577,8 +577,12 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 <Button
                   onClick={handleDeploy}
                   disabled={!canDeploy}
-                  title={hasConflicts ? "Resolve conflicting slots above to deploy." : undefined}
-                  className="flex items-center gap-2 relative overflow-hidden"
+                  title={hasConflicts ? "Use Manage slots above to free conflicts before deploying." : undefined}
+                  className={`flex items-center gap-2 relative overflow-hidden ${
+                    hasConflicts && !isDeploying
+                      ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-100 dark:bg-red-900/25 dark:text-red-300 dark:border-red-700/40 disabled:opacity-100"
+                      : ""
+                  }`}
                   style={isDeploying ? {
                     background: "linear-gradient(90deg, var(--tw-gradient-stops))",
                     backgroundImage: "linear-gradient(90deg, #7c68fa 0%, #a78bfa 40%, #7c68fa 60%, #6d55f5 100%)",
@@ -590,8 +594,8 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                   {isDeploying ? "Deploying…" : "Deploy Voice Agent"}
                 </Button>
                 {hasConflicts && !isDeploying && (
-                  <p className="text-xs text-muted-foreground">
-                    Resolve conflicting slots above to deploy.
+                  <p className="text-xs text-red-600/90 dark:text-red-300/90">
+                    Use Manage slots above to free conflicts before deploying.
                   </p>
                 )}
               </div>
