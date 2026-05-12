@@ -27,12 +27,14 @@ class DockerControlClient:
         Initialize the Docker Control Service client
 
         Args:
-            url: Base URL of the docker-control-service (default: from env DOCKER_CONTROL_SERVICE_URL)
-            jwt_secret: JWT secret for authentication (default: from env DOCKER_CONTROL_JWT_SECRET)
+            url: Base URL of the docker-control-service (default: env DOCKER_CONTROL_SERVICE_URL)
+            jwt_secret: JWT secret for authentication (default: env DOCKER_CONTROL_JWT_SECRET)
         """
-        self.url = url or os.getenv("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
+        self.url = url or os.getenv("DOCKER_CONTROL_SERVICE_URL")
         self.jwt_secret = jwt_secret or os.getenv("DOCKER_CONTROL_JWT_SECRET")
 
+        if not self.url:
+            raise ValueError("DOCKER_CONTROL_SERVICE_URL environment variable is required")
         if not self.jwt_secret:
             raise ValueError("DOCKER_CONTROL_JWT_SECRET environment variable is required")
 
