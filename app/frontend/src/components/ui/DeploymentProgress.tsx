@@ -39,10 +39,7 @@ interface DeploymentProgressProps {
 
 const stageDisplayNames: Record<string, string> = {
   initialization: 'Initializing',
-  setup: 'Setting up environment',
-  model_preparation: 'Preparing model',
-  container_setup: 'Creating container',
-  finalizing: 'Finalizing deployment',
+  model_preparation: 'Downloading Model Weights',
   complete: 'Complete',
   error: 'Error',
   stalled: 'Stalled',
@@ -189,18 +186,9 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
             </span>
           )}
           <span className="text-sm text-muted-foreground font-mono">
-            {isError ? 'Failed' : isComplete ? '100%' : `${progressPercent}%`}
+            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : `${Math.min(100, Math.round(downloadPercent ?? 0))}%`}
           </span>
         </div>
-      </div>
-
-      {/* Progress bar */}
-      <div className="mb-3">
-        <Progress
-          value={isError ? 100 : isComplete ? 100 : progressPercent}
-          className="h-2"
-          indicatorClassName={getProgressBarColor()}
-        />
       </div>
 
       {/* Message (highlight when setup finished / weights already on disk) */}
@@ -211,7 +199,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         >
           {/* `message` is verbatim from the API; any ✅ etc. only appears if the backend sent it. */}
           <p className="text-sm sm:text-base font-semibold text-emerald-950 dark:text-emerald-50 leading-snug tracking-tight">
-            {message}
+            {message.includes('completed') && message}
           </p>
         </div>
       ) : (
@@ -220,28 +208,40 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         </p>
       )}
 
-      {/* Weights download details (when available) */}
+      {/* Progress bar + weights download details */}
+      <div className="mb-3">
+        <Progress
+          value={
+            isError
+              ? 100
+              : isComplete
+                ? 100
+                : downloadPercent !== null
+                  ? downloadPercent
+                  : undefined
+          }
+          className="h-2"
+          indicatorClassName={
+            downloadPercent !== null
+              ? `${getProgressBarColor()} transition-[width] duration-300`
+              : `${getProgressBarColor()} animate-pulse`
+          }
+        />
+      </div>
+
       {weightsDetails && (
-        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-foreground/80">
-                Model weights download
-              </span>
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-3">
+
+            {!isComplete && !isError && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground/80" />
-                <span className="text-xs">Downloading…</span>
+                <span className="text-xs">
+                  {downloadPercent !== null && downloadPercent >= 100
+                    ? 'Finalizing…' : ''}
+                </span>
               </div>
-            </div>
-            <Progress
-              value={downloadPercent !== null ? downloadPercent : 100}
-              className="h-2"
-              indicatorClassName={
-                downloadPercent !== null
-                  ? 'bg-TT-purple-accent/90 transition-[width] duration-300'
-                  : 'bg-TT-purple-accent/80 animate-pulse'
-              }
-            />
+            )}
           </div>
 
           <div className="space-y-1">
@@ -251,11 +251,6 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
                   <span>
                     {formatBytes(downloadedBytes)} of {formatBytes(totalBytes)}
                   </span>
-                  {downloadPercent !== null ? (
-                    <span className="text-muted-foreground font-sans text-[11px]">
-                      ({Math.min(100, Math.round(downloadPercent))}%)
-                    </span>
-                  ) : null}
                 </>
               ) : downloadedBytes !== null ? (
                 <span>{formatBytes(downloadedBytes)} downloaded</span>
@@ -263,24 +258,36 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
                 <span>{formatBytes(totalBytes)} total</span>
               ) : null}
             </div>
+
             {(speedText || etaText) && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-sans text-[11px] text-muted-foreground">
                 {speedText ? <span>{speedText}</span> : null}
-                {speedText && etaText ? <span aria-hidden="true">·</span> : null}
+
+                {speedText && etaText ? (
+                  <span aria-hidden="true">·</span>
+                ) : null}
+
                 {etaText ? <span>{etaText}</span> : null}
               </div>
             )}
           </div>
+
           {progress.weights_repo ? (
-            <div className="truncate" title={progress.weights_repo}>
+            <div
+              className="truncate"
+              title={progress.weights_repo}
+            >
               Repo: {progress.weights_repo}
             </div>
           ) : null}
 
           <div className="rounded-md border bg-muted/30 p-2 text-muted-foreground">
-            <span className="font-medium text-foreground/80">Note:</span> You can leave this page
-            while the model downloads. The download continues in the background, and future
-            deploys will reuse the cached weights.
+            <span className="font-medium text-foreground/80">
+              Note:
+            </span>{' '}
+            You can leave this page while the model downloads. The
+            download continues in the background, and future deploys
+            will reuse the cached weights.
           </div>
         </div>
       )}
