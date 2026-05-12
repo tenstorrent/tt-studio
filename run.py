@@ -4491,6 +4491,29 @@ def main():
                         print()
                         sys.exit(1)
 
+        # Ensure fastapi_logs/ exists and is owned by the invoking user before
+        # inference-api writes per-deployment log files into it. If a prior
+        # sudo'd process created this dir, writes from the non-root uvicorn
+        # process will fail with EACCES (see inference-api/api.py:get_fastapi_logs_dir).
+        fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
+        if not os.path.exists(fastapi_logs_dir):
+            try:
+                os.makedirs(fastapi_logs_dir, mode=0o755, exist_ok=True)
+            except Exception as e:
+                print(f"{C_YELLOW}⚠️  Could not create fastapi_logs directory: {e}{C_RESET}")
+        elif OS_NAME != "Windows":
+            current_user_uid = os.getuid()
+            if os.stat(fastapi_logs_dir).st_uid != current_user_uid:
+                print(f"{C_YELLOW}⚠️  fastapi_logs directory is owned by another user, fixing permissions...{C_RESET}")
+                try:
+                    os.chown(fastapi_logs_dir, current_user_uid, os.getgid())
+                    print(f"{C_GREEN}✅ Fixed fastapi_logs directory ownership{C_RESET}")
+                except (OSError, PermissionError) as e:
+                    print(f"{C_RED}⛔ Could not fix fastapi_logs permissions: {e}{C_RESET}")
+                    print(f"{C_YELLOW}Please run the following in another terminal, then press Enter:{C_RESET}")
+                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {fastapi_logs_dir}{C_RESET}")
+                    input("Press Enter once you've run the command above to continue...")
+
         # Start Docker Control Service BEFORE starting Docker containers
         # This ensures the backend can connect to it when it starts
         startup_log.step("docker_control_service", "START")

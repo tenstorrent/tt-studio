@@ -40,6 +40,7 @@ interface DeployState {
 
 interface OccupiedDevice {
   device_id: number;
+  device_ids: number[];
   name: string;
 }
 
@@ -125,12 +126,18 @@ function groupByStatus(models: Model[]): Record<string, CompatGroup> {
   return grouped;
 }
 
+function formatDeviceIdsLabel(deviceIds: number[]): string {
+  const normalized = Array.from(new Set(deviceIds)).sort((a, b) => a - b);
+  return `Device ${normalized.join(",")}`;
+}
+
 // ---- ModelSelectItems -----------------------------------------------------
 
 function ModelSelectItems({ models }: { models: Model[] }) {
   const grouped = groupByStatus(models);
-  if (models.length === 0) return (
-    <div className="px-2 py-3 text-center text-xs text-muted-foreground">No models available</div>
+  const hasAnyCompatible = models.some((m) => m.is_compatible === true);
+  if (!hasAnyCompatible) return (
+    <div className="px-2 py-3 text-center text-xs text-muted-foreground">No compatible models available</div>
   );
   return (
     <>
@@ -139,8 +146,7 @@ function ModelSelectItems({ models }: { models: Model[] }) {
         .map(([modelStatus, byCompat]) => {
           const cfg = STATUS_CONFIG[modelStatus as keyof typeof STATUS_CONFIG];
           const Icon = cfg?.icon ?? FlaskConical;
-          const hasAny = byCompat.compatible.length + byCompat.incompatible.length + byCompat.unknown.length > 0;
-          if (!hasAny) return null;
+          if (byCompat.compatible.length === 0) return null;
           return (
             <div key={modelStatus}>
               <div className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${cfg?.color ?? "text-gray-600"} ${cfg?.bgColor ?? "bg-gray-50 dark:bg-gray-900/20"}`}>
@@ -152,24 +158,6 @@ function ModelSelectItems({ models }: { models: Model[] }) {
                     <span className="text-green-500 mr-2 text-xs">●</span>
                     <span className="flex-1">{m.name}</span>
                     <span className="text-xs text-green-600 ml-2">Compatible</span>
-                  </div>
-                </SelectItem>
-              ))}
-              {byCompat.unknown.map((m) => (
-                <SelectItem key={m.id} value={m.id} className="pl-8 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden">
-                  <div className="flex items-center w-full">
-                    <span className="text-yellow-500 mr-2 text-xs">●</span>
-                    <span className="flex-1">{m.name}</span>
-                    <span className="text-xs text-yellow-600 ml-2">Unknown</span>
-                  </div>
-                </SelectItem>
-              ))}
-              {byCompat.incompatible.map((m) => (
-                <SelectItem key={m.id} value={m.id} disabled className="pl-8 opacity-50 [&>*:first-child]:hidden [&_svg]:hidden [&_[data-radix-select-item-indicator]]:hidden">
-                  <div className="flex items-center w-full">
-                    <span className="text-red-500 mr-2 text-xs">●</span>
-                    <span className="text-gray-500 flex-1">{m.name}</span>
-                    <span className="text-xs text-red-500 ml-2">Incompatible</span>
                   </div>
                 </SelectItem>
               ))}
@@ -205,17 +193,29 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   useEffect(() => {
     const loadModels = fetch(getModelsUrl)
       .then((r) => r.json())
-      .then((models: Model[]) => {
+      .then((rawModels: Model[]) => {
+        // Voice Agent screen overrides: surface distil-large-v3 as compatible.
+        const models = rawModels.map((m) =>
+          /distil-large-v3/i.test(m.name ?? "") || /distil-large-v3/i.test(m.id ?? "")
+            ? { ...m, is_compatible: true }
+            : m
+        );
         setAllModels(models);
         const singleDeviceBoards = ["n150", "n300"];
         const isSingleDevice = (m: Model) =>
           (m.chips_required ?? 1) === 1 &&
           m.compatible_boards.some((b) => singleDeviceBoards.includes(b.toLowerCase()));
         const singleChip = (m: Model) => (m.chips_required ?? 1) === 1;
+        const isInstruct = (m: Model) => /instruct/i.test(m.name ?? "") || /instruct/i.test(m.id ?? "");
         const firstCompat = (type: string) => {
           const filter = type === "chat" ? isSingleDevice : singleChip;
+          const compatible = models.filter((m) => m.model_type === type && filter(m) && m.is_compatible === true);
+          if (type === "chat") {
+            const instruct = compatible.find(isInstruct);
+            if (instruct) return instruct.id;
+          }
           return (
-            models.find((m) => m.model_type === type && filter(m) && m.is_compatible === true)?.id ??
+            compatible[0]?.id ??
             models.find((m) => m.model_type === type && filter(m))?.id ?? ""
           );
         };
@@ -227,10 +227,29 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
 
     const loadSlots = fetch("/docker-api/status/")
       .then((r) => r.json())
-      .then((data: Record<string, { name: string; device_id?: number | null }>) => {
+      .then((data: Record<string, { name: string; device_id?: number | null; device_ids?: number[] | null }>) => {
         const occupied = Object.values(data)
-          .filter((c) => c.device_id != null)
-          .map((c) => ({ device_id: c.device_id as number, name: c.name }));
+          .map((c) => {
+            const normalizedDeviceIds = Array.isArray(c.device_ids)
+              ? c.device_ids
+                  .map((slot) => Number(slot))
+                  .filter((slot) => Number.isInteger(slot))
+              : [];
+            const fallbackDeviceId = c.device_id != null ? Number(c.device_id) : null;
+            const resolvedDeviceIds =
+              normalizedDeviceIds.length > 0
+                ? Array.from(new Set(normalizedDeviceIds)).sort((a, b) => a - b)
+                : fallbackDeviceId != null && Number.isInteger(fallbackDeviceId)
+                  ? [fallbackDeviceId]
+                  : [];
+            if (resolvedDeviceIds.length === 0) return undefined;
+            return {
+              device_id: resolvedDeviceIds[0],
+              device_ids: resolvedDeviceIds,
+              name: c.name,
+            };
+          })
+          .filter((item): item is OccupiedDevice => item !== undefined);
         setOccupiedDevices(occupied);
       })
       .catch(() => { /* non-fatal — just no pre-flight warnings */ });
@@ -270,21 +289,44 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     whisperState.status === "error" ||
     ttsState.status === "error";
 
-  const occupiedByDevice = (id: number) => occupiedDevices.find((d) => d.device_id === id);
-  const occupiedByDevices = (ids: number[]) => {
-    const names = ids
+  const occupiedByDevice = (id: number) => occupiedDevices.find((d) => d.device_ids.includes(id));
+  const dedupeOccupiedDevices = (items: Array<OccupiedDevice | undefined>) => {
+    const unique = new Map<string, OccupiedDevice>();
+    items.forEach((item) => {
+      if (!item) return;
+      const key = `${item.name}::${item.device_ids.join(",")}`;
+      if (!unique.has(key)) unique.set(key, item);
+    });
+    return Array.from(unique.values());
+  };
+  const withDisplayDeviceIds = (item: OccupiedDevice): OccupiedDevice =>
+    useLlamaCardPair && item.device_ids.includes(0)
+      ? { ...item, device_ids: [0, 1] }
+      : item;
+  const llmOccupantsRaw = useLlamaCardPair
+    ? dedupeOccupiedDevices([occupiedByDevice(0), occupiedByDevice(1)])
+    : dedupeOccupiedDevices([occupiedByDevice(0)]);
+  const llmOccupants = useLlamaCardPair
+    ? dedupeOccupiedDevices(llmOccupantsRaw.map(withDisplayDeviceIds))
+    : llmOccupantsRaw;
+  const whisperOccupants = dedupeOccupiedDevices([occupiedByDevice(whisperDeviceId)]);
+  const ttsOccupants = dedupeOccupiedDevices([occupiedByDevice(ttsDeviceId)]);
+  const targetSlots = useLlamaCardPair ? [0, 1, 2, 3] : [0, 1, 2];
+  const occupiedSlots = dedupeOccupiedDevices(
+    targetSlots
       .map((id) => occupiedByDevice(id))
       .filter((item): item is OccupiedDevice => item !== undefined)
-      .map((device) => `Device ${device.device_id}: ${device.name}`);
-    return names.length > 0 ? names.join(" · ") : undefined;
-  };
-  const targetSlots = useLlamaCardPair ? [0, 1, 2, 3] : [0, 1, 2];
-  const occupiedSlots = targetSlots
-    .map((id) => occupiedByDevice(id))
-    .filter((d): d is OccupiedDevice => d !== undefined);
+      .map(withDisplayDeviceIds)
+  );
+  const hasConflicts = occupiedSlots.length > 0;
 
   const canDeploy =
-    !isDeploying && !allDone && !!selectedLlmId && !!selectedWhisperId && !!speechT5Id;
+    !isDeploying &&
+    !allDone &&
+    !hasConflicts &&
+    !!selectedLlmId &&
+    !!selectedWhisperId &&
+    !!speechT5Id;
 
   const handleDeploy = async () => {
     if (!selectedLlmId || !selectedWhisperId || !speechT5Id) {
@@ -394,10 +436,12 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 deviceLabel={useLlamaCardPair ? "Device 0,1" : "Device 0"}
                 deployState={llmState}
                 accent="blue"
-                occupiedBy={
-                  useLlamaCardPair
-                    ? occupiedByDevices([0, 1])
-                    : occupiedByDevice(0)?.name
+                occupants={llmOccupants}
+                helperContent={
+                  <>
+                    <Info className="w-2.5 h-2.5 shrink-0 opacity-60" />
+                    <span>Instruct variants recommended for chat</span>
+                  </>
                 }
               >
                 <Select value={selectedLlmId} onValueChange={setSelectedLlmId} disabled={isDeploying || allDone}>
@@ -412,7 +456,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 deviceLabel={`Device ${whisperDeviceId}`}
                 deployState={whisperState}
                 accent="purple"
-                occupiedBy={occupiedByDevice(whisperDeviceId)?.name}
+                occupants={whisperOccupants}
               >
                 <Select value={selectedWhisperId} onValueChange={setSelectedWhisperId} disabled={isDeploying || allDone}>
                   <SelectTrigger className="w-full text-xs h-8"><SelectValue placeholder="Select Whisper" /></SelectTrigger>
@@ -426,7 +470,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 deviceLabel={`Device ${ttsDeviceId}`}
                 deployState={ttsState}
                 accent="green"
-                occupiedBy={occupiedByDevice(ttsDeviceId)?.name}
+                occupants={ttsOccupants}
               >
                 {ttsModels.length > 1 ? (
                   <Select value={speechT5Id} onValueChange={setSpeechT5Id} disabled={isDeploying || allDone}>
@@ -442,22 +486,41 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
               </ModelCard>
             </div>
 
-            {occupiedSlots.length > 0 && !isDeploying && !allDone && (
-              <div className="flex items-start gap-3 rounded-lg border border-amber-300/50 dark:border-amber-700/50 bg-amber-50/80 dark:bg-amber-900/20 px-4 py-3">
-                <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                <div className="flex-1 text-sm text-amber-800 dark:text-amber-300 leading-relaxed">
-                  <span className="font-semibold">Slots may be in use: </span>
-                  {occupiedSlots.map((d) => `Device ${d.device_id} (${d.name})`).join(", ")}
-                  {" — deployment will fail if these are still running."}
+            {hasConflicts && !isDeploying && !allDone && (
+              <div className="rounded-lg border border-amber-500/20 bg-gradient-to-br from-amber-500/[0.04] to-amber-500/[0.02] px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-md bg-amber-500/10 shrink-0 mt-0.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs uppercase tracking-[0.14em] font-semibold text-amber-300/80 mb-1.5">
+                      Conflicting slots
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {occupiedSlots.map((d) => (
+                        <span
+                          key={`${d.name}::${d.device_ids.join(",")}`}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/20 bg-amber-500/[0.06] px-2 py-0.5 text-[11px]"
+                        >
+                          <span className="text-amber-300/70">{formatDeviceIdsLabel(d.device_ids)}</span>
+                          <span className="w-px h-3 bg-amber-500/20" />
+                          <span className="font-mono text-amber-100/85 dark:text-amber-200/80 truncate max-w-[16ch]">{d.name}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-amber-200/60 dark:text-amber-200/55 leading-relaxed">
+                      Use the Manage slots button to free these slots before deploying — overlapping containers will cause this run to fail.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate("/models-deployed")}
+                    className="shrink-0 border-amber-500/30 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200 hover:border-amber-500/50"
+                  >
+                    Manage slots <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => navigate("/models-deployed")}
-                  className="shrink-0 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
-                >
-                  Go to Models Deployed
-                </Button>
               </div>
             )}
 
@@ -510,11 +573,16 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 </div>
               </div>
             ) : (
-              <div className="pt-2">
+              <div className="pt-2 flex flex-col gap-1.5">
                 <Button
                   onClick={handleDeploy}
                   disabled={!canDeploy}
-                  className="flex items-center gap-2 relative overflow-hidden"
+                  title={hasConflicts ? "Use Manage slots above to free conflicts before deploying." : undefined}
+                  className={`flex items-center gap-2 relative overflow-hidden ${
+                    hasConflicts && !isDeploying
+                      ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-100 dark:bg-red-900/25 dark:text-red-300 dark:border-red-700/40 disabled:opacity-100"
+                      : ""
+                  }`}
                   style={isDeploying ? {
                     background: "linear-gradient(90deg, var(--tw-gradient-stops))",
                     backgroundImage: "linear-gradient(90deg, #7c68fa 0%, #a78bfa 40%, #7c68fa 60%, #6d55f5 100%)",
@@ -525,6 +593,11 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                   {isDeploying && <Loader2 className="w-4 h-4 animate-spin" />}
                   {isDeploying ? "Deploying…" : "Deploy Voice Agent"}
                 </Button>
+                {hasConflicts && !isDeploying && (
+                  <p className="text-xs text-red-600/90 dark:text-red-300/90">
+                    Use Manage slots above to free conflicts before deploying.
+                  </p>
+                )}
               </div>
             )}
           </>
@@ -557,9 +630,9 @@ function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapp
   }
 }
 
-function ModelCard({ icon, label, deviceLabel, deployState, accent, occupiedBy, children }: {
+function ModelCard({ icon, label, deviceLabel, deployState, accent, occupants, helperContent, children }: {
   icon: ReactNode; label: string; deviceLabel: string;
-  deployState: DeployState; accent: CardAccent; occupiedBy?: string; children: ReactNode;
+  deployState: DeployState; accent: CardAccent; occupants?: OccupiedDevice[]; helperContent?: ReactNode; children: ReactNode;
 }) {
   const idle = ACCENT_IDLE[accent];
   const { wrapper, extra } = stateClasses(deployState.status, accent);
@@ -578,24 +651,50 @@ function ModelCard({ icon, label, deviceLabel, deployState, accent, occupiedBy, 
           {deviceLabel}
         </span>
       </div>
-      {children}
-      {occupiedBy && deployState.status === "idle" && (
-        <div className="flex items-center gap-1.5 text-xs text-amber-500">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">Running: {occupiedBy}</span>
-        </div>
-      )}
-      <DeployStatusIndicator state={deployState} />
+      <div className="flex min-h-8 flex-col">{children}</div>
+      <div className="min-h-4">
+        {helperContent ? (
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 leading-snug">{helperContent}</div>
+        ) : (
+          <span className="block h-4" aria-hidden="true" />
+        )}
+      </div>
+      <div className="mt-auto pt-1">
+        <DeployStatusIndicator state={deployState} occupants={occupants} />
+      </div>
     </div>
   );
 }
 
-function DeployStatusIndicator({ state }: { state: DeployState }) {
-  if (state.status === "idle") return (
-    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />Idle
-    </div>
-  );
+function DeployStatusIndicator({ state, occupants }: { state: DeployState; occupants?: OccupiedDevice[] }) {
+  if (state.status === "idle") {
+    if (occupants && occupants.length > 0) return (
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className="relative flex items-center justify-center w-2 h-2 shrink-0">
+            <span className="absolute inset-0 rounded-full bg-amber-400/40 animate-ping" />
+            <span className="relative w-1.5 h-1.5 rounded-full bg-amber-400" />
+          </span>
+          <span className="text-[10px] uppercase tracking-[0.14em] text-amber-300/80 font-semibold">In use</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          {occupants.map((o) => (
+            <div key={`${o.name}::${o.device_ids.join(",")}`} className="flex items-center gap-2 min-w-0">
+              <span className="inline-flex items-center rounded border border-amber-500/25 bg-amber-500/[0.07] px-1.5 py-0 text-[10px] text-amber-300/90 shrink-0">
+                {formatDeviceIdsLabel(o.device_ids)}
+              </span>
+              <span className="text-[11px] font-mono text-amber-100/85 truncate min-w-0">{o.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />Ready
+      </div>
+    );
+  }
   if (state.status === "deploying") return (
     <div className="flex items-center gap-1.5 text-xs text-blue-500">
       <Loader2 className="w-3.5 h-3.5 animate-spin" />Deploying…
