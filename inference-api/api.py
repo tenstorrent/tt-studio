@@ -197,6 +197,8 @@ deployment_log_handlers: Dict[str, logging.FileHandler] = {}
 MAX_LOG_MESSAGES = 100
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
+# Mark a job as stalled when no run.py log/progress update arrives for this long.
+PULL_STALL_THRESHOLD_SECONDS = 120
 
 # Regex pattern for structured progress signals
 PROG_RE = re.compile(r"TT_PROGRESS stage=(\w+) pct=(\d{1,3}) msg=(.*)$")
@@ -406,7 +408,7 @@ def _resolve_preferred_host_volume(
             expected_volume_dir,
             expected_weights_dir,
             expected_tt_metal_cache_dir,
-            f"expected tt_metal_cache path is not a directory: {expected_tt_metal_cache_dir}",
+            f"expected """  """tt_metal_cache path is not a directory: {expected_tt_metal_cache_dir}",
         )
     if not (expected_weights_dir / "config.json").exists():
         return (
@@ -737,7 +739,11 @@ class ProgressHandler(logging.Handler):
         # receive every other job's messages and _extract_from_job_logs()
         # would pick up the wrong container name.
         self._owner_thread = threading.current_thread().ident
-        
+        # Per-layer counters for docker pull so the bar/message advances
+        # instead of sitting at a flat 50% during multi-GB image downloads.
+        self._pull_layers_total = 0
+        self._pull_layers_complete = 0
+
         # Initialize log store for this job
         with progress_lock:
             if job_id not in log_store:
@@ -822,14 +828,28 @@ class ProgressHandler(logging.Handler):
             # Docker image layer pull (e.g. "abc123: Download complete", "Pulling from ...")
             elif any(keyword in message.lower() for keyword in [
                 "pulling from",
+                ": pulling fs layer",
                 ": download complete",
                 ": verifying checksum",
                 ": pull complete",
                 ": already exists",
             ]):
                 stage = "container_setup"
-                progress = 50
-                message = "Pulling container image layers..."
+                msg_l = message.lower()
+                if ": pulling fs layer" in msg_l:
+                    self._pull_layers_total += 1
+                elif ": pull complete" in msg_l or ": already exists" in msg_l:
+                    self._pull_layers_complete += 1
+                if self._pull_layers_total > 0:
+                    ratio = min(1.0, self._pull_layers_complete / self._pull_layers_total)
+                    progress = 30 + int(ratio * 30)  # ramp 30 -> 60 during pull
+                    message = (
+                        f"Pulling container image layers "
+                        f"({self._pull_layers_complete}/{self._pull_layers_total})..."
+                    )
+                else:
+                    progress = 30
+                    message = "Pulling container image layers..."
             elif any(keyword in message.lower() for keyword in ["docker run command", "running docker container"]):
                 stage = "container_setup"
                 progress = 70
@@ -875,13 +895,17 @@ class ProgressHandler(logging.Handler):
                         if current_status in ("completed", "failed", "cancelled"):
                             pass
                         elif progress > current_progress or status == "error" or status == "completed":
-                            progress_store[self.job_id].update({
+                            update_payload = {
                                 "status": status,
                                 "stage": stage,
                                 "progress": progress,
                                 "message": message[:200],
                                 "last_updated": time.time()
-                            })
+                            }
+                            if self._pull_layers_total > 0:
+                                update_payload["pull_layers_complete"] = self._pull_layers_complete
+                                update_payload["pull_layers_total"] = self._pull_layers_total
+                            progress_store[self.job_id].update(update_payload)
                     else:
                         # Initialize if not exists
                         progress_store[self.job_id] = {
@@ -1052,13 +1076,14 @@ async def get_run_progress(job_id: str):
             "last_updated": time.time()
         })
         
-        # Add stalled detection (>120s no updates)
+        # Add stalled detection (>120s no updates from run.py)
         if progress["status"] == "running" and "last_updated" in progress:
             time_since_update = time.time() - progress["last_updated"]
-            if time_since_update > DEPLOYMENT_TIMEOUT_SECONDS:  # 2 minutes
+            if time_since_update > PULL_STALL_THRESHOLD_SECONDS:
                 progress = progress.copy()  # Don't modify the stored version
                 progress["status"] = "stalled"
                 progress["message"] = f"No progress updates for {int(time_since_update)}s - deployment may be stalled"
+                progress["stale_seconds"] = int(time_since_update)
                 
     return progress
 
