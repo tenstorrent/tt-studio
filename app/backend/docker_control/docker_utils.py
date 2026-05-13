@@ -104,8 +104,8 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Blackhole boards → constituent single-chip device
     "P150X4":  "p150",
     "P150X8":  "p150",
-    "P300Cx2": "p300x2",  # QB2: inference server always wants p300x2; device_id selects the chip
-    "P300Cx4": "p300c",
+    "P300Cx2": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
+    "P300Cx4": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
     # Galaxy (N300-based)
     "GALAXY":     "n300",
     "GALAXY_T3K": "n300",
@@ -250,12 +250,19 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         # Save deployment record
         try:
             if container_id:
+                if isinstance(device_id, str):
+                    deployment_device_ids = [int(x.strip()) for x in device_id.split(",")]
+                elif isinstance(device_id, (list, tuple)):
+                    deployment_device_ids = [int(x) for x in device_id]
+                else:
+                    deployment_device_ids = [int(device_id)]
                 ModelDeployment.objects.create(
                     container_id=container_id,
                     container_name=container_name or run_kwargs.get("name"),
                     model_name=impl.model_name,
                     device=f"device_{device_id}",
-                    device_id=device_id,
+                    device_id=deployment_device_ids[0],
+                    device_ids=deployment_device_ids,
                     status="running",
                     stopped_by_user=False,
                     port=actual_host_port,
@@ -280,7 +287,7 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
-def run_container(impl, weights_id, device_id=0, host_port=None):
+def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
     """Run a docker container.
 
     For FACE_RECOGNITION model type, uses docker-control-service directly.
@@ -331,15 +338,15 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
             "docker_server": True,
         }
 
-        # Use slot-based port allocation for all models (single and multi-chip)
-        # This allows multiple models to run simultaneously on different chip slots
-        # Port mapping: slot 0 -> 7000, slot 1 -> 7001, slot 2 -> 7002, slot 3 -> 7003
-        payload["service_port"] = str(BASE_SERVICE_PORT + device_id)
-        service_port = BASE_SERVICE_PORT + device_id
+        # Use slot-based port allocation for all models (single and multi-chip).
+        # device_id may be a comma-separated string (e.g. "0,1") for multi-chip
+        # single-card deployments; use the first slot for the service port.
+        primary_device_id = int(str(device_id).split(",")[0].strip())
+        payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
+        service_port = BASE_SERVICE_PORT + primary_device_id
 
-        # Pin to specific chip slot (both single and multi-chip models)
-        # Single-chip models need this to pin to a specific slot on multi-chip boards (e.g., slot 0 on T3K)
-        # Multi-chip models need this to specify which configuration to use
+        # Pin to specific chip slot(s). For multi-chip single-card mode this is a
+        # comma-separated string that the inference server passes as --device-id 0,1.
         payload["device_id"] = str(device_id)
 
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
@@ -351,9 +358,13 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
         if impl.model_type != ModelTypes.CHAT:
             payload["skip_system_sw_validation"] = True
 
-        # TTS and Speech Recognition models require dev_mode for proper operation
-        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
-            payload["dev_mode"] = True
+        # TEMP: disabled — do not force dev_mode for TTS / Speech Recognition
+        # if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+        #     payload["dev_mode"] = True
+
+        # TEMP: disabled — do not override docker image for QB2 media models
+        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300Cx2":
+        #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
         logger.info(f"API payload: {payload}")
 
@@ -376,84 +387,37 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
                 logger.warning(f"docker_log_file_path NOT found in api_result. Available keys: {list(api_result.keys())}")
 
             job_id = api_result.get("job_id")
-            logger.info(f"Deployment job submitted with job_id={job_id}; polling for completion...")
+            logger.info(f"Deployment job submitted with job_id={job_id}; handing off to background sync")
 
-            # The FastAPI /run endpoint returns 202 immediately (async job).
-            # Poll /run/progress/{job_id} until the job reaches a terminal state.
-            completed_progress: dict = {}
             if job_id:
                 try:
-                    completed_progress = _poll_deployment_to_completion(
-                        job_id, timeout_seconds=DEPLOYMENT_TIMEOUT_SECONDS
-                    )
-                    logger.info(f"Job {job_id} completed: {completed_progress}")
-                except (RuntimeError, TimeoutError) as poll_err:
-                    error_msg = f"Deployment job failed or timed out: {poll_err}"
-                    logger.error(error_msg)
-                    return {"status": "error", "message": error_msg, "job_id": job_id}
-            else:
-                logger.warning("No job_id in 202 response; attempting to use response data directly")
-                completed_progress = api_result
-
-            # Update deploy cache on success
-            update_deploy_cache()
-
-            # Notify agent about new container deployment (best-effort)
-            container_name_for_notify = completed_progress.get("container_name")
-            if container_name_for_notify:
-                notify_agent_of_new_container(container_name_for_notify)
-
-            # Create the deployment record only after successful API response
-            # (never before — avoids stale "starting" records blocking slots on failure)
-            container_id = None
-            container_name = "unknown"
-            try:
-                container_id = completed_progress.get("container_id")
-                container_name = completed_progress.get("container_name", "unknown")
-
-                # If container_id is not in response, try to get it from Docker by name
-                if not container_id and container_name:
-                    try:
-                        docker_client = get_docker_client()
-                        container_info = docker_client.get_container(container_name)
-                        container_id = container_info.get("id")
-                        logger.info(f"Retrieved container_id {container_id} from Docker for {container_name}")
-                    except Exception as docker_error:
-                        logger.warning(f"Could not get container_id from Docker: {docker_error}")
-                        container_id = container_name
-
-                if container_id:
-                    workflow_log_path = completed_progress.get("docker_log_file_path")
-                    logger.info(f"Extracted workflow_log_path from completed progress: {workflow_log_path}")
-
+                    deployment_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
                     ModelDeployment.objects.create(
-                        container_id=container_id,
-                        container_name=container_name,
+                        container_id=job_id,
+                        container_name=impl.model_name,
                         model_name=impl.model_name,
                         device=device,
-                        device_id=device_id,
-                        status="running",
+                        device_id=primary_device_id,
+                        device_ids=deployment_device_ids,
+                        status="starting",
                         stopped_by_user=False,
                         port=service_port,
-                        workflow_log_path=workflow_log_path
                     )
-                    logger.info(f"Saved deployment record for {container_name} (ID: {container_id})")
-                else:
-                    logger.warning(f"Could not save deployment record: no container_id or container_name")
-            except Exception as e:
-                import traceback
-                logger.error(
-                    f"Failed to save deployment record for {container_name} (ID: {container_id}): {type(e).__name__}: {e}\n"
-                    f"Traceback: {traceback.format_exc()}"
-                )
-                # Don't fail the deployment if we can't save the record
+                    logger.info(f"Created starting deployment record for {impl.model_name} (job_id={job_id})")
+                except Exception as e:
+                    logger.warning(f"Could not create ModelDeployment for job {job_id}: {e}")
+                try:
+                    from docker_control.deployment_sync import start_deployment_sync
+                    start_deployment_sync(job_id)
+                except Exception as e:
+                    logger.warning(f"Could not start deployment sync for job {job_id}: {e}")
+            else:
+                logger.warning("No job_id in 202 response")
 
             return {
                 "status": "success",
-                "container_name": completed_progress.get("container_name"),
-                "container_id": completed_progress.get("container_id"),
-                "job_id": job_id or completed_progress.get("job_id"),
-                "api_response": completed_progress
+                "job_id": job_id,
+                "message": "Deployment started",
             }
         else:
             error_msg = f"API call failed with status {response.status_code}: {response.text}"
@@ -549,7 +513,9 @@ def get_devices_mounts(impl, device_id=0):
     device_config = get_runtime_device_configuration(impl.device_configurations)
     assert isinstance(device_config, DeviceConfigurations)
 
-    # Single-chip device configurations: pin to the requested chip slot
+    # Single-chip device configurations: pin to the requested chip slot(s).
+    # device_id may be an int, a comma-separated string ("0,1"), or a list of ints
+    # for multi-chip single-card deployments (--device-id 0,1).
     single_chip_configs = {
         DeviceConfigurations.E150,
         DeviceConfigurations.N150,
@@ -565,7 +531,14 @@ def get_devices_mounts(impl, device_id=0):
     all_device_mounts = ["/dev/tenstorrent:/dev/tenstorrent"]
 
     if device_config in single_chip_configs:
-        return [f"/dev/tenstorrent/{device_id}:/dev/tenstorrent/{device_id}"]
+        # Normalise device_id to a list of ints
+        if isinstance(device_id, str) and "," in device_id:
+            ids = [int(x.strip()) for x in device_id.split(",")]
+        elif isinstance(device_id, (list, tuple)):
+            ids = [int(x) for x in device_id]
+        else:
+            ids = [int(device_id)]
+        return [f"/dev/tenstorrent/{d}:/dev/tenstorrent/{d}" for d in ids]
 
     # Multi-chip (T3K, Galaxy, N300x4, P150X4, P150X8, etc.)
     multi_chip_configs = {
@@ -720,13 +693,27 @@ def parse_env_var_str(env_var_list):
 def get_container_status():
     containers = get_managed_containers()
 
-    # Build container_id → device_id lookup from deployment database
+    # Build container_id → device slot lookup from deployment database
     device_id_lookup: dict = {}
+    device_ids_lookup: dict = {}
     try:
         for dep in ModelDeployment.objects.filter(status__in=["starting", "running"]):
             device_id_lookup[dep.container_id] = dep.device_id
+            dep_device_ids = getattr(dep, "device_ids", None)
+            if isinstance(dep_device_ids, list) and dep_device_ids:
+                normalized = []
+                for slot_id in dep_device_ids:
+                    try:
+                        normalized.append(int(slot_id))
+                    except (TypeError, ValueError):
+                        continue
+                if normalized:
+                    device_ids_lookup[dep.container_id] = normalized
+                    continue
+            if dep.device_id is not None:
+                device_ids_lookup[dep.container_id] = [dep.device_id]
     except Exception as e:
-        logger.warning(f"Could not load device_id lookup: {e}")
+        logger.warning(f"Could not load device slot lookup: {e}")
 
     data = {}
     for con in containers:
@@ -751,6 +738,7 @@ def get_container_status():
                 },
                 "env_vars": parse_env_var_str(env_list),
                 "device_id": device_id_lookup.get(con.id),
+                "device_ids": device_ids_lookup.get(con.id),
             }
         except Exception as e:
             # A single malformed container payload should never fail the entire

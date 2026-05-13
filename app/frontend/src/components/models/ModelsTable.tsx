@@ -85,6 +85,16 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
   );
 }
 
+function normalizeRowDeviceIds(row: ModelRow): number[] {
+  if (Array.isArray(row.device_ids) && row.device_ids.length > 0) {
+    return Array.from(new Set(row.device_ids)).sort((a, b) => a - b);
+  }
+  if (row.device_id != null) {
+    return [row.device_id];
+  }
+  return [];
+}
+
 interface Props {
   rows: ModelRow[];
   visibleMap: ColumnVisibilityMap;
@@ -227,6 +237,14 @@ export default function ModelsTable({
       <TableBody>
         {rows.map((row) => {
           const isExpanded = !!expanded[row.id];
+          const deviceIds = normalizeRowDeviceIds(row);
+          const hasDeviceIds = deviceIds.length > 0;
+          const deviceLabel =
+            deviceIds.length > 1
+              ? `Device ${deviceIds.map((id) => String(id).padStart(2, "0")).join(",")}`
+              : hasDeviceIds
+                ? `Device ${String(deviceIds[0]).padStart(2, "0")}`
+                : "";
           const colCount =
             1 /* name */ +
             (hideDeviceId ? 0 : 1) /* chip */ +
@@ -259,10 +277,10 @@ export default function ModelsTable({
                 </TableCell>
                 {!hideDeviceId && (
                   <TableCell className="text-right">
-                    {row.device_id != null ? (
+                    {hasDeviceIds ? (
                       <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-full bg-TT-purple-shade/40 text-TT-purple border border-TT-purple-accent/30">
                         <Cpu className="w-3 h-3" />
-                        Device {String(row.device_id).padStart(2, "0")}
+                        {deviceLabel}
                       </span>
                     ) : (
                       <span className="text-xs text-gray-500">—</span>
@@ -318,8 +336,10 @@ export default function ModelsTable({
                       </div>
                       {!hideDeviceId && (
                         <div className="min-w-0">
-                          <div className="text-xs text-stone-500 mb-1">Device</div>
-                          <CopyableText text={row.device_id != null ? `Device ${row.device_id}` : "N/A"} />
+                          <div className="text-xs text-stone-500 mb-1">
+                            {deviceIds.length > 1 ? "Devices" : "Device"}
+                          </div>
+                          <CopyableText text={hasDeviceIds ? deviceLabel : "N/A"} />
                         </div>
                       )}
                       <div className="min-w-0">
