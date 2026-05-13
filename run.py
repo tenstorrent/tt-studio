@@ -997,27 +997,23 @@ def display_first_time_welcome():
     print(f"{C_TT_PURPLE}{C_BOLD}           📝 First-Time Setup{C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print()
-    print(f"{C_CYAN}Welcome to TT Studio! We'll guide you through the initial setup.{C_RESET}")
+    print(f"{C_CYAN}Welcome to TT Studio!{C_RESET}")
     print()
-    print(f"{C_GREEN}ℹ️  What to expect:{C_RESET}")
-    print(f"  • Your responses will be saved for future runs")
-    print(f"  • Subsequent runs will be much faster and non-interactive")
-    print(f"  • You can reset your preferences anytime with {C_WHITE}--reconfigure{C_RESET}")
+    terms_url = "https://docs.tenstorrent.com/os-model-terms.html"
+    terms_link = f"\033]8;;{terms_url}\033\\{C_BLUE}\033[4mOS Model Terms{C_RESET}\033]8;;\033\\"
+    print(f"{C_BOLD}📄 Terms & Conditions{C_RESET}")
+    print(f"By proceeding, you agree to our {terms_link}")
+    print(f"  {C_WHITE}↳ {terms_url}{C_RESET}")
     print()
-    print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset.{C_RESET}")
-    print()
-    print(f"Before getting started please note that by proceeding, you agree to our Terms: https://docs.tenstorrent.com/os-model-terms/")
-    print()
-    print(f"The TL;DR:")
-    print()
-    print(f"{C_GREEN}AS-IS:{C_RESET} These models are for demonstration; we don't guarantee their output.")
-    print(f"{C_GREEN}Liability:{C_RESET} Tenstorrent isn't responsible for damages or AI-generated content.")
-    print(f"{C_GREEN}Compliance:{C_RESET} You agree to follow the original creators' licenses.")
+    print(f"{C_BOLD}TL;DR:{C_RESET}")
+    print(f"  • {C_GREEN}AS-IS:{C_RESET} These models are for demonstration; we don't guarantee their output.")
+    print(f"  • {C_GREEN}Liability:{C_RESET} Tenstorrent isn't responsible for damages or AI-generated content.")
+    print(f"  • {C_GREEN}Compliance:{C_RESET} You agree to follow the original creators' licenses.")
     print()
 
     # Terms acceptance confirmation
     while True:
-        response = input(f"{C_CYAN}Do you agree to these terms? [y/N]: {C_RESET}").strip().lower()
+        response = input(f"{C_CYAN}Do you agree to these terms? [yes/no]: {C_RESET}").strip().lower()
         if response in ['n', 'no', '']:
             print(f"{C_RED}Terms not accepted. Exiting TT-Studio.{C_RESET}")
             sys.exit(0)
@@ -1025,8 +1021,18 @@ def display_first_time_welcome():
             print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
             break
         else:
-            print(f"{C_YELLOW}Please enter 'y' for yes or 'n' for no.{C_RESET}")
+            print(f"{C_YELLOW}Please enter 'yes' (or 'y') or 'no' (or 'n').{C_RESET}")
 
+    print()
+    print(f"{C_TT_PURPLE}{C_BOLD}-----------------------------------------------------{C_RESET}")
+    print()
+    print(f"{C_GREEN}ℹ️  What to expect:{C_RESET}")
+    print(f"  • We'll guide you through the initial setup")
+    print(f"  • Your responses will be saved for future runs")
+    print(f"  • Subsequent runs will be much faster and non-interactive")
+    print(f"  • You can reset your preferences anytime with {C_WHITE}--reconfigure{C_RESET}")
+    print()
+    print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset your preference(s) and .env file.{C_RESET}")
     print()
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print()
