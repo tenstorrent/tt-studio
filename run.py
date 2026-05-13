@@ -1663,13 +1663,230 @@ def display_welcome_banner():
     print(f"{C_TT_PURPLE}{'=' * 68}{C_RESET}")
     print()
 
+def _format_bytes(size):
+    """Format a byte count as a human-readable string."""
+    if size is None or size < 0:
+        return "?"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    f = float(size)
+    for u in units:
+        if f < 1024.0 or u == units[-1]:
+            return f"{f:.1f} {u}" if u != "B" else f"{int(f)} {u}"
+        f /= 1024.0
+    return f"{f:.1f} {units[-1]}"
+
+
+def _path_size(path):
+    """Best-effort recursive size of a file or directory in bytes; 0 if unreadable."""
+    try:
+        if not os.path.exists(path):
+            return 0
+        if os.path.isfile(path) or os.path.islink(path):
+            try:
+                return os.path.getsize(path)
+            except OSError:
+                return 0
+        total = 0
+        for root, dirs, files in os.walk(path, onerror=lambda _: None):
+            for name in files:
+                fp = os.path.join(root, name)
+                try:
+                    if not os.path.islink(fp):
+                        total += os.path.getsize(fp)
+                except OSError:
+                    continue
+        return total
+    except Exception:
+        return 0
+
+
+def _remove_path(path, no_sudo=False):
+    """Remove a file or directory, falling back to sudo on PermissionError when allowed.
+
+    Returns True if removed (or did not exist), False otherwise.
+    """
+    if not os.path.exists(path) and not os.path.islink(path):
+        return True
+    try:
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        return True
+    except PermissionError:
+        if no_sudo:
+            print(f"{C_YELLOW}⚠️  Permission denied removing {path} (no sudo).{C_RESET}")
+            return False
+        try:
+            subprocess.run(["sudo", "rm", "-rf", path], check=True)
+            return True
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Failed to remove {path} with sudo: {e}{C_RESET}")
+            return False
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Failed to remove {path}: {e}{C_RESET}")
+        return False
+
+
+def _remove_local_tt_studio_images(has_docker_access):
+    """Remove locally built/pulled TT Studio Docker images (ghcr.io/tenstorrent/tt-studio/*).
+
+    Best-effort: skips silently if Docker is unavailable. Returns number of images removed.
+    """
+    try:
+        result = subprocess.run(
+            (["sudo"] if not has_docker_access else []) +
+            ["docker", "image", "ls", "--filter",
+             "reference=ghcr.io/tenstorrent/tt-studio/*", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return 0
+        subprocess.run(
+            (["sudo"] if not has_docker_access else []) +
+            ["docker", "image", "rm", "-f", *ids],
+            capture_output=True, check=False,
+        )
+        return len(ids)
+    except Exception:
+        return 0
+
+
+# Sentinel served at `/.cleanup-pending` by Vite (dev) or nginx (prod).
+# Frontend reads this on startup, wipes browser state once per token, then
+# records the token in localStorage to avoid re-wiping on every load.
+BROWSER_CLEANUP_SENTINEL = os.path.join(
+    TT_STUDIO_ROOT, "app", "frontend", "public", ".cleanup-pending"
+)
+
+
+def _write_browser_cleanup_sentinel():
+    """Write a fresh cleanup token so the frontend wipes IndexedDB + localStorage on next load."""
+    try:
+        os.makedirs(os.path.dirname(BROWSER_CLEANUP_SENTINEL), exist_ok=True)
+        token = str(int(time.time() * 1000))
+        with open(BROWSER_CLEANUP_SENTINEL, "w") as f:
+            f.write(token)
+        return token
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Could not write browser cleanup sentinel: {e}{C_RESET}")
+        return None
+
+
 def cleanup_resources(args):
-    """Clean up Docker resources"""
+    """Clean up TT Studio Docker resources, and (with --cleanup-all) all persistent state."""
+    full_cleanup = bool(getattr(args, "cleanup_all", False))
+    assume_yes = bool(getattr(args, "yes", False))
+
+    if not full_cleanup:
+        print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
+        _cleanup_runtime(args, check_docker_access())
+        print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
+        return
+
+    # --- --cleanup-all: build full inventory and ask once ---
+    host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or \
+        os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
+    artifacts_root = os.path.join(TT_STUDIO_ROOT, ".artifacts")
+
+    items = [
+        ("📁", host_persistent_volume,
+         "HF token, JWT secret, deployment history, backend logs, RAG vector DB, model weights"),
+        ("⚙️ ", ENV_FILE_PATH,
+         "configuration & secrets (DJANGO_SECRET_KEY, RAG_ADMIN_PASSWORD, cloud auth tokens)"),
+        ("🔧", artifacts_root,
+         "downloaded inference server + workflow logs + release tarball"),
+        ("📜", STARTUP_LOG_FILE, "startup log"),
+        ("📜", FASTAPI_LOG_FILE, "FastAPI server log"),
+        ("📜", FASTAPI_PID_FILE, "FastAPI server PID file"),
+        ("📜", DOCKER_CONTROL_LOG_FILE, "Docker Control Service log"),
+        ("📜", DOCKER_CONTROL_PID_FILE, "Docker Control Service PID file"),
+        ("📜", os.path.join(TT_STUDIO_ROOT, "fastapi_logs"),
+         "per-deployment FastAPI logs"),
+        ("⚙️ ", PREFS_FILE_PATH, "CLI preferences"),
+        ("⚙️ ", EASY_CONFIG_FILE_PATH, "easy-mode setup snapshot"),
+        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "output.wav"), "TTS scratch output"),
+        ("🎙️ ", os.path.join(TT_STUDIO_ROOT, "speech.wav"), "STT scratch output"),
+        ("🐍", os.path.join(INFERENCE_API_DIR, ".venv"),
+         "inference-api Python virtualenv"),
+        ("🐍", os.path.join(DOCKER_CONTROL_SERVICE_DIR, ".venv"),
+         "docker-control-service Python virtualenv"),
+        ("🐍", os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"),
+         "workflow Python virtualenvs"),
+    ]
+
+    existing = [(emoji, path, desc, _path_size(path))
+                for emoji, path, desc in items if os.path.exists(path) or os.path.islink(path)]
+    total_bytes = sum(sz for _, _, _, sz in existing)
+
+    print(f"\n{C_ORANGE}{C_BOLD}🗑️  --cleanup-all will reset TT Studio to a fresh-clone state.{C_RESET}")
+    print(f"\n{C_BOLD}The following will be PERMANENTLY DELETED:{C_RESET}\n")
+
+    if existing:
+        path_w = max(len(os.path.relpath(p, TT_STUDIO_ROOT)) for _, p, _, _ in existing)
+        path_w = min(max(path_w, 32), 56)
+        for emoji, path, desc, size in existing:
+            rel = os.path.relpath(path, TT_STUDIO_ROOT)
+            size_str = _format_bytes(size) if size > 0 else "—"
+            print(f"  {emoji} {rel:<{path_w}}  {size_str:>10}")
+            print(f"       └─ {C_CYAN}{desc}{C_RESET}")
+    else:
+        print(f"  {C_CYAN}(no host-side state found){C_RESET}")
+
+    print(f"\n  🐳 Local TT Studio Docker images (backend, frontend, agent)")
+    print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
+
+    if total_bytes > 0:
+        print(f"  {C_BOLD}Estimated disk to reclaim: {_format_bytes(total_bytes)}{C_RESET}")
+
+    print(f"\n{C_RED}{C_BOLD}This CANNOT be undone.{C_RESET}")
+
+    if not assume_yes:
+        try:
+            confirm = input(f"\n{C_YELLOW}Proceed? [y/N]: {C_RESET}").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n{C_YELLOW}🛑 Cleanup aborted. Nothing was deleted.{C_RESET}")
+            return
+        if confirm not in ("y", "yes"):
+            print(f"\n{C_CYAN}🛑 Cleanup aborted. Nothing was deleted.{C_RESET}")
+            return
+    else:
+        print(f"\n{C_YELLOW}--yes passed; proceeding without prompt.{C_RESET}")
+
     print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
-
     has_docker_access = check_docker_access()
+    _cleanup_runtime(args, has_docker_access)
 
-    # Stop and remove containers
+    sys.stdout.write(f"  Removing local images...   ")
+    sys.stdout.flush()
+    removed = _remove_local_tt_studio_images(has_docker_access)
+    print(f"{C_GREEN}done{C_RESET}  ({removed} image(s))")
+
+    sys.stdout.write(f"  Removing host state...     ")
+    sys.stdout.flush()
+    removed_paths = 0
+    for _, path, _, _ in existing:
+        if _remove_path(path, no_sudo=args.no_sudo):
+            removed_paths += 1
+    print(f"{C_GREEN}done{C_RESET}  ({removed_paths}/{len(existing)} path(s))")
+
+    sys.stdout.write(f"  Arming browser wipe...     ")
+    sys.stdout.flush()
+    token = _write_browser_cleanup_sentinel()
+    print(f"{C_GREEN}done{C_RESET}" if token else f"{C_YELLOW}skipped{C_RESET}")
+
+    print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
+    if total_bytes > 0:
+        print(f"   Reclaimed approximately {C_BOLD}{_format_bytes(total_bytes)}{C_RESET} from disk.")
+    print(f"\n{C_CYAN}🌐 Browser data (chat history, theme, login) will auto-clear the")
+    print(f"   next time you open http://localhost:3000.")
+    print(f"   To clear immediately: DevTools → Application → Storage → Clear site data.{C_RESET}")
+
+
+def _cleanup_runtime(args, has_docker_access):
+    """Tear down containers, the docker network, FastAPI and Docker Control Service."""
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
     docker_compose_cmd.extend(["down", "-v"])
     try:
@@ -1680,7 +1897,6 @@ def cleanup_resources(args):
     except Exception:
         print(f"{C_YELLOW}skipped{C_RESET}")
 
-    # Remove network
     try:
         sys.stdout.write(f"  Removing network...        ")
         sys.stdout.flush()
@@ -1690,68 +1906,15 @@ def cleanup_resources(args):
     except Exception:
         print(f"{C_YELLOW}skipped{C_RESET}")
 
-    # Clean up FastAPI server
     sys.stdout.write(f"  Stopping FastAPI server... ")
     sys.stdout.flush()
     cleanup_fastapi_server(no_sudo=args.no_sudo)
     print(f"{C_GREEN}done{C_RESET}")
 
-    # Clean up Docker Control Service
     sys.stdout.write(f"  Stopping Docker Control... ")
     sys.stdout.flush()
     cleanup_docker_control_service(no_sudo=args.no_sudo)
     print(f"{C_GREEN}done{C_RESET}")
-
-    if args.cleanup_all:
-        print(f"\n{C_ORANGE}{C_BOLD}🗑️  Performing complete cleanup (--cleanup-all)...{C_RESET}")
-        
-        # Remove persistent volume
-        host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
-        if os.path.exists(host_persistent_volume):
-            try:
-                confirm = input(f"{C_YELLOW}📁 Remove persistent storage at {host_persistent_volume}? (y/N): {C_RESET}")
-            except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Persistent storage kept.{C_RESET}")
-                print(f"{C_GREEN}✅ Basic cleanup completed successfully.{C_RESET}")
-                return
-            
-            if confirm.lower() in ['y', 'yes']:
-                shutil.rmtree(host_persistent_volume)
-                print(f"{C_GREEN}✅ Removed persistent storage.{C_RESET}")
-            else:
-                print(f"{C_CYAN}📁 Keeping persistent storage.{C_RESET}")
-        
-        # Remove .env file
-        if os.path.exists(ENV_FILE_PATH):
-            try:
-                confirm = input(f"{C_YELLOW}⚙️  Remove .env configuration file? (y/N): {C_RESET}")
-            except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Configuration file kept.{C_RESET}")
-                print(f"{C_GREEN}✅ Partial cleanup completed.{C_RESET}")
-                return
-            
-            if confirm.lower() in ['y', 'yes']:
-                os.remove(ENV_FILE_PATH)
-                print(f"{C_GREEN}✅ Removed .env file.{C_RESET}")
-            else:
-                print(f"{C_CYAN}⚙️  Keeping .env file.{C_RESET}")
-        
-        # Remove artifact directory if it exists
-        if os.path.exists(INFERENCE_ARTIFACT_DIR):
-            try:
-                confirm = input(f"{C_YELLOW}🔧 Remove TT Inference Server artifact directory at {INFERENCE_ARTIFACT_DIR}? (y/N): {C_RESET}")
-            except KeyboardInterrupt:
-                print(f"\n{C_YELLOW}🛑 Cleanup interrupted. Artifact directory kept.{C_RESET}")
-                print(f"{C_GREEN}✅ Partial cleanup completed.{C_RESET}")
-                return
-            
-            if confirm.lower() in ['y', 'yes']:
-                shutil.rmtree(INFERENCE_ARTIFACT_DIR)
-                print(f"{C_GREEN}✅ Removed artifact directory.{C_RESET}")
-            else:
-                print(f"{C_CYAN}🔧 Keeping artifact directory.{C_RESET}")
-    
-    print(f"\n{C_GREEN}{C_BOLD}✅ Cleanup complete! 🎉{C_RESET}")
 
 def detect_tt_hardware():
     """Detect if Tenstorrent hardware is available."""
@@ -4184,6 +4347,8 @@ def main():
                            help="🧹 Clean up Docker containers and networks")
         parser.add_argument("--cleanup-all", action="store_true", 
                            help="🗑️  Clean up everything including persistent data and .env file")
+        parser.add_argument("--yes", "-y", action="store_true",
+                           help="✅ Skip the confirmation prompt for --cleanup-all (non-interactive)")
         parser.add_argument("--help-env", action="store_true", 
                            help="📚 Show detailed help for environment variables")
         parser.add_argument("--reconfigure", action="store_true",
