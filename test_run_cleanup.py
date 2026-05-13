@@ -46,6 +46,23 @@ class CleanupAllTests(unittest.TestCase):
             self.assertTrue(run._remove_path(str(nested), no_sudo=True))
             self.assertFalse(nested.exists())
 
+    def test_remove_directory_contents_preserves_tracked_bootstrap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow_venvs = Path(tmp) / ".workflow_venvs"
+            generated = workflow_venvs / "generated_venv"
+            generated.mkdir(parents=True)
+            (generated / "payload.txt").write_text("generated")
+            bootstrap = workflow_venvs / ".venv_bootstrap_uv"
+            bootstrap.write_text("tracked")
+
+            self.assertTrue(run._remove_directory_contents(
+                str(workflow_venvs),
+                preserve_names={".venv_bootstrap_uv"},
+                no_sudo=True,
+            ))
+            self.assertTrue(bootstrap.exists())
+            self.assertFalse(generated.exists())
+
     def test_write_browser_cleanup_sentinel_uses_numeric_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             sentinel = Path(tmp) / "public" / ".cleanup-pending"
@@ -100,6 +117,12 @@ class CleanupAllTests(unittest.TestCase):
             startup_log.write_text("log")
             prefs = root / ".tt_studio_preferences.json"
             prefs.write_text("{}")
+            workflow_venvs = root / ".workflow_venvs"
+            workflow_generated = workflow_venvs / "generated_venv"
+            workflow_generated.mkdir(parents=True)
+            (workflow_generated / "payload.txt").write_text("generated")
+            workflow_bootstrap = workflow_venvs / ".venv_bootstrap_uv"
+            workflow_bootstrap.write_text("tracked")
             sentinel = root / "app" / "frontend" / "public" / ".cleanup-pending"
 
             with contextlib.ExitStack() as stack:
@@ -121,6 +144,8 @@ class CleanupAllTests(unittest.TestCase):
             self.assertFalse(env_file.exists())
             self.assertFalse(startup_log.exists())
             self.assertFalse(prefs.exists())
+            self.assertTrue(workflow_bootstrap.exists())
+            self.assertFalse(workflow_generated.exists())
             self.assertTrue(sentinel.exists())
             self.assertTrue(sentinel.read_text().isdigit())
 

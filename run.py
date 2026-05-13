@@ -1728,6 +1728,25 @@ def _remove_path(path, no_sudo=False):
         return False
 
 
+def _remove_directory_contents(path, preserve_names=None, no_sudo=False):
+    """Remove generated contents from a directory while keeping named entries."""
+    if not os.path.isdir(path):
+        return True
+    preserve_names = set(preserve_names or [])
+    ok = True
+    for name in os.listdir(path):
+        if name in preserve_names:
+            continue
+        if not _remove_path(os.path.join(path, name), no_sudo=no_sudo):
+            ok = False
+    try:
+        if not os.listdir(path):
+            os.rmdir(path)
+    except OSError:
+        pass
+    return ok
+
+
 def _remove_local_tt_studio_images(has_docker_access):
     """Remove locally built/pulled TT Studio Docker images (ghcr.io/tenstorrent/tt-studio/*).
 
@@ -1868,7 +1887,15 @@ def cleanup_resources(args):
     sys.stdout.flush()
     removed_paths = 0
     for _, path, _, _ in existing:
-        if _remove_path(path, no_sudo=args.no_sudo):
+        if path == os.path.join(TT_STUDIO_ROOT, ".workflow_venvs"):
+            removed = _remove_directory_contents(
+                path,
+                preserve_names={".venv_bootstrap_uv"},
+                no_sudo=args.no_sudo,
+            )
+        else:
+            removed = _remove_path(path, no_sudo=args.no_sudo)
+        if removed:
             removed_paths += 1
     print(f"{C_GREEN}done{C_RESET}  ({removed_paths}/{len(existing)} path(s))")
 
