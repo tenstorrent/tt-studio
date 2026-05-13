@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import axios from "axios";
 import { customToast } from "../CustomToaster";
 
@@ -17,9 +17,14 @@ axios.interceptors.request.use((config) => {
 export const fetchCollections = async () => {
   try {
     const response = await axios.get(`${collectionsAPIURL}/`);
-    if (response?.data) {
+    if (Array.isArray(response?.data)) {
       return response.data;
     }
+
+    console.error(
+      "Unexpected collections payload shape. Expected array, received:",
+      response?.data
+    );
     return [];
   } catch (error) {
     console.error("Error fetching collections:", error);

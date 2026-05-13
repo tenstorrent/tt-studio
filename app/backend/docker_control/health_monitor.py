@@ -16,15 +16,75 @@ _monitoring_thread = None
 _stop_monitoring = False
 
 
-def check_container_health():
-    """Check for containers that died unexpectedly"""
+def _cleanup_stale_starting_records():
+    """Remove stale 'starting' records that permanently block chip slots.
+
+    Two categories are handled:
+
+    1. pending_* records (created before the FastAPI /run call is made, e.g.
+       when a non-CHAT deployment fails early): cleaned up after 10 minutes.
+
+    2. FastAPI job_id records (CHAT models): the deployment_sync background
+       thread normally transitions these to 'running' or 'stopped' within
+       seconds.  As a final safety net, any that survive 35 minutes are marked
+       'failed' here.  35 minutes gives the sync thread ample time to retry
+       and avoids racing with legitimate long-running weight downloads.
+    """
     try:
+        now = timezone.now()
+        pending_cutoff = now - timezone.timedelta(minutes=10)
+        jobid_cutoff = now - timezone.timedelta(minutes=35)
+
+        starting_deployments = ModelDeployment.objects.filter(status="starting")
+        for dep in starting_deployments:
+            if dep.deployed_at is None:
+                continue
+
+            if dep.container_id.startswith("pending_"):
+                # Legacy pending placeholder — clean up after 10 minutes
+                if dep.deployed_at < pending_cutoff:
+                    logger.info(
+                        f"Cleaning up stale pending 'starting' record: {dep.model_name} "
+                        f"(id={dep.id}, deployed_at={dep.deployed_at})"
+                    )
+                    dep.status = "failed"
+                    dep.stopped_at = now
+                    dep.save()
+            else:
+                # FastAPI job_id record that the sync thread did not resolve —
+                # mark failed after 35 minutes and stop the container if it exists.
+                if dep.deployed_at < jobid_cutoff:
+                    logger.warning(
+                        f"Cleaning up long-stale 'starting' record: {dep.model_name} "
+                        f"(id={dep.id}, container_id={dep.container_id}, "
+                        f"deployed_at={dep.deployed_at})"
+                    )
+                    try:
+                        from docker_control.docker_utils import stop_container
+                        stop_container(dep.container_id)
+                    except Exception as stop_err:
+                        logger.debug(
+                            f"Could not stop container {dep.container_id} during timeout cleanup: {stop_err}"
+                        )
+                    dep.status = "failed"
+                    dep.stopped_at = now
+                    dep.save()
+    except Exception as e:
+        logger.error(f"Error cleaning up stale starting records: {e}")
+
+
+def check_container_health():
+    """Check for containers that died unexpectedly and clean up stale records"""
+    try:
+        # Clean up stale pending records that block chip slots
+        _cleanup_stale_starting_records()
+
         # Get all running deployments from database
         running_deployments = ModelDeployment.objects.filter(status="running")
-        
+
         if not running_deployments.exists():
             return
-        
+
         logger.debug(f"Checking health of {running_deployments.count()} running deployments")
 
         # Check actual Docker container status via docker-control-service

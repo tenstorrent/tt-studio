@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { processQuery } from "./textProcessing";
 
@@ -34,15 +34,19 @@ function isSimpleGreeting(message: string): boolean {
 }
 
 function generateSimpleGreetingResponse(
-  chatHistory: { sender: string; text: string }[]
+  chatHistory: { sender: string; text: string }[],
+  systemPrompt: string | null = null,
+  hardwareContext: string | null = null,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
-  // Simple system message for greetings
+  // Use custom system prompt if provided, otherwise default greeting prompt
+  const defaultGreeting = hardwareContext
+    ? `You are a helpful AI assistant running on ${hardwareContext}. Respond to greetings in a friendly, brief manner.`
+    : "You are a helpful AI assistant. Respond to greetings in a friendly, brief manner.";
   messages.push({
     role: "system",
-    content:
-      "You are an open source language model running on Tenstorrent hardware. Respond to greetings in a friendly, brief manner.",
+    content: systemPrompt || defaultGreeting,
   });
 
   // Add chat history
@@ -56,16 +60,30 @@ function generateSimpleGreetingResponse(
   return messages;
 }
 
+export function buildDefaultSystemPrompt(
+  modelName: string | null,
+  hardwareContext: string | null,
+): string {
+  const parts = [
+    modelName ? `You are ${modelName}.` : "You are a helpful AI assistant.",
+    hardwareContext ? `This instance is running on ${hardwareContext}.` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
 export function generatePrompt(
   chatHistory: { sender: string; text: string }[],
-  ragContext: { documents: string[] } | null = null
+  ragContext: { documents: string[] } | null = null,
+  systemPrompt: string | null = null,
+  hardwareContext: string | null = null,
+  modelName: string | null = null,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
   // Get the latest user question
   const latestUserQuestion =
     chatHistory.length > 0 &&
-    chatHistory[chatHistory.length - 1].sender === "user"
+      chatHistory[chatHistory.length - 1].sender === "user"
       ? chatHistory[chatHistory.length - 1].text
       : "";
 
@@ -74,7 +92,7 @@ export function generatePrompt(
   // Check for simple greetings first for faster responses
   if (isSimpleGreeting(latestUserQuestion)) {
     console.log("👋 Detected simple greeting, using fast path");
-    return generateSimpleGreetingResponse(chatHistory);
+    return generateSimpleGreetingResponse(chatHistory, systemPrompt, hardwareContext);
   }
 
   // Process the user's query
@@ -117,9 +135,11 @@ Answer: To deploy the application, you'll need to set up the required environmen
   const responseFormat = getResponseFormat(processedQuery.intent);
 
   // Add system message first
-  messages.push({
-    role: "system",
-    content: `You are an open source language model running on Tenstorrent hardware.
+  const identityLine = [
+    modelName ? `You are ${modelName}.` : "You are a helpful AI assistant.",
+    hardwareContext ? `This instance is running on ${hardwareContext}.` : "",
+  ].filter(Boolean).join(" ");
+  systemPrompt = systemPrompt || `${identityLine}
 
 SAFETY GUIDELINES:
 • Only answer if you are confident and the information is in your training or the provided context
@@ -129,12 +149,14 @@ SAFETY GUIDELINES:
 
 ${examples ? `\nEXAMPLE RESPONSES:\n${examples}\n` : ""}
 
-${
-  processedQuery.intent.type === "greeting"
-    ? "Keep responses brief and friendly for greetings."
-    : `RESPONSE FORMAT:
+${processedQuery.intent.type === "greeting"
+      ? "Keep responses brief and friendly for greetings."
+      : `RESPONSE FORMAT:
 ${responseFormat}`
-}`,
+    }`
+  messages.push({
+    role: "system",
+    content: systemPrompt,
   });
 
   // Add RAG context if available

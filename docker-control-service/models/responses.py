@@ -6,7 +6,7 @@ Pydantic Response Models for Docker Control Service
 """
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ContainerRunResponse(BaseModel):
@@ -36,7 +36,8 @@ class ContainerListResponse(BaseModel):
 
 
 class ContainerDetailsResponse(BaseModel):
-    """Response model for container details"""
+    """Response model for container details - allows extra fields so all container data passes through"""
+    model_config = ConfigDict(extra="allow")
     status: str
     container: Optional[ContainerInfo] = None
     message: Optional[str] = None

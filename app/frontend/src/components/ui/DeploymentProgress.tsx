@@ -33,7 +33,9 @@ const stageDisplayNames: Record<string, string> = {
   error: 'Error',
   stalled: 'Stalled',
   cancelled: 'Cancelled',
-  starting: 'Starting'
+  starting: 'Starting',
+  unknown: 'Connecting to deployment service',
+  not_found: 'Reconnecting to deployment service',
 };
 
 const stageIcons: Record<string, string> = {

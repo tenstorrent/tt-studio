@@ -6,7 +6,8 @@ import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
 import { useLocation } from "react-router-dom";
 import { useLogo } from "../../utils/logo";
-import { fetchModels } from "../../api/modelsDeployedApis";
+import { fetchModels, fetchDeployedModelsInfo } from "../../api/modelsDeployedApis";
+import { getTokenLimitsForModel } from "./tokenLimits";
 import { useQuery } from "@tanstack/react-query";
 import { fetchCollections } from "@/src/components/rag";
 import Header from "./Header";
@@ -22,6 +23,8 @@ import type {
   FileData,
 } from "./types";
 import { runInference } from "./runInference";
+import { buildDefaultSystemPrompt } from "./templateRenderer";
+import { useDeviceState } from "../../hooks/useDeviceState";
 import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
@@ -35,6 +38,16 @@ interface ChatThread {
 }
 
 export default function ChatComponent() {
+  const { deviceState } = useDeviceState();
+  // Build a minimal hardware context note from detected board info (null if no TT hardware present)
+  const hardwareContext = (() => {
+    if (!deviceState || deviceState.state === "NOT_PRESENT") return null;
+    const name = deviceState.board_name && deviceState.board_name !== "unknown" && deviceState.board_name !== "Unknown"
+      ? deviceState.board_name
+      : null;
+    return name ? `Tenstorrent hardware (${name})` : "Tenstorrent hardware";
+  })();
+
   // Show loading state on initial load
   const [isLoading, setIsLoading] = useState(true);
   const [files, setFiles] = useState<FileData[]>([]);
@@ -103,11 +116,14 @@ export default function ChatComponent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [modelSettings, setModelSettings] = useState({
     temperature: 1,
-    maxLength: 512,
+    maxLength: 1024,
     topP: 0.9,
     topK: 20,
     toggleableInlineStats: true,
+    systemPrompt: "",
+    seed: 0,
   });
+  const [maxTokensSliderMax, setMaxTokensSliderMax] = useState<number>(4096);
 
   // Add the missing state variables
   const [userScrolled, setUserScrolled] = useState(false);
@@ -196,6 +212,22 @@ export default function ChatComponent() {
 
     loadModels();
   }, [location.state]);
+
+  // Set dynamic token defaults when the selected model changes
+  useEffect(() => {
+    if (!modelID) return;
+    fetchDeployedModelsInfo().then((deployedModels) => {
+      const match = deployedModels.find((m) => m.id === modelID);
+      const { defaultMaxTokens, sliderMax } = getTokenLimitsForModel(
+        match?.model_impl?.param_count,
+        match?.max_model_len
+      );
+      setMaxTokensSliderMax(sliderMax);
+      setModelSettings((prev: typeof modelSettings) => ({ ...prev, maxLength: defaultMaxTokens }));
+    }).catch(() => {
+      // fall back to initial defaults
+    });
+  }, [modelID]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -446,7 +478,7 @@ export default function ChatComponent() {
   }, [chatThreads, currentThreadIndex, defaultThread]);
 
   // Handle settings changes
-  const handleSettingsChange = (key: string, value: number | boolean) => {
+  const handleSettingsChange = (key: string, value: number | boolean | string) => {
     console.log(`=== Settings Change ===`);
     console.log(`Parameter: ${key}`);
     console.log(`New Value: ${value}`);
@@ -597,6 +629,7 @@ export default function ChatComponent() {
         max_tokens: modelSettings.maxLength,
         top_p: modelSettings.topP,
         top_k: modelSettings.topK,
+        ...(modelSettings.seed > 0 && { seed: modelSettings.seed }),
         stream_options: {
           include_usage: true,
           continuous_usage_stats: true,
@@ -669,7 +702,10 @@ export default function ChatComponent() {
           setIsStreaming,
           isAgentSelected,
           currentThreadIndex,
-          controller
+          controller,
+          modelSettings.systemPrompt || null,
+          hardwareContext,
+          modelName,
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -804,7 +840,11 @@ export default function ChatComponent() {
         },
         setIsStreaming,
         isAgentSelected,
-        currentThreadIndex
+        currentThreadIndex,
+        undefined,
+        modelSettings.systemPrompt || null,
+        hardwareContext,
+        modelName,
       );
 
       setReRenderingMessageId(null);
@@ -1231,6 +1271,21 @@ export default function ChatComponent() {
                 : "px-1 sm:px-2 md:px-4"
             }`}
           >
+            {/* System prompt active indicator */}
+            {modelSettings.systemPrompt && (
+              <div className="flex justify-center pt-3 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#7C68FA]/10 border border-[#7C68FA]/20 hover:border-[#7C68FA]/40 transition-colors max-w-[80%]"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#7C68FA] shrink-0" />
+                  <span className="text-xs text-[#7C68FA]/70 group-hover:text-[#7C68FA] truncate">
+                    System: {modelSettings.systemPrompt}
+                  </span>
+                </button>
+              </div>
+            )}
             <ChatHistory
               chatHistory={(() => {
                 const currentThread = getCurrentThread();
@@ -1315,6 +1370,8 @@ export default function ChatComponent() {
         onClose={() => setIsSettingsOpen(false)}
         settings={modelSettings}
         onSettingsChange={handleSettingsChange}
+        defaultSystemPrompt={buildDefaultSystemPrompt(modelName, hardwareContext)}
+        maxTokensSliderMax={maxTokensSliderMax}
       />
     </div>
   );

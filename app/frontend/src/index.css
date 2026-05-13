@@ -2,6 +2,8 @@
 layer(base);
 @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap")
 layer(base);
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;700&display=swap")
+layer(base);
 @import "tailwindcss";
 
 @config '../tailwind.config.js';
@@ -45,6 +47,8 @@ layer(base);
   background-position: 0 0;
   background-attachment: fixed;
 }
+
+/* Dot pattern utilities integrated into Tailwind config */
 
 @layer base {
   /* Custom Scrollbar Styles */
@@ -389,4 +393,165 @@ layer(base);
   background: transparent;
   border: none;
   color: inherit;
+}
+
+/* Custom audio player styling to match theme */
+audio {
+  height: 48px;
+  border-radius: 0.5rem;
+}
+
+audio::-webkit-media-controls-panel {
+  background-color: rgb(249 250 251);
+  border: 1px solid rgb(229 231 235);
+}
+
+audio::-webkit-media-controls-play-button,
+audio::-webkit-media-controls-mute-button {
+  filter: invert(0.3);
+}
+
+audio::-webkit-media-controls-current-time-display,
+audio::-webkit-media-controls-time-remaining-display {
+  color: rgb(17 24 39);
+}
+
+audio::-webkit-media-controls-timeline {
+  border-radius: 0.25rem;
+}
+
+.dark audio::-webkit-media-controls-panel {
+  background-color: rgb(24 24 27);
+  border: 1px solid rgba(124, 104, 250, 0.3);
+}
+
+.dark audio::-webkit-media-controls-play-button,
+.dark audio::-webkit-media-controls-mute-button {
+  filter: invert(0.85) hue-rotate(180deg);
+}
+
+.dark audio::-webkit-media-controls-current-time-display,
+.dark audio::-webkit-media-controls-time-remaining-display {
+  color: rgb(228 228 231);
+}
+
+/* Voice Pipeline - Signal Console aesthetic */
+.voice-pipeline-bg {
+  background: radial-gradient(ellipse at 50% 80%, rgba(124,104,250,0.06) 0%, transparent 55%), #0C0C0E;
+}
+
+.voice-pipeline-bg-light {
+  background: radial-gradient(ellipse at 50% 80%, rgba(124,104,250,0.06) 0%, transparent 55%), #F5F5F7;
+}
+
+.voice-glass {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.voice-glass-light {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.glow-purple {
+  box-shadow: 0 0 24px rgba(124,104,250,0.15);
+}
+
+.glow-bar {
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* 3D floating tile effect */
+.voice-tile-3d {
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.3),
+    0 8px 16px rgba(0,0,0,0.25),
+    0 24px 48px rgba(0,0,0,0.2),
+    0 0 0 1px rgba(255,255,255,0.04),
+    0 0 60px rgba(124,104,250,0.08);
+  transform: translateZ(0);
+}
+
+.voice-tile-3d-light {
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.04),
+    0 8px 16px rgba(0,0,0,0.06),
+    0 24px 48px rgba(0,0,0,0.08),
+    0 0 0 1px rgba(0,0,0,0.06),
+    0 0 60px rgba(124,104,250,0.06);
+  transform: translateZ(0);
+}
+
+/* ── Face Recognition HUD ── */
+
+@keyframes hud-scanline {
+  0% { top: -2px; }
+  100% { top: 100%; }
+}
+
+.hud-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #7C68FA, #6552E0, #7C68FA, transparent);
+  box-shadow: 0 0 8px #7C68FA, 0 0 20px rgba(124, 104, 250, 0.4);
+  animation: hud-scanline 3s linear infinite;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.hud-corner {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  z-index: 5;
+}
+.hud-corner--tl { top: 8px; left: 8px; border-top: 2px solid #7C68FA; border-left: 2px solid #7C68FA; }
+.hud-corner--tr { top: 8px; right: 8px; border-top: 2px solid #7C68FA; border-right: 2px solid #7C68FA; }
+.hud-corner--bl { bottom: 8px; left: 8px; border-bottom: 2px solid #7C68FA; border-left: 2px solid #7C68FA; }
+.hud-corner--br { bottom: 8px; right: 8px; border-bottom: 2px solid #7C68FA; border-right: 2px solid #7C68FA; }
+
+@keyframes hud-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.hud-blink {
+  animation: hud-blink 1.5s ease-in-out infinite;
+}
+
+.hud-crt-lines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 4;
+}
+
+.hud-glass {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(124, 104, 250, 0.08);
+  border: 1px solid rgba(124, 104, 250, 0.15);
+}
+
+@keyframes hud-confirm-flash {
+  0% { opacity: 0; transform: scale(0.95); }
+  10% { opacity: 1; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.hud-confirm-enter {
+  animation: hud-confirm-flash 0.5s ease-out forwards;
 }

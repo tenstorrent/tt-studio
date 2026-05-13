@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useRef, useEffect, forwardRef } from "react";
+import React, { useState, useRef, useEffect, forwardRef, useMemo } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -9,15 +9,15 @@ import {
   Boxes,
   BotMessageSquare,
   Notebook,
-  FileText,
   Image,
   Eye,
   AudioLines,
+  Mic,
+  Volume2,
+  ScanFace,
   ChevronRight,
   ChevronLeft,
   type LucideIcon,
-  Cog,
-  Menu,
   History,
 } from "lucide-react";
 
@@ -37,6 +37,7 @@ import {
 } from "./ui/tooltip";
 import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
+import { BugReportButton } from "./bug-report/BugReportButton";
 
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
@@ -46,8 +47,8 @@ import {
   getDestinationFromModelType,
   ModelType,
   getModelTypeFromName,
+  getModelTypeFromBackendType,
 } from "../api/modelsDeployedApis";
-import { useHeroSection } from "../hooks/useHeroSection";
 
 // Interfaces for our components
 interface AnimatedIconProps {
@@ -252,31 +253,7 @@ interface ActionButtonType {
   onClick: (() => void) | null;
 }
 
-function HeroSectionToggleMenuItem({
-  showHero,
-  setShowHero,
-}: {
-  showHero: boolean;
-  setShowHero: (val: boolean) => void;
-}) {
-  const handleToggle = () => {
-    const newVal = !showHero;
-    setShowHero(newVal);
-    localStorage.setItem("showHeroSection", newVal ? "true" : "false");
-  };
-  return (
-    <button
-      className="flex items-center w-full px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors duration-200"
-      onClick={handleToggle}
-    >
-      <Cog className="w-4 h-4 mr-2" />
-      {showHero ? "Hide Hero Section" : "Show Hero Section"}
-    </button>
-  );
-}
-
 export default function NavBar() {
-  const { showHero, setShowHero } = useHeroSection();
   const location = useLocation();
   const navigate = useNavigate();
   const { theme } = useTheme();
@@ -290,6 +267,23 @@ export default function NavBar() {
   const { logoUrl } = useLogo();
 
   const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
+
+  // Voice agent requires all three model types: LLM/VLM, speech recognition (Whisper), and TTS
+  const isVoiceAgentReady = useMemo(() => {
+    const getType = (m: (typeof models)[number]) =>
+      m.model_type
+        ? getModelTypeFromBackendType(m.model_type)
+        : getModelTypeFromName(m.name, m.image);
+    const hasLlm = models.some((m) => {
+      const t = getType(m);
+      return t === ModelType.ChatModel || t === ModelType.VLM;
+    });
+    const hasStt = models.some(
+      (m) => getType(m) === ModelType.SpeechRecognitionModel
+    );
+    const hasTts = models.some((m) => getType(m) === ModelType.TTS);
+    return hasLlm && hasStt && hasTts;
+  }, [models]);
 
   // Check if we're in Chat UI or Image Generation mode
   const isChatUI = location.pathname === "/chat";
@@ -386,7 +380,12 @@ export default function NavBar() {
     if (models.length > 0) {
       const firstModel = models[0];
       if (firstModel.id && firstModel.name) {
-        handleModelNavigationClick(firstModel.id, firstModel.name, navigate);
+        handleModelNavigationClick(
+          firstModel.id,
+          firstModel.name,
+          navigate,
+          firstModel.model_type
+        );
       } else {
         console.error("Model ID or name is undefined");
       }
@@ -404,13 +403,22 @@ export default function NavBar() {
   const getNavIconFromModelType = (model_type: string): LucideIcon => {
     switch (model_type) {
       case ModelType.ChatModel:
+      case ModelType.VLM:
+      case ModelType.Embedding:
         return BotMessageSquare;
       case ModelType.ImageGeneration:
         return Image;
+      case ModelType.VideoGeneration:
+        return BotMessageSquare;
       case ModelType.ObjectDetectionModel:
+      case ModelType.CNN:
         return Eye;
       case ModelType.SpeechRecognitionModel:
         return AudioLines;
+      case ModelType.FaceRecognitionModel:
+        return ScanFace;
+      case ModelType.TTS:
+        return Volume2;
       default:
         return BotMessageSquare;
     }
@@ -420,14 +428,26 @@ export default function NavBar() {
     switch (model_type) {
       case ModelType.ChatModel:
         return "Chat UI";
+      case ModelType.VLM:
+        return "Chat UI";
       case ModelType.ImageGeneration:
         return "Image Generation";
+      case ModelType.VideoGeneration:
+        return "Video Generation";
       case ModelType.ObjectDetectionModel:
         return "Object Detection";
+      case ModelType.CNN:
+        return "Object Detection";
       case ModelType.SpeechRecognitionModel:
-        return "Speech Recognition";
+        return "Speech to Text";
+      case ModelType.FaceRecognitionModel:
+        return "Face Recognition";
+      case ModelType.TTS:
+        return "Text to Speech";
+      case ModelType.Embedding:
+        return "Chat UI";
       default:
-        return "ERROR";
+        return "Model";
     }
   };
 
@@ -460,13 +480,18 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
-    {
-      type: "link",
-      to: "/logs",
-      icon: FileText,
-      label: "Logs",
-      tooltip: "View system logs",
-    },
+    // Voice Agent is only shown when all three voice-stack models are deployed
+    ...(isVoiceAgentReady
+      ? [
+          {
+            type: "link" as const,
+            to: "/voice-agent",
+            icon: Mic,
+            label: "Voice Agent",
+            tooltip: "Full conversational AI interface with voice chat",
+          },
+        ]
+      : []),
   ];
 
   // Define model-based navigation items (shown only when isDeployedEnabled is true)
@@ -484,17 +509,22 @@ export default function NavBar() {
       if (models.length > 0) {
         // Show navigation items for each deployed model
         return models.map((model) => {
-          const modelType = getModelTypeFromName(model.name);
+          const modelType = model.model_type
+            ? getModelTypeFromBackendType(model.model_type)
+            : getModelTypeFromName(model.name, model.image);
+          const route = getDestinationFromModelType(modelType);
           console.log(`Model: ${model.name}, Type: ${modelType}`);
           return {
             type: "button",
             icon: getNavIconFromModelType(modelType),
             label: getModelPageNameFromModelType(modelType),
             onClick: () =>
-              handleNavigation(getDestinationFromModelType(modelType)),
+              navigate(route, {
+                state: { containerID: model.id, modelName: model.name },
+              }),
             isDisabled: false,
             tooltipText: `Open ${getModelPageNameFromModelType(modelType)} (${model.name})`,
-            route: getDestinationFromModelType(modelType),
+            route,
           };
         });
       } else {
@@ -532,11 +562,11 @@ export default function NavBar() {
           {
             type: "button",
             icon: AudioLines,
-            label: "Speech Recognition",
+            label: "Speech to Text",
             onClick: () => handleNavigation("/speech-to-text"),
             isDisabled: true,
             tooltipText:
-              "Deploy a speech recognition model to use Speech Recognition",
+              "Deploy a speech recognition model to use Speech to Text",
             route: "/speech-to-text",
           },
         ];
@@ -545,20 +575,25 @@ export default function NavBar() {
       // In TT-Studio mode, show only deployed models
       console.log("TT-Studio mode - creating navigation for deployed models");
       return models.map((model) => {
-        const modelType = getModelTypeFromName(model.name);
+        const modelType = model.model_type
+          ? getModelTypeFromBackendType(model.model_type)
+          : getModelTypeFromName(model.name, model.image);
+        const route = getDestinationFromModelType(modelType);
         console.log(`TT-Studio Model: ${model.name}, Type: ${modelType}`);
         return {
           type: "button",
           icon: getNavIconFromModelType(modelType),
           label: getModelPageNameFromModelType(modelType),
           onClick: () =>
-            handleNavigation(getDestinationFromModelType(modelType)),
+            navigate(route, {
+              state: { containerID: model.id, modelName: model.name },
+            }),
           isDisabled: models.length === 0,
           tooltipText:
             models.length > 0
               ? `Open ${getModelPageNameFromModelType(modelType)}`
               : `Deploy a model to use ${getModelPageNameFromModelType(modelType)}`,
-          route: getDestinationFromModelType(modelType),
+          route,
         };
       });
     }
@@ -811,7 +846,7 @@ export default function NavBar() {
                   ))}
                 </NavigationMenuList>
               </NavigationMenu>
-              <div className="flex justify-center mt-4 pb-2">
+              <div className="flex justify-center mt-4 pb-2 flex-col items-center gap-1">
                 {actionButtons.map((button) => (
                   <ActionButton
                     key={button.tooltipText}
@@ -820,6 +855,7 @@ export default function NavBar() {
                     tooltipText={button.tooltipText}
                   />
                 ))}
+                <BugReportButton variant="icon" />
               </div>
             </motion.div>
           )}
@@ -918,18 +954,7 @@ export default function NavBar() {
                 tooltipText={button.tooltipText}
               />
             ))}
-            {/* Dropdown for settings */}
-            <div className="relative group">
-              <button className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
-                <Menu className="w-6 h-6" />
-              </button>
-              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-50">
-                <HeroSectionToggleMenuItem
-                  showHero={showHero}
-                  setShowHero={setShowHero}
-                />
-              </div>
-            </div>
+            <BugReportButton variant="icon" />
           </div>
         </div>
       </div>

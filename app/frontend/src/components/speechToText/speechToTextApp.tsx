@@ -28,7 +28,7 @@ interface Conversation {
 }
 
 export default function SpeechToTextApp() {
-  if (process.env.NODE_ENV === "development") {
+  if (import.meta.env.DEV) {
     console.log("Rendering SpeechToTextApp");
   }
   const [conversations, setConversations] = useState<Conversation[]>([]);

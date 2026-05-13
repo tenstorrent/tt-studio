@@ -228,20 +228,78 @@ class HardwareAlertsView(APIView):
 @method_decorator(csrf_exempt, name='dispatch')
 class RefreshCacheView(APIView):
     """Manual cache refresh endpoint for debugging and manual triggering"""
-    
+
     def post(self, request, *args, **kwargs):
         try:
             logger.info("Manual cache refresh requested")
             SystemResourceService.force_refresh_tt_smi_cache()
-            
+
             return Response({
                 "status": "success",
                 "message": "tt-smi cache refreshed successfully"
             }, status=status.HTTP_200_OK)
-            
+
         except Exception as e:
             logger.error(f"Error manually refreshing cache: {str(e)}")
             return Response(
                 {"error": "Failed to refresh cache", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            ) 
+            )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DeviceStateView(APIView):
+    """
+    GET /board-api/device-state/
+
+    Single source of truth for board state.  Replaces the need to call
+    /board-api/status/, /board-api/footer-data/, and /docker-api/board-info/
+    separately.  All components should poll this endpoint.
+    """
+
+    def get(self, request, *args, **kwargs):
+        try:
+            state = SystemResourceService.get_device_state()
+            return Response(state, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error getting device state: {e}")
+            return Response({
+                "state": "UNKNOWN",
+                "board_type": "unknown",
+                "board_name": "Unknown",
+                "devices": [],
+                "last_updated": timezone.now().isoformat(),
+                "reset_suggested": False,
+            }, status=status.HTTP_200_OK)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class DeviceResetView(APIView):
+    """
+    POST /board-api/device-reset/
+
+    Dedicated board reset endpoint.  Separated from the Docker-coupled
+    /docker-api/reset_board/ for clarity; the old endpoint keeps working via
+    the same perform_reset() logic.
+    """
+
+    def post(self, request, *args, **kwargs):
+        from docker_control.docker_utils import perform_reset
+        try:
+            logger.info("Device reset requested via /board-api/device-reset/")
+            result = perform_reset()
+            http_status_code = result.pop("http_status", 200)
+
+            success = result.get("status") == "success"
+            return Response({
+                "success": success,
+                "message": result.get("message", ""),
+                "attempts_used": result.get("attempts_used", 0),
+            }, status=http_status_code)
+        except Exception as e:
+            logger.error(f"Error in device reset: {e}")
+            return Response({
+                "success": False,
+                "message": str(e),
+                "attempts_used": 0,
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

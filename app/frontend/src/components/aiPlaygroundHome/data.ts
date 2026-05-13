@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 /**
  * AI Playground Home - Model Configuration
@@ -65,7 +65,7 @@ export const models: Model[] = [
     id: "whisper",
     title: "Whisper",
     image: "/src/assets/aiPlayground/model-logo/whisper.svg",
-    path: "/speech-to-text",
+    path: "/voice-agent",
     filter: "#74C5DF",
     TTDevice: "n150",
     poweredByText: "Powered by Wormhole n150",

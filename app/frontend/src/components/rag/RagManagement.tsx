@@ -116,17 +116,8 @@ interface DocumentInfo {
 
 const TableWrapper = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="h-screen flex-1 w-full dark:bg-black bg-white dark:bg-dot-white/[0.2] bg-dot-black/[0.2] relative flex items-center justify-center">
-      <div
-        className="absolute pointer-events-none inset-0 flex items-center justify-center dark:bg-black bg-white"
-        style={{
-          maskImage:
-            "radial-gradient(ellipse at center, transparent 20%, black 100%)",
-        }}
-      ></div>
-      <div className="flex flex-col h-screen w-full px-4 md:px-20 pt-8 md:pt-8 pb-16 md:pb-28 overflow-hidden mt-8">
-        {children}
-      </div>
+    <div className="w-full h-full dark:bg-black bg-white p-4">
+      {children}
     </div>
   );
 };
@@ -201,16 +192,14 @@ export default function RagManagement() {
         );
 
         // Process the results
-        const finalCollections = collectionsWithDocuments
-          .map((result) => {
-            if (result.status === "fulfilled") {
-              return result.value;
-            } else {
-              console.error("Failed to process collection:", result.reason);
-              return null;
-            }
-          })
-          .filter(Boolean); // Remove null values
+        const finalCollections = collectionsWithDocuments.flatMap((result) => {
+          if (result.status === "fulfilled") {
+            return [result.value];
+          }
+
+          console.error("Failed to process collection:", result.reason);
+          return [];
+        });
 
         console.log(
           "[RagManagement] Collections with documents:",

@@ -32,14 +32,14 @@ export const useDeploymentProgress = (
   const [error, setError] = useState<string | null>(null);
   const [isSSEConnected, setIsSSEConnected] = useState(false);
   
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const notFoundCountRef = useRef<number>(0);
   const pollingStartTimeRef = useRef<number>(0);
 
-  const MAX_NOT_FOUND_RETRIES = 10;
-  const NOT_FOUND_GRACE_PERIOD_MS = 30 * 60 * 1000;
+  const MAX_NOT_FOUND_RETRIES = 5;
+  const NOT_FOUND_GRACE_PERIOD_MS = 90 * 1000; // 90 seconds — covers legitimate startup races, not server restarts
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {

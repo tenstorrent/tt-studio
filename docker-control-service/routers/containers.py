@@ -152,6 +152,43 @@ async def get_container(container_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/containers/{container_id}/rename", response_model=OperationResponse)
+async def rename_container(container_id: str, new_name: str):
+    """
+    Rename a container.
+
+    - container_id: Container ID or name
+    - new_name: New name for the container (query parameter)
+    """
+    try:
+        client = docker.from_env()
+
+        logger.info(f"Renaming container {container_id} to {new_name}")
+
+        container = client.containers.get(container_id)
+        container.rename(new_name)
+
+        logger.info(f"Container renamed successfully: {container_id} -> {new_name}")
+        return {
+            "status": "success",
+            "message": f"Container renamed to {new_name}"
+        }
+
+    except docker.errors.NotFound:
+        error_msg = f"Container {container_id} not found"
+        logger.error(error_msg)
+        raise HTTPException(status_code=404, detail=error_msg)
+
+    except docker.errors.APIError as e:
+        error_msg = str(e)
+        logger.error(f"Error renaming container: {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+
+    except Exception as e:
+        logger.error(f"Unexpected error renaming container: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/containers/{container_id}/logs")
 async def get_container_logs(container_id: str, follow: bool = True, tail: int = 100):
     """

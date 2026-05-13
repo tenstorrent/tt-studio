@@ -19,4 +19,8 @@ urlpatterns = [
     
     # Cache management
     path("refresh-cache/", views.RefreshCacheView.as_view(), name="refresh-cache"),
-] 
+
+    # Unified device state & reset (new)
+    path("device-state/", views.DeviceStateView.as_view(), name="device-state"),
+    path("device-reset/", views.DeviceResetView.as_view(), name="device-reset"),
+]

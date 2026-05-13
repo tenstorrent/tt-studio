@@ -8,9 +8,18 @@ Network Management Router
 import docker
 import logging
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from models.requests import NetworkCreateRequest
 from models.responses import NetworkListResponse, OperationResponse
+
+
+class NetworkConnectRequest(BaseModel):
+    container: str
+
+class NetworkDisconnectRequest(BaseModel):
+    container: str
+    force: bool = False
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -128,13 +137,14 @@ async def list_networks():
 
 
 @router.post("/networks/{name}/connect", response_model=OperationResponse)
-async def connect_container_to_network(name: str, container_id: str):
+async def connect_container_to_network(name: str, request: NetworkConnectRequest):
     """
     Connect a container to a network.
 
     - name: Network name or ID
-    - container_id: Container ID or name
+    - request.container: Container ID or name
     """
+    container_id = request.container
     try:
         client = docker.from_env()
 
@@ -165,20 +175,22 @@ async def connect_container_to_network(name: str, container_id: str):
 
 
 @router.post("/networks/{name}/disconnect", response_model=OperationResponse)
-async def disconnect_container_from_network(name: str, container_id: str):
+async def disconnect_container_from_network(name: str, request: NetworkDisconnectRequest):
     """
     Disconnect a container from a network.
 
     - name: Network name or ID
-    - container_id: Container ID or name
+    - request.container: Container ID or name
+    - request.force: Force disconnect (default: False)
     """
+    container_id = request.container
     try:
         client = docker.from_env()
 
         logger.info(f"Disconnecting container {container_id} from network {name}")
 
         network = client.networks.get(name)
-        network.disconnect(container_id)
+        network.disconnect(container_id, force=request.force)
 
         logger.info(f"Container disconnected successfully: {container_id} <- {name}")
         return {

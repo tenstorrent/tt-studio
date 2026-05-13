@@ -68,7 +68,14 @@ class ContainerService:
             run_kwargs["ports"] = request.ports
 
         if request.volumes:
-            run_kwargs["volumes"] = request.volumes
+            # Convert simple {host: container} format to Docker SDK format {host: {'bind': container, 'mode': 'rw'}}
+            volumes = {}
+            for host_path, container_path in request.volumes.items():
+                if isinstance(container_path, str):
+                    volumes[host_path] = {'bind': container_path, 'mode': 'rw'}
+                else:
+                    volumes[host_path] = container_path
+            run_kwargs["volumes"] = volumes
 
         if request.devices:
             run_kwargs["devices"] = request.devices
@@ -84,6 +91,12 @@ class ContainerService:
 
         if request.user:
             run_kwargs["user"] = request.user
+
+        if request.cap_add:
+            run_kwargs["cap_add"] = request.cap_add
+
+        if request.shm_size:
+            run_kwargs["shm_size"] = request.shm_size
 
         try:
             logger.info(f"Running container with image: {request.image}")

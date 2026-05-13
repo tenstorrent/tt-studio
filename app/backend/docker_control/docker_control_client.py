@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Docker Control Service API Client
@@ -152,6 +152,11 @@ class DockerControlClient:
         response = self._request("POST", f"/api/v1/containers/{container_id}/remove", json=payload)
         return response.json()
 
+    def rename_container(self, container_id: str, new_name: str) -> Dict:
+        """Rename a container"""
+        response = self._request("POST", f"/api/v1/containers/{container_id}/rename", params={"new_name": new_name})
+        return response.json()
+
     def inspect_container(self, container_id: str) -> Dict:
         """Inspect a container (alias for get_container)"""
         return self.get_container(container_id)
@@ -253,6 +258,23 @@ class DockerControlClient:
         """Disconnect a container from a network"""
         payload = {"container": container, "force": force}
         response = self._request("POST", f"/api/v1/networks/{network_name}/disconnect", json=payload)
+        return response.json()
+
+    # Host log files
+
+    def get_service_log(self, tail: int = 500) -> Dict:
+        """Fetch docker-control-service log content from the host"""
+        response = self._request("GET", "/api/v1/logs/service", params={"tail": tail})
+        return response.json()
+
+    def get_startup_log(self, tail: int = 200) -> Dict:
+        """Fetch startup.log content from the host"""
+        response = self._request("GET", "/api/v1/logs/startup", params={"tail": tail})
+        return response.json()
+
+    def get_fastapi_log(self, tail: int = 500) -> Dict:
+        """Fetch fastapi.log content from the host"""
+        response = self._request("GET", "/api/v1/logs/fastapi", params={"tail": tail})
         return response.json()
 
     # Health check

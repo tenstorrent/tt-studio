@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Docker Control Service - FastAPI Application
@@ -16,7 +16,7 @@ import logging
 
 from config import settings
 from middleware.auth import authenticate_request
-from routers import health, containers, images, networks
+from routers import health, containers, images, networks, logs
 
 # Setup logging
 logging.basicConfig(
@@ -56,6 +56,8 @@ app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(containers.router, prefix="/api/v1", tags=["containers"])
 app.include_router(images.router, prefix="/api/v1", tags=["images"])
 app.include_router(networks.router, prefix="/api/v1", tags=["networks"])
+app.include_router(logs.router, prefix="/api/v1", tags=["logs"])
+
 
 
 @app.on_event("startup")

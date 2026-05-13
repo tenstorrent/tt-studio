@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+//
+// Metrics measurement approach adapted from the vLLM project (Apache-2.0):
+// https://github.com/vllm-project/vllm/blob/main/vllm/benchmarks/lib/endpoint_request_func.py
+// SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 /**
  * Metrics Tracker for Inference Performance
  *
- * This module provides a clean, structured way to track and measure
- * inference performance metrics including:
- * - Client-side TTFT (Time to First Token)
- * - Per-token timing measurements
- * - Network latency calculations
- * - Progressive statistics during streaming
+ * Tracks TTFT, ITL, and TPOT following vLLM's measurement approach:
+ * - TTFT: time from request start to first content chunk
+ * - ITL: list of intervals between consecutive content chunks (ms)
+ * - TPOT: mean of ITL
+ * - Network latency: client_ttft - backend_ttft
  */
 
 import type { TokenTimestamp, InferenceStats, ProgressiveStats } from "./types";
@@ -18,10 +21,18 @@ export class InferenceMetricsTracker {
   // Timing measurements
   private requestStartTime: number = 0;
   private firstTokenTime: number | undefined;
+  private firstContentTokenTime: number | undefined; // first non-thinking token (true TTFT)
+  private mostRecentTokenTime: number | undefined;   // vLLM-style: advances per content chunk
+  private itl: number[] = [];                        // inter-token latencies in ms
   private tokenTimestamps: TokenTimestamp[] = [];
 
   // Token counters
   private lastTokenCount: number = 0;
+
+  // Thinking/reasoning tracking
+  private thinkingStartTime: number | undefined;
+  private thinkingEndTime: number | undefined;
+  private reasoningTokenCount: number = 0;
 
   constructor() {
     this.reset();
@@ -33,18 +44,55 @@ export class InferenceMetricsTracker {
   reset(): void {
     this.requestStartTime = performance.now();
     this.firstTokenTime = undefined;
+    this.firstContentTokenTime = undefined;
+    this.mostRecentTokenTime = undefined;
+    this.itl = [];
     this.tokenTimestamps = [];
     this.lastTokenCount = 0;
+    this.thinkingStartTime = undefined;
+    this.thinkingEndTime = undefined;
+    this.reasoningTokenCount = 0;
   }
 
   /**
-   * Record that the first content token has been received
+   * Record arrival of a thinking/reasoning chunk.
+   * Does not affect ITL or TTFT — thinking time is tracked separately.
+   */
+  recordThinkingToken(): void {
+    const now = performance.now();
+    if (!this.thinkingStartTime) {
+      this.thinkingStartTime = now;
+      if (!this.firstTokenTime) this.firstTokenTime = now;
+    }
+    this.reasoningTokenCount++;
+  }
+
+  /**
+   * Record arrival of a content chunk, tracking ITL exactly as vLLM does.
+   * Call this once per content delta (text) as it arrives.
+   */
+  recordContentToken(): void {
+    const now = performance.now();
+    // Close thinking window on first content token
+    if (this.thinkingStartTime && !this.thinkingEndTime) {
+      this.thinkingEndTime = now;
+    }
+    if (!this.firstContentTokenTime) {
+      this.firstContentTokenTime = now;
+      if (!this.firstTokenTime) this.firstTokenTime = now;
+      console.log(`[Metrics] First content token at ${(now - this.requestStartTime).toFixed(2)}ms`);
+      // No ITL for first content token
+    } else if (this.mostRecentTokenTime !== undefined) {
+      this.itl.push(now - this.mostRecentTokenTime);
+    }
+    this.mostRecentTokenTime = now;
+  }
+
+  /**
+   * @deprecated Use recordContentToken() for accurate ITL tracking.
    */
   recordFirstToken(): void {
-    if (!this.firstTokenTime) {
-      this.firstTokenTime = performance.now();
-      console.log(`[Metrics] First token at ${(this.firstTokenTime - this.requestStartTime).toFixed(2)}ms`);
-    }
+    this.recordContentToken();
   }
 
   /**
@@ -97,16 +145,17 @@ export class InferenceMetricsTracker {
   }
 
   /**
-   * Finalize metrics and attach client-side measurements to backend stats
+   * Finalize metrics and attach client-side measurements to backend stats.
    * @param backendStats - Stats received from backend
    * @returns Enhanced stats with client-side measurements
    */
   finalizeStats(backendStats: InferenceStats): InferenceStats {
     const enhancedStats = { ...backendStats };
 
-    // Calculate client-side TTFT
-    if (this.firstTokenTime) {
-      const clientTtftMs = this.firstTokenTime - this.requestStartTime;
+    // Calculate client-side TTFT (use first CONTENT token for thinking models)
+    const ttftAnchor = this.firstContentTokenTime ?? this.firstTokenTime;
+    if (ttftAnchor) {
+      const clientTtftMs = ttftAnchor - this.requestStartTime;
       const backendTtftMs = (backendStats.user_ttft_s || 0) * 1000;
 
       enhancedStats.client_ttft_ms = clientTtftMs;
@@ -117,10 +166,25 @@ export class InferenceMetricsTracker {
       console.log(`[Metrics] Network Latency: ${enhancedStats.network_latency_ms.toFixed(2)}ms`);
     }
 
+    // Attach client-side ITL list (ms)
+    if (this.itl.length > 0) {
+      enhancedStats.itl = this.itl;
+      console.log(`[Metrics] ITL samples: ${this.itl.length}, mean: ${(this.itl.reduce((a, b) => a + b, 0) / this.itl.length).toFixed(2)}ms`);
+    }
+
     // Attach token timestamps for per-token analysis
     if (this.tokenTimestamps.length > 0) {
       enhancedStats.token_timestamps = this.tokenTimestamps;
       console.log(`[Metrics] Captured ${this.tokenTimestamps.length} token timestamps`);
+    }
+
+    // Attach thinking/reasoning metrics (client-measured)
+    if (this.reasoningTokenCount > 0) {
+      enhancedStats.reasoning_tokens = this.reasoningTokenCount;
+    }
+    if (this.thinkingStartTime && this.thinkingEndTime) {
+      enhancedStats.thinking_duration_ms = this.thinkingEndTime - this.thinkingStartTime;
+      console.log(`[Metrics] Thinking duration: ${enhancedStats.thinking_duration_ms.toFixed(0)}ms, reasoning tokens: ${this.reasoningTokenCount}`);
     }
 
     return enhancedStats;

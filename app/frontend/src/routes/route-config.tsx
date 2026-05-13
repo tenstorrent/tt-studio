@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 /*
  * Route Configuration
@@ -39,19 +39,23 @@ const isDeployedEnabled = import.meta.env.VITE_ENABLE_DEPLOYED === "true";
 const isRagAdminEnabled = import.meta.env.VITE_ENABLE_RAG_ADMIN === "true";
 
 import React from "react";
+import { Navigate } from "react-router-dom";
 import HomePage from "../pages/HomePage";
 import ModelsDeployed from "../pages/ModelsDeployed";
 import ChatUI from "../pages/ChatUIPage";
 import RagManagement from "../components/rag/RagManagement";
 import LogsPage from "../pages/LogsPage";
 import ObjectDetectionPage from "../pages/ObjectDetectionPage";
+import FaceRecognitionPage from "../pages/FaceRecognitionPage";
 import DeployedHomePage from "../pages/DeployedHomePage";
 import NotFoundPage from "../pages/404Page";
 import RagAdminPage from "../pages/RagAdminPage";
 import ImageGenPage from "../pages/ImageGenPage";
-import AudioDetectionPage from "../pages/AudioDetectionPage";
+import VoiceAgentPage from "../pages/VoiceAgentPage";
+import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
+import TTSPage from "../pages/TTSPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -94,6 +98,11 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
+      path: "/face-recognition",
+      element: <FaceRecognitionPage />,
+      condition: true,
+    },
+    {
       path: "/deployed-home",
       element: <DeployedHomePage />,
       condition: !isDeployedEnabled,
@@ -109,8 +118,13 @@ export const getRoutes = (): RouteConfig[] => {
       condition: true,
     },
     {
+      path: "/voice-agent",
+      element: <VoiceAgentPage />,
+      condition: true,
+    },
+    {
       path: "/speech-to-text",
-      element: <AudioDetectionPage />,
+      element: <SpeechToTextPage />,
       condition: true,
     },
     {
@@ -121,6 +135,17 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/deployment-history",
       element: <DeploymentHistoryPage />,
+      condition: true,
+    },
+    {
+      path: "/tts",
+      element: <TTSPage />,
+      condition: true,
+    },
+    {
+      // Redirect old voice-pipeline route to voice-agent
+      path: "/voice-pipeline",
+      element: <Navigate to="/voice-agent" replace />,
       condition: true,
     },
     {
