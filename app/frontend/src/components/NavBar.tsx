@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   type LucideIcon,
   History,
+  Workflow,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -284,10 +285,11 @@ export default function NavBar() {
     return hasLlm && hasStt && hasTts;
   }, [models]);
 
-  // Check if we're in Chat UI or Image Generation mode
+  // Check if we're in Chat UI, Image Generation, or Workflows mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration; // Always use vertical for Chat UI and Image Generation
+  const isWorkflows = location.pathname === "/workflows";
+  const shouldUseVerticalNav = isChatUI || isImageGeneration || isWorkflows;
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -478,6 +480,13 @@ export default function NavBar() {
       icon: History,
       label: "Deployment History",
       tooltip: "View deployment history and container status",
+    },
+    {
+      type: "link",
+      to: "/workflows",
+      icon: Workflow,
+      label: "Workflows",
+      tooltip: "Build and run multi-step AI pipelines",
     },
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
