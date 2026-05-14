@@ -15,7 +15,6 @@ import {
   Info as InfoIcon,
 } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
-import { FileUpload } from "../ui/file-upload";
 import {
   isImageFile,
   validateFile,
@@ -130,6 +129,7 @@ interface InputAreaProps {
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
   onStopInference?: () => void;
+  showInitialPromptAnimation?: boolean;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -152,9 +152,9 @@ export default function InputArea({
   isMobileView = false,
   onCreateNewConversation,
   onStopInference,
+  showInitialPromptAnimation = true,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showProgressBar, setShowProgressBar] = useState(false);
   const [showErrorIndicator, setShowErrorIndicator] = useState(false);
@@ -323,7 +323,6 @@ export default function InputArea({
         setTimeout(() => setShowErrorIndicator(false), 3000);
       } finally {
         setShowProgressBar(false);
-        setIsFileUploadOpen(false);
       }
     },
     [files, processFile, setFiles]
@@ -579,7 +578,7 @@ export default function InputArea({
                 }, 300);
               }}
             />
-            {!textInput && !isFocused && (
+            {showInitialPromptAnimation && !textInput && !isFocused && (
               <div className="absolute inset-0 pointer-events-none">
                 <TypingAnimation
                   texts={EXAMPLE_PROMPTS}
@@ -593,37 +592,6 @@ export default function InputArea({
 
           <div className="flex justify-between items-center mt-2">
             <div className="flex gap-2 items-center">
-              <div className="relative group">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size={isMobileView ? "sm" : "default"}
-                        className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-                        onClick={() => setIsFileUploadOpen((prev) => !prev)}
-                        aria-label="Attach files"
-                        onTouchStart={() => handleTouchStart("Attach files")}
-                        onTouchEnd={handleTouchEnd}
-                      >
-                        <Paperclip
-                          className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`}
-                        />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Attach files (1 image max)</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    Attach files
-                  </div>
-                )}
-              </div>
-
               <div className="relative group">
                 <TooltipProvider>
                   <Tooltip>
@@ -815,8 +783,6 @@ export default function InputArea({
           </div>
         )}
       </div>
-
-      {isFileUploadOpen && <FileUpload onChange={handleFileUpload} />}
     </>
   );
 }
