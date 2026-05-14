@@ -408,7 +408,7 @@ def _resolve_preferred_host_volume(
             expected_volume_dir,
             expected_weights_dir,
             expected_tt_metal_cache_dir,
-            f"expected """  """tt_metal_cache path is not a directory: {expected_tt_metal_cache_dir}",
+            f"expected tt_metal_cache path is not a directory: {expected_tt_metal_cache_dir}",
         )
     if not (expected_weights_dir / "config.json").exists():
         return (
