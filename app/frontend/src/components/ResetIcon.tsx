@@ -30,6 +30,12 @@ import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
 import MultiCardResetDialog from "./MultiCardResetDialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 // Board types that have multiple individually-resettable chips
 const MULTI_CHIP_BOARDS = new Set([
@@ -164,7 +170,7 @@ function BoardStatusBanner({
 // ── Main component ────────────────────────────────────────────────────────────
 const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
   const { theme } = useTheme();
-  const { models, refreshModels } = useModels();
+  const { models, refreshModels, isDeleteInFlight } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -280,6 +286,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
   };
 
   const handleOpen = () => {
+    if (isDeleteInFlight) return;
     if (isMultiChip) {
       setIsMultiCardOpen(true);
       return;
@@ -328,26 +335,50 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
         onOpenChange={(open) => (open ? handleOpen() : handleClose())}
       >
       <DialogTrigger asChild>
-        <Button
-          variant="navbar"
-          size="icon"
-          className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${btnBg} ${btnHover}`}
-          onClick={handleOpen}
-        >
-          {isLoading ? (
-            <Spinner />
-          ) : isCompleted ? (
-            <CheckCircle className={`w-5 h-5 text-green-500`} />
-          ) : (
-            <>
-              <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
-              {/* Red dot if board is unhealthy */}
-              {(isBadState || isNotPresent) && (
-                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
-              )}
-            </>
-          )}
-        </Button>
+        {isDeleteInFlight ? (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0} className="inline-flex">
+                  <Button
+                    variant="navbar"
+                    size="icon"
+                    disabled
+                    className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${btnBg} ${btnHover}`}
+                  >
+                    <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p className="text-sm">
+                  A model is currently being deleted. Please wait for it to finish before starting another destructive action.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <Button
+            variant="navbar"
+            size="icon"
+            className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${btnBg} ${btnHover}`}
+            onClick={handleOpen}
+          >
+            {isLoading ? (
+              <Spinner />
+            ) : isCompleted ? (
+              <CheckCircle className={`w-5 h-5 text-green-500`} />
+            ) : (
+              <>
+                <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+                {/* Red dot if board is unhealthy */}
+                {(isBadState || isNotPresent) && (
+                  <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+                )}
+              </>
+            )}
+          </Button>
+        )}
       </DialogTrigger>
 
       <DialogContent

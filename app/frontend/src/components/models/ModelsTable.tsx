@@ -107,6 +107,8 @@ interface Props {
   refreshHealthById?: (id: string) => void;
   density?: "compact" | "normal" | "comfortable";
   hideDeviceId?: boolean;
+  deleteInProgress?: boolean;
+  deletingTargetId?: string | null;
 }
 
 export default function ModelsTable({
@@ -121,6 +123,8 @@ export default function ModelsTable({
   refreshHealthById,
   density = "normal",
   hideDeviceId = false,
+  deleteInProgress = false,
+  deletingTargetId = null,
 }: Props): JSX.Element {
   const { containerId, image, ports } = visibleMap;
 
@@ -311,6 +315,8 @@ export default function ModelsTable({
                     onRedeploy={onRedeploy}
                     onNavigateToModel={onNavigateToModel}
                     onOpenApi={onOpenApi}
+                    deleteInProgress={deleteInProgress}
+                    isCurrentlyDeleting={deletingTargetId === row.id}
                   />
                 </TableCell>
               </TableRow>
