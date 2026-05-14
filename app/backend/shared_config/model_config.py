@@ -245,8 +245,8 @@ _CATALOG_DEVICE_MAP = {
     "GALAXY": "GALAXY",
     "GALAXY_T3K": "GALAXY_T3K",
     # Blackhole P300 family
-    "P300c": "P300c",
-    "P300Cx2": "P300Cx2",
+    "P300": "P300",
+    "P300x2": "P300x2",
 }
 
 
@@ -396,10 +396,10 @@ for impl in _json_impls + _hardcoded_impls:
 # ---------------------------------------------------------------------------
 
 # Board type classifications for chip allocation
-SINGLE_CHIP_BOARDS_STR = {"N150", "N300", "E150", "P100", "P150", "P300c"}
+SINGLE_CHIP_BOARDS_STR = {"N150", "N300", "E150", "P100", "P150", "P300"}
 MULTI_CHIP_ONLY_BOARDS_STR = {
     "T3K", "GALAXY", "GALAXY_T3K", "P150X4", "P150X8",
-    "N150X4", "N300x4", "P300Cx2", "P300Cx4"
+    "N150X4", "N300x4", "P300x2", "P300Cx4"
 }
 
 

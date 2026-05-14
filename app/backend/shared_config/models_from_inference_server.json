@@ -71,6 +71,10 @@
       "display_model_type": "IMAGE",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-dev",
@@ -99,6 +103,10 @@
       "display_model_type": "IMAGE",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-schnell",
@@ -231,7 +239,7 @@
         "P150",
         "P150X4",
         "P150X8",
-        "P300c",
+        "P300",
         "T3K"
       ],
       "hf_model_id": "meta-llama/Llama-3.1-8B-Instruct",
@@ -263,7 +271,7 @@
         "GALAXY_T3K",
         "P150X4",
         "P150X8",
-        "P300Cx2",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "meta-llama/Llama-3.3-70B-Instruct",
@@ -322,6 +330,9 @@
       "display_model_type": "VIDEO",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "genmo/mochi-1-preview",
@@ -350,6 +361,8 @@
       "display_model_type": "IMAGE",
       "device_configurations": [
         "GALAXY",
+        "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "Motif-Technologies/Motif-Image-6B-Preview",
@@ -380,7 +393,7 @@
         "GALAXY",
         "GALAXY_T3K",
         "P150X8",
-        "P300Cx2",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "Qwen/Qwen3-32B",
@@ -468,6 +481,10 @@
         "GALAXY",
         "N150",
         "N300",
+        "P150",
+        "P150X4",
+        "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
@@ -498,6 +515,10 @@
         "GALAXY",
         "N150",
         "N300",
+        "P150",
+        "P150X4",
+        "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0",
@@ -528,6 +549,10 @@
         "GALAXY",
         "N150",
         "N300",
+        "P150",
+        "P150X4",
+        "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "stabilityai/stable-diffusion-xl-base-1.0-img-2-img",
@@ -556,6 +581,9 @@
       "display_model_type": "VIDEO",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",

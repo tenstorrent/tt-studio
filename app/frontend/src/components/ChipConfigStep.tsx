@@ -37,9 +37,9 @@ const BOARD_LABELS: Record<
     multiChipExamples: string[];
   }
 > = {
-  P300Cx2: {
-    singleChipSubtitle: "P300c",
-    multiChipTitle: "All Chips (P300Cx2)",
+  P300x2: {
+    singleChipSubtitle: "P300",
+    multiChipTitle: "All Chips (P300x2)",
     multiChipSubtitle: "4 × chips",
     singleChipExamples: ["Llama-3.1-8B"],
     multiChipExamples: ["Llama-3.3-70B", "Qwen3-32B"],

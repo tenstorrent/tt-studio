@@ -103,7 +103,7 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Blackhole boards → constituent single-chip device
     "P150X4":  "p150",
     "P150X8":  "p150",
-    "P300Cx2": "p300x2",  # QB2: inference server always wants p300x2; device_id selects the chip
+    "P300x2": "p300x2",  # QB2: inference server always wants p300x2; device_id selects the chip
     "P300Cx4": "p300c",
     # Galaxy (N300-based)
     "GALAXY":     "n300",
@@ -114,7 +114,7 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "E150":  "e150",
     "P100":  "p100",
     "P150":  "p150",
-    "P300c": "p300c",
+    "P300": "p300",
     "unknown": "cpu",
 }
 
@@ -135,12 +135,12 @@ def map_board_type_to_device_name(board_type):
         # Blackhole devices
         "P100": "p100",
         "P150": "p150",
-        "P300c": "p300c",
-        
+        "P300": "p300",
+
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300Cx2": "p300x2",  # 2 cards (4 chips)
+        "P300x2": "p300x2",  # 2 cards (4 chips)
         "P300Cx4": "p300cx4",  # 4 cards (8 chips)
         
         # Galaxy systems
@@ -339,7 +339,9 @@ def run_container(impl, weights_id, device_id=0, host_port=None):
         # Pin to specific chip slot (both single and multi-chip models)
         # Single-chip models need this to pin to a specific slot on multi-chip boards (e.g., slot 0 on T3K)
         # Multi-chip models need this to specify which configuration to use
-        payload["device_id"] = str(device_id)
+        # P300x2 (QB2): inference server selects the chip internally; omit device_id (same as CHAT path in views.py)
+        if board_type != "P300x2":
+            payload["device_id"] = str(device_id)
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -545,7 +547,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.N300_WH_ARCH_YAML,
         DeviceConfigurations.P100,
         DeviceConfigurations.P150,
-        DeviceConfigurations.P300c,
+        DeviceConfigurations.P300,
     }
 
     # Multi-chip configurations manage their own chip allocation; expose full directory
@@ -564,7 +566,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.T3K_LINE,
         DeviceConfigurations.P150X4,
         DeviceConfigurations.P150X8,
-        DeviceConfigurations.P300Cx2,
+        DeviceConfigurations.P300x2,
         DeviceConfigurations.P300Cx4,
         DeviceConfigurations.GALAXY,
         DeviceConfigurations.GALAXY_T3K,

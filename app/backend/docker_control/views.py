@@ -60,7 +60,7 @@ except Exception:
     _status_lookup = {}
 
 # Manual compatibility overrides: model names always shown as compatible regardless of board.
-# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for qb2 (P300Cx2)
+# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for qb2 (P300x2)
 # until proper board support is confirmed. Edit model_compatibility_overrides.json to re-enable.
 _OVERRIDE_PATH = Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
 try:
@@ -169,13 +169,13 @@ class ContainersView(APIView):
             # Blackhole single devices
             'P100': [DeviceConfigurations.P100],
             'P150': [DeviceConfigurations.P150],
-            'P300c': [DeviceConfigurations.P300c],
+            'P300': [DeviceConfigurations.P300],
             
             # Blackhole multi-device
             'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
             'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
-            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P300c],  # 2 cards (4 chips)
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P300c],  # 4 cards (8 chips)
+            'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P300],  # 2 cards (4 chips)
+            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P300],  # 4 cards (8 chips)
             
             # Galaxy systems
             'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
@@ -349,10 +349,10 @@ class DeployView(APIView):
                     device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                 else:
                     device = map_board_type_to_device_name(board_type)
-                # P300Cx2 (QB2): the inference server selects the physical chip from the
+                # P300x2 (QB2): the inference server selects the physical chip from the
                 # p300x2 device itself — do not pass device_id so it is omitted from the
                 # run.py invocation entirely.
-                inference_device_id = None if board_type == "P300Cx2" else device_id
+                inference_device_id = None if board_type == "P300x2" else device_id
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
@@ -1235,12 +1235,12 @@ class BoardInfoView(APIView):
                 # Blackhole devices
                 'P100': 'Tenstorrent P100',
                 'P150': 'Tenstorrent P150',
-                'P300c': 'Tenstorrent P300c',
+                'P300': 'Tenstorrent P300',
                 
                 # Blackhole multi-device
                 'P150X4': 'Tenstorrent P150x4',
                 'P150X8': 'Tenstorrent P150x8',
-                'P300Cx2': 'Tenstorrent P300Cx2',  # 2 cards (4 chips)
+                'P300x2': 'Tenstorrent P300x2',  # 2 cards (4 chips)
                 'P300Cx4': 'Tenstorrent P300Cx4',  # 4 cards (8 chips)
                 
                 # Galaxy systems
