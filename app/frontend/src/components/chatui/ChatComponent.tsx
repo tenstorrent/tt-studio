@@ -987,6 +987,11 @@ export default function ChatComponent() {
     id: model.containerID || model.id || "", // Use containerID from Model type or fall back to id
     name: model.modelName || model.name || "", // Use modelName from Model type or fall back to name
   }));
+  const currentThreadMessages = (() => {
+    const currentThread = getCurrentThread();
+    return Array.isArray(currentThread?.messages) ? currentThread.messages : [];
+  })();
+  const showInitialPromptAnimation = currentThreadMessages.length === 0;
 
   // Show skeleton loader while loading - AFTER all hooks are defined
   if (isLoading) {
@@ -1287,12 +1292,7 @@ export default function ChatComponent() {
               </div>
             )}
             <ChatHistory
-              chatHistory={(() => {
-                const currentThread = getCurrentThread();
-                return Array.isArray(currentThread?.messages)
-                  ? currentThread.messages
-                  : [];
-              })()}
+              chatHistory={currentThreadMessages}
               logo={logoUrl || ""}
               setTextInput={setTextInput}
               isStreaming={isStreaming}
@@ -1359,6 +1359,7 @@ export default function ChatComponent() {
               isMobileView={screenSize.isMobileView}
               onCreateNewConversation={createNewConversation}
               onStopInference={handleStopInference}
+              showInitialPromptAnimation={showInitialPromptAnimation}
             />
           </div>
         </div>
