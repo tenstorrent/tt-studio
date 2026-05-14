@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
 import React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
@@ -148,7 +149,7 @@ export default function InputArea({
   isListening,
   setIsListening,
   files = [],
-  setFiles = () => {},
+  setFiles = () => { },
   isMobileView = false,
   onCreateNewConversation,
   onStopInference,
@@ -374,8 +375,7 @@ export default function InputArea({
         ...encodedTextFiles,
       ]);
       customToast.success(
-        `Successfully uploaded ${
-          imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
+        `Successfully uploaded ${imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
         }${textFiles.length > 0 ? ` and ${textFiles.length} text file(s)` : ""}!`
       );
     } else if (textFiles.length > 0) {
@@ -632,10 +632,9 @@ export default function InputArea({
                     className={`
                       bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] dark:text-[#7C68FA] dark:border-[#7C68FA]/60
                       rounded-full flex items-center transition-all duration-200 touch-manipulation
-                      ${
-                        isMobileView
-                          ? "justify-center h-8 w-8 p-0"
-                          : "justify-center gap-1.5 px-3 py-1"
+                      ${isMobileView
+                        ? "justify-center h-8 w-8 p-0"
+                        : "justify-center gap-1.5 px-3 py-1"
                       }
                     `}
                     aria-label="Start a new chat"
@@ -713,10 +712,9 @@ export default function InputArea({
                       isStreaming || (!textInput.trim() && files.length === 0)
                     }
                     className={`
-                      ${
-                        (!textInput.trim() && files.length === 0) || isStreaming
-                          ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
-                          : "bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:active:bg-emerald-800 text-white font-semibold cursor-pointer"
+                      ${(!textInput.trim() && files.length === 0) || isStreaming
+                        ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
+                        : "bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:active:bg-emerald-800 text-white font-semibold cursor-pointer"
                       }
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation

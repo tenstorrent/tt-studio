@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React from "react";
 import { useState } from "react";
@@ -179,11 +179,10 @@ const ForwardedSelect = React.forwardRef<
             <SelectItem
               key={c.id}
               value={c.name}
-              className={`rounded-lg my-1 ${
-                value === c.name
+              className={`rounded-lg my-1 ${value === c.name
                   ? "bg-gray-100 dark:bg-[#2A2A2A]"
                   : "hover:bg-gray-50 dark:hover:bg-[#2A2A2A]"
-              }`}
+                }`}
             >
               <div className="flex items-center gap-2">
                 <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
@@ -618,12 +617,11 @@ export default function Header({
                         <SelectItem
                           key={c.id}
                           value={c.name}
-                          className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
-                            ragDatasource?.name === c.name &&
-                            ragDatasource.id !== "special-all"
+                          className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${ragDatasource?.name === c.name &&
+                              ragDatasource.id !== "special-all"
                               ? "bg-[#7C68FA]/10"
                               : ""
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center gap-2">
                             <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
@@ -731,12 +729,11 @@ export default function Header({
                           <SelectItem
                             key={c.id}
                             value={c.name}
-                            className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${
-                              ragDatasource?.name === c.name &&
-                              ragDatasource.id !== "special-all"
+                            className={`text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 ${ragDatasource?.name === c.name &&
+                                ragDatasource.id !== "special-all"
                                 ? "bg-[#7C68FA]/10"
                                 : ""
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center gap-2">
                               <Database className="h-4 w-4 text-gray-500 dark:text-gray-400" />
@@ -796,7 +793,7 @@ export default function Header({
                   className={cn(
                     "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white",
                     isSettingsOpen &&
-                      "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
+                    "bg-[#7C68FA]/10 text-[#7C68FA] dark:text-[#7C68FA]"
                   )}
                 >
                   <Sliders className="h-4 w-4" />
