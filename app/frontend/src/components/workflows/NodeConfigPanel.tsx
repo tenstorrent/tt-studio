@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   X,
   Trash2,
@@ -10,13 +10,57 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
-  Brain,
+  Globe,
+  Search,
+  ChevronDown,
 } from "lucide-react";
 import { useWorkflowStore } from "../../store/workflowStore";
 import InputConfigPanel from "./config/InputConfigPanel";
 import LLMConfigPanel from "./config/LLMConfigPanel";
 import RAGConfigPanel from "./config/RAGConfigPanel";
 import AgentConfigPanel from "./config/AgentConfigPanel";
+
+interface SourceLink {
+  title: string;
+  url: string;
+}
+
+interface SearchInfo {
+  isSearch: boolean;
+  queries: string[];
+  sources: SourceLink[];
+}
+
+function parseSearchInfo(text: string): SearchInfo {
+  const queries: string[] = [];
+  const sources: SourceLink[] = [];
+  const seenUrls = new Set<string>();
+
+  const searchRegex = /Searching:\s*(.+)/g;
+  let m;
+  while ((m = searchRegex.exec(text)) !== null) {
+    const q = m[1].trim();
+    if (q) queries.push(q);
+  }
+
+  const sourceRegex = /Source:\s*\[([^\]]*)\]\(([^)]+)\)/g;
+  while ((m = sourceRegex.exec(text)) !== null) {
+    const title = m[1].trim();
+    const url = m[2].trim();
+    if (url && !seenUrls.has(url)) {
+      seenUrls.add(url);
+      sources.push({ title: title || url, url });
+    }
+  }
+
+  const hasSearchSignal = /\[searching\]/.test(text);
+
+  return {
+    isSearch: queries.length > 0 || sources.length > 0 || hasSearchSignal,
+    queries,
+    sources,
+  };
+}
 
 type Tab = "config" | "output";
 
@@ -104,22 +148,12 @@ export default function NodeConfigPanel() {
           </span>
         </div>
 
-        {/* Agent reasoning steps */}
+        {/* Agent reasoning / search activity */}
         {reasoning && reasoning.length > 0 && (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400">
-              <Brain className="w-3.5 h-3.5" />
-              Reasoning ({reasoning.length} steps)
-            </div>
-            <div className="max-h-48 overflow-y-auto rounded border border-zinc-800 bg-zinc-950 p-2">
-              {reasoning.map((step, i) => (
-                <div key={i} className="text-xs text-amber-300/70 font-mono py-0.5 border-b border-zinc-800/50 last:border-0">
-                  <span className="text-zinc-600 mr-1.5">{i + 1}.</span>
-                  {step}
-                </div>
-              ))}
-            </div>
-          </div>
+          <AgentReasoningDisplay
+            reasoning={reasoning}
+            isRunning={status === "running"}
+          />
         )}
 
         {/* Node output */}
@@ -201,6 +235,133 @@ export default function NodeConfigPanel() {
           Delete Node
         </button>
       </div>
+    </div>
+  );
+}
+
+function AgentReasoningDisplay({
+  reasoning,
+  isRunning,
+}: {
+  reasoning: string[];
+  isRunning: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const fullText = reasoning.join("");
+  const searchInfo = parseSearchInfo(fullText);
+
+  useEffect(() => {
+    if (scrollRef.current && isRunning) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [fullText, isRunning]);
+
+  if (searchInfo.isSearch) {
+    return (
+      <div className="flex flex-col gap-2">
+        {/* Header */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+        >
+          {isRunning ? (
+            <Globe className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+          ) : (
+            <Globe className="w-3.5 h-3.5 text-blue-400/70" />
+          )}
+          <span className="font-medium">
+            {isRunning ? "Searching the web..." : "Searched the web"}
+          </span>
+          {searchInfo.queries.length > 0 && (
+            <span className="text-zinc-600">
+              ({searchInfo.queries.length}{" "}
+              {searchInfo.queries.length === 1 ? "query" : "queries"})
+            </span>
+          )}
+          <ChevronDown
+            className={`w-3 h-3 ml-auto transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {/* Search queries list */}
+        {(expanded || isRunning) && searchInfo.queries.length > 0 && (
+          <div className="rounded-md border border-zinc-800 bg-zinc-950 overflow-hidden">
+            <div className="px-3 py-2 space-y-1.5">
+              {searchInfo.queries.map((q, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 text-xs text-zinc-300"
+                >
+                  <Search className="w-3 h-3 flex-shrink-0 text-zinc-500" />
+                  <span>{q}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sources */}
+        {searchInfo.sources.length > 0 && (expanded || isRunning) && (
+          <div className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2">
+            <p className="text-[10px] text-zinc-600 font-medium mb-1">
+              Sources
+            </p>
+            {searchInfo.sources.map((src, i) => (
+              <a
+                key={i}
+                href={src.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-xs text-blue-400 hover:text-blue-300 truncate py-0.5"
+              >
+                {src.title}
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* Full reasoning text (collapsed) */}
+        {expanded && (
+          <div
+            ref={scrollRef}
+            className="max-h-36 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400 font-mono whitespace-pre-wrap leading-relaxed"
+          >
+            {fullText}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+      >
+        {isRunning ? (
+          <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+        ) : (
+          <CheckCircle2 className="w-3.5 h-3.5 text-amber-400/70" />
+        )}
+        <span className="font-medium">
+          {isRunning ? "Reasoning..." : "Reasoning complete"}
+        </span>
+        <ChevronDown
+          className={`w-3 h-3 ml-auto transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {(expanded || isRunning) && (
+        <div
+          ref={scrollRef}
+          className="max-h-48 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-300 font-mono whitespace-pre-wrap leading-relaxed"
+        >
+          {fullText}
+        </div>
+      )}
     </div>
   );
 }

@@ -185,8 +185,10 @@ export default function ExecutionPanel() {
                     </p>
                   )}
                   {reasoning && reasoning.length > 0 && (
-                    <p className="text-amber-300/70 font-mono truncate max-w-md">
-                      {reasoning.length} reasoning steps
+                    <p className="text-amber-300/70 truncate max-w-md">
+                      {/Searching:/.test(reasoning.join(""))
+                        ? "Searched the web"
+                        : "Agent reasoning complete"}
                     </p>
                   )}
                 </div>
