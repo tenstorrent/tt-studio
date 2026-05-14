@@ -1,4 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
+Run npm run header:check:changed
+
+> tt-studio-frontend@2.0.1 header:check:changed
+> node scripts/check-headers-changed.js
+
+Checking 3 changed file(s) for SPDX headers with year 2026...
+
++-------------------------------------------------------------+
+|                    ✗ SPDX Header Errors                    |
++-------------------------------------------------------------+
+
+  • src/components/chatui/Header.tsx: Has year 2025, expected 2026
+  • src/components/chatui/InputArea.tsx: Has year 2025, expected 2026
+
+-------------------------------------------------------------
+✗ Changed files must have SPDX headers with current year (2026)
+
+💡 To fix automatically:
+   npm run header:fix:changed
 #
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
