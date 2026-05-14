@@ -111,6 +111,49 @@ SERVICE_CONTAINER_PREFIX_MAP = {
 FORCE_OVERWRITE = False
 
 
+def ensure_file_owned_by_user(file_path):
+    """Chown file_path to the current user if it exists and is owned by someone else.
+
+    A prior sudo'd run.py can leave root-owned PID/log files at the repo root,
+    which break subsequent non-root truncating opens with [Errno 13]. Falls back
+    to `sudo -n chown` (passwordless), then to printed instructions for the user.
+    """
+    if OS_NAME == "Windows":
+        return
+    try:
+        if not os.path.exists(file_path):
+            return
+        current_uid = os.getuid()
+        current_gid = os.getgid()
+        if os.stat(file_path).st_uid == current_uid:
+            return
+        print(f"{C_YELLOW}⚠️  {file_path} is owned by another user, fixing permissions...{C_RESET}")
+        try:
+            os.chown(file_path, current_uid, current_gid)
+            print(f"{C_GREEN}✅ Fixed {os.path.basename(file_path)} ownership{C_RESET}")
+            return
+        except (OSError, PermissionError):
+            pass
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "chown", f"{current_uid}:{current_gid}", file_path],
+                capture_output=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and os.stat(file_path).st_uid == current_uid:
+                print(f"{C_GREEN}✅ Fixed {os.path.basename(file_path)} ownership (via sudo){C_RESET}")
+                return
+        except Exception:
+            pass
+        print(f"{C_RED}⛔ Could not fix {file_path} permissions automatically.{C_RESET}")
+        print(f"{C_YELLOW}Please run the following in another terminal, then press Enter:{C_RESET}")
+        print(f"   {C_WHITE}sudo chown $USER:$USER {file_path}{C_RESET}")
+        if sys.stdin.isatty():
+            input("Press Enter once you've run the command above to continue...")
+    except Exception as e:
+        print(f"{C_YELLOW}Warning: ownership check failed for {file_path}: {e}{C_RESET}")
+
+
 # --- Startup Logger ---
 class StartupLogger:
     """
@@ -171,6 +214,7 @@ class StartupLogger:
             self._f.close()
 
 
+ensure_file_owned_by_user(STARTUP_LOG_FILE)
 startup_log = StartupLogger(STARTUP_LOG_FILE)
 
 
@@ -3173,8 +3217,9 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
             return False
 
     # Create PID and log files
-    
+
     for file_path in [FASTAPI_PID_FILE, FASTAPI_LOG_FILE]:
+        ensure_file_owned_by_user(file_path)
         try:
             # Create files as regular user
             with open(file_path, 'w') as f:
@@ -3424,6 +3469,7 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
 
     # Create PID and log files
     for file_path in [DOCKER_CONTROL_PID_FILE, DOCKER_CONTROL_LOG_FILE]:
+        ensure_file_owned_by_user(file_path)
         try:
             with open(file_path, 'w') as f:
                 pass
