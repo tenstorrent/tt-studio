@@ -27,10 +27,12 @@ interface Props {
   image?: string;
   model_type?: string;
   health?: HealthStatus;
+  isFailed?: boolean;
   onDelete: (id: string) => void;
   onRedeploy: (image?: string) => void;
   onNavigateToModel: (id: string, name: string, navigate?: any) => void;
   onOpenApi: (id: string) => void;
+  onOpenLogs?: (id: string) => void;
 }
 
 export default React.memo(function ManageCell({
@@ -39,10 +41,12 @@ export default React.memo(function ManageCell({
   image: _image,
   model_type,
   health,
+  isFailed,
   onDelete,
   onRedeploy: _onRedeploy,
   onNavigateToModel,
   onOpenApi,
+  onOpenLogs,
 }: Props) {
   const baseBtn =
     "group/btn rounded-full border pl-4 pr-6 py-2 text-sm font-medium transition-all duration-200 inline-flex items-center gap-2 hover:ring-1 hover:ring-current min-h-[36px] leading-none";
@@ -80,6 +84,37 @@ export default React.memo(function ManageCell({
             : modelType === ModelType.TTS
               ? Volume2
               : MessageSquareText;
+
+  if (isFailed) {
+    return (
+      <div className="relative flex items-center justify-center gap-2 flex-wrap">
+        {onOpenLogs && (
+          <Button
+            variant="outline"
+            size="sm"
+            effect="expandIcon"
+            icon={ScrollText}
+            iconPlacement="left"
+            onClick={() => onOpenLogs(id)}
+            className={`${baseBtn} !border-TT-purple-accent/60 !text-TT-purple-accent/90`}
+          >
+            Logs
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          effect="expandIcon"
+          icon={Trash2}
+          iconPlacement="right"
+          onClick={() => onDelete(id)}
+          className={`${baseBtn} ${dangerBtn}`}
+        >
+          Remove
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex items-center justify-center gap-2 flex-wrap">
