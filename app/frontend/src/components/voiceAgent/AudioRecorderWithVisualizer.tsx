@@ -18,7 +18,6 @@ type Props = {
 };
 
 const LEVEL_BARS = 24;
-const SAMPLE_RATE = 16_000;
 
 const STAGE_BAR_COLORS: Record<string, string> = {
   idle: "bg-TT-purple-accent",
@@ -78,12 +77,12 @@ export const AudioRecorderWithVisualizer = ({
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { sampleRate: SAMPLE_RATE },
+        audio: true,
       });
       streamRef.current = stream;
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx({ sampleRate: SAMPLE_RATE });
+      const ctx = new AudioCtx();
       audioContextRef.current = ctx;
 
       const analyser = ctx.createAnalyser();
