@@ -34,7 +34,7 @@ import MultiCardResetDialog from "./MultiCardResetDialog";
 // Board types that have multiple individually-resettable chips
 const MULTI_CHIP_BOARDS = new Set([
   "T3K", "T3000", "N150X4", "N300x4",
-  "P150X4", "P150X8", "P300Cx2", "P300Cx4",
+  "P150X4", "P150X8", "P300x2", "P300Cx4",
   "GALAXY", "GALAXY_T3K",
 ]);
 

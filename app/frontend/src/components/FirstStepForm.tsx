@@ -239,8 +239,8 @@ export function FirstStepForm({
     "N150X4": "N150",
     "P150X4": "P150",
     "P150X8": "P150",
-    "P300Cx2": "P300c",
-    "P300Cx4": "P300c",
+    "P300x2": "P300",
+    "P300Cx4": "P300",
     "GALAXY": "N300",
     "GALAXY_T3K": "N300",
   };

@@ -76,6 +76,8 @@ DEVICE_TYPE_TO_CONFIG = {
     "P150": "P150",
     "P150X4": "P150X4",
     "P150X8": "P150X8",
+    "P300": "P300",
+    "P300X2": "P300x2",
     "GALAXY": "GALAXY",
     "GALAXY_T3K": "GALAXY_T3K",
 }

@@ -103,8 +103,8 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Blackhole boards → constituent single-chip device
     "P150X4":  "p150",
     "P150X8":  "p150",
-    "P300Cx2": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
-    "P300Cx4": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
+    "P300x2": "p300x2",  # QB2: inference server always wants p300x2; device_id selects the chip
+    "P300Cx4": "p300c",
     # Galaxy (N300-based)
     "GALAXY":     "n300",
     "GALAXY_T3K": "n300",
@@ -114,7 +114,7 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "E150":  "e150",
     "P100":  "p100",
     "P150":  "p150",
-    "P300c": "p300c",
+    "P300": "p300",
     "unknown": "cpu",
 }
 
@@ -135,12 +135,12 @@ def map_board_type_to_device_name(board_type):
         # Blackhole devices
         "P100": "p100",
         "P150": "p150",
-        "P300c": "p300c",
-        
+        "P300": "p300",
+
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300Cx2": "p300x2",  # 2 cards (4 chips)
+        "P300x2": "p300x2",  # 2 cards (4 chips)
         "P300Cx4": "p300cx4",  # 4 cards (8 chips)
         
         # Galaxy systems
@@ -344,9 +344,12 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
         service_port = BASE_SERVICE_PORT + primary_device_id
 
-        # Pin to specific chip slot(s). For multi-chip single-card mode this is a
-        # comma-separated string that the inference server passes as --device-id 0,1.
-        payload["device_id"] = str(device_id)
+        # Pin to specific chip slot (both single and multi-chip models)
+        # Single-chip models need this to pin to a specific slot on multi-chip boards (e.g., slot 0 on T3K)
+        # Multi-chip models need this to specify which configuration to use
+        # P300x2 (QB2): inference server selects the chip internally; omit device_id (same as CHAT path in views.py)
+        if board_type != "P300x2":
+            payload["device_id"] = str(device_id)
 
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
         if impl.model_name == "Qwen3-32B" and device == "p300x2":
@@ -516,7 +519,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.N300_WH_ARCH_YAML,
         DeviceConfigurations.P100,
         DeviceConfigurations.P150,
-        DeviceConfigurations.P300c,
+        DeviceConfigurations.P300,
     }
 
     # Multi-chip configurations manage their own chip allocation; expose full directory
@@ -542,7 +545,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.T3K_LINE,
         DeviceConfigurations.P150X4,
         DeviceConfigurations.P150X8,
-        DeviceConfigurations.P300Cx2,
+        DeviceConfigurations.P300x2,
         DeviceConfigurations.P300Cx4,
         DeviceConfigurations.GALAXY,
         DeviceConfigurations.GALAXY_T3K,

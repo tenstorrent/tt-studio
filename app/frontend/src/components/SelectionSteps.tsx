@@ -35,8 +35,8 @@ export interface Model {
   chips_required?: number; // Number of chips required (1 or 4)
 }
 
-// QB2 (P300Cx2) uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
-const QB2_BOARD_TYPES = new Set(["P300Cx2"]);
+// QB2 (P300x2) uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
+const QB2_BOARD_TYPES = new Set(["P300x2"]);
 
 export default function StepperDemo() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -438,8 +438,8 @@ export default function StepperDemo() {
         hover
         className="h-auto py-4 px-8 md:px-12 lg:px-16"
       >
-        {/* QB2 image override toggle — only shown on P300Cx2 for whisper/speecht5 */}
-        {isQB2 && (selectedModelName === "whisper-large-v3" || selectedModelName === "speecht5_tts") && (
+        {/* QB2 hardware config toggle — only shown on P300x2 boards */}
+        {isQB2 && (
           <div className="flex items-center justify-end gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
             <span className="text-xs font-mono text-gray-500 select-none">
               Use override image
