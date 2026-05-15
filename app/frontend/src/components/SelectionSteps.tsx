@@ -116,7 +116,7 @@ export default function StepperDemo() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<number[]>([]);
-  const [useImageOverride, setUseImageOverride] = useState(true);
+  const [useImageOverride, setUseImageOverride] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
   const [isAutoDeploying, setIsAutoDeploying] = useState(false);
