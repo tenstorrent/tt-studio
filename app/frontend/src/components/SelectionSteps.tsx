@@ -132,14 +132,14 @@ export default function StepperDemo() {
 
   const steps = useHardwareConfigStep
     ? [
-        { label: "Step 1", description: hardwareConfigSummary },
-        { label: "Step 2", description: "Model Selection" },
-        { label: "Final Step", description: "Deploy Model" },
-      ]
+      { label: "Step 1", description: hardwareConfigSummary },
+      { label: "Step 2", description: "Model Selection" },
+      { label: "Final Step", description: "Deploy Model" },
+    ]
     : [
-        { label: "Step 1", description: "Model Selection" },
-        { label: "Final Step", description: "Deploy Model" },
-      ];
+      { label: "Step 1", description: "Model Selection" },
+      { label: "Final Step", description: "Deploy Model" },
+    ];
 
   // Log when selectedModel changes
   useEffect(() => {
@@ -327,8 +327,8 @@ export default function StepperDemo() {
           const conflictsSummary =
             conflicts.length > 0
               ? ` Stop these first: ${conflicts
-                  .map((c: { model?: string; slot?: number }) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
-                  .join(", ")}.`
+                .map((c: { model?: string; slot?: number }) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
+                .join(", ")}.`
               : "";
           customToast.error(`Multi-chip Deployment Conflict: ${message}.${conflictsSummary}`);
 
@@ -477,8 +477,9 @@ export default function StepperDemo() {
           </div>
         )}
 
+        {/* TODO: Re-enable this when we want to support hardware configuration for multi-chip boards */}
         {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
-        {isQB2 && (
+        {/* {isQB2 && (
           <div className="flex items-center justify-between gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
             <span className="text-sm font-mono text-gray-300 select-none">
               Advanced: Configure Hardware
@@ -507,7 +508,7 @@ export default function StepperDemo() {
               />
             </button>
           </div>
-        )}
+        )} */}
 
         <button
           onClick={() => setDeployMode(null)}
