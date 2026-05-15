@@ -238,9 +238,13 @@ export default function StepperDemo() {
     const weights_id = ""; // Always use default weights
 
     let resolvedDeviceId = options?.device_id;
-    const shouldForceLlamaPair =
+    const isP300x2Llama31_8B =
       isP300x2Board(chipStatus?.board_type) &&
       isLlama31_8BModel(selectedModelName ?? selectedModel ?? "");
+    const shouldUseFullBoardLlamaFlow =
+      isP300x2Llama31_8B && !useHardwareConfigStep;
+    const shouldForceLlamaPair =
+      isP300x2Llama31_8B && !shouldUseFullBoardLlamaFlow;
     if (shouldForceLlamaPair) {
       const pair = pickPreferredAvailablePair(chipStatus?.slots);
       if (!pair) {
@@ -251,6 +255,10 @@ export default function StepperDemo() {
       }
       resolvedDeviceId = pair.join(",");
     }
+    if (shouldUseFullBoardLlamaFlow) {
+      // Simplified full-model flow runs Llama 3.1 8B as full-board p300x2.
+      resolvedDeviceId = undefined;
+    }
 
     // Only include device_id when explicitly provided — omitting it lets the backend
     // auto-allocate the best slot (required for QB2 simplified flow).
@@ -260,6 +268,9 @@ export default function StepperDemo() {
       host_port: options?.host_port ?? null,
       use_image_override: useImageOverride,
     };
+    if (shouldUseFullBoardLlamaFlow) {
+      payloadObj.force_full_board = true;
+    }
     if (resolvedDeviceId !== undefined) {
       payloadObj.device_id = resolvedDeviceId;
     }
