@@ -60,7 +60,7 @@ except Exception:
     _status_lookup = {}
 
 # Manual compatibility overrides: model names always shown as compatible regardless of board.
-# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for qb2 (P300Cx2)
+# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for qb2 (P300x2)
 # until proper board support is confirmed. Edit model_compatibility_overrides.json to re-enable.
 _OVERRIDE_PATH = Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
 try:
@@ -174,14 +174,13 @@ class ContainersView(APIView):
             # Blackhole single devices
             'P100': [DeviceConfigurations.P100],
             'P150': [DeviceConfigurations.P150],
-            'P300c': [DeviceConfigurations.P300c],
+            'P300': [DeviceConfigurations.P300],
             
             # Blackhole multi-device
             'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
             'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
-            # P300Cx2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
-            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P150, DeviceConfigurations.P300c],
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300c],
+            'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P300],  # 2 cards (4 chips)
+            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P300],  # 4 cards (8 chips)
             
             # Galaxy systems
             'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
@@ -454,30 +453,27 @@ class DeployView(APIView):
             # We call it directly here so we can return job_id immediately for progress polling,
             # without requiring docker_utils.py to handle async "job started" responses.
             if impl.model_type == ModelTypes.CHAT:
-                if should_force_full_board_llama:
-                    device = "p300x2"
+                board_type = detect_board_type()
+                if chips_required == 1:
+                    device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                else:
+                    device = map_board_type_to_device_name(board_type)
+                # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
+                # should run with --tt-device p300 (not p150).
+                if (
+                    board_type == "P300x2"
+                    and _is_llama31_8b_model(impl.model_name)
+                    and sorted(device_ids) == [0, 1]
+                ):
+                    device = "p300"
+                # For QB2 (P300x2) with the whole-board p300x2 device, the inference
+                # server selects the physical chip itself — omit device_id entirely.
+                # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
+                # lands on its allocated slot(s).
+                if board_type == "P300x2" and device == "p300x2":
                     inference_device_id = None
                 else:
-                    if chips_required == 1:
-                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-                    else:
-                        device = map_board_type_to_device_name(board_type)
-                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
-                    # should run with --tt-device p300 (not p150).
-                    if (
-                        board_type == "P300Cx2"
-                        and _is_llama31_8b_model(impl.model_name)
-                        and sorted(device_ids) == [0, 1]
-                    ):
-                        device = "p300"
-                    # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
-                    # server selects the physical chip itself — omit device_id entirely.
-                    # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
-                    # lands on its allocated slot(s).
-                    if board_type == "P300Cx2" and device == "p300x2":
-                        inference_device_id = None
-                    else:
-                        inference_device_id = device_ids_str
+                    inference_device_id = device_ids_str
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
@@ -1413,12 +1409,12 @@ class BoardInfoView(APIView):
                 # Blackhole devices
                 'P100': 'Tenstorrent P100',
                 'P150': 'Tenstorrent P150',
-                'P300c': 'Tenstorrent P300c',
+                'P300': 'Tenstorrent P300',
                 
                 # Blackhole multi-device
                 'P150X4': 'Tenstorrent P150x4',
                 'P150X8': 'Tenstorrent P150x8',
-                'P300Cx2': 'Tenstorrent P300Cx2',  # 2 cards (4 chips)
+                'P300x2': 'Tenstorrent P300x2',  # 2 cards (4 chips)
                 'P300Cx4': 'Tenstorrent P300Cx4',  # 4 cards (8 chips)
                 
                 # Galaxy systems
