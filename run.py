@@ -1563,7 +1563,9 @@ def cleanup_resources(args):
     print(f"{C_GREEN}done{C_RESET}")
 
     # Unset the Welcome flag so the next bring-up re-runs the first-run setup.
-    # Preserves saved secrets (HF token, etc.) so the user only re-confirms them.
+    # Normal path: rewrite the file in place to preserve saved secrets (HF token, etc.).
+    # If the file is owned by root (Docker wrote it on the host volume), fall back to
+    # `sudo rm` so the backend regenerates a fresh user_config.json on next start.
     host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
     user_config_path = os.path.join(host_persistent_volume, "backend_volume", "user_config.json")
     if os.path.exists(user_config_path):
@@ -1574,6 +1576,16 @@ def cleanup_resources(args):
                 with open(user_config_path, "w") as f:
                     json.dump(cfg, f, indent=2)
                 print(f"  {C_GREEN}✅ Reset Welcome flag (setup_complete){C_RESET}")
+        except PermissionError:
+            if shutil.which("sudo"):
+                print(f"  {C_CYAN}🔐 user_config.json is root-owned; removing with sudo so Welcome re-runs...{C_RESET}")
+                try:
+                    subprocess.run(["sudo", "rm", "-f", user_config_path], check=True)
+                    print(f"  {C_GREEN}✅ Reset Welcome flag (removed user_config.json via sudo){C_RESET}")
+                except Exception as e:
+                    print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag with sudo: {e}{C_RESET}")
+            else:
+                print(f"  {C_YELLOW}⚠️  Cannot reset Welcome flag: permission denied and sudo unavailable.{C_RESET}")
         except Exception as e:
             print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag: {e}{C_RESET}")
 
