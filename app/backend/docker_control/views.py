@@ -326,6 +326,23 @@ class DeployView(APIView):
             impl = model_implmentations[impl_id]
             chips_required = infer_chips_required(impl.device_configurations)
 
+            # Pre-check Hugging Face access before consuming a chip slot.
+            hf_repo = getattr(impl, "hf_model_id", None)
+            if hf_repo:
+                from shared_config.user_config import get_hf_token
+                token = get_hf_token()
+                if token:
+                    from api.hf_access import _check_repo, _status_from_code
+                    if _status_from_code(_check_repo(token, hf_repo)) in ("denied", "auth_failed"):
+                        return Response(
+                            {
+                                "error_code": "hf_access_denied",
+                                "message": f"Your Hugging Face token does not have access to {hf_repo}.",
+                                "hf_url": f"https://huggingface.co/{hf_repo}",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
             # Stop and clean up any existing starting/running deployments of this
             # model before deploying a new instance. Prevents stale records with
             # wrong device_id from persisting in the UI after a re-deploy.
@@ -1660,7 +1677,13 @@ class DeploymentHistoryView(APIView):
             
             # Get all deployments, ordered by most recent first
             deployments = ModelDeployment.objects.all().order_by('-deployed_at')
-            
+
+            name_to_repo = {
+                impl.model_name: impl.hf_model_id
+                for impl in model_implmentations.values()
+                if impl.hf_model_id
+            }
+
             # Serialize the data, lazily backfilling workflow_log_path when missing
             deployment_data = []
             for deployment in deployments:
@@ -1680,6 +1703,7 @@ class DeploymentHistoryView(APIView):
                         except Exception as save_err:
                             logger.warning(f"Could not save workflow_log_path for deployment {deployment.id}: {save_err}")
 
+                hf_repo = name_to_repo.get(deployment.model_name)
                 deployment_data.append({
                     'id': deployment.id,
                     'container_id': deployment.container_id,
@@ -1693,6 +1717,9 @@ class DeploymentHistoryView(APIView):
                     'stopped_by_user': deployment.stopped_by_user,
                     'port': deployment.port,
                     'workflow_log_path': deployment.workflow_log_path,
+                    'failure_reason': deployment.failure_reason,
+                    'failure_message': deployment.failure_message,
+                    'hf_url': f"https://huggingface.co/{hf_repo}" if hf_repo else None,
                 })
             
             return Response({

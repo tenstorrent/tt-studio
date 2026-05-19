@@ -303,6 +303,18 @@ export default function StepperDemo() {
     } catch (error) {
       console.error("Error during deployment:", error);
 
+      if (
+        axios.isAxiosError(error) &&
+        error.response?.status === 400 &&
+        error.response?.data?.error_code === "hf_access_denied"
+      ) {
+        const { message, hf_url } = error.response.data;
+        customToast.error(
+          `${message} Open ${hf_url} to request access.`,
+        );
+        return { success: false };
+      }
+
       // Check if this is a chip allocation conflict error
       if (axios.isAxiosError(error) && error.response?.status === 409) {
         const errorData = error.response.data;

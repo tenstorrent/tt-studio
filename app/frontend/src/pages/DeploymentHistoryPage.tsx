@@ -44,6 +44,9 @@ interface Deployment {
   stopped_by_user: boolean;
   port: number | null;
   workflow_log_path: string | null;
+  failure_reason: string | null;
+  failure_message: string | null;
+  hf_url: string | null;
 }
 
 interface DeploymentHistoryResponse {
@@ -59,12 +62,39 @@ const fetchDeploymentHistory = async (): Promise<DeploymentHistoryResponse> => {
   return response.data;
 };
 
-const getStatusBadge = (status: string, stoppedByUser: boolean) => {
+const getStatusBadge = (deployment: Deployment) => {
+  const { status, stopped_by_user, failure_reason, failure_message, hf_url } =
+    deployment;
   if (status === "running") {
     return <Badge className="bg-green-500">Running</Badge>;
   }
-  if (status === "stopped" && stoppedByUser) {
+  if (status === "stopped" && stopped_by_user) {
     return <Badge variant="outline">Stopped by User</Badge>;
+  }
+  if (
+    (status === "exited" || status === "dead" || status === "stopped") &&
+    failure_reason === "hf_auth" &&
+    hf_url
+  ) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a href={hf_url} target="_blank" rel="noopener noreferrer">
+              <Badge variant="destructive" className="cursor-pointer">
+                Gain access on Hugging Face
+              </Badge>
+            </a>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <p className="text-sm">
+              {failure_message ??
+                "Your Hugging Face token does not have access to this model's weights."}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   }
   if (status === "exited" || status === "dead") {
     return (
@@ -235,10 +265,7 @@ export default function DeploymentHistoryPage() {
                         {deployment.container_name}
                       </TableCell>
                       <TableCell>
-                        {getStatusBadge(
-                          deployment.status,
-                          deployment.stopped_by_user
-                        )}
+                        {getStatusBadge(deployment)}
                       </TableCell>
                       <TableCell className="text-sm">
                         {formatDate(deployment.deployed_at)}

@@ -235,6 +235,8 @@ class ModelDeployment:
         self.device_id: int = 0
         self.device_ids: List[int] = [0]
         self.workflow_log_path: Optional[str] = None
+        self.failure_reason: Optional[str] = None
+        self.failure_message: Optional[str] = None
 
     @classmethod
     def _from_dict(cls, d: dict) -> "ModelDeployment":
@@ -256,6 +258,8 @@ class ModelDeployment:
         obj.device_ids = normalized_device_ids
         obj.device_id = normalized_device_ids[0]
         obj.workflow_log_path = d.get("workflow_log_path")
+        obj.failure_reason = d.get("failure_reason")
+        obj.failure_message = d.get("failure_message")
         return obj
 
     def _to_dict(self) -> dict:
@@ -273,6 +277,8 @@ class ModelDeployment:
             "device_id": self.device_ids[0] if self.device_ids else self.device_id,
             "device_ids": self.device_ids if self.device_ids else [self.device_id],
             "workflow_log_path": self.workflow_log_path,
+            "failure_reason": self.failure_reason,
+            "failure_message": self.failure_message,
         }
 
     def save(self) -> None:
