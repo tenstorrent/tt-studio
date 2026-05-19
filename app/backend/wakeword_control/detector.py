@@ -7,12 +7,26 @@ import time
 import numpy as np
 from openwakeword.model import Model
 
+from .apps import MODELS_DIR, WAKE_MODEL
+
+
+def _resolve_wake_model_path():
+    manual = MODELS_DIR / f"{WAKE_MODEL}.onnx"
+    if manual.is_file():
+        return manual
+    return next(MODELS_DIR.glob(f"{WAKE_MODEL}_*.onnx"))
+
 
 class WakeDetector:
     def __init__(self, threshold: float = 0.5, debounce_seconds: float = 1.5):
         self.threshold = threshold
         self.debounce_seconds = debounce_seconds
-        self._model = Model(inference_framework="onnx")
+        self._model = Model(
+            wakeword_models=[str(_resolve_wake_model_path())],
+            melspec_model_path=str(MODELS_DIR / "melspectrogram.onnx"),
+            embedding_model_path=str(MODELS_DIR / "embedding_model.onnx"),
+            inference_framework="onnx",
+        )
         self._last_fire = 0.0
 
     def process_frame(self, pcm_bytes: bytes) -> dict | None:
