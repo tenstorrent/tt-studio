@@ -110,7 +110,7 @@ export default React.memo(function ManageCell({
           onClick={() => onDelete(id)}
           className={`${baseBtn} ${dangerBtn}`}
         >
-          Remove
+          Remove & Reset
         </Button>
       </div>
     );

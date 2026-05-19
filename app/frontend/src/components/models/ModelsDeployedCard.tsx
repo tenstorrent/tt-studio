@@ -668,31 +668,11 @@ export default function ModelsDeployedCard(): JSX.Element {
                     }
                   }}
                   onDelete={(id: string) => {
-                    if (failedMap[id]) {
-                      // Quick remove for failed/died containers: hide row
-                      // immediately. The container is already dead, but we still
-                      // fire the stop endpoint in the background to clean up
-                      // any chip slot reservation and update the DB record.
-                      setDismissedFailedIds((prev: Set<string>) => {
-                        const next = new Set(prev);
-                        next.add(id);
-                        return next;
-                      });
-                      seenLiveIdsRef.current.delete(id);
-                      customToast.success("Removed failed deployment");
-                      axios
-                        .post(`/docker-api/stop/`, { container_id: id })
-                        .catch(() => {
-                          // best-effort cleanup; the row is already hidden
-                        })
-                        .finally(() => {
-                          refreshModels();
-                          window.setTimeout(() => refreshAllHealth(), 500);
-                        });
-                    } else {
-                      setDeleteTargetId(id);
-                      setShowDeleteModal(true);
-                    }
+                    // Both healthy and failed rows route through the same
+                    // streaming delete flow so that tt-smi -r runs and the
+                    // board is reset in either case.
+                    setDeleteTargetId(id);
+                    setShowDeleteModal(true);
                   }}
                   onRedeploy={(image?: string) => image && handleRedeploy(image)}
                   onNavigateToModel={(id: string, name: string) => {
