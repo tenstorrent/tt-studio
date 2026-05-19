@@ -1562,6 +1562,21 @@ def cleanup_resources(args):
     cleanup_docker_control_service(no_sudo=args.no_sudo)
     print(f"{C_GREEN}done{C_RESET}")
 
+    # Unset the Welcome flag so the next bring-up re-runs the first-run setup.
+    # Preserves saved secrets (HF token, etc.) so the user only re-confirms them.
+    host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
+    user_config_path = os.path.join(host_persistent_volume, "backend_volume", "user_config.json")
+    if os.path.exists(user_config_path):
+        try:
+            with open(user_config_path, "r") as f:
+                cfg = json.load(f)
+            if cfg.pop("setup_complete", None) is not None:
+                with open(user_config_path, "w") as f:
+                    json.dump(cfg, f, indent=2)
+                print(f"  {C_GREEN}✅ Reset Welcome flag (setup_complete){C_RESET}")
+        except Exception as e:
+            print(f"  {C_YELLOW}⚠️  Could not reset Welcome flag: {e}{C_RESET}")
+
     if args.cleanup_all:
         print(f"\n{C_ORANGE}{C_BOLD}🗑️  Performing complete cleanup (--cleanup-all)...{C_RESET}")
         
