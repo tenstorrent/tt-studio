@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useTheme } from "../../hooks/useTheme";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,6 +17,10 @@ type Props = {
   isTTSGenerating?: boolean;
 };
 
+export type AudioRecorderHandle = {
+  startRecording: () => void;
+};
+
 const LEVEL_BARS = 24;
 
 const STAGE_BAR_COLORS: Record<string, string> = {
@@ -29,14 +33,14 @@ const STAGE_BAR_COLORS: Record<string, string> = {
   tts: "bg-TT-green",
 };
 
-export const AudioRecorderWithVisualizer = ({
+export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props>(({
   className,
   onRecordingComplete,
   onRecordingStart,
   disabled = false,
   stage = "idle",
   isTTSGenerating = false,
-}: Props) => {
+}, ref) => {
   const { theme } = useTheme();
 
   const [isRecording, setIsRecording] = useState(false);
@@ -131,6 +135,12 @@ export const AudioRecorderWithVisualizer = ({
       startRecording();
     }
   };
+
+  useImperativeHandle(ref, () => ({
+    startRecording: () => {
+      if (!isRecording) startRecording();
+    },
+  }));
 
   const startVisualization = (analyser: AnalyserNode) => {
     const bufLen = analyser.frequencyBinCount;
@@ -275,4 +285,4 @@ export const AudioRecorderWithVisualizer = ({
       </motion.p>
     </div>
   );
-};
+});

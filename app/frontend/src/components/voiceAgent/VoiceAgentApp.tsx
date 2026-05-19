@@ -5,7 +5,8 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { MainContent } from "@/src/components/voiceAgent/mainContent";
 import { StatusPanel } from "@/src/components/voiceAgent/StatusPanel";
 import { MetricsPanel } from "@/src/components/voiceAgent/MetricsPanel";
-import { AudioRecorderWithVisualizer } from "@/src/components/voiceAgent/AudioRecorderWithVisualizer";
+import { AudioRecorderWithVisualizer, type AudioRecorderHandle } from "@/src/components/voiceAgent/AudioRecorderWithVisualizer";
+import { useWakeWord } from "@/src/components/voiceAgent/hooks/useWakeWord";
 import { Activity, BarChart3, UserCheck, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../hooks/useTheme";
@@ -82,6 +83,12 @@ export default function VoiceAgentApp() {
 
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsAudioUrlRef = useRef<string | null>(null);
+  const recorderRef = useRef<AudioRecorderHandle>(null);
+
+  useWakeWord({
+    enabled: stage === "idle" || stage === "done",
+    onWake: () => recorderRef.current?.startRecording(),
+  });
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const chatHistoryRef = useRef<ChatMessage[]>([]);
 
@@ -631,6 +638,7 @@ export default function VoiceAgentApp() {
           )}
         >
           <AudioRecorderWithVisualizer
+            ref={recorderRef}
             onRecordingComplete={handleRecordingComplete}
             onRecordingStart={() => setStage("recording")}
             disabled={isProcessing}

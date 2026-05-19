@@ -85,6 +85,13 @@ const proxyConfig: Record<string, string | ProxyOptions> = Object.fromEntries(
   ])
 );
 
+proxyConfig["/ws-api"] = {
+  target: VITE_BACKEND_URL,
+  ws: true,
+  changeOrigin: true,
+  rewrite: (path: string) => path.replace(/^\/ws-api/, "/ws"),
+};
+
 // Add specific proxy configuration for the /reset-board endpoint
 proxyConfig["/reset-board"] = {
   target: VITE_BACKEND_URL,
