@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
 import React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
@@ -15,7 +16,6 @@ import {
   Info as InfoIcon,
 } from "lucide-react";
 import { VoiceInput } from "./VoiceInput";
-import { FileUpload } from "../ui/file-upload";
 import {
   isImageFile,
   validateFile,
@@ -130,6 +130,7 @@ interface InputAreaProps {
   isMobileView?: boolean;
   onCreateNewConversation?: () => void;
   onStopInference?: () => void;
+  showInitialPromptAnimation?: boolean;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -148,13 +149,13 @@ export default function InputArea({
   isListening,
   setIsListening,
   files = [],
-  setFiles = () => {},
+  setFiles = () => { },
   isMobileView = false,
   onCreateNewConversation,
   onStopInference,
+  showInitialPromptAnimation = true,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [isFileUploadOpen, setIsFileUploadOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showProgressBar, setShowProgressBar] = useState(false);
   const [showErrorIndicator, setShowErrorIndicator] = useState(false);
@@ -323,7 +324,6 @@ export default function InputArea({
         setTimeout(() => setShowErrorIndicator(false), 3000);
       } finally {
         setShowProgressBar(false);
-        setIsFileUploadOpen(false);
       }
     },
     [files, processFile, setFiles]
@@ -375,8 +375,7 @@ export default function InputArea({
         ...encodedTextFiles,
       ]);
       customToast.success(
-        `Successfully uploaded ${
-          imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
+        `Successfully uploaded ${imageFiles.length > 1 ? "1 image (extras ignored)" : "1 image"
         }${textFiles.length > 0 ? ` and ${textFiles.length} text file(s)` : ""}!`
       );
     } else if (textFiles.length > 0) {
@@ -579,7 +578,7 @@ export default function InputArea({
                 }, 300);
               }}
             />
-            {!textInput && !isFocused && (
+            {showInitialPromptAnimation && !textInput && !isFocused && (
               <div className="absolute inset-0 pointer-events-none">
                 <TypingAnimation
                   texts={EXAMPLE_PROMPTS}
@@ -593,37 +592,6 @@ export default function InputArea({
 
           <div className="flex justify-between items-center mt-2">
             <div className="flex gap-2 items-center">
-              <div className="relative group">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size={isMobileView ? "sm" : "default"}
-                        className="text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20 p-1 sm:p-2 rounded-full flex items-center justify-center transition-colors duration-300"
-                        onClick={() => setIsFileUploadOpen((prev) => !prev)}
-                        aria-label="Attach files"
-                        onTouchStart={() => handleTouchStart("Attach files")}
-                        onTouchEnd={handleTouchEnd}
-                      >
-                        <Paperclip
-                          className={`${isMobileView ? "h-4 w-4" : "h-5 w-5"}`}
-                        />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Attach files (1 image max)</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                {isMobileView && (
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 -translate-y-1 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-200 pointer-events-none bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    Attach files
-                  </div>
-                )}
-              </div>
-
               <div className="relative group">
                 <TooltipProvider>
                   <Tooltip>
@@ -664,10 +632,9 @@ export default function InputArea({
                     className={`
                       bg-transparent border border-[#7C68FA]/50 hover:bg-[#7C68FA]/10 active:bg-[#7C68FA]/20 text-[#7C68FA] dark:text-[#7C68FA] dark:border-[#7C68FA]/60
                       rounded-full flex items-center transition-all duration-200 touch-manipulation
-                      ${
-                        isMobileView
-                          ? "justify-center h-8 w-8 p-0"
-                          : "justify-center gap-1.5 px-3 py-1"
+                      ${isMobileView
+                        ? "justify-center h-8 w-8 p-0"
+                        : "justify-center gap-1.5 px-3 py-1"
                       }
                     `}
                     aria-label="Start a new chat"
@@ -745,10 +712,9 @@ export default function InputArea({
                       isStreaming || (!textInput.trim() && files.length === 0)
                     }
                     className={`
-                      ${
-                        (!textInput.trim() && files.length === 0) || isStreaming
-                          ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
-                          : "bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:active:bg-emerald-800 text-white font-semibold cursor-pointer"
+                      ${(!textInput.trim() && files.length === 0) || isStreaming
+                        ? "bg-gray-400 dark:bg-gray-600 text-gray-600 dark:text-gray-300 cursor-not-allowed"
+                        : "bg-[#7C68FA] hover:bg-[#7C68FA]/90 active:bg-[#7C68FA]/80 dark:bg-emerald-600 dark:hover:bg-emerald-700 dark:active:bg-emerald-800 text-white font-semibold cursor-pointer"
                       }
                       ${isMobileView ? "px-3 py-2 text-sm" : "px-4 py-2 text-sm"} 
                       rounded-lg flex items-center gap-1 sm:gap-2 transition-all duration-200 touch-manipulation
@@ -815,8 +781,6 @@ export default function InputArea({
           </div>
         )}
       </div>
-
-      {isFileUploadOpen && <FileUpload onChange={handleFileUpload} />}
     </>
   );
 }

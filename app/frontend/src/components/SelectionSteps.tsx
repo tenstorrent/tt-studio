@@ -132,14 +132,14 @@ export default function StepperDemo() {
 
   const steps = useHardwareConfigStep
     ? [
-        { label: "Step 1", description: hardwareConfigSummary },
-        { label: "Step 2", description: "Model Selection" },
-        { label: "Final Step", description: "Deploy Model" },
-      ]
+      { label: "Step 1", description: hardwareConfigSummary },
+      { label: "Step 2", description: "Model Selection" },
+      { label: "Final Step", description: "Deploy Model" },
+    ]
     : [
-        { label: "Step 1", description: "Model Selection" },
-        { label: "Final Step", description: "Deploy Model" },
-      ];
+      { label: "Step 1", description: "Model Selection" },
+      { label: "Final Step", description: "Deploy Model" },
+    ];
 
   // Log when selectedModel changes
   useEffect(() => {
@@ -238,9 +238,13 @@ export default function StepperDemo() {
     const weights_id = ""; // Always use default weights
 
     let resolvedDeviceId = options?.device_id;
-    const shouldForceLlamaPair =
+    const isP300x2Llama31_8B =
       isP300x2Board(chipStatus?.board_type) &&
       isLlama31_8BModel(selectedModelName ?? selectedModel ?? "");
+    const shouldUseFullBoardLlamaFlow =
+      isP300x2Llama31_8B && !useHardwareConfigStep;
+    const shouldForceLlamaPair =
+      isP300x2Llama31_8B && !shouldUseFullBoardLlamaFlow;
     if (shouldForceLlamaPair) {
       const pair = pickPreferredAvailablePair(chipStatus?.slots);
       if (!pair) {
@@ -251,6 +255,10 @@ export default function StepperDemo() {
       }
       resolvedDeviceId = pair.join(",");
     }
+    if (shouldUseFullBoardLlamaFlow) {
+      // Simplified full-model flow runs Llama 3.1 8B as full-board p300x2.
+      resolvedDeviceId = undefined;
+    }
 
     // Only include device_id when explicitly provided — omitting it lets the backend
     // auto-allocate the best slot (required for QB2 simplified flow).
@@ -260,6 +268,9 @@ export default function StepperDemo() {
       host_port: options?.host_port ?? null,
       use_image_override: useImageOverride,
     };
+    if (shouldUseFullBoardLlamaFlow) {
+      payloadObj.force_full_board = true;
+    }
     if (resolvedDeviceId !== undefined) {
       payloadObj.device_id = resolvedDeviceId;
     }
@@ -328,8 +339,8 @@ export default function StepperDemo() {
           const conflictsSummary =
             conflicts.length > 0
               ? ` Stop these first: ${conflicts
-                  .map((c: { model?: string; slot?: number }) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
-                  .join(", ")}.`
+                .map((c: { model?: string; slot?: number }) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
+                .join(", ")}.`
               : "";
           customToast.error(`Multi-chip Deployment Conflict: ${message}.${conflictsSummary}`);
 
@@ -478,8 +489,9 @@ export default function StepperDemo() {
           </div>
         )}
 
+        {/* TODO: Re-enable this when we want to support hardware configuration for multi-chip boards */}
         {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
-        {isQB2 && (
+        {/* {isQB2 && (
           <div className="flex items-center justify-between gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
             <span className="text-sm font-mono text-gray-300 select-none">
               Advanced: Configure Hardware
@@ -508,7 +520,7 @@ export default function StepperDemo() {
               />
             </button>
           </div>
-        )}
+        )} */}
 
         <button
           onClick={() => setDeployMode(null)}

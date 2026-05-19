@@ -85,6 +85,53 @@ export default function VoiceAgentApp() {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const chatHistoryRef = useRef<ChatMessage[]>([]);
 
+  // Light persistent memory: short notes about the user that survive across
+  // conversations and page reloads. Kept tiny on purpose so it's cheap to inject
+  // into every system prompt.
+  const VOICE_AGENT_MEMORY_KEY = "voiceAgentMemory.v1";
+  const MEMORY_MAX_NOTES = 8;
+  const memoryRef = useRef<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(VOICE_AGENT_MEMORY_KEY);
+      if (raw) memoryRef.current = JSON.parse(raw);
+    } catch {
+      memoryRef.current = [];
+    }
+  }, []);
+  const addMemoryNote = useCallback((note: string) => {
+    const cleaned = note.trim().replace(/\s+/g, " ");
+    if (!cleaned) return;
+    const existing = memoryRef.current;
+    if (existing.some((n) => n.toLowerCase() === cleaned.toLowerCase())) return;
+    const updated = [...existing, cleaned].slice(-MEMORY_MAX_NOTES);
+    memoryRef.current = updated;
+    try {
+      localStorage.setItem(VOICE_AGENT_MEMORY_KEY, JSON.stringify(updated));
+    } catch {
+      /* storage full / disabled — fine, memory just won't persist */
+    }
+  }, []);
+  const extractMemoryFromUserTurn = useCallback(
+    (text: string) => {
+      const patterns: RegExp[] = [
+        /\bmy name is ([A-Za-z][\w'’\- ]{1,40})/i,
+        /\b(?:i am|i'm) (?:called |known as )?([A-Z][\w'’\-]{1,30})\b/,
+        /\bcall me ([A-Za-z][\w'’\- ]{1,30})/i,
+        /\bi(?:'m| am) a ([\w'’\- ]{2,40}?)(?:\.|,|$)/i,
+        /\bi work (?:as|at|in|on) ([\w'’\- ]{2,40}?)(?:\.|,|$)/i,
+        /\bi (?:like|love|enjoy|prefer) ([\w'’\- ]{2,40}?)(?:\.|,|$)/i,
+        /\b(?:please |)(?:keep it|answer|reply|respond) (?:in )?([\w'’\- ]{2,30}?)(?:\.|,|$)/i,
+      ];
+      const labels = ["name", "name", "preferred name", "role", "work", "likes", "style preference"];
+      patterns.forEach((re, i) => {
+        const m = text.match(re);
+        if (m && m[1]) addMemoryNote(`${labels[i]}: ${m[1].trim()}`);
+      });
+    },
+    [addMemoryNote]
+  );
+
   useEffect(() => {
     chatHistoryRef.current = chatHistory;
   }, [chatHistory]);
@@ -255,6 +302,13 @@ export default function VoiceAgentApp() {
           recognizedUserRef.current && isFirstMessage
             ? `Greet the person warmly by their name "${recognizedUserRef.current}" at the start of your response. `
             : "";
+
+        extractMemoryFromUserTurn(transcribedText);
+        const memoryBlock = memoryRef.current.length
+          ? `Things you remember about this user from past turns (use naturally, don't recite verbatim): ${memoryRef.current
+              .map((n) => `- ${n}`)
+              .join(" ")} `
+          : "";
         await runInference(
           {
             deploy_id: models.llm.id,
@@ -271,11 +325,12 @@ export default function VoiceAgentApp() {
           false,
           0,
           undefined,
-          `${userContext}Role: You are a concise, witty AI assistant for a live demo. \
-          Constraint 1: Keep responses extremely short. Aim for 1-2 sentences maximum (under 30 words). \
-          Constraint 2: Use natural, conversational language. Avoid bullet points, bolding, or markdown. \
-          Constraint 3: Do not repeat the user's question. Get straight to the answer or a clever quip. \
-          Goal: Minimize text output to ensure the Text-to-Speech (TTS) engine can process and play audio instantly.`
+          `${userContext}${memoryBlock}Role: You are a helpful, friendly voice assistant having a real spoken conversation with the user. \
+          Style: Talk like a person — warm, natural, and conversational. Use contractions, light filler ("sure", "got it", "hmm"), and vary your phrasing so you don't sound scripted. \
+          Engagement: Actually answer the user's question or request. When it makes sense, ask a brief follow-up to keep the conversation going, but don't force it on every turn. \
+          Length: Keep replies short and spoken-friendly — usually 1-3 sentences. Go a little longer only when the user asks for detail or explanation. \
+          Format: Plain spoken text only. No bullet points, no markdown, no headings, no emoji — everything you say will be read aloud by a TTS engine. \
+          Goal: Feel like a real assistant the user is talking to, not a demo script.`
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
