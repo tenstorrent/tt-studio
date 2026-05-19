@@ -40,6 +40,7 @@ import ModeToggle from "./DarkModeToggle";
 import ResetIcon from "./ResetIcon";
 import { BugReportButton } from "./bug-report/BugReportButton";
 import SettingsDialog from "./SettingsDialog";
+import { Button } from "./ui/button";
 
 import { useTheme } from "../hooks/useTheme";
 import { useRefresh } from "../hooks/useRefresh";
@@ -626,19 +627,20 @@ export default function NavBar() {
         ]),
   ];
 
-  const SettingsNavButton = ({ vertical = false }: { vertical?: boolean }) => (
+  const SettingsNavButton = (_props: { vertical?: boolean } = {}) => (
     <Tooltip>
       <TooltipTrigger asChild>
-        <motion.button
-          type="button"
-          onClick={() => setIsSettingsOpen(true)}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          className={`${vertical ? "" : "ml-1"} ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
-          aria-label="Settings"
-        >
-          <SettingsIcon className="w-5 h-5" />
-        </motion.button>
+        <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+          <Button
+            variant="navbar"
+            size="icon"
+            onClick={() => setIsSettingsOpen(true)}
+            className="relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out"
+            aria-label="Settings"
+          >
+            <SettingsIcon className="w-5 h-5" />
+          </Button>
+        </motion.div>
       </TooltipTrigger>
       <TooltipContent>
         <p>Settings</p>
