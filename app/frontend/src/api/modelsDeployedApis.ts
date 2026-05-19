@@ -31,6 +31,7 @@ interface ContainerData {
   port_bindings: { [key: string]: PortBinding[] };
   networks: { [key: string]: Network };
   device_id?: number | null;
+  device_ids?: number[];
   /** Set when status is enriched from deploy cache; used for navbar routing. */
   model_type?: string;
 }
@@ -161,6 +162,7 @@ export const fetchModels = async (): Promise<Model[]> => {
         ports: portMapping,
         name: container.name || "Unnamed container",
         device_id: container.device_id ?? null,
+        device_ids: container.device_ids ?? undefined,
         model_type: container.model_type,
       };
     });
