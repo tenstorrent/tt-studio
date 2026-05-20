@@ -129,7 +129,6 @@ export default defineConfig({
         { src: "node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js", dest: "", rename: { stripBase: true } },
         { src: "node_modules/onnxruntime-web/dist/*.wasm", dest: "", rename: { stripBase: true } },
         // ort-web dynamically imports companion .mjs shims for each wasm
-        // (e.g. ort-wasm-simd-threaded.mjs). Without these the runtime 404s.
         { src: "node_modules/onnxruntime-web/dist/ort-wasm-*.mjs", dest: "", rename: { stripBase: true } },
       ],
     }),
@@ -145,10 +144,6 @@ export default defineConfig({
       "@": path.resolve(__dirname),
     },
   },
-  // vad-web is CJS and `require("onnxruntime-web/wasm")` only works if Vite
-  // pre-bundles ort-web together with it. ort-web's runtime asset lookups
-  // (the .mjs/.wasm shims it dynamically loads) are redirected to "/" via
-  // `onnxWASMBasePath` on MicVAD.new(), where viteStaticCopy serves them.
   server: {
     host: "0.0.0.0",
     port: 3000,

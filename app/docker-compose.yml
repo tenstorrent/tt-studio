@@ -52,6 +52,7 @@ services:
       - GITHUB_USERNAME
       - GITHUB_PAT
       - VITE_ENABLE_DEPLOYED
+      - WAKEWORD_MODEL
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
       - DOCKER_CONTROL_JWT_SECRET
