@@ -39,7 +39,7 @@ from .docker_utils import (
 )
 from .tt_inference_client import start_chat_deployment
 from .docker_control_client import get_docker_client
-from shared_config.model_config import model_implmentations
+from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
@@ -71,6 +71,11 @@ except Exception:
 
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
+
+
+def _is_llama31_8b_model(model_name: str) -> bool:
+    token = (model_name or "").lower().replace("_", "").replace(" ", "")
+    return "llama-3.1-8b" in token or "llama3.18b" in token
 
 class StopView(APIView):
     def post(self, request, *args, **kwargs):
@@ -174,8 +179,9 @@ class ContainersView(APIView):
             # Blackhole multi-device
             'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
             'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
-            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P300c],  # 2 cards (4 chips)
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P300c],  # 4 cards (8 chips)
+            # P300Cx2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
+            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P150, DeviceConfigurations.P300c],
+            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300c],
             
             # Galaxy systems
             'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
@@ -300,23 +306,126 @@ class DeployView(APIView):
 
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
+            use_image_override = request.data.get("use_image_override", True)
+            force_full_board_requested = serializer.validated_data.get("force_full_board", False)
 
-            # Get manual override if in advanced mode (optional)
-            manual_device_id = request.data.get("device_id")
-            if manual_device_id is not None:
-                manual_device_id = int(manual_device_id)
+            # Get manual override if in advanced mode (optional).
+            # device_id may be a single integer or a comma-separated list (e.g. "0,1")
+            # for multi-chip single-card deployments (--device-id 0,1).
+            raw_device_id = request.data.get("device_id")
+            if raw_device_id is not None:
+                requested_device_ids = [
+                    int(x.strip()) for x in str(raw_device_id).split(",") if str(x).strip() != ""
+                ]
+                if not requested_device_ids:
+                    requested_device_ids = [0]
+                manual_device_id = requested_device_ids[0]  # primary slot for allocation
+            else:
+                requested_device_ids = []
+                manual_device_id = None
 
             impl = model_implmentations[impl_id]
+            chips_required = infer_chips_required(impl.device_configurations)
+            board_type = detect_board_type() if impl.model_type == ModelTypes.CHAT else None
+            should_force_full_board_llama = (
+                impl.model_type == ModelTypes.CHAT
+                and force_full_board_requested
+                and board_type == "P300Cx2"
+                and _is_llama31_8b_model(impl.model_name)
+            )
+            if force_full_board_requested and not should_force_full_board_llama:
+                logger.info(
+                    "Ignoring force_full_board for model=%s board=%s",
+                    impl.model_name,
+                    board_type,
+                )
+
+            # Stop and clean up any existing starting/running deployments of this
+            # model before deploying a new instance. Prevents stale records with
+            # wrong device_id from persisting in the UI after a re-deploy.
+            try:
+                from docker_control.models import ModelDeployment
+                from docker_control.docker_utils import stop_container
+                stale = list(ModelDeployment.objects.filter(
+                    model_name=impl.model_name,
+                    status__in=["starting", "running"],
+                ))
+                for old_dep in stale:
+                    try:
+                        stop_container(old_dep.container_id)
+                    except Exception:
+                        pass
+                    old_dep.status = "stopped"
+                    old_dep.save()
+                    logger.info(
+                        f"Cleaned up stale deployment record {old_dep.id} "
+                        f"for {impl.model_name} (container_id={old_dep.container_id})"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not clean up stale deployments for {impl.model_name}: {e}")
 
             # Allocate a chip slot for all model types so device_id and service_port
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                device_id = allocator.allocate_chip_slot(
-                    impl.model_name,
-                    manual_override=manual_device_id
-                )
-                logger.info(f"Allocated device_id={device_id} for {impl.model_name}")
+                if should_force_full_board_llama:
+                    # Simplified QB2 Llama full-board path must reserve all slots.
+                    full_board_validation = allocator._validate_manual_allocation(
+                        0, 4, impl.model_name
+                    )
+                    if not full_board_validation["valid"]:
+                        return Response(
+                            {
+                                "status": "error",
+                                "error_type": "multi_chip_conflict",
+                                "message": full_board_validation["message"],
+                            },
+                            status=status.HTTP_409_CONFLICT,
+                        )
+                    device_id = 0
+                    device_ids = list(range(min(4, allocator.total_slots)))
+                else:
+                    device_id = allocator.allocate_chip_slot(
+                        impl.model_name,
+                        manual_override=manual_device_id
+                    )
+                    # If multiple device IDs were requested, validate every slot and pass
+                    # them all to the inference server call; otherwise use the allocated slot.
+                    if requested_device_ids and len(requested_device_ids) > 1:
+                        if chips_required != 1:
+                            return Response(
+                                {
+                                    "status": "error",
+                                    "error_type": "allocation_failed",
+                                    "message": (
+                                        f"{impl.model_name} does not support explicit multi-slot "
+                                        "single-card device_id selection."
+                                    ),
+                                },
+                                status=status.HTTP_409_CONFLICT,
+                            )
+                        normalized_requested_device_ids = []
+                        for requested_slot in requested_device_ids:
+                            if requested_slot in normalized_requested_device_ids:
+                                continue
+                            validation = allocator._validate_manual_allocation(
+                                requested_slot, 1, impl.model_name
+                            )
+                            if not validation["valid"]:
+                                return Response(
+                                    {
+                                        "status": "error",
+                                        "error_type": "allocation_failed",
+                                        "message": validation["message"],
+                                    },
+                                    status=status.HTTP_409_CONFLICT,
+                                )
+                            normalized_requested_device_ids.append(requested_slot)
+                        device_ids = normalized_requested_device_ids
+                    else:
+                        device_ids = [device_id]
+                device_ids_str = ",".join(str(d) for d in device_ids)
+                logger.info(f"Allocated device_id={device_id} (request={device_ids_str}) for {impl.model_name}")
 
             except MultiChipConflictError as e:
                 logger.warning(f"Multi-chip conflict for {impl.model_name}: {str(e)}")
@@ -336,23 +445,39 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            service_port = BASE_SERVICE_PORT + device_id
+            if should_force_full_board_llama:
+                service_port = BASE_SERVICE_PORT
+            else:
+                service_port = BASE_SERVICE_PORT + device_id
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
             # without requiring docker_utils.py to handle async "job started" responses.
             if impl.model_type == ModelTypes.CHAT:
-                from shared_config.model_config import infer_chips_required
-                board_type = detect_board_type()
-                chips_required = infer_chips_required(impl.device_configurations)
-                if chips_required == 1:
-                    device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                if should_force_full_board_llama:
+                    device = "p300x2"
+                    inference_device_id = None
                 else:
-                    device = map_board_type_to_device_name(board_type)
-                # P300Cx2 (QB2): the inference server selects the physical chip from the
-                # p300x2 device itself — do not pass device_id so it is omitted from the
-                # run.py invocation entirely.
-                inference_device_id = None if board_type == "P300Cx2" else device_id
+                    if chips_required == 1:
+                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    else:
+                        device = map_board_type_to_device_name(board_type)
+                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
+                    # should run with --tt-device p300 (not p150).
+                    if (
+                        board_type == "P300Cx2"
+                        and _is_llama31_8b_model(impl.model_name)
+                        and sorted(device_ids) == [0, 1]
+                    ):
+                        device = "p300"
+                    # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
+                    # server selects the physical chip itself — omit device_id entirely.
+                    # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
+                    # lands on its allocated slot(s).
+                    if board_type == "P300Cx2" and device == "p300x2":
+                        inference_device_id = None
+                    else:
+                        inference_device_id = device_ids_str
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
@@ -397,11 +522,22 @@ class DeployView(APIView):
                         model_name=impl.model_name,
                         device=device,
                         device_id=device_id,
+                        device_ids=device_ids,
                         status="starting",
                         port=service_port,
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
+                # Spawn a background thread to poll FastAPI and transition the
+                # 'starting' record to 'running' (or 'stopped' on failure).
+                # This makes the lifecycle backend-owned so frontends that do
+                # not poll DeploymentProgressView (e.g. Voice Agent) still get
+                # correct records.
+                try:
+                    from docker_control.deployment_sync import start_deployment_sync
+                    start_deployment_sync(result.job_id)
+                except Exception as e:
+                    logger.warning(f"Could not start deployment sync for job {result.job_id}: {e}")
                 response = {
                     "status": "success",
                     "job_id": result.job_id,
@@ -411,9 +547,9 @@ class DeployView(APIView):
                 }
                 return Response(response, status=status.HTTP_201_CREATED)
             else:
-                # Continue with deployment using allocated device_id and optional host_port
+                # Continue with deployment using allocated device_id(s) and optional host_port
                 host_port = serializer.validated_data.get("host_port")
-                response = run_container(impl, weights_id, device_id=device_id, host_port=host_port)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
@@ -446,21 +582,27 @@ class DeployView(APIView):
 def _find_workflow_log_for_deployment(deployment) -> str | None:
     """Derive the docker-server workflow log path for a deployment.
 
-    Log files are named: vllm_{YYYY-MM-DD}_{HH-MM-SS}_{model_name}_{device}_server.log
+    Log files are named: {prefix}_{YYYY-MM-DD}_{HH-MM-SS}_{model_name}_{device}_server.log
+    where prefix is typically 'vllm' or 'media' depending on the model type.
     The timestamp in the filename matches deployment.deployed_at in UTC.
 
     Tries two candidate base directories to handle both Docker-mounted and
     local-run scenarios.  Returns the first path that exists on disk.
+
+    Falls back progressively:
+    1. Exact timestamp match (both known prefixes)
+    2. Fuzzy timestamp match (model+device, within 300s window)
+    3. Most-recent file matching model+device pattern (no timestamp constraint)
     """
     if not deployment.deployed_at:
         return None
+
+    from datetime import datetime, timezone
 
     dt = deployment.deployed_at  # stored as UTC-aware datetime
     ts = dt.strftime("%Y-%m-%d_%H-%M-%S")
     model = deployment.model_name or ""
     device = deployment.device or ""
-
-    filename = f"vllm_{ts}_{model}_{device}_server.log"
 
     tt_studio_root = backend_config.host_tt_studio_root
     candidate_dirs = [
@@ -468,12 +610,18 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
         Path(tt_studio_root) / "tt-inference-server" / "workflow_logs" / "docker_server",
     ]
 
-    for base in candidate_dirs:
-        candidate = base / filename
-        if candidate.exists():
-            return str(candidate)
+    # Pass 1: exact timestamp match — try common prefixes (vllm, media, and bare model name)
+    for prefix in ("vllm", "media", model.lower()):
+        filename = f"{prefix}_{ts}_{model}_{device}_server.log"
+        for base in candidate_dirs:
+            candidate = base / filename
+            if candidate.exists():
+                logger.debug(f"Found exact log match for deployment {deployment.id}: {candidate}")
+                return str(candidate)
 
-    # Fuzzy fallback: scan and find closest match by model+device with timestamp within 60s
+    # Pass 2: fuzzy timestamp match — scan all *_server.log files for model+device,
+    # accept the closest one within a 300-second window (increased from 60s to handle
+    # slow deployments where the log file is created well after deployed_at is recorded).
     for base in candidate_dirs:
         if not base.is_dir():
             continue
@@ -484,22 +632,45 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
                 continue
             if model not in f.name or device not in f.name:
                 continue
-            # Parse timestamp from filename
             try:
                 parts = f.name.split("_")
-                # filename: vllm_YYYY-MM-DD_HH-MM-SS_...
+                # filename: prefix_YYYY-MM-DD_HH-MM-SS_...
                 file_ts_str = f"{parts[1]}_{parts[2]}"
-                from datetime import datetime, timezone
                 file_dt = datetime.strptime(file_ts_str, "%Y-%m-%d_%H-%M-%S").replace(tzinfo=timezone.utc)
                 delta = abs((file_dt - dt).total_seconds())
-                if delta <= 60 and (best_delta is None or delta < best_delta):
+                if delta <= 300 and (best_delta is None or delta < best_delta):
                     best = f
                     best_delta = delta
             except (IndexError, ValueError):
                 continue
         if best:
+            logger.debug(
+                f"Found fuzzy log match for deployment {deployment.id} "
+                f"(delta={best_delta:.0f}s): {best}"
+            )
             return str(best)
 
+    # Pass 3: last-resort — return the most-recently modified file that contains both
+    # model name and device in its filename, regardless of timestamp.
+    for base in candidate_dirs:
+        if not base.is_dir():
+            continue
+        matches = [
+            f for f in base.iterdir()
+            if f.name.endswith("_server.log") and model in f.name and device in f.name
+        ]
+        if matches:
+            best = max(matches, key=lambda p: p.stat().st_mtime)
+            logger.warning(
+                f"Using last-resort log match for deployment {deployment.id} "
+                f"(no timestamp match found): {best}"
+            )
+            return str(best)
+
+    logger.warning(
+        f"No workflow log found for deployment {deployment.id} "
+        f"(model={model!r}, device={device!r}, deployed_at={dt.isoformat()!r})"
+    )
     return None
 
 
@@ -1531,8 +1702,15 @@ class DeploymentHistoryView(APIView):
             deployment_data = []
             for deployment in deployments:
                 if not deployment.workflow_log_path:
+                    logger.debug(
+                        f"Attempting lazy backfill for deployment {deployment.id} "
+                        f"({deployment.model_name}, deployed_at={deployment.deployed_at})"
+                    )
                     found_path = _find_workflow_log_for_deployment(deployment)
                     if found_path:
+                        logger.info(
+                            f"Backfilled workflow_log_path for deployment {deployment.id}: {found_path}"
+                        )
                         deployment.workflow_log_path = found_path
                         try:
                             deployment.save()

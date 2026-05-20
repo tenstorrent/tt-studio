@@ -12,6 +12,7 @@ import {
 } from "../ui/table";
 import {
   Activity,
+  AlertTriangle,
   Cpu,
   Network,
   // Settings,
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import type {
   ColumnVisibilityMap,
+  FailedDeploymentInfo,
   ModelRow,
   HealthStatus,
 } from "../../types/models";
@@ -46,6 +48,7 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
       case "healthy":
         return "bg-[#4CAF50] text-white";
       case "unhealthy":
+      case "failed":
         return "bg-red-500 text-white";
       default:
         return "bg-yellow-500 text-white";
@@ -57,11 +60,18 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
       case "healthy":
         return "bg-[#A5D6A7]";
       case "unhealthy":
+      case "failed":
         return "bg-red-300";
       default:
         return "bg-yellow-300";
     }
   };
+
+  const isFailed = status === "failed";
+  const label = isFailed ? "Died Unexpectedly" : status;
+  const tooltip = isFailed
+    ? "The container exited without being stopped by the user. This may indicate an out-of-memory error, a crash, or a hardware issue. Open logs for details, or remove this entry."
+    : `Model Health: ${status}`;
 
   return (
     <TooltipProvider>
@@ -71,24 +81,39 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
             className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap leading-none ${getBgColor()} transition-colors duration-200`}
             style={{ minHeight: 28 }}
           >
-            <div
-              className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${status === "healthy" || status === "starting" ? "animate-pulse" : ""}`}
-            />
-            {status}
+            {isFailed ? (
+              <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+            ) : (
+              <div
+                className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${status === "healthy" || status === "starting" ? "animate-pulse" : ""}`}
+              />
+            )}
+            {label}
           </div>
         </TooltipTrigger>
-        <TooltipContent>
-          <p>Model Health: {status}</p>
+        <TooltipContent className="max-w-xs">
+          <p>{tooltip}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
 }
 
+function normalizeRowDeviceIds(row: ModelRow): number[] {
+  if (Array.isArray(row.device_ids) && row.device_ids.length > 0) {
+    return Array.from(new Set(row.device_ids)).sort((a, b) => a - b);
+  }
+  if (row.device_id != null) {
+    return [row.device_id];
+  }
+  return [];
+}
+
 interface Props {
   rows: ModelRow[];
   visibleMap: ColumnVisibilityMap;
   healthMap: Record<string, HealthStatus>;
+  failedMap?: Record<string, FailedDeploymentInfo>;
   onOpenLogs: (id: string) => void;
   onDelete: (id: string) => void;
   onRedeploy: (image?: string) => void;
@@ -108,6 +133,7 @@ export default function ModelsTable({
   onNavigateToModel,
   onOpenApi,
   healthMap,
+  failedMap,
   refreshHealthById,
   density = "normal",
   hideDeviceId = false,
@@ -227,6 +253,14 @@ export default function ModelsTable({
       <TableBody>
         {rows.map((row) => {
           const isExpanded = !!expanded[row.id];
+          const deviceIds = normalizeRowDeviceIds(row);
+          const hasDeviceIds = deviceIds.length > 0;
+          const deviceLabel =
+            deviceIds.length > 1
+              ? `Device ${deviceIds.map((id) => String(id).padStart(2, "0")).join(",")}`
+              : hasDeviceIds
+                ? `Device ${String(deviceIds[0]).padStart(2, "0")}`
+                : "";
           const colCount =
             1 /* name */ +
             (hideDeviceId ? 0 : 1) /* chip */ +
@@ -259,10 +293,10 @@ export default function ModelsTable({
                 </TableCell>
                 {!hideDeviceId && (
                   <TableCell className="text-right">
-                    {row.device_id != null ? (
+                    {hasDeviceIds ? (
                       <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-full bg-TT-purple-shade/40 text-TT-purple border border-TT-purple-accent/30">
                         <Cpu className="w-3 h-3" />
-                        Device {String(row.device_id).padStart(2, "0")}
+                        {deviceLabel}
                       </span>
                     ) : (
                       <span className="text-xs text-gray-500">—</span>
@@ -289,10 +323,12 @@ export default function ModelsTable({
                     image={row.image}
                     model_type={row.model_type}
                     health={healthMap[row.id]}
+                    isFailed={!!failedMap?.[row.id]}
                     onDelete={onDelete}
                     onRedeploy={onRedeploy}
                     onNavigateToModel={onNavigateToModel}
                     onOpenApi={onOpenApi}
+                    onOpenLogs={onOpenLogs}
                   />
                 </TableCell>
               </TableRow>
@@ -318,8 +354,10 @@ export default function ModelsTable({
                       </div>
                       {!hideDeviceId && (
                         <div className="min-w-0">
-                          <div className="text-xs text-stone-500 mb-1">Device</div>
-                          <CopyableText text={row.device_id != null ? `Device ${row.device_id}` : "N/A"} />
+                          <div className="text-xs text-stone-500 mb-1">
+                            {deviceIds.length > 1 ? "Devices" : "Device"}
+                          </div>
+                          <CopyableText text={hasDeviceIds ? deviceLabel : "N/A"} />
                         </div>
                       )}
                       <div className="min-w-0">

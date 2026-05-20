@@ -3,7 +3,13 @@
 
 import type { HealthBadgeRef } from "../components/HealthBadge";
 
-export type HealthStatus = "healthy" | "starting" | "unavailable" | "unhealthy" | "unknown";
+export type HealthStatus = "healthy" | "starting" | "unavailable" | "unhealthy" | "unknown" | "failed";
+
+export interface FailedDeploymentInfo {
+  deploymentId: number;
+  modelName?: string;
+  workflowLogPath: string | null;
+}
 
 export interface ModelRow {
   id: string;
@@ -13,6 +19,7 @@ export interface ModelRow {
   ports?: string;
   model_type?: string;
   device_id?: number | null;
+  device_ids?: number[];
 }
 
 export interface ColumnVisibilityMap {

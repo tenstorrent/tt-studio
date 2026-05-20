@@ -13,6 +13,7 @@ export interface Model {
   ports: string;
   model_type?: string;
   device_id?: number | null;
+  device_ids?: number[];
 }
 
 export interface ModelsContextType {

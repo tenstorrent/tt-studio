@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-#
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 TT Studio Setup Script
@@ -997,14 +996,43 @@ def display_first_time_welcome():
     print(f"{C_TT_PURPLE}{C_BOLD}           📝 First-Time Setup{C_RESET}")
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print()
-    print(f"{C_CYAN}Welcome to TT Studio! We'll guide you through the initial setup.{C_RESET}")
+    print(f"{C_CYAN}Welcome to TT Studio!{C_RESET}")
+    print()
+    terms_url = "https://docs.tenstorrent.com/os-model-terms.html"
+    terms_link = f"\033]8;;{terms_url}\033\\{C_BLUE}\033[4mOS Model Terms{C_RESET}\033]8;;\033\\"
+    print(f"{C_BOLD}📄 Terms & Conditions{C_RESET}")
+    print(f"By proceeding, you agree to our {terms_link}")
+    print(f"  {C_WHITE}↳ {terms_url}{C_RESET}")
+    print()
+    print(f"{C_BOLD}TL;DR:{C_RESET}")
+    print(f"  • {C_GREEN}AS-IS:{C_RESET} These models are for demonstration; we don't guarantee their output.")
+    print(f"  • {C_GREEN}Liability:{C_RESET} Tenstorrent isn't responsible for damages or AI-generated content.")
+    print(f"  • {C_GREEN}Compliance:{C_RESET} You agree to follow the original creators' licenses.")
+    print()
+
+    # Terms acceptance confirmation
+    while True:
+        response = input(f"{C_CYAN}Do you agree to these terms? [yes/no]: {C_RESET}").strip().lower()
+        if response in ['n', 'no', '']:
+            print(f"{C_RED}Terms not accepted. Exiting TT-Studio.{C_RESET}")
+            sys.exit(0)
+        elif response in ['y', 'yes']:
+            print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
+            break
+        else:
+            print(f"{C_YELLOW}Please enter 'yes' (or 'y') or 'no' (or 'n').{C_RESET}")
+
+    print()
+    print(f"{C_TT_PURPLE}{C_BOLD}-----------------------------------------------------{C_RESET}")
     print()
     print(f"{C_GREEN}ℹ️  What to expect:{C_RESET}")
+    print(f"  • We'll guide you through the initial setup")
     print(f"  • Your responses will be saved for future runs")
     print(f"  • Subsequent runs will be much faster and non-interactive")
     print(f"  • You can reset your preferences anytime with {C_WHITE}--reconfigure{C_RESET}")
     print()
-    print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset.{C_RESET}")
+    print(f"{C_YELLOW}Note: You won't be asked these questions again unless you explicitly reset your preference(s) and .env file.{C_RESET}")
+    print()
     print(f"{C_TT_PURPLE}{C_BOLD}====================================================={C_RESET}")
     print()
 
@@ -1630,19 +1658,9 @@ def display_welcome_banner():
     # Subtitle
     print(f"{C_CYAN}AI Model Development & Deployment Made Easy{C_RESET}")
     print()
-    
-    # Feature highlights
-    print(f"{C_GREEN}Features:{C_RESET}")
-    print(f"  • Interactive environment setup")
-    print(f"  • Frontend dependencies management")
-    print(f"  • Docker orchestration & management") 
-    print(f"  • TT Inference Server integration")
-    print(f"  • Hardware detection & optimization")
-    print(f"  • AI Playground for cloud models")
-    print()
-    
+        
     # Bottom line
-    print("=" * 68)
+    print(f"{C_TT_PURPLE}{'=' * 68}{C_RESET}")
     print()
 
 def cleanup_resources(args):
@@ -3468,6 +3486,9 @@ def start_docker_control_service(no_sudo=False, dev_mode=False):
     env = os.environ.copy()
     if jwt_secret:
         env["DOCKER_CONTROL_JWT_SECRET"] = jwt_secret
+    env["DOCKER_CONTROL_LOG_FILE"] = DOCKER_CONTROL_LOG_FILE
+    env["STARTUP_LOG_FILE"] = STARTUP_LOG_FILE
+    env["FASTAPI_LOG_FILE"] = FASTAPI_LOG_FILE
 
     # Start the service using uvicorn
     try:
@@ -4474,6 +4495,29 @@ def main():
                         print(f"   {C_WHITE}sudo chown -R $USER:$USER {workflow_logs_dir}{C_RESET}")
                         print()
                         sys.exit(1)
+
+        # Ensure fastapi_logs/ exists and is owned by the invoking user before
+        # inference-api writes per-deployment log files into it. If a prior
+        # sudo'd process created this dir, writes from the non-root uvicorn
+        # process will fail with EACCES (see inference-api/api.py:get_fastapi_logs_dir).
+        fastapi_logs_dir = os.path.join(TT_STUDIO_ROOT, "fastapi_logs")
+        if not os.path.exists(fastapi_logs_dir):
+            try:
+                os.makedirs(fastapi_logs_dir, mode=0o755, exist_ok=True)
+            except Exception as e:
+                print(f"{C_YELLOW}⚠️  Could not create fastapi_logs directory: {e}{C_RESET}")
+        elif OS_NAME != "Windows":
+            current_user_uid = os.getuid()
+            if os.stat(fastapi_logs_dir).st_uid != current_user_uid:
+                print(f"{C_YELLOW}⚠️  fastapi_logs directory is owned by another user, fixing permissions...{C_RESET}")
+                try:
+                    os.chown(fastapi_logs_dir, current_user_uid, os.getgid())
+                    print(f"{C_GREEN}✅ Fixed fastapi_logs directory ownership{C_RESET}")
+                except (OSError, PermissionError) as e:
+                    print(f"{C_RED}⛔ Could not fix fastapi_logs permissions: {e}{C_RESET}")
+                    print(f"{C_YELLOW}Please run the following in another terminal, then press Enter:{C_RESET}")
+                    print(f"   {C_WHITE}sudo chown -R $USER:$USER {fastapi_logs_dir}{C_RESET}")
+                    input("Press Enter once you've run the command above to continue...")
 
         # Start Docker Control Service BEFORE starting Docker containers
         # This ensures the backend can connect to it when it starts

@@ -30,6 +30,7 @@ import {
 } from "../components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import WorkflowLogDialog from "../components/deployment/WorkflowLogDialog";
+import ResetIcon from "../components/ResetIcon";
 
 interface Deployment {
   id: number;
@@ -115,6 +116,10 @@ export default function DeploymentHistoryPage() {
   const [selectedModelName, setSelectedModelName] = useState<
     string | undefined
   >(undefined);
+  const [selectedDiedUnexpectedly, setSelectedDiedUnexpectedly] =
+    useState(false);
+  const [selectedStoppedByUser, setSelectedStoppedByUser] = useState(false);
+  const [boardResetTrigger, setBoardResetTrigger] = useState(false);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["deploymentHistory"],
@@ -124,10 +129,22 @@ export default function DeploymentHistoryPage() {
     refetchOnWindowFocus: true, // Refetch when window regains focus
   });
 
+  const closeLogDialog = () => {
+    setSelectedDeploymentId(null);
+    setSelectedModelName(undefined);
+    setSelectedDiedUnexpectedly(false);
+    setSelectedStoppedByUser(false);
+  };
+
   const handleOpenLogs = (deployment: Deployment) => {
     if (deployment.workflow_log_path) {
+      const diedUnexpectedly =
+        !deployment.stopped_by_user &&
+        (deployment.status === "exited" || deployment.status === "dead");
       setSelectedDeploymentId(deployment.id);
       setSelectedModelName(deployment.model_name);
+      setSelectedDiedUnexpectedly(diedUnexpectedly);
+      setSelectedStoppedByUser(deployment.stopped_by_user && !diedUnexpectedly);
     }
   };
 
@@ -179,8 +196,12 @@ export default function DeploymentHistoryPage() {
 
           {data && data.deployments.length === 0 && (
             <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>No deployments found</AlertTitle>
               <AlertDescription>
-                No deployments found. Deploy a model to see it here.
+                Deploy a model to see it here. If you changed the inference
+                server artifact version or branch, or deleted the artifact,
+                previous deployments may be lost.
               </AlertDescription>
             </Alert>
           )}
@@ -274,11 +295,20 @@ export default function DeploymentHistoryPage() {
         open={selectedDeploymentId !== null}
         deploymentId={selectedDeploymentId}
         modelName={selectedModelName}
-        onClose={() => {
-          setSelectedDeploymentId(null);
-          setSelectedModelName(undefined);
+        diedUnexpectedly={selectedDiedUnexpectedly}
+        stoppedByUser={selectedStoppedByUser}
+        onClose={closeLogDialog}
+        onRequestBoardReset={() => {
+          closeLogDialog();
+          setBoardResetTrigger(true);
         }}
       />
+      <div className="hidden">
+        <ResetIcon
+          forceOpen={boardResetTrigger}
+          onReset={() => setBoardResetTrigger(false)}
+        />
+      </div>
     </div>
   );
 }
