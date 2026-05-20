@@ -10,6 +10,15 @@ from django.apps import AppConfig
 # Specify wake word model to load, can be overridden with WAKEWORD_MODEL env var.
 WAKE_MODEL = os.environ.get("WAKEWORD_MODEL", "hey_jarvis")
 
+# Detection score above which a wake event fires (0.0–1.0). Lower = more
+# sensitive (triggers at lower confidence, more false positives).
+# Default 0.5 is openwakeword's recommendation; try 0.3 if you have to shout.
+WAKE_THRESHOLD = float(os.environ.get("WAKEWORD_THRESHOLD", "0.5"))
+
+# When truthy, log every per-frame top-score >= 0.1 so you can see what the
+# model is actually outputting and pick a threshold empirically.
+WAKE_DEBUG_SCORES = os.environ.get("WAKEWORD_DEBUG_SCORES", "").lower() in ("1", "true", "yes")
+
 # All weights (preprocessing + wake word, downloaded and manually-added) live in
 # the gitignored persistent volume so the image stays small and files survive
 # container rebuilds.

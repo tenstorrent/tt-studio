@@ -53,6 +53,8 @@ services:
       - GITHUB_PAT
       - VITE_ENABLE_DEPLOYED
       - WAKEWORD_MODEL
+      - WAKEWORD_THRESHOLD
+      - WAKEWORD_DEBUG_SCORES
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
       - DOCKER_CONTROL_JWT_SECRET
