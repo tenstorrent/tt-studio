@@ -85,7 +85,14 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         "artifact_behind": False,
         "artifact_branch": None,
         "qb2_mode": False,
+        "tt_studio_branch_is_release": False,
     }
+
+    # Branches where being behind GitHub should hard-stop startup. Feature
+    # branches just warn — devs often have in-flight local work and shouldn't
+    # be blocked from running the stack.
+    _RELEASE_BRANCHES = {"main", "dev", "tt_qb2_launch_branch"}
+    _RELEASE_PREFIXES = ("rc/", "release/")
 
     print(f"\n{C_BLUE}🔍 Checking for updates...{C_RESET}")
 
@@ -120,8 +127,16 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     except Exception:
         local_sha = local_branch = ""
 
-    # In QB2 mode check studio against the QB2 launch branch, not the local branch.
-    studio_check_branch = qb2_branch if qb2_branch else local_branch
+    # Always check the local checked-out branch against its own remote — that's
+    # the only meaningful "is my working tree in sync?" question. (Previously
+    # this was overridden to qb2_branch in QB2 mode, which blocked devs whose
+    # local branch differed from the QB2 launch branch.)
+    studio_check_branch = local_branch
+    if local_branch and (
+        local_branch in _RELEASE_BRANCHES
+        or local_branch.startswith(_RELEASE_PREFIXES)
+    ):
+        result["tt_studio_branch_is_release"] = True
 
     if local_sha and studio_check_branch and studio_check_branch not in ("HEAD", ""):
         remote_sha = _fetch_github_sha("tenstorrent", "tt-studio", studio_check_branch)
