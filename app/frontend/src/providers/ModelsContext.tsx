@@ -53,6 +53,8 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
             status: dockerModel?.status || "deployed",
             health: dockerModel?.health || "unknown",
             ports: dockerModel?.ports || "No ports",
+            device_id: dockerModel?.device_id ?? null,
+            device_ids: dockerModel?.device_ids,
             model_type: deployedModel.model_type,
           };
         });

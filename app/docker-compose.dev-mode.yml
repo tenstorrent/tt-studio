@@ -10,6 +10,8 @@ services:
     volumes:
       # Mount the local api directory for live code changes
       - ./backend:/backend
+      # Mount fastapi_logs/ directory so the backend can read per-deployment logs
+      - ${TT_STUDIO_ROOT}/fastapi_logs:${TT_STUDIO_ROOT}/fastapi_logs:ro
     command: >
       uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --reload
     environment:
