@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Lock } from "lucide-react";
+import { Check, ExternalLink, Lock } from "lucide-react";
 
 import {
   Dialog,
@@ -51,9 +51,16 @@ function placeholderFor(
   return fallback;
 }
 
+function SavedBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+      <Check className="w-3 h-3" /> Saved
+    </span>
+  );
+}
+
 export default function SettingsDialog({ open, onOpenChange }: Props) {
   const queryClient = useQueryClient();
-  const [showHfCheck, setShowHfCheck] = useState(false);
 
   const { data, isLoading } = useQuery<SettingsResponse>({
     queryKey: ["settings"],
@@ -115,7 +122,10 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
           autoComplete="off"
         >
           <div className="space-y-1">
-            <Label htmlFor="hf_token">Hugging Face token</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="hf_token">Hugging Face token</Label>
+              {data?.hf_token.set && <SavedBadge />}
+            </div>
             <Input
               id="hf_token"
               type="password"
@@ -142,7 +152,10 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="tts_api_key">TTS API key</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="tts_api_key">TTS API key</Label>
+              {data?.tts_api_key.set && <SavedBadge />}
+            </div>
             <Input
               id="tts_api_key"
               type="password"
@@ -161,7 +174,10 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="tavily_api_key">Tavily API key</Label>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="tavily_api_key">Tavily API key</Label>
+              {data?.tavily_api_key.set && <SavedBadge />}
+            </div>
             <Input
               id="tavily_api_key"
               type="password"
@@ -220,18 +236,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
           </div>
 
           <div className="pt-2">
-            {showHfCheck ? (
-              <HfAccessCheck />
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowHfCheck(true)}
-              >
-                Run Hugging Face access check
-              </Button>
-            )}
+            <HfAccessCheck />
           </div>
 
           <DialogFooter className="gap-2 pt-2">

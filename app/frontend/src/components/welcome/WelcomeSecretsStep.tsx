@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { motion } from "framer-motion";
-import { ExternalLink, Lock } from "lucide-react";
+import { Check, ExternalLink, Lock } from "lucide-react";
 
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -35,6 +35,14 @@ function fieldPlaceholder(
   return fallback;
 }
 
+function SavedBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+      <Check className="w-3 h-3" /> Saved
+    </span>
+  );
+}
+
 export default function WelcomeSecretsStep({
   current,
   values,
@@ -63,7 +71,10 @@ export default function WelcomeSecretsStep({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="hf_token">Hugging Face token</Label>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="hf_token">Hugging Face token</Label>
+          {current?.hf_token.set && <SavedBadge />}
+        </div>
         <Input
           id="hf_token"
           type="password"
@@ -91,7 +102,10 @@ export default function WelcomeSecretsStep({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="tts_api_key">TTS API key</Label>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="tts_api_key">TTS API key</Label>
+          {current?.tts_api_key.set && <SavedBadge />}
+        </div>
         <Input
           id="tts_api_key"
           type="password"
@@ -113,7 +127,10 @@ export default function WelcomeSecretsStep({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="tavily_api_key">Tavily API key</Label>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="tavily_api_key">Tavily API key</Label>
+          {current?.tavily_api_key.set && <SavedBadge />}
+        </div>
         <Input
           id="tavily_api_key"
           type="password"

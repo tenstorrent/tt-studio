@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ExternalLink, Loader2, X, AlertCircle } from "lucide-react";
 
@@ -121,6 +121,11 @@ export default function HfAccessCheck({ token, onChecked, className }: Props) {
       setIsChecking(false);
     }
   };
+
+  useEffect(() => {
+    runCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className={className}>
