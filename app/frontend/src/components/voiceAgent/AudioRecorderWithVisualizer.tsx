@@ -7,6 +7,7 @@ import { Mic, Square } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { PipelineStage } from "./types";
+import { useSilenceDetection } from "./hooks/useSilenceDetection";
 
 type Props = {
   className?: string;
@@ -127,6 +128,9 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
     setIsRecording(false);
     setLevels(new Array(LEVEL_BARS).fill(0));
   };
+
+  // Auto-stop on end-of-speech via Silero VAD; manual stop button still works.
+  useSilenceDetection({ enabled: isRecording, onSilence: stopRecording });
 
   const toggleRecording = () => {
     if (isRecording) {
