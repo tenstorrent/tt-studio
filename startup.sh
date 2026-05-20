@@ -394,17 +394,16 @@ INFERENCE_SERVER_DIR="${TT_STUDIO_ROOT}/tt-inference-server"
 # Clone the repository if it doesn't exist
 if [ ! -d "$INFERENCE_SERVER_DIR" ]; then
     echo "📥 Cloning TT Inference Server repository..."
-    git clone -b tt-studio/202605 https://github.com/tenstorrent/tt-inference-server.git "$INFERENCE_SERVER_DIR"
+    git clone -b v0.14.0 https://github.com/tenstorrent/tt-inference-server.git "$INFERENCE_SERVER_DIR"
     if [ $? -ne 0 ]; then
         echo "⛔ Error: Failed to clone tt-inference-server repository"
         exit 1
     fi
 else
-    echo "📁 TT Inference Server directory already exists, pulling latest changes..."
+    echo "📁 TT Inference Server directory already exists, checking out tag v0.14.0..."
     cd "$INFERENCE_SERVER_DIR"
-    git fetch origin tt-studio/202605
-    git checkout tt-studio/202605
-    git pull origin tt-studio/202605
+    git fetch origin tag v0.14.0 --force
+    git checkout v0.14.0
     if [ $? -ne 0 ]; then
         echo "⛔ Error: Failed to update tt-inference-server repository"
         exit 1
