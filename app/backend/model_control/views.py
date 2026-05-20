@@ -255,6 +255,10 @@ class ModelHealthView(APIView):
 def _get_startup_phase(deploy_id: str) -> dict | None:
     """Tail the container's recent logs and run the phase classifier.
 
+    When the classifier reports `downloading_weights`, also exec `du -sb` inside
+    the container and merge byte / speed / ETA fields into the response so the
+    Preparing banner can render a live progress bar — see download_progress.py.
+
     Returns None if the tail fails — callers should treat None as "no phase
     info available", not as an error.
     """
@@ -264,10 +268,63 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
         lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
         if not lines:
             return None
-        return classify_startup_phase(lines)
+        phase_dict = classify_startup_phase(lines)
     except Exception as e:
         logger.warning(f"startup phase classify failed for {deploy_id[:12]}: {e}")
         return None
+
+    try:
+        if phase_dict.get("phase") == "downloading_weights":
+            from .download_progress import compute_download_progress
+            dl = compute_download_progress(
+                deploy_id=deploy_id,
+                repo=phase_dict.get("weights_repo"),
+                container_path=phase_dict.get("weights_target_path"),
+                cached=bool(phase_dict.get("weights_cached")),
+            )
+            phase_dict.update(dl)
+            # Refine the coarse base_pct using bytes when we have a full ratio.
+            # Map the download into the 10 → 28 window so the bar visibly fills
+            # before engine_initializing snaps to 30.
+            total = dl.get("total_bytes")
+            downloaded = dl.get("downloaded_bytes")
+            if total and downloaded is not None and total > 0:
+                ratio = min(1.0, max(0.0, downloaded / total))
+                phase_dict["progress"] = int(round(10 + ratio * 18))
+            # Surface a richer message when we have a repo to name.
+            repo = dl.get("weights_repo")
+            if dl.get("weights_cached"):
+                phase_dict["message"] = (
+                    f"Weights cached — skipping download ({repo})" if repo
+                    else "Weights cached — skipping download"
+                )
+            elif repo:
+                from_b = _format_bytes(downloaded) if downloaded is not None else "—"
+                to_b = _format_bytes(total) if total else "?"
+                phase_dict["message"] = f"Downloading {repo}: {from_b} / {to_b}"
+    except Exception as e:
+        logger.debug(f"download_progress merge failed for {deploy_id[:12]}: {e}")
+
+    return phase_dict
+
+
+def _format_bytes(n: int | float | None) -> str:
+    """Compact human-readable byte size (matches the frontend formatter)."""
+    if n is None or n < 0:
+        return "—"
+    if n == 0:
+        return "0 B"
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    v = float(n)
+    u = 0
+    while v >= 1024 and u < len(units) - 1:
+        v /= 1024
+        u += 1
+    if v >= 100 or u == 0:
+        return f"{int(v)} {units[u]}"
+    if v >= 10:
+        return f"{v:.1f} {units[u]}"
+    return f"{v:.2f} {units[u]}"
 
 
 class DeployedModelsView(APIView):

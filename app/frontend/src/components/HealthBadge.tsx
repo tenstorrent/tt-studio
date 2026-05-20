@@ -25,6 +25,14 @@ export interface StartupPhase {
   trace_count: number;
   is_stalled: boolean;
   classified_at: number;
+  // Populated by Django `_get_startup_phase` when phase === "downloading_weights"
+  // (see app/backend/model_control/download_progress.py).
+  weights_repo?: string | null;
+  weights_cached?: boolean;
+  downloaded_bytes?: number | null;
+  total_bytes?: number | null;
+  speed_bps?: number | null;
+  eta_seconds?: number | null;
 }
 
 interface HealthBadgeProps {

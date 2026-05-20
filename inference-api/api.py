@@ -15,9 +15,11 @@ import uuid
 import re
 import json
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 import math
+import shlex
 import urllib.request
 import urllib.error
 
@@ -205,10 +207,17 @@ _DOCKER_RUN_NAME_RE = re.compile(r"--name\s+(?P<name>[^\s]+)")
 _RUN_LOG_PATH_RE = re.compile(r"This log file is saved on local machine at:\s*(?P<path>\S+)")
 _DOCKER_WORKFLOW_LOG_PATH_RE = re.compile(r"Running docker container with log file:\s*(?P<path>\S+)")
 
-# Host-setup / weights download hints (from tt-inference-server logs)
-_HF_DOWNLOAD_REPO_RE = re.compile(r"Downloading model from Hugging Face:\s*(?P<repo>[^\s]+)")
-_HOST_HF_HOME_RE = re.compile(r"HOST_HF_HOME set to\s*(?P<path>\S+)")
+# Host-setup / weights download hints (from tt-inference-server logs).
+# setup_host.py emits "Downloading model to host volume: {repo}" or
+# "Downloading model to host HF cache: {repo}" right before invoking `hf download`.
+_HF_DOWNLOAD_REPO_RE = re.compile(
+    r"Downloading model (?:to host (?:volume|HF cache)|from Hugging Face):\s*(?P<repo>[^\s]+)"
+)
+# setup_host.py:388 emits "✅ HF_HOME set to {path}" (no "HOST_" prefix).
+_HOST_HF_HOME_RE = re.compile(r"HF_HOME set to\s*(?P<path>\S+)")
 _HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist for\s*(?P<model>.+?)\.")
+# setup_host.py:582 emits "Weights already exist in host volume, skipping download" on cache hit.
+_HF_CACHED_RE = re.compile(r"Weights already exist in host volume")
 _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
@@ -519,6 +528,16 @@ def _extract_repo_and_hf_home_from_job_logs(job_id: str) -> Tuple[Optional[str],
     return repo, hf_home
 
 
+def _job_logs_contain(job_id: str, pattern: re.Pattern) -> bool:
+    """True if any captured run.py log message for this job matches `pattern`."""
+    with progress_lock:
+        entries = list(log_store.get(job_id, []))
+    for e in entries:
+        if pattern.search(str(e.get("message", ""))):
+            return True
+    return False
+
+
 def _default_hf_home() -> Path:
     # Mirror tt-inference-server defaulting behavior (HOST_HF_HOME -> HF_HOME -> ~/.cache/huggingface)
     return Path(
@@ -560,6 +579,146 @@ def _dir_size_bytes(path: Path) -> int:
         return total
     except Exception:
         return 0
+
+
+def _dir_size_bytes_recursive(path: Path) -> int:
+    """Recursive size sum (walks subdirs). Used for `hf download --local-dir` layouts."""
+    try:
+        if not path.exists() or not path.is_dir():
+            return 0
+        total = 0
+        for root, _dirs, files in os.walk(path, followlinks=False):
+            for fname in files:
+                fp = os.path.join(root, fname)
+                try:
+                    total += os.stat(fp, follow_symlinks=False).st_size
+                except FileNotFoundError:
+                    continue
+        return total
+    except Exception:
+        return 0
+
+
+@dataclass
+class WeightsLocation:
+    """Where the weights-progress monitor should read downloaded bytes from.
+
+    read_mode:
+      - "host_fs": scan host_path directly (host bind-mount layout).
+      - "docker_volume": exec `du -sb` inside an ephemeral container against
+        a named Docker volume (the named-volume default path the user can't
+        read directly because /var/lib/docker/volumes/ is root-only).
+      - "hf_cache": legacy HF-hub layout under host_path/hub/models--<repo>/.
+    """
+    read_mode: str
+    host_path: Optional[Path] = None
+    volume_name: Optional[str] = None
+    volume_subpath: Optional[str] = None  # path inside the mounted volume to scan
+
+
+def _resolve_weights_location(
+    model_name: str, device: str, impl: Optional[str]
+) -> Optional[WeightsLocation]:
+    """Pick the right read strategy for this deployment.
+
+    The host-volume allowlist (currently just qwen3-32b) uses a host-readable
+    bind mount. Everything else lands in a Docker named volume named
+    `volume_id_{impl_id}-{model_name}` per generate_docker_volume_name() in
+    tt-inference-server/workflows/run_docker_server.py.
+    """
+    # Host-volume allowlist path: weights live at a bind-mount we can read.
+    if _model_uses_preferred_host_volume(model_name):
+        (
+            preferred_host_volume,
+            _expected_volume_dir,
+            expected_weights_dir,
+            _expected_tt_metal_cache_dir,
+            _reason,
+        ) = _resolve_preferred_host_volume(model_name, device, impl)
+        if preferred_host_volume and expected_weights_dir:
+            return WeightsLocation(
+                read_mode="host_fs",
+                host_path=expected_weights_dir,
+            )
+
+    # Default path: Docker named volume.
+    try:
+        model_spec, _, _ = get_runtime_model_spec(model_name, device, impl=impl)
+    except Exception as exc:
+        logger.warning(
+            "weights-monitor: could not resolve model spec for %s/%s/%s: %s",
+            model_name, device, impl, exc,
+        )
+        return None
+    volume_name = f"volume_id_{model_spec.impl.impl_id}-{model_spec.model_name}"
+    # setup_host.setup_weights_huggingface writes to {host_model_volume_root}/weights/{model_name}/
+    return WeightsLocation(
+        read_mode="docker_volume",
+        volume_name=volume_name,
+        volume_subpath=f"weights/{model_spec.model_name}",
+    )
+
+
+_DU_HELPER_IMAGE = "alpine:3"
+
+
+def _du_bytes_in_volume(volume_name: str, subpath: str) -> int:
+    """Return recursive byte count of `subpath` inside a Docker named volume.
+
+    Uses an ephemeral alpine container so the FastAPI process doesn't need
+    root access to /var/lib/docker/volumes/. Returns 0 on any error (e.g.
+    volume not yet populated, daemon hiccup) so the monitor keeps polling.
+    """
+    if not volume_name or not subpath:
+        return 0
+    safe_target = "/v/" + subpath.lstrip("/")
+    cmd = ["sh", "-c", f"du -sb {shlex.quote(safe_target)} 2>/dev/null | cut -f1"]
+    try:
+        client = docker.from_env()
+        out = client.containers.run(
+            image=_DU_HELPER_IMAGE,
+            command=cmd,
+            volumes={volume_name: {"bind": "/v", "mode": "ro"}},
+            remove=True,
+            detach=False,
+            network_disabled=True,
+            stdout=True,
+            stderr=False,
+        )
+        if isinstance(out, bytes):
+            text = out.decode("utf-8", errors="ignore").strip()
+        else:
+            text = str(out).strip()
+        if not text:
+            return 0
+        # `du` may emit multiple lines if the target is missing; take the first integer.
+        first = text.splitlines()[0].strip()
+        return int(first) if first.isdigit() else 0
+    except docker.errors.ImageNotFound:
+        logger.debug("weights-monitor: %s missing; will be pulled at startup", _DU_HELPER_IMAGE)
+        return 0
+    except Exception as exc:
+        logger.debug("weights-monitor: du in volume %s failed: %s", volume_name, exc)
+        return 0
+
+
+def _downloaded_bytes_for_location(
+    hf_home: Optional[Path], repo_id: Optional[str], location: Optional[WeightsLocation]
+) -> int:
+    """Dispatch to the right reader for the resolved weights location.
+
+    Falls back to the legacy HF-hub cache layout if no WeightsLocation was
+    resolved (best-effort for unusual deployments that set HF_HOME via logs).
+    """
+    if location is not None:
+        if location.read_mode == "host_fs" and location.host_path:
+            return _dir_size_bytes_recursive(location.host_path)
+        if location.read_mode == "docker_volume" and location.volume_name and location.volume_subpath:
+            return _du_bytes_in_volume(location.volume_name, location.volume_subpath)
+    # Legacy fallback (hf_home discovered via log scrape).
+    if hf_home is not None and repo_id:
+        return _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
+    return 0
 
 
 def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
@@ -613,11 +772,21 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterabl
         return None
 
 
-def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
-    """Background monitor: converts HF cache growth into % + ETA and updates progress_store.
+def _weights_progress_monitor(
+    job_id: str,
+    stop_event: threading.Event,
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
+    impl: Optional[str] = None,
+) -> None:
+    """Background monitor: converts download progress into % + ETA and updates progress_store.
 
     This is designed to cover long-running `hf download <repo>` operations where tt-inference-server
     does not emit structured per-file progress events.
+
+    Path resolution: when model_name/device are provided, we derive the exact
+    Docker named volume (or host bind-mount path) the deployment writes to.
+    Otherwise we fall back to log-scraped HF_HOME (legacy path).
     """
     last_bytes = 0
     last_t = time.time()
@@ -631,6 +800,17 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
     total_bytes: Optional[int] = None
     total_bytes_attempted = False
     exclude_prefixes = ("original/",)
+    cached_announced_at: Optional[float] = None
+    CACHED_LINGER_SECONDS = 1.8
+
+    weights_location: Optional[WeightsLocation] = None
+    if model_name and device:
+        weights_location = _resolve_weights_location(model_name, device, impl)
+        if weights_location:
+            logger.info(
+                "Job %s: weights-monitor resolved location: %s",
+                job_id, weights_location,
+            )
 
     # Poll at 1s cadence; keep it lightweight (single dir scan).
     while not stop_event.is_set():
@@ -657,13 +837,35 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
         if hf_home is None:
             hf_home = _default_hf_home()
 
+        # Cache-hit short-circuit: setup_host logs "Weights already exist in host volume..."
+        # when nothing needs to be downloaded. Show a brief "cached" state then exit.
+        if cached_announced_at is None and _job_logs_contain(job_id, _HF_CACHED_RE):
+            cached_announced_at = time.time()
+            with progress_lock:
+                cur = progress_store.get(job_id)
+                if cur and cur.get("stage") not in {"container_setup", "finalizing", "complete"}:
+                    progress_val = max(cur.get("progress", 0) or 0, 39)
+                    cur.update({
+                        "status": "running",
+                        "stage": "model_preparation",
+                        "progress": progress_val,
+                        "message": "Weights already cached — skipping download",
+                        "downloaded_bytes": total_bytes,
+                        "total_bytes": total_bytes,
+                        "speed_bps": None,
+                        "eta_seconds": 0,
+                        "last_updated": time.time(),
+                    })
+        if cached_announced_at is not None and (time.time() - cached_announced_at) >= CACHED_LINGER_SECONDS:
+            return
+
         if repo_id:
             if not total_bytes_attempted:
                 total_bytes_attempted = True
                 total_bytes = _fetch_hf_total_bytes(
                     repo_id, os.getenv("HF_TOKEN") or "", exclude_prefixes
                 )
-            downloaded = _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
+            downloaded = _downloaded_bytes_for_location(hf_home, repo_id, weights_location)
             now = time.time()
             dt = max(1e-3, now - last_t)
             delta = downloaded - last_bytes
@@ -969,6 +1171,32 @@ app = FastAPI(
 logger.info("FastAPI application initialized")
 logger.info("Progress tracking system enabled")
 logger.debug("Debug logging test message")
+
+
+@app.on_event("startup")
+def _prepull_weights_monitor_helper_image() -> None:
+    """Pre-pull the alpine helper image used by _du_bytes_in_volume.
+
+    Doing this once at boot avoids a multi-second stall on the first poll of
+    the first deployment after a fresh install. Failures are non-fatal —
+    the helper itself retries on each call.
+    """
+    try:
+        client = docker.from_env()
+        try:
+            client.images.get(_DU_HELPER_IMAGE)
+            logger.info("weights-monitor helper image already present: %s", _DU_HELPER_IMAGE)
+            return
+        except docker.errors.ImageNotFound:
+            pass
+        logger.info("weights-monitor: pulling helper image %s", _DU_HELPER_IMAGE)
+        client.images.pull(_DU_HELPER_IMAGE)
+        logger.info("weights-monitor: helper image ready")
+    except Exception as exc:
+        logger.warning(
+            "weights-monitor: could not pre-pull %s (%s); the monitor will retry per poll.",
+            _DU_HELPER_IMAGE, exc,
+        )
 
 class RunRequest(BaseModel):
     model: str
@@ -1454,7 +1682,7 @@ async def run_inference(request: RunRequest):
                 # Start weights progress monitor (keeps progress moving during long hf downloads)
                 threading.Thread(
                     target=_weights_progress_monitor,
-                    args=(job_id, weights_stop_event),
+                    args=(job_id, weights_stop_event, request.model, normalized_device, request.impl),
                     daemon=True,
                 ).start()
 

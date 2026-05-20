@@ -20,6 +20,7 @@ interface ModelPreparingBannerProps {
 const PHASE_ORDER: { key: string; label: string }[] = [
   { key: "container_starting",  label: "Starting container" },
   { key: "vllm_importing",      label: "Loading vLLM runtime" },
+  { key: "downloading_weights", label: "Downloading model weights" },
   { key: "engine_initializing", label: "Initializing inference engine" },
   { key: "device_init",         label: "Opening Tenstorrent device" },
   { key: "model_config",        label: "Loading model configuration" },
@@ -29,6 +30,31 @@ const PHASE_ORDER: { key: string; label: string }[] = [
   { key: "server_starting",     label: "Starting API server" },
   { key: "ready",               label: "Ready" },
 ];
+
+function formatBytes(n?: number | null): string {
+  if (n === undefined || n === null || n < 0) return "—";
+  if (n === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let v = n;
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024;
+    u += 1;
+  }
+  const decimals = v >= 100 || u === 0 ? 0 : v >= 10 ? 1 : 2;
+  return `${v.toFixed(decimals)} ${units[u]}`;
+}
+
+function formatEta(eta?: number | null): string | null {
+  if (eta === undefined || eta === null || !Number.isFinite(eta) || eta < 0) return null;
+  if (eta > 86400 * 2) return "More than 2 days left";
+  if (eta < 50) return `~${Math.max(1, Math.round(eta))} s left`;
+  if (eta < 90) return "~1 min left";
+  if (eta < 3600) return `~${Math.max(1, Math.round(eta / 60))} min left`;
+  const hours = Math.floor(eta / 3600);
+  const mins = Math.round((eta % 3600) / 60);
+  return mins === 0 ? `~${hours} h left` : `~${hours} h ${mins} min left`;
+}
 
 function PreparingRow({
   model,
@@ -93,6 +119,42 @@ function PreparingRow({
           {message}
         </div>
       )}
+
+      {/* Live HF download stats (only while in the downloading_weights phase
+          and Django has populated byte fields). */}
+      {phaseKey === "downloading_weights" &&
+        (phase?.downloaded_bytes !== undefined ||
+          phase?.total_bytes !== undefined ||
+          phase?.speed_bps !== undefined ||
+          phase?.eta_seconds !== undefined) && (
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] font-mono tabular-nums text-amber-200/90">
+            {phase?.total_bytes != null && phase?.downloaded_bytes != null ? (
+              <span>
+                {formatBytes(phase.downloaded_bytes)} of {formatBytes(phase.total_bytes)}
+              </span>
+            ) : phase?.downloaded_bytes != null ? (
+              <span>{formatBytes(phase.downloaded_bytes)} downloaded</span>
+            ) : null}
+            {phase?.speed_bps != null && (
+              <>
+                <span className="text-stone-600" aria-hidden="true">·</span>
+                <span>{formatBytes(phase.speed_bps)}/s</span>
+              </>
+            )}
+            {(() => {
+              const etaText = formatEta(phase?.eta_seconds);
+              return etaText ? (
+                <>
+                  <span className="text-stone-600" aria-hidden="true">·</span>
+                  <span>{etaText}</span>
+                </>
+              ) : null;
+            })()}
+            {phase?.weights_cached && (
+              <span className="text-emerald-300">· cached — skipping download</span>
+            )}
+          </div>
+        )}
 
       {/* Phase track: previous phases muted, current highlighted, upcoming dim */}
       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">

@@ -10,6 +10,8 @@ function isCacheReadyOrSetupCompleteMessage(msg: string): boolean {
   if (!msg.trim()) return false;
   if (t.includes('setup already completed')) return true;
   if (t.includes('host setup complete') || t.includes('setup complete')) return true;
+  // Backend `_weights_progress_monitor` emits this on a cache hit (Docker volume already populated).
+  if (t.includes('weights already cached') || t.includes('skipping download')) return true;
   // e.g. "✅ Host setup complete" or similar from structured progress
   if (/[\u2705\u2714\u2713✓]/.test(msg) && t.includes('complete') && /\b(setup|host)\b/.test(t)) {
     return true;
@@ -39,7 +41,14 @@ interface DeploymentProgressProps {
 
 const stageDisplayNames: Record<string, string> = {
   initialization: 'Initializing',
-  model_preparation: 'Downloading Model Weights',
+  setup: 'Setting up environment',
+  // Most models download weights *inside* the container after orchestration —
+  // see app/backend/model_control/log_classifier.py downloading_weights phase
+  // and ModelPreparingBanner on /models-deployed. The byte/speed/ETA panel
+  // below only lights up for the rare host-side download (--host-hf-cache).
+  model_preparation: 'Preparing deployment',
+  container_setup: 'Starting container',
+  finalizing: 'Finalizing deployment',
   complete: 'Complete',
   error: 'Error',
   stalled: 'Stalled',
@@ -151,6 +160,26 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       ? Math.min(100, Math.max(0, (downloadedBytes / totalBytes) * 100))
       : null;
 
+  // Unified percent that drives both the bar and the % label across every
+  // phase-A stage. During model_preparation we map the byte-level download
+  // fraction onto the 15→40 window (the same window backend `_weights_progress_monitor`
+  // uses), so the bar advances smoothly with bytes. For every other stage we
+  // fall back to the stage's coarse `progress` value the backend already sets
+  // (initialization=5, setup=15, container_setup=50–70, finalizing=85–90, complete=100).
+  const downloadFraction =
+    totalBytes !== null && downloadedBytes !== null && totalBytes > 0
+      ? Math.min(1, Math.max(0, downloadedBytes / totalBytes))
+      : null;
+
+  const displayPercent = (() => {
+    if (isError) return 100;
+    if (isComplete) return 100;
+    if (stage === 'model_preparation' && downloadFraction !== null) {
+      return 15 + downloadFraction * 25;
+    }
+    return Math.min(100, Math.max(0, progressPercent ?? 0));
+  })();
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -186,7 +215,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
             </span>
           )}
           <span className="text-sm text-muted-foreground font-mono">
-            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : `${Math.min(100, Math.round(downloadPercent ?? 0))}%`}
+            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : `${Math.round(displayPercent)}%`}
           </span>
         </div>
       </div>
@@ -199,7 +228,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         >
           {/* `message` is verbatim from the API; any ✅ etc. only appears if the backend sent it. */}
           <p className="text-sm sm:text-base font-semibold text-emerald-950 dark:text-emerald-50 leading-snug tracking-tight">
-            {message.includes('completed') && message}
+            {message}
           </p>
         </div>
       ) : (
@@ -211,21 +240,9 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       {/* Progress bar + weights download details */}
       <div className="mb-3">
         <Progress
-          value={
-            isError
-              ? 100
-              : isComplete
-                ? 100
-                : downloadPercent !== null
-                  ? downloadPercent
-                  : undefined
-          }
+          value={displayPercent}
           className="h-2"
-          indicatorClassName={
-            downloadPercent !== null
-              ? `${getProgressBarColor()} transition-[width] duration-300`
-              : `${getProgressBarColor()} animate-pulse`
-          }
+          indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
         />
       </div>
 

@@ -20,6 +20,7 @@ from typing import Iterable, Optional
 PHASES = [
     "container_starting",
     "vllm_importing",
+    "downloading_weights",
     "engine_initializing",
     "device_init",
     "model_config",
@@ -33,6 +34,7 @@ PHASES = [
 PHASE_LABELS = {
     "container_starting":  "Starting container",
     "vllm_importing":      "Loading vLLM runtime",
+    "downloading_weights": "Downloading model weights",
     "engine_initializing": "Initializing inference engine",
     "device_init":         "Opening Tenstorrent device",
     "model_config":        "Loading model configuration",
@@ -44,14 +46,17 @@ PHASE_LABELS = {
 }
 
 # Coarse progress percent per phase, used when no finer-grained signal is available.
+# downloading_weights gets the 10-30 window since it's the long phase; byte-level
+# progress in views.py refines this when bytes are available.
 PHASE_BASE_PCT = {
     "container_starting":  5,
-    "vllm_importing":      10,
-    "engine_initializing": 15,
-    "device_init":         20,
-    "model_config":        25,
-    "loading_weights":     30,
-    "compiling_model":     35,
+    "vllm_importing":      8,
+    "downloading_weights": 10,
+    "engine_initializing": 30,
+    "device_init":         35,
+    "model_config":        40,
+    "loading_weights":     45,
+    "compiling_model":     50,
     "engine_ready":        75,
     "server_starting":     90,
     "ready":               100,
@@ -65,6 +70,10 @@ _SUBSTRING_MARKERS: list[tuple[str, str]] = [
     ("MOUNTED VOLUME PERMISSIONS",        "container_starting"),
     ("AUTOMATICALLY DETECTED PLATFORM",   "vllm_importing"),
     ("SETTING ENV VAR:",                  "vllm_importing"),
+    # In-container weights download: run_vllm_api_server.py:312 emits the first;
+    # the second fires on a cache hit and immediately advances past download.
+    ("DOWNLOADING WEIGHTS FROM",          "downloading_weights"),
+    ("WEIGHTS ALREADY EXIST AT",          "downloading_weights"),
     ("INITIALIZING A V0 LLM ENGINE",      "engine_initializing"),
     ("INITIALIZING A V1 LLM ENGINE",      "engine_initializing"),
     ("TTMODELRUNNER:",                    "engine_initializing"),
@@ -87,6 +96,15 @@ _SUBSTRING_MARKERS: list[tuple[str, str]] = [
     ("STARTED SERVER PROCESS",            "server_starting"),
     ("APPLICATION STARTUP COMPLETE",      "server_starting"),
 ]
+
+# Pulled from run_vllm_api_server.py:312, 316.
+# Example:  "Downloading weights from Qwen/Qwen3-32B to /home/container_app_user/cache_root/weights/Qwen3-32B"
+_DOWNLOAD_START_RE = re.compile(
+    r"Downloading weights from\s+(?P<repo>\S+)\s+to\s+(?P<path>\S+)"
+)
+_DOWNLOAD_CACHED_RE = re.compile(
+    r"Weights already exist at\s+(?P<path>\S+)"
+)
 
 # Latest "Service not ready after Xs" / "Cache generation in progress. Waited Xs" line.
 # These confirm liveness from an external poller; we surface the elapsed seconds
@@ -140,6 +158,9 @@ def classify_startup_phase(lines: Iterable[str], now: Optional[float] = None) ->
     warmup_seq_len: Optional[int] = None
     trace_count = 0
     saw_health_ok = False
+    weights_repo: Optional[str] = None
+    weights_target_path: Optional[str] = None
+    weights_cached: bool = False
 
     for raw in lines:
         if not raw:
@@ -157,6 +178,18 @@ def classify_startup_phase(lines: Iterable[str], now: Optional[float] = None) ->
                 phase = candidate_phase
                 last_meaningful_line = line
                 break
+
+        # Capture repo + container path from the download log line.
+        m = _DOWNLOAD_START_RE.search(line)
+        if m:
+            weights_repo = m.group("repo")
+            weights_target_path = m.group("path")
+            weights_cached = False
+        else:
+            m = _DOWNLOAD_CACHED_RE.search(line)
+            if m:
+                weights_target_path = m.group("path")
+                weights_cached = True
 
         # Within compiling_model, count completed trace captures.
         if _DONE_CAPTURE_RE.search(line):
@@ -230,4 +263,7 @@ def classify_startup_phase(lines: Iterable[str], now: Optional[float] = None) ->
         "trace_count": trace_count,
         "is_stalled": is_stalled,
         "classified_at": current_now,
+        "weights_repo": weights_repo,
+        "weights_target_path": weights_target_path,
+        "weights_cached": weights_cached,
     }
