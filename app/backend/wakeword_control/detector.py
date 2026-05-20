@@ -8,12 +8,16 @@ import time
 import numpy as np
 from openwakeword.model import Model
 
-from .apps import MODELS_DIR, WAKE_DEBUG_SCORES, WAKE_MODEL, WAKE_THRESHOLD
+from .apps import BUNDLED_DIR, MODELS_DIR, WAKE_DEBUG_SCORES, WAKE_MODEL, WAKE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
 
 def _resolve_wake_model_path():
+    # Resolution order: repo-bundled → manually dropped in volume → downloaded.
+    bundled = BUNDLED_DIR / f"{WAKE_MODEL}.onnx"
+    if bundled.is_file():
+        return bundled
     manual = MODELS_DIR / f"{WAKE_MODEL}.onnx"
     if manual.is_file():
         return manual

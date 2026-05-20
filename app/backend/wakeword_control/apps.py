@@ -19,9 +19,15 @@ WAKE_THRESHOLD = float(os.environ.get("WAKEWORD_THRESHOLD", "0.5"))
 # model is actually outputting and pick a threshold empirically.
 WAKE_DEBUG_SCORES = os.environ.get("WAKEWORD_DEBUG_SCORES", "").lower() in ("1", "true", "yes")
 
-# All weights (preprocessing + wake word, downloaded and manually-added) live in
-# the gitignored persistent volume so the image stays small and files survive
-# container rebuilds.
+# Repo-bundled wake-word weights. Drop `{name}.onnx` here and set
+# WAKEWORD_MODEL={name} to ship a custom model with the repo. Use this for
+# small custom-trained models that have no other download source; downloaded
+# pretrained models from openwakeword should NOT go here (they live in the
+# persistent volume to keep the repo lean).
+BUNDLED_DIR = Path(__file__).resolve().parent / "bundled_models"
+
+# Downloaded weights + preprocessing models live in the gitignored persistent
+# volume so the image stays small and files survive container rebuilds.
 MODELS_DIR = Path("/tt_studio_persistent_volume/openwakeword_models")
 
 
@@ -33,16 +39,19 @@ class WakeWordConfig(AppConfig):
         if not MODELS_DIR.parent.is_dir():
             return  # volume not mounted — nothing to do here
 
+        bundled = (BUNDLED_DIR / f"{WAKE_MODEL}.onnx").is_file()
         manual = (MODELS_DIR / f"{WAKE_MODEL}.onnx").is_file()
         have_preprocessing = (MODELS_DIR / "melspectrogram.onnx").exists()
-        have_wake_word = manual or any(MODELS_DIR.glob(f"{WAKE_MODEL}_*.onnx"))
+        have_wake_word = bundled or manual or any(MODELS_DIR.glob(f"{WAKE_MODEL}_*.onnx"))
         if have_preprocessing and have_wake_word:
             return  # nothing to fetch
 
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
         from openwakeword.utils import download_models
-        # download_model into MODELS_DIR
+        # download_models always fetches the preprocessing pair. If the wake
+        # word is bundled in-repo (or dropped manually) we only need that
+        # preprocessing, so pass a known pretrained name to trigger it.
         download_models(
-            model_names=["hey_jarvis" if manual else WAKE_MODEL],
+            model_names=["hey_jarvis" if (bundled or manual) else WAKE_MODEL],
             target_directory=str(MODELS_DIR),
         )
