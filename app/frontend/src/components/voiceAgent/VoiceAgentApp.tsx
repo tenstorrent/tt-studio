@@ -240,11 +240,11 @@ export default function VoiceAgentApp() {
         prev.map((c) =>
           c.id === conversationId
             ? {
-                ...c,
-                messages: c.messages.map((m) =>
-                  m.id === messageId ? { ...m, ...updates } : m
-                ),
-              }
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === messageId ? { ...m, ...updates } : m
+              ),
+            }
             : c
         )
       );
@@ -313,8 +313,8 @@ export default function VoiceAgentApp() {
         extractMemoryFromUserTurn(transcribedText);
         const memoryBlock = memoryRef.current.length
           ? `Things you remember about this user from past turns (use naturally, don't recite verbatim): ${memoryRef.current
-              .map((n) => `- ${n}`)
-              .join(" ")} `
+            .map((n) => `- ${n}`)
+            .join(" ")} `
           : "";
         await runInference(
           {
@@ -337,13 +337,14 @@ export default function VoiceAgentApp() {
           Engagement: Actually answer the user's question or request. When it makes sense, ask a brief follow-up to keep the conversation going, but don't force it on every turn. \
           Length: Keep replies short and spoken-friendly — usually 1-3 sentences. Go a little longer only when the user asks for detail or explanation. \
           Format: Plain spoken text only. No bullet points, no markdown, no headings, no emoji — everything you say will be read aloud by a TTS engine. \
-          Goal: Feel like a real assistant the user is talking to, not a demo script.`
+          Goal: Feel like a real assistant the user is talking to, not a demo script.
+          Warning: ONLY reply to what the user is saying. Do not make up information or talk to yourself.`
         );
 
         const llmTotalMs = Math.round(performance.now() - llmStart);
-      const lastAssistant = localChatHistory.findLast(
-        (m) => m.sender === "assistant" && m.text
-      );
+        const lastAssistant = localChatHistory.findLast(
+          (m) => m.sender === "assistant" && m.text
+        );
         const llmResponseText = lastAssistant?.text || "";
         const llmTokenEstimate = llmResponseText.split(/\s+/).length;
 
@@ -471,181 +472,181 @@ export default function VoiceAgentApp() {
           : "voice-glass-light voice-tile-3d-light"
       )}
     >
-        {/* Header */}
-        <motion.header
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.1 }}
-          className={cn(
-            "flex items-center justify-between px-5 py-3 shrink-0 border-b",
-            theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <h1 className="text-base font-semibold font-['Bricolage_Grotesque'] tracking-tight"
-              style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
-            >
-              Voice Pipeline
-            </h1>
-            <motion.div
-              key={stage}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.25 }}
-              className="flex items-center gap-1.5"
-            >
-              <span
-                className={cn(
-                  "w-2 h-2 rounded-full",
-                  stageConfig.dotColor,
-                  (stage !== "idle" && stage !== "done") && "animate-pulse"
-                )}
-              />
-              <span className={cn("text-xs font-mono font-medium tracking-wide", stageConfig.color)}>
-                {stageConfig.label}
-              </span>
-            </motion.div>
-          </div>
-
-          <div className="flex items-center gap-1">
-            {/* Model connection dots */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1 mr-2 cursor-default">
-                    <span className={cn("w-1.5 h-1.5 rounded-full", models.whisper ? "bg-TT-purple-accent" : "bg-gray-500")} />
-                    <span className={cn("w-1.5 h-1.5 rounded-full", models.llm ? "bg-TT-purple-accent" : "bg-gray-500")} />
-                    <span className={cn("w-1.5 h-1.5 rounded-full", models.tts ? "bg-TT-purple-accent" : "bg-gray-500")} />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">
-                  <div className="flex flex-col gap-1">
-                    <span>Whisper: {models.whisper?.modelName || "not deployed"}</span>
-                    <span>LLM: {models.llm?.modelName || "not deployed"}</span>
-                    <span>TTS: {models.tts?.modelName || "not deployed"}</span>
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            {/* Status popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className={cn(
-                    "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
-                    theme === "dark"
-                      ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
-                      : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
-                  )}
-                >
-                  <Activity className="w-4 h-4" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-64 p-0">
-                <StatusPanel
-                  stage={stage}
-                  models={models}
-                  conversationId={selectedConversation}
-                  messageCount={selectedConversationData?.messages.length ?? 0}
-                />
-              </PopoverContent>
-            </Popover>
-
-            {/* Metrics sheet */}
-            <Sheet>
-              <SheetTrigger asChild>
-                <button
-                  className={cn(
-                    "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
-                    theme === "dark"
-                      ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
-                      : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
-                  )}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                </button>
-              </SheetTrigger>
-              <SheetContent side="right">
-                <SheetHeader>
-                  <SheetTitle className="font-['Bricolage_Grotesque']">Pipeline Metrics</SheetTitle>
-                </SheetHeader>
-                <MetricsPanel metrics={metrics} />
-              </SheetContent>
-            </Sheet>
-          </div>
-        </motion.header>
-
-        {/* Recognized user welcome banner */}
-        {showWelcomeBanner && recognizedUser && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.3 }}
-            className={cn(
-              "flex items-center justify-between px-5 py-2 shrink-0 border-b",
-              theme === "dark"
-                ? "bg-green-950/60 border-green-500/30"
-                : "bg-green-50 border-green-200"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-green-500 shrink-0" />
-              <span className={cn("text-sm font-medium", theme === "dark" ? "text-green-300" : "text-green-800")}>
-                Welcome back,{" "}
-                <span className="font-bold">{recognizedUser}</span>! The voice agent is ready for you.
-              </span>
-            </div>
-            <button
-              onClick={() => setShowWelcomeBanner(false)}
-              className={cn(
-                "ml-3 shrink-0 rounded p-0.5 transition-colors",
-                theme === "dark"
-                  ? "text-green-400 hover:text-green-200 hover:bg-green-800/40"
-                  : "text-green-600 hover:text-green-900 hover:bg-green-100"
-              )}
-              aria-label="Dismiss welcome banner"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </motion.div>
+      {/* Header */}
+      <motion.header
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.1 }}
+        className={cn(
+          "flex items-center justify-between px-5 py-3 shrink-0 border-b",
+          theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
         )}
+      >
+        <div className="flex items-center gap-3">
+          <h1 className="text-base font-semibold font-['Bricolage_Grotesque'] tracking-tight"
+            style={{ color: theme === "dark" ? "#e4e4e7" : "#18181b" }}
+          >
+            Voice Pipeline
+          </h1>
+          <motion.div
+            key={stage}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.25 }}
+            className="flex items-center gap-1.5"
+          >
+            <span
+              className={cn(
+                "w-2 h-2 rounded-full",
+                stageConfig.dotColor,
+                (stage !== "idle" && stage !== "done") && "animate-pulse"
+              )}
+            />
+            <span className={cn("text-xs font-mono font-medium tracking-wide", stageConfig.color)}>
+              {stageConfig.label}
+            </span>
+          </motion.div>
+        </div>
 
-        {/* Transcript area */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.15 }}
-          className="flex-1 min-h-0 overflow-hidden"
-        >
-          <MainContent
-            conversations={conversations}
-            selectedConversation={selectedConversation}
-            isStreaming={isStreaming}
-            isTTSGenerating={isTTSGenerating}
-          />
-        </motion.div>
+        <div className="flex items-center gap-1">
+          {/* Model connection dots */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1 mr-2 cursor-default">
+                  <span className={cn("w-1.5 h-1.5 rounded-full", models.whisper ? "bg-TT-purple-accent" : "bg-gray-500")} />
+                  <span className={cn("w-1.5 h-1.5 rounded-full", models.llm ? "bg-TT-purple-accent" : "bg-gray-500")} />
+                  <span className={cn("w-1.5 h-1.5 rounded-full", models.tts ? "bg-TT-purple-accent" : "bg-gray-500")} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                <div className="flex flex-col gap-1">
+                  <span>Whisper: {models.whisper?.modelName || "not deployed"}</span>
+                  <span>LLM: {models.llm?.modelName || "not deployed"}</span>
+                  <span>TTS: {models.tts?.modelName || "not deployed"}</span>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
-        {/* Controls footer */}
+          {/* Status popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                className={cn(
+                  "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
+                  theme === "dark"
+                    ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
+                    : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
+                )}
+              >
+                <Activity className="w-4 h-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-0">
+              <StatusPanel
+                stage={stage}
+                models={models}
+                conversationId={selectedConversation}
+                messageCount={selectedConversationData?.messages.length ?? 0}
+              />
+            </PopoverContent>
+          </Popover>
+
+          {/* Metrics sheet */}
+          <Sheet>
+            <SheetTrigger asChild>
+              <button
+                className={cn(
+                  "w-8 h-8 flex items-center justify-center rounded-lg transition-colors",
+                  theme === "dark"
+                    ? "text-gray-500 hover:text-TT-purple-accent hover:bg-white/[0.05]"
+                    : "text-gray-400 hover:text-TT-purple-accent hover:bg-black/[0.04]"
+                )}
+              >
+                <BarChart3 className="w-4 h-4" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="right">
+              <SheetHeader>
+                <SheetTitle className="font-['Bricolage_Grotesque']">Pipeline Metrics</SheetTitle>
+              </SheetHeader>
+              <MetricsPanel metrics={metrics} />
+            </SheetContent>
+          </Sheet>
+        </div>
+      </motion.header>
+
+      {/* Recognized user welcome banner */}
+      {showWelcomeBanner && recognizedUser && (
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.3 }}
           className={cn(
-            "shrink-0 border-t px-5 py-3",
-            theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
+            "flex items-center justify-between px-5 py-2 shrink-0 border-b",
+            theme === "dark"
+              ? "bg-green-950/60 border-green-500/30"
+              : "bg-green-50 border-green-200"
           )}
         >
-          <AudioRecorderWithVisualizer
-            ref={recorderRef}
-            onRecordingComplete={handleRecordingComplete}
-            onRecordingStart={() => setStage("recording")}
-            disabled={isProcessing}
-            stage={stage}
-            isTTSGenerating={isTTSGenerating}
-          />
+          <div className="flex items-center gap-2">
+            <UserCheck className="w-4 h-4 text-green-500 shrink-0" />
+            <span className={cn("text-sm font-medium", theme === "dark" ? "text-green-300" : "text-green-800")}>
+              Welcome back,{" "}
+              <span className="font-bold">{recognizedUser}</span>! The voice agent is ready for you.
+            </span>
+          </div>
+          <button
+            onClick={() => setShowWelcomeBanner(false)}
+            className={cn(
+              "ml-3 shrink-0 rounded p-0.5 transition-colors",
+              theme === "dark"
+                ? "text-green-400 hover:text-green-200 hover:bg-green-800/40"
+                : "text-green-600 hover:text-green-900 hover:bg-green-100"
+            )}
+            aria-label="Dismiss welcome banner"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </motion.div>
+      )}
+
+      {/* Transcript area */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.15 }}
+        className="flex-1 min-h-0 overflow-hidden"
+      >
+        <MainContent
+          conversations={conversations}
+          selectedConversation={selectedConversation}
+          isStreaming={isStreaming}
+          isTTSGenerating={isTTSGenerating}
+        />
+      </motion.div>
+
+      {/* Controls footer */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className={cn(
+          "shrink-0 border-t px-5 py-3",
+          theme === "dark" ? "border-white/[0.06]" : "border-black/[0.06]"
+        )}
+      >
+        <AudioRecorderWithVisualizer
+          ref={recorderRef}
+          onRecordingComplete={handleRecordingComplete}
+          onRecordingStart={() => setStage("recording")}
+          disabled={isProcessing}
+          stage={stage}
+          isTTSGenerating={isTTSGenerating}
+        />
+      </motion.div>
     </motion.div>
   );
 }
