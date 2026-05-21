@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+services:
+  tt_studio_chroma:
+    image: chromadb/chroma:0.5.3
+    volumes:
+      # Be aware that indexed data are located in "/chroma/chroma/"
+      # Default configuration for persist_directory in chromadb/config.py
+      # Read more about deployments: https://docs.trychroma.com/deployment
+      - ${HOST_PERSISTENT_STORAGE_VOLUME}/chroma:/chroma/chroma
+    command: "--workers 1 --host 0.0.0.0 --port 8111 --proxy-headers --log-config chromadb/log_config.yml --timeout-keep-alive 30"
+    environment:
+      - IS_PERSISTENT=TRUE
+      # - CHROMA_AUTH_TOKEN_TRANSPORT_HEADER=${CHROMA_AUTH_TOKEN_TRANSPORT_HEADER}
+      # - PERSIST_DIRECTORY=${INTERNAL_PERSISTENT_STORAGE_VOLUME}/chroma
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["http://localhost:3000", "http://tt_studio_frontend", "http://localhost:8000"]
+    restart: unless-stopped # possible values are: "no", always", "on-failure", "unless-stopped"
+    ports:
+      - "8111:8111"
+    healthcheck:
+      # Adjust below to match your container port
+      test: ["CMD", "curl", "-f", "http://localhost:8111/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    container_name: tt_studio_chroma
+    networks:
+      - tt_studio_network
+
+networks:
+  tt_studio_network:
+    external: true
+    name: tt_studio_network
