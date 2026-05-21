@@ -34,6 +34,7 @@ import {
 } from "../../api/modelsDeployedApis";
 import type {
   ColumnVisibilityMap,
+  FailedDeploymentInfo,
   HealthStatus,
   ModelRow,
 } from "../../types/models";
@@ -42,6 +43,7 @@ import ModelsTable from "./ModelsTable.tsx";
 import DeleteModelDialog from "./DeleteModelDialog.tsx";
 import LogStreamDialog from "./Logs/LogStreamDialog.tsx";
 import RegisterModelDialog from "./RegisterModelDialog.tsx";
+import WorkflowLogDialog from "../deployment/WorkflowLogDialog";
 import { useNavigate } from "react-router-dom";
 import { useTablePrefs } from "../../hooks/useTablePrefs";
 import { useDeleteStream } from "../../hooks/useDeleteStream";
@@ -180,13 +182,155 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [phaseMap, setPhaseMap] = useState<Record<string, StartupPhase | null>>({});
   const [preparingBannerDismissed, setPreparingBannerDismissed] = useState(false);
 
+  // Cross-reference with deployment history so we can detect containers that
+  // died unexpectedly and surface a clear failure state on the live table.
+  // The Models page only knows /models-api/health/ which returns "unknown" for
+  // dead containers; deployment-history is authoritative about exit cause.
+  type HistoryRecord = {
+    id: number;
+    container_id: string;
+    container_name: string;
+    model_name: string;
+    device: string;
+    deployed_at: string;
+    stopped_at: string | null;
+    status: string;
+    stopped_by_user: boolean;
+    port: number | null;
+    workflow_log_path: string | null;
+  };
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
+  // IDs the user has explicitly dismissed from the UI. Hide immediately so the
+  // user gets feedback even before the backend stop endpoint flips state.
+  const [dismissedFailedIds, setDismissedFailedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    const fetchHistory = async () => {
+      try {
+        const res = await axios.get<{ deployments: HistoryRecord[] }>(
+          "/docker-api/deployment-history/",
+        );
+        if (cancelled) return;
+        setHistory(res.data?.deployments ?? []);
+      } catch (err) {
+        console.debug("[failed-detect] history fetch error:", err);
+      }
+    };
+    fetchHistory();
+    const interval = window.setInterval(fetchHistory, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTrigger]);
+
+  // Set of container IDs currently returned by /docker-api/status/ via fetchModels.
+  const liveContainerIds = useMemo(
+    () => new Set(models.map((m: { id: string }) => m.id)),
+    [models],
+  );
+
+  // Track which container IDs we've seen alive in this session. We only want
+  // to surface a "Died Unexpectedly" state for deployments the user is
+  // currently working with — not for the entire history of failures, which
+  // would flood the table with synthetic rows.
+  const seenLiveIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const id of liveContainerIds) {
+      seenLiveIdsRef.current.add(id);
+    }
+  }, [liveContainerIds]);
+
+  const failedMap = useMemo<Record<string, FailedDeploymentInfo>>(() => {
+    const next: Record<string, FailedDeploymentInfo> = {};
+    for (const d of history) {
+      if (!d.container_id || d.container_id.startsWith("pending_")) continue;
+      if (d.stopped_by_user) continue;
+      if (dismissedFailedIds.has(d.container_id)) continue;
+      // Only flag deployments we've actually seen alive this session OR that
+      // are still in the live set (so a row that's currently visible can flip
+      // to failed). Anything we never saw is ignored — that's history.
+      const seen =
+        seenLiveIdsRef.current.has(d.container_id) ||
+        liveContainerIds.has(d.container_id);
+      if (!seen) continue;
+      const looksDead =
+        d.stopped_at !== null ||
+        d.status === "exited" ||
+        d.status === "dead" ||
+        d.status === "failed" ||
+        d.status === "stopped" ||
+        !liveContainerIds.has(d.container_id);
+      if (!looksDead) continue;
+      if (!next[d.container_id]) {
+        next[d.container_id] = {
+          deploymentId: d.id,
+          modelName: d.model_name,
+          workflowLogPath: d.workflow_log_path,
+        };
+      }
+    }
+    console.debug(
+      "[failed-detect] history:",
+      history.length,
+      "live:",
+      liveContainerIds.size,
+      "seen-this-session:",
+      seenLiveIdsRef.current.size,
+      "failed:",
+      Object.keys(next),
+    );
+    return next;
+  }, [history, liveContainerIds, dismissedFailedIds]);
+
+  // Build synthetic rows ONLY for failed containers that were alive in this
+  // session but have since disappeared from /docker-api/status/. This keeps
+  // the row visible after the container exits so the user can see the
+  // failure and click Remove. We do not surface historical failures.
+  const syntheticFailedRows = useMemo<ModelRow[]>(() => {
+    const out: ModelRow[] = [];
+    for (const d of history) {
+      const cid = d.container_id;
+      if (!cid || cid.startsWith("pending_")) continue;
+      if (!failedMap[cid]) continue;
+      if (liveContainerIds.has(cid)) continue;
+      if (!seenLiveIdsRef.current.has(cid)) continue;
+      if (out.some((r) => r.id === cid)) continue;
+      out.push({
+        id: cid,
+        name: d.model_name,
+        image: undefined,
+        status: d.status,
+        ports: d.port ? String(d.port) : undefined,
+      });
+    }
+    return out;
+  }, [history, failedMap, liveContainerIds]);
+
+  const effectiveHealthMap = useMemo<Record<string, HealthStatus>>(() => {
+    const merged: Record<string, HealthStatus> = { ...healthMap };
+    for (const id of Object.keys(failedMap)) {
+      merged[id] = "failed";
+    }
+    return merged;
+  }, [healthMap, failedMap]);
+
+  // Workflow log dialog state (used when opening logs on a failed row)
+  const [workflowDialogDeploymentId, setWorkflowDialogDeploymentId] = useState<number | null>(null);
+  const [workflowDialogModelName, setWorkflowDialogModelName] = useState<string | undefined>(undefined);
+
   // Auto-refresh model list when any model becomes unavailable/unknown
   // (container likely stopped or crashed). Uses a ref so the timer
   // isn't torn down every time healthMap changes from polling.
   const staleRefreshTimer = useRef<number | null>(null);
   const hasStaleModel = useMemo(
-    () => Object.values(healthMap).some((h) => h === "unavailable" || h === "unknown"),
-    [healthMap],
+    () =>
+      Object.entries(healthMap).some(
+        ([id, h]) =>
+          (h === "unavailable" || h === "unknown") && !failedMap[id],
+      ),
+    [healthMap, failedMap],
   );
 
   useEffect(() => {
@@ -203,7 +347,17 @@ export default function ModelsDeployedCard(): JSX.Element {
     }
   }, [hasStaleModel, showDeleteModal, loadModels, setUserStoppedModel]);
 
-  const rows: ModelRow[] = useMemo(() => models as ModelRow[], [models]);
+  const rows: ModelRow[] = useMemo(() => {
+    const baseRows = models as ModelRow[];
+    // Hide rows the user has explicitly dismissed.
+    const visibleBase = baseRows.filter((r: ModelRow) => !dismissedFailedIds.has(r.id));
+    // Append synthetic rows for failed deployments whose live container is gone.
+    const baseIds = new Set(visibleBase.map((r: ModelRow) => r.id));
+    const extras = syntheticFailedRows.filter(
+      (r: ModelRow) => !baseIds.has(r.id) && !dismissedFailedIds.has(r.id),
+    );
+    return [...visibleBase, ...extras];
+  }, [models, syntheticFailedRows, dismissedFailedIds]);
 
   const preparingModels = useMemo(() => {
     return rows.filter((r) => healthMap[r.id] === "starting");
@@ -285,8 +439,8 @@ export default function ModelsDeployedCard(): JSX.Element {
         autoCloseTimerRef.current = null;
       }
     };
-  // Only re-run when status changes, not on every render
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Only re-run when status changes, not on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deleteStream.status]);
 
   const exportVisible = useCallback(() => {
@@ -385,206 +539,250 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   return (
     <>
-    <ElevatedCard accent="neutral" depth="lg" hover>
-      <CardHeader className="pb-4">
-        <div className="flex items-center justify-between gap-3">
-          {/* Left */}
-          <CardTitle className="text-xl">Models Deployed</CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowRegisterDialog(true)}
-          >
-            <Plus className="w-4 h-4 mr-1" />
-            Register Model
-          </Button>
-          {/* Center intentionally empty per redesign */}
-          <div className="flex-1" />
-          {/* Right */}
-          <ModelsToolbar
-            tableId="models-deployed"
-            visibleMap={columns}
-            onToggle={setKey}
-            onPreset={setPreset}
-            isRefreshing={isRefreshing}
-            onRefresh={refreshAllHealth}
-            density={prefs.density}
-            onDensity={setDensity}
-            autoRefreshSec={prefs.autoRefreshSec}
-            onAutoRefreshSec={setAutoRefreshSec}
-            healthRefreshSec={prefs.healthRefreshSec}
-            onHealthRefreshSec={setHealthRefreshSec}
-            onExportVisible={exportVisible}
-            onCopyAll={copyAllVisible}
-            visibleCount={Object.values(columns).filter(Boolean).length}
-            totalCount={Object.keys(columns).length}
-            onRefreshHealthNow={refreshAllHealth}
-          />
-        </div>
-      </CardHeader>
+      <ElevatedCard accent="neutral" depth="lg" hover>
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between gap-3">
+            {/* Left */}
+            <CardTitle className="text-xl">Models Deployed</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowRegisterDialog(true)}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Register Model
+            </Button>
+            {/* Center intentionally empty per redesign */}
+            <div className="flex-1" />
+            {/* Right */}
+            <ModelsToolbar
+              tableId="models-deployed"
+              visibleMap={columns}
+              onToggle={setKey}
+              onPreset={setPreset}
+              isRefreshing={isRefreshing}
+              onRefresh={refreshAllHealth}
+              density={prefs.density}
+              onDensity={setDensity}
+              autoRefreshSec={prefs.autoRefreshSec}
+              onAutoRefreshSec={setAutoRefreshSec}
+              healthRefreshSec={prefs.healthRefreshSec}
+              onHealthRefreshSec={setHealthRefreshSec}
+              onExportVisible={exportVisible}
+              onCopyAll={copyAllVisible}
+              visibleCount={Object.values(columns).filter(Boolean).length}
+              totalCount={Object.keys(columns).length}
+              onRefreshHealthNow={refreshAllHealth}
+            />
+          </div>
+        </CardHeader>
 
-      {/* Voice Agent discovery banner */}
-      {showVoiceBanner && (
-        <TooltipProvider>
-          <ElevatedCard accent="blue" depth="md" className="mx-6 mb-6">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-6">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-2">
-                        <PulsatingDot label="Whisper STT" color="blue" size="md" delay={0} />
-                        <PulsatingDot label="LLM" color="green" size="md" delay={400} />
-                        <PulsatingDot label="TTS" color="purple" size="md" delay={800} />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p className="text-sm">
-                        TT Studio automatically chains your deployed models: Whisper STT → LLM → TTS for seamless voice conversations
+        {/* Voice Agent discovery banner */}
+        {showVoiceBanner && (
+          <TooltipProvider>
+            <ElevatedCard accent="blue" depth="md" className="mx-6 mb-6">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-6">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center gap-2">
+                          <PulsatingDot label="Whisper STT" color="blue" size="md" delay={0} />
+                          <PulsatingDot label="LLM" color="green" size="md" delay={400} />
+                          <PulsatingDot label="TTS" color="purple" size="md" delay={800} />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs">
+                        <p className="text-sm">
+                          TT Studio automatically chains your deployed models: Whisper STT → LLM → TTS for seamless voice conversations
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">Voice Agent Ready</h3>
+                      <p className="text-sm text-muted-foreground">
+                        3 models deployed and auto-chained
                       </p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground">Voice Agent Ready</h3>
-                    <p className="text-sm text-muted-foreground">
-                      3 models deployed and auto-chained
-                    </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <EnhancedButton
+                      variant="default"
+                      effect="shine"
+                      onClick={() => navigate("/voice-agent")}
+                    >
+                      Start Voice Chat
+                    </EnhancedButton>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setVoiceBannerDismissed(true)}
+                      aria-label="Dismiss"
+                    >
+                      ✕
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <EnhancedButton 
-                    variant="default" 
-                    effect="shine"
-                    onClick={() => navigate("/voice-agent")}
-                  >
-                    Start Voice Chat
-                  </EnhancedButton>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => setVoiceBannerDismissed(true)}
-                    aria-label="Dismiss"
-                  >
-                    ✕
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </ElevatedCard>
-        </TooltipProvider>
-      )}
+              </CardContent>
+            </ElevatedCard>
+          </TooltipProvider>
+        )}
 
-      {/* Model preparing banner */}
-      {!preparingBannerDismissed && preparingModels.length > 0 && (
-        <ModelPreparingBanner
-          models={preparingModels}
-          phaseMap={phaseMap}
-          onViewLogs={(id: string) => setSelectedContainerId(id)}
-          onDismiss={() => setPreparingBannerDismissed(true)}
-        />
-      )}
-
-      {/* Chip slot visualization for multi-chip boards */}
-      {isMultiChipBoard && chipStatus && (
-        <div className="px-6 pb-4">
-          <ChipStatusDisplay
-            boardType={chipStatus.board_type}
-            totalSlots={chipStatus.total_slots}
-            slots={chipStatus.slots as any}
+        {/* Model preparing banner */}
+        {!preparingBannerDismissed && preparingModels.length > 0 && (
+          <ModelPreparingBanner
+            models={preparingModels}
+            phaseMap={phaseMap}
+            onViewLogs={(id: string) => setSelectedContainerId(id)}
+            onDismiss={() => setPreparingBannerDismissed(true)}
           />
-        </div>
-      )}
+        )}
 
-      <div
-        className={`${selectedContainerId ? "blur-sm backdrop-blur-sm" : ""} transition-all duration-200`}
-      >
-        <CardContent className="p-0">
-          <ScrollArea className="whitespace-nowrap rounded-md">
-            <Table>
-              <ModelsTable
-                rows={rows}
-                visibleMap={columns as ColumnVisibilityMap}
-                hideDeviceId={false}
-                healthMap={healthMap}
-                onOpenLogs={(id: string) => setSelectedContainerId(id)}
-                onDelete={(id: string) => {
-                  setDeleteTargetId(id);
-                  setShowDeleteModal(true);
-                }}
-                onRedeploy={(image?: string) => image && handleRedeploy(image)}
-                onNavigateToModel={(id: string, name: string) => {
-                  const row = rows.find((r) => r.id === id);
-                  const frontendType = row?.model_type
-                    ? getModelTypeFromBackendType(row.model_type)
-                    : undefined;
-                  handleModelNavigationClick(id, name, navigate, frontendType);
-                }}
-                onOpenApi={(id: string) => {
-                  const encoded = encodeURIComponent(id);
-                  window.location.href = `/api-info/${encoded}`;
-                }}
-                refreshHealthById={refreshHealthById}
-                density={prefs.density}
-              />
-            </Table>
-            <ScrollBar
-              className="scrollbar-thumb-rounded"
-              orientation="horizontal"
+        {/* Chip slot visualization for multi-chip boards */}
+        {isMultiChipBoard && chipStatus && (
+          <div className="px-6 pb-4">
+            <ChipStatusDisplay
+              boardType={chipStatus.board_type}
+              totalSlots={chipStatus.total_slots}
+              slots={chipStatus.slots as any}
             />
-          </ScrollArea>
-        </CardContent>
+          </div>
+        )}
+
+        <div
+          className={`${selectedContainerId ? "blur-sm backdrop-blur-sm" : ""} transition-all duration-200`}
+        >
+          <CardContent className="p-0">
+            <ScrollArea className="whitespace-nowrap rounded-md">
+              <Table>
+                <ModelsTable
+                  rows={rows}
+                  visibleMap={columns as ColumnVisibilityMap}
+                  hideDeviceId={false}
+                  healthMap={effectiveHealthMap}
+                  failedMap={failedMap}
+                  onOpenLogs={(id: string) => {
+                    const failed = failedMap[id];
+                    if (failed) {
+                      setWorkflowDialogDeploymentId(failed.deploymentId);
+                      setWorkflowDialogModelName(failed.modelName);
+                    } else {
+                      setSelectedContainerId(id);
+                    }
+                  }}
+                  onDelete={(id: string) => {
+                    if (failedMap[id]) {
+                      // Quick remove for failed/died containers: hide row
+                      // immediately. The container is already dead, but we still
+                      // fire the stop endpoint in the background to clean up
+                      // any chip slot reservation and update the DB record.
+                      setDismissedFailedIds((prev: Set<string>) => {
+                        const next = new Set(prev);
+                        next.add(id);
+                        return next;
+                      });
+                      seenLiveIdsRef.current.delete(id);
+                      customToast.success("Removed failed deployment");
+                      axios
+                        .post(`/docker-api/stop/`, { container_id: id })
+                        .catch(() => {
+                          // best-effort cleanup; the row is already hidden
+                        })
+                        .finally(() => {
+                          refreshModels();
+                          window.setTimeout(() => refreshAllHealth(), 500);
+                        });
+                    } else {
+                      setDeleteTargetId(id);
+                      setShowDeleteModal(true);
+                    }
+                  }}
+                  onRedeploy={(image?: string) => image && handleRedeploy(image)}
+                  onNavigateToModel={(id: string, name: string) => {
+                    const row = rows.find((r) => r.id === id);
+                    const frontendType = row?.model_type
+                      ? getModelTypeFromBackendType(row.model_type)
+                      : undefined;
+                    handleModelNavigationClick(id, name, navigate, frontendType);
+                  }}
+                  onOpenApi={(id: string) => {
+                    const encoded = encodeURIComponent(id);
+                    window.location.href = `/api-info/${encoded}`;
+                  }}
+                  refreshHealthById={refreshHealthById}
+                  density={prefs.density}
+                />
+              </Table>
+              <ScrollBar
+                className="scrollbar-thumb-rounded"
+                orientation="horizontal"
+              />
+            </ScrollArea>
+          </CardContent>
+        </div>
+
+        <LogStreamDialog
+          open={!!selectedContainerId}
+          containerId={selectedContainerId || ""}
+          modelName={
+            models.find((m) => m.id === selectedContainerId)?.name || undefined
+          }
+          onClose={() => setSelectedContainerId(null)}
+        />
+
+        <WorkflowLogDialog
+          open={workflowDialogDeploymentId !== null}
+          deploymentId={workflowDialogDeploymentId}
+          modelName={workflowDialogModelName}
+          diedUnexpectedly={true}
+          stoppedByUser={false}
+          onClose={() => {
+            setWorkflowDialogDeploymentId(null);
+            setWorkflowDialogModelName(undefined);
+          }}
+        />
+
+        <DeleteModelDialog
+          open={showDeleteModal}
+          modelId={deleteTargetId || ""}
+          isLoading={deleteStream.status === "running"}
+          deleteStep={deleteStream.step}
+          streamStatus={deleteStream.status}
+          stepLogs={deleteStream.stepLogs}
+          errorMessage={deleteStream.errorMessage}
+          onConfirm={handleConfirmDelete}
+          onCancel={handleCloseDeleteModal}
+        />
+
+        <RegisterModelDialog
+          open={showRegisterDialog}
+          onClose={() => setShowRegisterDialog(false)}
+          onSuccess={() => {
+            setShowRegisterDialog(false);
+            loadModels();
+          }}
+        />
+      </ElevatedCard>
+
+      {/* Hidden HealthCell container — keeps health polling alive without rendering in the table */}
+      <div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", visibility: "hidden" }}>
+        {rows.map((row) => (
+          <Fragment key={row.id}>
+            <HealthCell
+              id={row.id}
+              register={mirroredRegister}
+              onHealthChange={(
+                id: string,
+                h: HealthStatus,
+                phase?: StartupPhase | null,
+              ) => {
+                setHealthMap((prev) => ({ ...prev, [id]: h }));
+                setPhaseMap((prev) => ({ ...prev, [id]: phase ?? null }));
+              }}
+            />
+          </Fragment>
+        ))}
       </div>
-
-      <LogStreamDialog
-        open={!!selectedContainerId}
-        containerId={selectedContainerId || ""}
-        modelName={
-          models.find((m) => m.id === selectedContainerId)?.name || undefined
-        }
-        onClose={() => setSelectedContainerId(null)}
-      />
-
-      <DeleteModelDialog
-        open={showDeleteModal}
-        modelId={deleteTargetId || ""}
-        isLoading={deleteStream.status === "running"}
-        deleteStep={deleteStream.step}
-        streamStatus={deleteStream.status}
-        stepLogs={deleteStream.stepLogs}
-        errorMessage={deleteStream.errorMessage}
-        onConfirm={handleConfirmDelete}
-        onCancel={handleCloseDeleteModal}
-      />
-
-      <RegisterModelDialog
-        open={showRegisterDialog}
-        onClose={() => setShowRegisterDialog(false)}
-        onSuccess={() => {
-          setShowRegisterDialog(false);
-          loadModels();
-        }}
-      />
-    </ElevatedCard>
-
-    {/* Hidden HealthCell container — keeps health polling alive without rendering in the table */}
-    <div style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", visibility: "hidden" }}>
-      {rows.map((row) => (
-        <Fragment key={row.id}>
-          <HealthCell
-            id={row.id}
-            register={mirroredRegister}
-            onHealthChange={(
-              id: string,
-              h: HealthStatus,
-              phase?: StartupPhase | null,
-            ) => {
-              setHealthMap((prev) => ({ ...prev, [id]: h }));
-              setPhaseMap((prev) => ({ ...prev, [id]: phase ?? null }));
-            }}
-          />
-        </Fragment>
-      ))}
-    </div>
     </>
   );
 }
