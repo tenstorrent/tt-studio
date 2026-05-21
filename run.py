@@ -94,7 +94,8 @@ DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "app", "services", "do
 DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.pid")
 DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
-EASY_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
+CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "config.json")
+LEGACY_EASY_CONFIG_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_easy_config.json")
 STARTUP_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "startup.log")
 
 # Map health check URLs to Docker container name prefixes (for auto-log-fetching on failure)
@@ -912,17 +913,26 @@ def get_existing_env_vars():
 def save_easy_config(config_dict):
     """Save easy mode configuration to JSON file"""
     try:
-        with open(EASY_CONFIG_FILE_PATH, 'w') as f:
+        with open(CONFIG_FILE_PATH, 'w') as f:
             json.dump(config_dict, f, indent=2)
         # Silent — no need to show config file path to user
     except Exception as e:
         print(f"{C_YELLOW}⚠️  Warning: Could not save easy mode configuration: {e}{C_RESET}")
 
 def load_easy_config():
-    """Load easy mode configuration from JSON file"""
-    if os.path.exists(EASY_CONFIG_FILE_PATH):
+    """Load easy mode configuration from config.json (with one-time
+    migration from the legacy .tt_studio_easy_config.json filename)."""
+    # One-shot migration: if the legacy dotfile exists and config.json
+    # does not, rename it. Preserves existing setup state on upgrade.
+    if not os.path.exists(CONFIG_FILE_PATH) and os.path.exists(LEGACY_EASY_CONFIG_FILE_PATH):
         try:
-            with open(EASY_CONFIG_FILE_PATH, 'r') as f:
+            os.rename(LEGACY_EASY_CONFIG_FILE_PATH, CONFIG_FILE_PATH)
+        except Exception as e:
+            print(f"{C_YELLOW}⚠️  Could not migrate legacy config: {e}{C_RESET}")
+
+    if os.path.exists(CONFIG_FILE_PATH):
+        try:
+            with open(CONFIG_FILE_PATH, 'r') as f:
                 return json.load(f)
         except Exception as e:
             print(f"{C_YELLOW}⚠️  Warning: Could not load easy mode configuration: {e}{C_RESET}")
