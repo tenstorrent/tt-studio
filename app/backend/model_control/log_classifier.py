@@ -4,20 +4,33 @@
 """
 Container startup phase classifier.
 
-Parses docker stdout lines from a vLLM + tt-metal inference container that is
-in the "starting" state, and returns a structured snapshot of which phase of
-warmup it's in. Used by ModelHealthView to enrich the 202 response so the
-frontend banner can show real progress instead of a fake timer.
+Parses docker stdout lines from a starting inference container and returns a
+structured snapshot of which phase of warmup it's in. Used by ModelHealthView
+to enrich the 202 response so the frontend banner can show real progress.
 
-Pure function — feed it lines, get back a dict. No I/O.
+Supports two phase templates because the runtime stacks are different:
+
+* LLM template — vLLM + tt-metal containers (Llama, Qwen, DeepSeek, etc.).
+  Long compile-graph phase, KV cache allocation, autoregressive decode.
+
+* MEDIA template — tt-media-inference-server (Whisper, SpeechT5, SDXL, etc.).
+  Multi-worker FastAPI service with one-shot encoders/decoders. No KV cache,
+  no compile-graph phase.
+
+Pure function — feed it lines + an optional `model_type` hint, get back a dict
+with the right phase template embedded so the frontend knows which pills to
+render. No I/O.
 """
 
 import re
 import time
 from typing import Iterable, Optional
 
-# Phase keys, in canonical order. The latest matched marker wins.
-PHASES = [
+# ---------------------------------------------------------------------------
+# LLM template (vLLM + tt-metal)
+# ---------------------------------------------------------------------------
+
+LLM_PHASES = [
     "container_starting",
     "vllm_importing",
     "downloading_weights",
@@ -31,7 +44,7 @@ PHASES = [
     "ready",
 ]
 
-PHASE_LABELS = {
+LLM_PHASE_LABELS = {
     "container_starting":  "Starting container",
     "vllm_importing":      "Loading vLLM runtime",
     "downloading_weights": "Downloading model weights",
@@ -45,33 +58,28 @@ PHASE_LABELS = {
     "ready":               "Ready",
 }
 
-# Coarse progress percent per phase, used when no finer-grained signal is available.
-# downloading_weights gets the 10-30 window since it's the long phase; byte-level
-# progress in views.py refines this when bytes are available.
-PHASE_BASE_PCT = {
-    "container_starting":  5,
-    "vllm_importing":      8,
-    "downloading_weights": 10,
-    "engine_initializing": 30,
-    "device_init":         35,
-    "model_config":        40,
-    "loading_weights":     45,
-    "compiling_model":     50,
-    "engine_ready":        75,
-    "server_starting":     90,
+# Weighted by typical phase duration. compile + download together account for
+# >90% of total warmup; everything else is short.
+LLM_PHASE_BASE_PCT = {
+    "container_starting":  2,
+    "vllm_importing":      5,
+    "downloading_weights": 8,
+    "engine_initializing": 27,
+    "device_init":         28,
+    "model_config":        30,
+    "loading_weights":     32,
+    "compiling_model":     35,
+    "engine_ready":        90,
+    "server_starting":     95,
     "ready":               100,
 }
 
-# Markers chosen from real warmup logs under
-# .artifacts/tt-inference-server/workflow_logs/docker_server/. Each maps an
-# uppercased substring (cheap) or compiled regex (precise) to a phase.
-_SUBSTRING_MARKERS: list[tuple[str, str]] = [
+# Markers chosen from real warmup logs
+_LLM_SUBSTRING_MARKERS: list[tuple[str, str]] = [
     ("USING CACHE_ROOT",                  "container_starting"),
     ("MOUNTED VOLUME PERMISSIONS",        "container_starting"),
     ("AUTOMATICALLY DETECTED PLATFORM",   "vllm_importing"),
     ("SETTING ENV VAR:",                  "vllm_importing"),
-    # In-container weights download: run_vllm_api_server.py:312 emits the first;
-    # the second fires on a cache hit and immediately advances past download.
     ("DOWNLOADING WEIGHTS FROM",          "downloading_weights"),
     ("WEIGHTS ALREADY EXIST AT",          "downloading_weights"),
     ("INITIALIZING A V0 LLM ENGINE",      "engine_initializing"),
@@ -97,8 +105,7 @@ _SUBSTRING_MARKERS: list[tuple[str, str]] = [
     ("APPLICATION STARTUP COMPLETE",      "server_starting"),
 ]
 
-# Pulled from run_vllm_api_server.py:312, 316.
-# Example:  "Downloading weights from Qwen/Qwen3-32B to /home/container_app_user/cache_root/weights/Qwen3-32B"
+# vLLM-emitted download log lines
 _DOWNLOAD_START_RE = re.compile(
     r"Downloading weights from\s+(?P<repo>\S+)\s+to\s+(?P<path>\S+)"
 )
@@ -106,52 +113,220 @@ _DOWNLOAD_CACHED_RE = re.compile(
     r"Weights already exist at\s+(?P<path>\S+)"
 )
 
-# Latest "Service not ready after Xs" / "Cache generation in progress. Waited Xs" line.
-# These confirm liveness from an external poller; we surface the elapsed seconds
-# so the banner can render "alive · N s elapsed".
+MEDIA_PHASES = [
+    "container_starting",
+    "model_config",
+    "downloading_weights",
+    "engine_initializing",
+    "starting_workers",
+    "loading_weights",
+    "device_init",
+    "warming_up",
+    "server_starting",
+    "ready",
+]
+
+MEDIA_PHASE_LABELS = {
+    "container_starting":  "Starting container",
+    "model_config":        "Resolving model configuration",
+    "downloading_weights": "Downloading model weights",
+    "engine_initializing": "Initializing inference service",
+    "starting_workers":    "Starting worker pool",
+    "loading_weights":     "Loading model weights",
+    "device_init":         "Opening Tenstorrent device",
+    "warming_up":          "Warming up runner",
+    "server_starting":     "Starting API server",
+    "ready":               "Ready",
+}
+
+# Media warmup is dominated by download (when not cached) and worker init.
+# Download band is wider (10 → 50) since it's typically the slowest step
+# even though the absolute sizes are smaller than LLMs.
+MEDIA_PHASE_BASE_PCT = {
+    "container_starting":  2,
+    "model_config":        5,
+    "downloading_weights": 10,
+    "engine_initializing": 55,
+    "starting_workers":    65,
+    "loading_weights":     75,
+    "device_init":         82,
+    "warming_up":          88,
+    "server_starting":     94,
+    "ready":               100,
+}
+
+_MEDIA_SUBSTRING_MARKERS: list[tuple[str, str]] = [
+    ("USING CACHE_ROOT",                       "container_starting"),
+    ("MOUNTED VOLUME PERMISSIONS",             "container_starting"),
+    ("SETTINGS INIT: MODEL=",                  "model_config"),
+    ("CONFIG LOOKUP: RUNNER=",                 "model_config"),
+    ("DOWNLOADING WEIGHTS FOR MODEL:",         "downloading_weights"),
+    ("ALREADY CACHED, SKIPPING DOWNLOAD",      "downloading_weights"),
+    ("USING CACHED MODEL AT:",                 "downloading_weights"),
+    ("SUCCESSFULLY DOWNLOADED MODEL WEIGHTS",  "engine_initializing"),
+    ("SETTING UP PROMETHEUS METRICS",          "engine_initializing"),
+    ("CREATING NEW AUDIO SERVICE INSTANCE",    "engine_initializing"),
+    ("CREATING NEW VIDEO SERVICE INSTANCE",    "engine_initializing"),
+    ("STARTED AUDIOPREPROCESSING WORKER",      "starting_workers"),
+    ("STARTED VIDEOPREPROCESSING WORKER",      "starting_workers"),
+    ("STARTED VIDEOPOSTPROCESSING WORKER",     "starting_workers"),
+    ("STARTED TTSPOSTPROCESSING WORKER",       "starting_workers"),
+    ("LOADING SPEAKER DIARIZATION",            "loading_weights"),
+    ("CREATED TTWHISPERRUNNER",                "loading_weights"),
+    ("CREATED TTSPEECHTTS RUNNER",             "loading_weights"),
+    ("OPENING USER MODE DEVICE DRIVER",        "device_init"),
+    ("CREATING TOPOLOGYDISCOVERY",             "device_init"),
+    ("ESTABLISHED FIRMWARE BUNDLE VERSION",    "device_init"),
+    ("SUBMITTED WARMUP TASK",                  "warming_up"),
+    ("ALL WORKERS STARTED IN SEQUENCE",        "warming_up"),
+    ("APPLICATION STARTUP COMPLETE",           "server_starting"),
+    ("UVICORN RUNNING ON",                     "server_starting"),
+]
+
+# Media-server-emitted download log lines
+_DOWNLOAD_MEDIA_RE = re.compile(
+    r"Downloading weights for model:\s+(?P<repo>\S+)"
+)
+_DOWNLOAD_MEDIA_CACHED_RE = re.compile(
+    r"Model\s+(?P<repo>\S+)\s+already cached"
+)
+
+# ---------------------------------------------------------------------------
+# Shared regexes / model-type routing
+# ---------------------------------------------------------------------------
+
+# Latest "Service not ready after Xs" / "Cache generation in progress. Waited Xs".
 _HEARTBEAT_RE = re.compile(
     r"(?:Service not ready after|Cache generation in progress\.\s*Waited)\s+(\d+(?:\.\d+)?)s"
 )
 
-# Warmup detail: "Warming up prefill for sequence length: 2048"
+# Warmup detail: "Warming up prefill for sequence length: 2048" (LLM only).
 _WARMUP_SEQLEN_RE = re.compile(
     r"Warming up prefill for sequence length:\s*(\d+)", re.IGNORECASE
 )
 
-# Final readiness: vLLM's uvicorn access log answering /health with 200.
+# Final readiness: uvicorn access-log answering /health with 200. Works for
+# both templates since both use FastAPI/uvicorn.
 _HEALTH_OK_RE = re.compile(r'"GET /health HTTP/1\.1" 200')
 
-# Counts of completed compile/capture steps within compiling_model. There are
-# typically 4 prefill seq lengths + 1 decode capture = 5 traces, so progress
-# within the phase tracks N/5 (clamped).
+# Uvicorn access-log lines. tt-studio (every 3s) and the agent (multiple per
+# second) poll /health and /v1/models continuously, and each request appends a
+# line like:
+#   INFO:     172.18.0.3:33278 - "GET /health HTTP/1.1" 500 Internal Server Error
+# Inside ~10 seconds those fill the 200-line tail entirely, evicting the real
+# warmup markers ("Model X already cached", "Opening user mode device driver",
+# etc.). The classifier only needs the meaningful events, so drop access-log
+# lines before scanning. The 200-OK /health line is matched separately above
+# *before* we filter, so readiness detection still works.
+_UVICORN_ACCESS_LOG_RE = re.compile(
+    r'^\s*INFO:\s+\S+:\d+\s+-\s+"\S+\s+/\S*\s+HTTP/[\d.]+"\s+\d+'
+)
+
+
+def _is_noise_line(line: str) -> bool:
+    """Return True for log lines we want to ignore in phase classification."""
+    return bool(_UVICORN_ACCESS_LOG_RE.match(line))
+
+# LLM compile-trace count.
 _DONE_CAPTURE_RE = re.compile(
     r"Done Capturing (?:Prefill|Decode) Trace", re.IGNORECASE
 )
-COMPILE_TRACE_TOTAL = 5  # Qwen3-8B/N300 baseline; safe clamp for other configs.
+COMPILE_TRACE_TOTAL = 5  # 4 prefill seq_lens + 1 decode capture.
 
-# How long without any recognised activity before we mark the deploy stalled.
-STALL_THRESHOLD_SECONDS = 90.0
+# tt-studio ModelTypes (mirror of shared_config.model_type_config.ModelTypes)
+# that should be classified as MEDIA. Everything else → LLM.
+_MEDIA_MODEL_TYPES = frozenset({
+    "speech_recognition",
+    "tts",
+    "image_generation",
+    "video_generation",
+    "object_detection",
+    "cnn",
+    "face_recognition",
+})
+
+# Backstop name patterns — used when the caller doesn't pass a model_type
+# hint and we have to guess from the model name. Tries to match the names
+# from models_from_inference_server.json that live on the media server.
+_MEDIA_NAME_PATTERNS = [
+    re.compile(r"whisper",                 re.IGNORECASE),
+    re.compile(r"distil-large",            re.IGNORECASE),
+    re.compile(r"^speecht5",               re.IGNORECASE),
+    re.compile(r"^stable-diffusion",       re.IGNORECASE),
+    re.compile(r"^flux\.",                 re.IGNORECASE),
+    re.compile(r"^qwen-image",             re.IGNORECASE),
+    re.compile(r"^motif-image",            re.IGNORECASE),
+    re.compile(r"^wan2",                   re.IGNORECASE),
+    re.compile(r"^mochi",                  re.IGNORECASE),
+    re.compile(r"^yolo",                   re.IGNORECASE),
+    re.compile(r"^resnet",                 re.IGNORECASE),
+    re.compile(r"^efficientnet",           re.IGNORECASE),
+    re.compile(r"^mobilenetv2",            re.IGNORECASE),
+    re.compile(r"^vit$",                   re.IGNORECASE),
+    re.compile(r"^vovnet",                 re.IGNORECASE),
+    re.compile(r"^unet$",                  re.IGNORECASE),
+    re.compile(r"^segformer",              re.IGNORECASE),
+]
+
+
+def category_for_model(model_type: Optional[str] = None, model_name: Optional[str] = None) -> str:
+    """Return 'media' or 'llm' for the given model identifiers.
+
+    Resolution order:
+      1. `model_type` from the registry (definitive when present)
+      2. `model_name` regex backstop
+      3. Default to 'llm' (the more common case)
+    """
+    if model_type:
+        if str(model_type).lower() in _MEDIA_MODEL_TYPES:
+            return "media"
+        return "llm"
+    if model_name:
+        for pat in _MEDIA_NAME_PATTERNS:
+            if pat.search(model_name):
+                return "media"
+    return "llm"
+
+
+def _template_for(category: str) -> tuple[
+    list[str], dict[str, str], dict[str, int], list[tuple[str, str]]
+]:
+    """Return (phases, phase_labels, phase_base_pct, substring_markers)."""
+    if category == "media":
+        return (MEDIA_PHASES, MEDIA_PHASE_LABELS, MEDIA_PHASE_BASE_PCT, _MEDIA_SUBSTRING_MARKERS)
+    return (LLM_PHASES, LLM_PHASE_LABELS, LLM_PHASE_BASE_PCT, _LLM_SUBSTRING_MARKERS)
 
 
 def _now() -> float:
     return time.time()
 
 
-def classify_startup_phase(lines: Iterable[str], now: Optional[float] = None) -> dict:
+def classify_startup_phase(
+    lines: Iterable[str],
+    now: Optional[float] = None,
+    model_type: Optional[str] = None,
+    model_name: Optional[str] = None,
+) -> dict:
     """Classify a snapshot of recent container stdout lines into a phase summary.
 
     Args:
-        lines: log lines in chronological order (oldest first). Any line format
-            is fine; the classifier matches substrings/regexes.
-        now: optional override for the wall clock, for tests.
+        lines: log lines in chronological order (oldest first).
+        now: optional wall-clock override (tests).
+        model_type: registry `ModelTypes` value (e.g. "chat", "speech_recognition").
+            When provided, selects the LLM or MEDIA phase template directly.
+        model_name: fallback identifier — used to regex-route to MEDIA when
+            no `model_type` hint is available.
 
     Returns:
-        dict with phase, phase_label, progress, message, last_heartbeat_seconds,
-        warmup_seq_len, trace_count, is_stalled, classified_at.
+        dict with: phase, phase_label, progress, message, last_heartbeat_seconds,
+        warmup_seq_len, trace_count, classified_at, weights_repo,
+        weights_target_path, weights_cached, phases, phase_labels,
+        phase_base_pct, category.
     """
     current_now = now if now is not None else _now()
+    category = category_for_model(model_type=model_type, model_name=model_name)
+    phases, phase_labels, phase_base_pct, substring_markers = _template_for(category)
 
-    # Latest signals encountered while scanning (kept as we go, last one wins).
     phase: Optional[str] = None
     last_meaningful_line: Optional[str] = None
     last_heartbeat_seconds: Optional[float] = None
@@ -166,44 +341,66 @@ def classify_startup_phase(lines: Iterable[str], now: Optional[float] = None) ->
         if not raw:
             continue
         line = raw.rstrip()
-        upper = line.upper()
 
-        # Final readiness — once present we stop refining; it overrides everything.
+        # Final readiness overrides everything — check this *before* filtering
+        # noise because the 200-OK signal lives inside a uvicorn access-log line.
         if _HEALTH_OK_RE.search(line):
             saw_health_ok = True
 
-        # Phase markers (substring scan).
-        for needle, candidate_phase in _SUBSTRING_MARKERS:
+        # Skip per-request access-log entries so they don't crowd the real
+        # warmup events out of the tail buffer.
+        if _is_noise_line(line):
+            continue
+
+        upper = line.upper()
+
+        # Phase markers (substring scan, category-specific).
+        for needle, candidate_phase in substring_markers:
             if needle in upper:
                 phase = candidate_phase
                 last_meaningful_line = line
                 break
 
-        # Capture repo + container path from the download log line.
-        m = _DOWNLOAD_START_RE.search(line)
-        if m:
-            weights_repo = m.group("repo")
-            weights_target_path = m.group("path")
-            weights_cached = False
-        else:
-            m = _DOWNLOAD_CACHED_RE.search(line)
+        # Capture download repo + (optional) container path. The LLM variant
+        # logs both repo and path; the media variant logs only repo. The
+        # registry/model spec lets the backend compute the cache path later
+        # if it ever needs to du(1) into the HF hub layout.
+        if category == "media":
+            m = _DOWNLOAD_MEDIA_RE.search(line)
             if m:
+                weights_repo = m.group("repo")
+                weights_cached = False
+            else:
+                m = _DOWNLOAD_MEDIA_CACHED_RE.search(line)
+                if m:
+                    weights_repo = m.group("repo")
+                    weights_cached = True
+        else:
+            m = _DOWNLOAD_START_RE.search(line)
+            if m:
+                weights_repo = m.group("repo")
                 weights_target_path = m.group("path")
-                weights_cached = True
+                weights_cached = False
+            else:
+                m = _DOWNLOAD_CACHED_RE.search(line)
+                if m:
+                    weights_target_path = m.group("path")
+                    weights_cached = True
 
-        # Within compiling_model, count completed trace captures.
-        if _DONE_CAPTURE_RE.search(line):
+        # LLM-only: count completed compile-trace captures.
+        if category == "llm" and _DONE_CAPTURE_RE.search(line):
             trace_count += 1
 
-        # Latest "Warming up prefill" seq_len (detail for the message line).
-        m = _WARMUP_SEQLEN_RE.search(line)
-        if m:
-            try:
-                warmup_seq_len = int(m.group(1))
-            except ValueError:
-                pass
+        # LLM-only: latest "Warming up prefill" seq_len.
+        if category == "llm":
+            m = _WARMUP_SEQLEN_RE.search(line)
+            if m:
+                try:
+                    warmup_seq_len = int(m.group(1))
+                except ValueError:
+                    pass
 
-        # Heartbeat from the prompt_client poller — elapsed seconds external wait.
+        # Heartbeat (LLM-only marker, but cheap to check regardless).
         m = _HEARTBEAT_RE.search(line)
         if m:
             try:
@@ -217,22 +414,23 @@ def classify_startup_phase(lines: Iterable[str], now: Optional[float] = None) ->
             last_meaningful_line = "API server is ready"
 
     if phase is None:
-        # No marker matched — container probably just started, no stdout yet.
-        phase = "container_starting"
+        phase = phases[0]  # first phase in the active template
 
-    # Compute progress percent. For compiling_model we layer trace_count progress
-    # on top of the base, so the bar visibly advances during the long warmup.
-    progress = PHASE_BASE_PCT.get(phase, 0)
-    if phase == "compiling_model" and trace_count > 0:
+    progress = phase_base_pct.get(phase, 0)
+
+    # LLM-only: layer trace_count progress on top of compiling_model so the
+    # bar visibly advances during the long compile. Spans
+    # compiling_model → engine_ready - 2 (leaves a 2% gap for the boundary).
+    if category == "llm" and phase == "compiling_model" and trace_count > 0:
         capped = min(trace_count, COMPILE_TRACE_TOTAL)
-        # Span 35% → 70% across COMPILE_TRACE_TOTAL captures.
-        progress = PHASE_BASE_PCT["compiling_model"] + int(
-            (capped / COMPILE_TRACE_TOTAL) * (PHASE_BASE_PCT["engine_ready"] - PHASE_BASE_PCT["compiling_model"] - 5)
+        progress = phase_base_pct["compiling_model"] + int(
+            (capped / COMPILE_TRACE_TOTAL)
+            * (phase_base_pct["engine_ready"] - phase_base_pct["compiling_model"] - 2)
         )
 
-    # Build a human-friendly message line. Prefer phase-specific detail over the raw log line.
+    # Human-readable message line.
     message = last_meaningful_line or ""
-    if phase == "compiling_model":
+    if category == "llm" and phase == "compiling_model":
         detail_parts = []
         if warmup_seq_len:
             detail_parts.append(f"prefill seq_len {warmup_seq_len}")
@@ -241,29 +439,21 @@ def classify_startup_phase(lines: Iterable[str], now: Optional[float] = None) ->
         if detail_parts:
             message = " · ".join(detail_parts)
 
-    # Stall detection: only meaningful if we have an external heartbeat to compare
-    # against. The poller emits one every ~10s, so absence past STALL_THRESHOLD is a real signal.
-    is_stalled = False
-    if last_heartbeat_seconds is not None and phase not in ("ready",):
-        # The heartbeat reports cumulative external wait time, not "time since last beat".
-        # We approximate freshness by assuming the poller emits regularly; if the most
-        # recent heartbeat we see is the same value across multiple polls, the upstream
-        # tail is empty / frozen. Caller can compare last_heartbeat_seconds across calls
-        # for a definitive stalled signal. For now we surface the value and let the
-        # frontend decide.
-        pass
-
     return {
         "phase": phase,
-        "phase_label": PHASE_LABELS.get(phase, phase),
+        "phase_label": phase_labels.get(phase, phase),
         "progress": progress,
         "message": message[:300],
         "last_heartbeat_seconds": last_heartbeat_seconds,
         "warmup_seq_len": warmup_seq_len,
         "trace_count": trace_count,
-        "is_stalled": is_stalled,
         "classified_at": current_now,
         "weights_repo": weights_repo,
         "weights_target_path": weights_target_path,
         "weights_cached": weights_cached,
+        # Category-aware template embedded so the frontend renders only the phases for this model type.
+        "category": category,
+        "phases": list(phases),
+        "phase_labels": dict(phase_labels),
+        "phase_base_pct": dict(phase_base_pct),
     }

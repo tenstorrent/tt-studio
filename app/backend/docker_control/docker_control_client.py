@@ -164,6 +164,35 @@ class DockerControlClient:
         """Inspect a container (alias for get_container)"""
         return self.get_container(container_id)
 
+    def dir_size(self, container_id: str, path: str, timeout: float = 4.0) -> Optional[int]:
+        """Recursive byte count of `path` inside the running container.
+
+        Wraps the docker-control-service's read-only `du` helper. Returns None
+        on transport failure / 404; callers should treat that as "no signal".
+        Returns 0 (not None) when the path exists but is empty or missing
+        inside the container — see download_progress.py for the difference.
+        """
+        url = f"{self.url}/api/v1/containers/{container_id}/dir-size"
+        try:
+            response = requests.post(
+                url,
+                headers=self._get_headers(),
+                json={"path": path, "timeout": timeout},
+                timeout=max(2.0, timeout + 2.0),
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+            n = data.get("bytes")
+            return int(n) if isinstance(n, int) else None
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"dir_size({container_id[:12]}, {path}) failed: {e}")
+            return None
+        except (ValueError, TypeError) as e:
+            logger.warning(f"dir_size({container_id[:12]}) parse failure: {e}")
+            return None
+
     def tail_logs(self, container_id: str, tail: int = 200, timeout: float = 5.0) -> List[str]:
         """Fetch a one-shot snapshot of the most recent container log lines.
 

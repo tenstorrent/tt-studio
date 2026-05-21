@@ -5,10 +5,14 @@
 Live download-progress helper for the in-container HuggingFace snapshot_download
 call at .artifacts/tt-inference-server/vllm-tt-metal/src/run_vllm_api_server.py:312-314.
 
-Reads bytes via `docker exec du -sb <weights_path>` against the running container,
-fetches total size from the HF model tree API (cached per repo), and maintains
-per-deploy EMA speed + ETA in module-level state. Pure mechanism — wiring lives
-in `model_control.views._get_startup_phase`.
+Reads bytes via the docker-control-service `dir-size` endpoint (which runs
+`du -sb` inside the running container), fetches total size from the HF model
+tree API (cached per repo), and maintains per-deploy EMA speed + ETA in
+module-level state. Pure mechanism — wiring lives in
+`model_control.views._get_startup_phase`.
+
+The backend container does NOT have /var/run/docker.sock mounted; all docker
+operations route through docker-control-service via DockerControlClient.
 """
 
 import json
@@ -19,7 +23,6 @@ import urllib.error
 import urllib.request
 from typing import Dict, Optional
 
-import docker
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -41,65 +44,23 @@ _EMA_ALPHA_LATER = 0.15
 _ETA_SMOOTH_ALPHA = 0.3             # how much new raw ETA influences smoothed ETA
 _EXEC_TIMEOUT_SECONDS = 4           # bound how long du can run before we give up
 
-# `original/**` is excluded from `snapshot_download` for some repos (matches
-# tt-inference-server's exclude list). Keep both included files and an exclude
-# prefix list so the total matches what actually lands on disk.
-_HF_EXCLUDE_PREFIXES = ("original/",)
 
-
-def _docker_client() -> Optional[docker.DockerClient]:
-    try:
-        return docker.from_env()
-    except Exception as exc:
-        logger.debug("download_progress: docker.from_env() failed: %s", exc)
-        return None
-
-
-def _exec_du_bytes(deploy_id: str, container_path: str) -> Optional[int]:
+def _container_dir_size(deploy_id: str, container_path: str) -> Optional[int]:
     """Return recursive byte count of `container_path` inside the running deploy.
 
-    Uses `du -sb` so it works on any layout (HF cache hub/blobs, flat local_dir,
-    partial .incomplete files alongside finals — du sums them all).
+    Routes through docker-control-service so it works from inside the backend
+    container (which has no docker socket). Returns 0 when the path exists
+    but is empty / not-yet-created; None on transport failure.
     """
     if not deploy_id or not container_path:
         return None
-    client = _docker_client()
-    if client is None:
-        return None
     try:
-        container = client.containers.get(deploy_id)
-    except docker.errors.NotFound:
-        logger.debug("download_progress: container %s not found", deploy_id[:12])
-        return None
+        from docker_control.docker_control_client import get_docker_client
+        client = get_docker_client()
     except Exception as exc:
-        logger.debug("download_progress: get(%s) failed: %s", deploy_id[:12], exc)
+        logger.debug("download_progress: get_docker_client failed: %s", exc)
         return None
-
-    # `du -sb <path>`: byte total, with stderr discarded so a transient ENOENT
-    # (path being created mid-download) returns "" instead of failing.
-    cmd = ["sh", "-c", f"du -sb {_shell_quote(container_path)} 2>/dev/null | cut -f1"]
-    try:
-        result = container.exec_run(cmd, demux=False, stream=False, tty=False)
-    except Exception as exc:
-        logger.debug("download_progress: exec_run failed for %s: %s", deploy_id[:12], exc)
-        return None
-
-    output = result.output if hasattr(result, "output") else None
-    if isinstance(output, bytes):
-        text = output.decode("utf-8", errors="ignore").strip()
-    elif isinstance(output, str):
-        text = output.strip()
-    else:
-        return None
-    if not text:
-        return 0
-    first = text.splitlines()[0].strip()
-    return int(first) if first.isdigit() else 0
-
-
-def _shell_quote(s: str) -> str:
-    """Minimal single-quote escape for `sh -c` arguments."""
-    return "'" + s.replace("'", "'\\''") + "'"
+    return client.dir_size(deploy_id, container_path, timeout=_EXEC_TIMEOUT_SECONDS)
 
 
 def _fetch_total_bytes(repo: str) -> Optional[int]:
@@ -128,11 +89,20 @@ def _fetch_total_bytes(repo: str) -> Optional[int]:
                     continue
                 if entry.get("type") != "file":
                     continue
-                path = entry.get("path") or ""
-                if any(path.startswith(pfx) for pfx in _HF_EXCLUDE_PREFIXES):
-                    continue
-                size = entry.get("size")
-                if isinstance(size, int) and size > 0:
+                # Prefer `lfs.size` over top-level `size` for LFS-tracked files.
+                # Currently both are the resolved blob size, but historic HF API
+                # responses returned the pointer size at the top level.
+                lfs = entry.get("lfs")
+                size: Optional[int] = None
+                if isinstance(lfs, dict):
+                    lfs_size = lfs.get("size")
+                    if isinstance(lfs_size, int) and lfs_size > 0:
+                        size = lfs_size
+                if size is None:
+                    top_size = entry.get("size")
+                    if isinstance(top_size, int) and top_size > 0:
+                        size = top_size
+                if size is not None:
                     total += size
             if total <= 0:
                 total = None
@@ -175,7 +145,7 @@ def compute_download_progress(
     if not container_path:
         return out
 
-    downloaded = _exec_du_bytes(deploy_id, container_path)
+    downloaded = _container_dir_size(deploy_id, container_path)
     if downloaded is None:
         return out
     out["downloaded_bytes"] = int(downloaded)

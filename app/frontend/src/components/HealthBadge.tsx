@@ -23,7 +23,6 @@ export interface StartupPhase {
   last_heartbeat_seconds: number | null;
   warmup_seq_len: number | null;
   trace_count: number;
-  is_stalled: boolean;
   classified_at: number;
   // Populated by Django `_get_startup_phase` when phase === "downloading_weights"
   // (see app/backend/model_control/download_progress.py).
@@ -33,6 +32,14 @@ export interface StartupPhase {
   total_bytes?: number | null;
   speed_bps?: number | null;
   eta_seconds?: number | null;
+  // Category-aware phase template. LLM and media-server models walk through
+  // different sequences (LLM has compile + KV alloc, media has worker pool +
+  // warmup), so the backend tells the frontend which phases to render in the
+  // PhaseTrack instead of the frontend hardcoding the LLM list.
+  category?: "llm" | "media";
+  phases?: string[];
+  phase_labels?: Record<string, string>;
+  phase_base_pct?: Record<string, number>;
 }
 
 interface HealthBadgeProps {

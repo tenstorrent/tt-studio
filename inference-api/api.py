@@ -732,10 +732,12 @@ def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
     return blobs + tmp
 
 
-def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterable[str]) -> Optional[int]:
+def _fetch_hf_total_bytes(repo_id: str, hf_token: str) -> Optional[int]:
     """Fetch total expected bytes from Hugging Face repo tree (best-effort).
-    The tree endpoint returns `{type, path, size, oid}` per entry, where `size`
-    reflects the real on-disk size for both regular and LFS files.
+
+    The tree endpoint returns `{type, path, size, oid, lfs?}` per entry. For LFS
+    files we prefer `lfs.size` (always the resolved blob size); historic API
+    responses returned the LFS pointer size at the top-level `size` field.
     """
     if not repo_id or "/" not in repo_id:
         return None
@@ -755,11 +757,17 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterabl
             try:
                 if entry.get("type") != "file":
                     continue
-                path = entry.get("path") or ""
-                if any(path.startswith(pfx) for pfx in exclude_prefixes):
-                    continue
-                size = entry.get("size")
-                if isinstance(size, int) and size > 0:
+                lfs = entry.get("lfs")
+                size: Optional[int] = None
+                if isinstance(lfs, dict):
+                    lfs_size = lfs.get("size")
+                    if isinstance(lfs_size, int) and lfs_size > 0:
+                        size = lfs_size
+                if size is None:
+                    top_size = entry.get("size")
+                    if isinstance(top_size, int) and top_size > 0:
+                        size = top_size
+                if size is not None:
                     total += size
             except Exception:
                 continue
@@ -799,7 +807,6 @@ def _weights_progress_monitor(
     hf_home: Optional[Path] = None
     total_bytes: Optional[int] = None
     total_bytes_attempted = False
-    exclude_prefixes = ("original/",)
     cached_announced_at: Optional[float] = None
     CACHED_LINGER_SECONDS = 1.8
 
@@ -862,9 +869,7 @@ def _weights_progress_monitor(
         if repo_id:
             if not total_bytes_attempted:
                 total_bytes_attempted = True
-                total_bytes = _fetch_hf_total_bytes(
-                    repo_id, os.getenv("HF_TOKEN") or "", exclude_prefixes
-                )
+                total_bytes = _fetch_hf_total_bytes(repo_id, os.getenv("HF_TOKEN") or "")
             downloaded = _downloaded_bytes_for_location(hf_home, repo_id, weights_location)
             now = time.time()
             dt = max(1e-3, now - last_t)

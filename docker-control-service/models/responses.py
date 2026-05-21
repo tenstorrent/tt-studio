@@ -35,6 +35,13 @@ class ContainerListResponse(BaseModel):
     containers: List[Dict[str, Any]]
 
 
+class ContainerDirSizeResponse(BaseModel):
+    """Response model for a recursive byte-count of a container directory."""
+    status: str
+    bytes: Optional[int] = Field(None, description="Total bytes (None if path missing or exec failed)")
+    message: Optional[str] = None
+
+
 class ContainerDetailsResponse(BaseModel):
     """Response model for container details - allows extra fields so all container data passes through"""
     model_config = ConfigDict(extra="allow")
