@@ -40,7 +40,7 @@ The code tool is already implemented in the codebase. To enable it:
 Run the test script to verify everything is working:
 
 ```bash
-cd app/agent
+cd app/agents
 python test_code_tool.py
 ```
 
@@ -147,7 +147,7 @@ To see detailed debug information, check the agent logs for:
 
 ### Customizing the Tool
 
-You can modify the code tool behavior by editing `app/agent/code_tool.py`:
+You can modify the code tool behavior by editing `app/agents/code_tool.py`:
 
 - **Timeout**: Change the `timeout=1800` parameter (30 minutes default)
 - **Sandbox Type**: Modify the E2B sandbox configuration
@@ -158,7 +158,7 @@ You can modify the code tool behavior by editing `app/agent/code_tool.py`:
 To add additional tools alongside the code interpreter:
 
 1. Create your tool class following the same pattern as `CodeInterpreterFunctionTool`
-2. Add it to the tools list in `app/agent/agent.py`
+2. Add it to the tools list in `app/agents/agent.py`
 3. Ensure proper error handling and cleanup
 
 ## Monitoring and Logs

@@ -73,7 +73,7 @@ The agent provides status endpoints that reflect the current state:
 1. **Start the agent service:**
 
    ```bash
-   cd app/agent
+   cd app/agents
    python agent.py
    ```
 
@@ -165,7 +165,7 @@ The agent provides status endpoints that reflect the current state:
 ### Running in Development Mode
 
 ```bash
-cd app/agent
+cd app/agents
 python agent.py
 ```
 

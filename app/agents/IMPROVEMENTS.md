@@ -8,7 +8,7 @@ This document outlines the improvements made to the ReAct agent system to fix re
 
 **Problem**: The agent was showing internal reasoning ("Thought: Do I need to use a tool? No Final An...") instead of clean final answers.
 
-**Root Cause**: In `app/agent/utils.py`, the `poll_requests` function had incorrect logic for filtering final answers. The `yield content` was being called for all content when `final_answer=True`, but the filtering logic only worked for the first chunk containing "Final Answer:".
+**Root Cause**: In `app/agents/utils.py`, the `poll_requests` function had incorrect logic for filtering final answers. The `yield content` was being called for all content when `final_answer=True`, but the filtering logic only worked for the first chunk containing "Final Answer:".
 
 **Fix**: Updated the response processing logic to:
 
