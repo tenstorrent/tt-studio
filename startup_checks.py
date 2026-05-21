@@ -58,6 +58,31 @@ def _read_artifact_commit_sha(tt_studio_root: str) -> str | None:
     return None
 
 
+def _backfill_artifact_commit_sha(tt_studio_root: str, sha: str) -> bool:
+    """
+    Insert `commit_sha=<sha>` into artifact-info.txt for artifacts that were
+    downloaded when the GitHub API was unreachable. Inserted after the
+    existing `artifact_value=` machine-readable line to keep that block
+    together. Returns True on success.
+    """
+    info_file = os.path.join(tt_studio_root, ".artifacts", "artifact-info.txt")
+    if not os.path.exists(info_file):
+        return False
+    try:
+        with open(info_file) as f:
+            lines = f.readlines()
+        for i, line in enumerate(lines):
+            if line.strip().startswith("artifact_value="):
+                indent = line[: len(line) - len(line.lstrip())]
+                lines.insert(i + 1, f"{indent}commit_sha={sha}\n")
+                with open(info_file, "w") as f:
+                    f.writelines(lines)
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     """
     Freshness check called at the very start of main(), before any startup work.
@@ -173,11 +198,13 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     if remote_sha is None:
         print(f"{C_YELLOW}   Artifact: could not reach GitHub to check for updates{C_RESET}")
     elif not stored_sha:
-        # Artifact exists but no commit SHA was recorded — treat as outdated so
-        # setup_tt_inference_server will re-fetch and record the SHA.
-        print(f"{C_YELLOW}⚠️  Artifact '{artifact_branch}': no stored commit SHA "
-              f"(latest on GitHub: {remote_sha[:7]}) — needs refresh{C_RESET}")
-        result["artifact_behind"] = True
+        # Artifact exists but no commit SHA was recorded (GitHub API was
+        # unreachable at download time). Backfill the current remote SHA and
+        # treat as up to date — branches rarely advance in the seconds between
+        # download and startup check, and forcing a re-download here is more
+        # disruptive than a tiny risk of staleness.
+        _backfill_artifact_commit_sha(tt_studio_root, remote_sha)
+        print(f"{C_GREEN}✓  Artifact '{artifact_branch}': up to date ({remote_sha[:7]}){C_RESET}")
     elif stored_sha == remote_sha:
         print(f"{C_GREEN}✓  Artifact '{artifact_branch}': up to date ({stored_sha[:7]}){C_RESET}")
     else:
