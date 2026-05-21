@@ -137,6 +137,7 @@ class CleanupAllTests(unittest.TestCase):
                 stack.enter_context(patch.object(run, "_cleanup_runtime"))
                 stack.enter_context(patch.object(run, "_remove_local_tt_studio_images", return_value=0))
                 stack.enter_context(patch.object(run, "_remove_tt_studio_model_volumes", return_value=0))
+                stack.enter_context(patch.object(run, "_prune_anonymous_volumes", return_value=0))
                 args = SimpleNamespace(cleanup_all=True, yes=True, no_sudo=True, dev=False)
                 with contextlib.redirect_stdout(io.StringIO()):
                     run.cleanup_resources(args)
@@ -211,6 +212,46 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
              "volume_id_whisper-distil-large-v3"],
         )
 
+    def test_prune_anonymous_volumes_counts_delta(self):
+        # Simulate: ls before sees 5 volumes, prune wipes 2 anonymous ones,
+        # ls after sees 3. Helper must return 2.
+        ls_responses = iter([
+            SimpleNamespace(stdout="a\nb\nc\nanon1\nanon2\n", returncode=0),
+            SimpleNamespace(stdout="a\nb\nc\n", returncode=0),
+        ])
+        prune_calls = []
+
+        def fake_run(cmd, **kwargs):
+            if "prune" in cmd:
+                prune_calls.append(cmd)
+                # `--force` and *without* --all (named volumes must survive).
+                self.assertIn("--force", cmd)
+                self.assertNotIn("--all", cmd)
+                self.assertNotIn("-a", cmd)
+                return SimpleNamespace(stdout="", returncode=0)
+            self.assertIn("ls", cmd)
+            return next(ls_responses)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            removed = run._prune_anonymous_volumes(has_docker_access=True)
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(len(prune_calls), 1)
+
+    def test_prune_anonymous_volumes_zero_when_nothing_changes(self):
+        ls_responses = iter([
+            SimpleNamespace(stdout="a\nb\n", returncode=0),
+            SimpleNamespace(stdout="a\nb\n", returncode=0),
+        ])
+
+        def fake_run(cmd, **kwargs):
+            if "prune" in cmd:
+                return SimpleNamespace(stdout="", returncode=0)
+            return next(ls_responses)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            self.assertEqual(run._prune_anonymous_volumes(has_docker_access=True), 0)
+
     def test_remove_tt_studio_model_volumes_noop_when_empty(self):
         rm_called = {"yes": False}
 
@@ -240,7 +281,9 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
             removed = run._remove_tt_studio_network_containers(has_docker_access=True)
 
         self.assertEqual(removed, 2)
-        self.assertEqual(recorded["rm"][:3], ["docker", "rm", "-f"])
+        # -fv (force + volumes) so anonymous volumes attached to the container
+        # don't orphan when we remove the container before compose down -v.
+        self.assertEqual(recorded["rm"][:3], ["docker", "rm", "-fv"])
         self.assertEqual(sorted(recorded["rm"][3:]), ["abc", "def"])
 
     def test_remove_tt_studio_network_containers_uses_sudo_without_access(self):

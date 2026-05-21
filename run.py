@@ -1825,12 +1825,15 @@ def _remove_tt_studio_model_volumes(has_docker_access):
 
 
 def _remove_tt_studio_network_containers(has_docker_access):
-    """Force-remove every container attached to tt_studio_network.
+    """Force-remove every container attached to tt_studio_network + its anon volumes.
 
     Deployment containers (vLLM, YOLO, stable-diffusion, …) are spawned outside
     docker-compose by the backend via docker-control-service, so `compose down`
     never sees them. They all join `tt_studio_network`, which makes the network
-    a reliable filter. Returns count removed.
+    a reliable filter. `-v` ensures anonymous volumes (e.g. the frontend dev
+    container's `/app/node_modules` anon volume from docker-compose.dev-mode.yml)
+    don't orphan when we remove the container before `compose down -v` gets a
+    chance to clean them. Returns count removed.
     """
     sudo_prefix = ["sudo"] if not has_docker_access else []
     try:
@@ -1842,10 +1845,42 @@ def _remove_tt_studio_network_containers(has_docker_access):
         if not ids:
             return 0
         subprocess.run(
-            sudo_prefix + ["docker", "rm", "-f", *ids],
+            sudo_prefix + ["docker", "rm", "-fv", *ids],
             capture_output=True, check=False,
         )
         return len(ids)
+    except Exception:
+        return 0
+
+
+def _prune_anonymous_volumes(has_docker_access):
+    """Defensive sweep for dangling anonymous volumes left by prior runs.
+
+    `docker volume prune` (without `--all`) only targets anonymous unused
+    volumes — named volumes from other projects on the same host are safe.
+    Catches orphans created before `_remove_tt_studio_network_containers`
+    started using `-v` (e.g. the frontend dev container's node_modules anon
+    volume that survived earlier cleanup attempts). Returns count removed.
+    """
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        before = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        before_set = {line.strip() for line in before.stdout.splitlines() if line.strip()}
+
+        subprocess.run(
+            sudo_prefix + ["docker", "volume", "prune", "--force"],
+            capture_output=True, check=False,
+        )
+
+        after = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        after_set = {line.strip() for line in after.stdout.splitlines() if line.strip()}
+        return len(before_set - after_set)
     except Exception:
         return 0
 
@@ -1958,6 +1993,7 @@ def cleanup_resources(args):
 
     print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
     print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)")
+    print(f"  💾 Dangling anonymous Docker volumes (frontend dev node_modules, …)")
     print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, "
           f"tt-media-inference-server, chromadb/chroma")
     print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
@@ -1991,6 +2027,11 @@ def cleanup_resources(args):
     sys.stdout.flush()
     removed_vols = _remove_tt_studio_model_volumes(has_docker_access)
     print(f"{C_GREEN}done{C_RESET}  ({removed_vols} volume(s))")
+
+    sys.stdout.write(f"  Pruning anon volumes...    ")
+    sys.stdout.flush()
+    removed_anon = _prune_anonymous_volumes(has_docker_access)
+    print(f"{C_GREEN}done{C_RESET}  ({removed_anon} volume(s))")
 
     sys.stdout.write(f"  Removing local images...   ")
     sys.stdout.flush()
