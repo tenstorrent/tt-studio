@@ -9,7 +9,7 @@ const HF_CHECK_URL = "/settings-api/hf-check/";
 export interface SettingField {
   set: boolean;
   masked: string | null;
-  source: "user_config" | "env" | null;
+  source: "env" | null;
   editable: boolean;
 }
 

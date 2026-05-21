@@ -6,7 +6,8 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-from shared_config.user_config import get_jwt_secret
+from shared_config.env_store import get_env_value
+from shared_config.user_state import get_jwt_secret
 
 
 @dataclass(frozen=True)
@@ -20,8 +21,8 @@ class BackendConfig:
     weights_dir: str
     model_container_cache_root: str
     jwt_secret: str
-    github_username: str = os.environ.get("GITHUB_USERNAME", "")
-    github_pat: str = os.environ.get("GITHUB_PAT", "")
+    github_username: str = ""
+    github_pat: str = ""
 
 
 # environment variables are ideally terminated on import to fail-fast and provide obvious
@@ -39,8 +40,8 @@ backend_config = BackendConfig(
     weights_dir="model_weights",
     model_container_cache_root="/home/container_app_user/cache_root",
     jwt_secret=get_jwt_secret(),
-    github_username=os.environ.get("GITHUB_USERNAME", ""),
-    github_pat=os.environ.get("GITHUB_PAT", ""),
+    github_username=get_env_value("GITHUB_USERNAME", "") or "",
+    github_pat=get_env_value("GITHUB_PAT", "") or "",
 )
 
 # make backend volume if not existing

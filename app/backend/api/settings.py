@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 
 from shared_config.backend_config import backend_config
+from shared_config.env_store import get_env_value
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -138,6 +139,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CHROMA_DB_PORT = int(os.environ.get("CHROMA_DB_PORT", 8111))
 CHROMA_DB_HOST = os.environ.get("CHROMA_DB_HOST", "tt_studio_chromadb")
 CHROMA_DB_EMBED_MODEL = "all-MiniLM-L6-v2"
+
+# RAG admin password — read from the bind-mounted app/.env at startup so it
+# doesn't appear in the container's env block or `docker inspect`.
+RAG_ADMIN_PASSWORD = get_env_value("RAG_ADMIN_PASSWORD", "") or ""
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [],

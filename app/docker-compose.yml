@@ -28,40 +28,36 @@ services:
     stdin_open: true
     tty: true
     environment:
-      # env vars are defined in .env file, use .env.default as template
+      # Non-secret infra config only. All secrets — HF_TOKEN, TTS_API_KEY,
+      # TAVILY_API_KEY, JWT_SECRET, CLOUD_*_AUTH_TOKEN, RAG_ADMIN_PASSWORD,
+      # GITHUB_PAT, GITHUB_USERNAME, TEAM_ID, TOKEN_ID, DOCKER_CONTROL_JWT_SECRET —
+      # are read at runtime from the bind-mounted app/.env file via
+      # shared_config.env_store. They do NOT appear in `docker inspect` output
+      # or the container's process environment.
       - CHROMA_DB_HOST=tt_studio_chroma
       - CHROMA_DB_PORT=8111
       - TT_STUDIO_ROOT
       - HOST_PERSISTENT_STORAGE_VOLUME
       - INTERNAL_PERSISTENT_STORAGE_VOLUME
       - BACKEND_API_HOSTNAME
-      - JWT_SECRET
-      - HF_TOKEN
-      - TTS_API_KEY
-      - TAVILY_API_KEY
       - TT_INFERENCE_ARTIFACT_BRANCH
       - TT_INFERENCE_ARTIFACT_VERSION
+      - TT_STUDIO_ENV_FILE=/run/tt_studio/env_file
       - CLOUD_CHAT_UI_URL
-      - CLOUD_CHAT_UI_AUTH_TOKEN
       - CLOUD_YOLOV4_API_URL
-      - CLOUD_YOLOV4_API_AUTH_TOKEN
-      - RAG_ADMIN_PASSWORD
       - CLOUD_SPEECH_RECOGNITION_URL
-      - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
       - CLOUD_STABLE_DIFFUSION_URL
-      - CLOUD_STABLE_DIFFUSION_AUTH_TOKEN
-      - TEAM_ID
-      - TOKEN_ID
-      - GITHUB_USERNAME
-      - GITHUB_PAT
       - VITE_ENABLE_DEPLOYED
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
-      - DOCKER_CONTROL_JWT_SECRET
     volumes:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # Mount the local api directory for live code changes
       - ./backend:/backend
+      # Bind-mount app/.env so SettingsView can read & rewrite it at runtime.
+      # This is the canonical secret store; helpers in shared_config.env_store
+      # re-read it on every call to support hot-swap without container restart.
+      - ./.env:/run/tt_studio/env_file
       # Mount tt-inference-server workflow logs for viewing deployment logs
       - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
       # Mount fastapi_logs/ directory so the backend can read per-deployment logs
@@ -103,17 +99,22 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - JWT_SECRET
-      - TAVILY_API_KEY
+      # Non-secret infra config only. JWT_SECRET, TAVILY_API_KEY, and
+      # CLOUD_CHAT_UI_AUTH_TOKEN are read at runtime from the bind-mounted
+      # app/.env below. They do NOT appear in `docker inspect` output.
       - CLOUD_CHAT_UI_URL
-      - CLOUD_CHAT_UI_AUTH_TOKEN
       - USE_CLOUD_LLM=true
       - LLM_CONTAINER_NAME
       - BACKEND_API_HOSTNAME
       - AGENT_LLM_POLLING_TIMEOUT
       - AGENT_LLM_POLLING_MAX_ATTEMPTS
       - AGENT_LLM_POLLING_CIRCUIT_BREAKER_THRESHOLD
+      - TT_STUDIO_ENV_FILE=/run/tt_studio/env_file
       # - E2B_API_KEY
+    volumes:
+      # Read-only view of app/.env so the agent can hot-read TAVILY_API_KEY
+      # and pick up JWT_SECRET at startup, without secrets in env block.
+      - ./.env:/run/tt_studio/env_file:ro
     stdin_open: true
     tty: true
     healthcheck:

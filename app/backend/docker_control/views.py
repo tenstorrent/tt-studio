@@ -343,7 +343,7 @@ class DeployView(APIView):
             # Pre-check Hugging Face access before consuming a chip slot.
             hf_repo = getattr(impl, "hf_model_id", None)
             if hf_repo:
-                from shared_config.user_config import get_hf_token
+                from shared_config.env_store import get_hf_token
                 token = get_hf_token()
                 if token:
                     from api.hf_access import _check_repo, _status_from_code
@@ -684,10 +684,10 @@ def _find_workflow_log_for_deployment(deployment) -> str | None:
             )
             return str(best)
 
-    logger.warning(
-        f"No workflow log found for deployment {deployment.id} "
-        f"(model={model!r}, device={device!r}, deployed_at={dt.isoformat()!r})"
-    )
+    # logger.warning(
+    #     f"No workflow log found for deployment {deployment.id} "
+    #     f"(model={model!r}, device={device!r}, deployed_at={dt.isoformat()!r})"
+    # )
     return None
 
 

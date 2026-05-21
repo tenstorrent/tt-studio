@@ -13,6 +13,7 @@ import os
 import jwt
 import requests
 from typing import Dict, List, Optional, Any
+from shared_config.env_store import get_env_value
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -30,7 +31,7 @@ class DockerControlClient:
             jwt_secret: JWT secret for authentication (default: from env DOCKER_CONTROL_JWT_SECRET)
         """
         self.url = url or os.getenv("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
-        self.jwt_secret = jwt_secret or os.getenv("DOCKER_CONTROL_JWT_SECRET")
+        self.jwt_secret = jwt_secret or get_env_value("DOCKER_CONTROL_JWT_SECRET")
 
         if not self.jwt_secret:
             raise ValueError("DOCKER_CONTROL_JWT_SECRET environment variable is required")

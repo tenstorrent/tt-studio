@@ -15,6 +15,12 @@ class DockerControlConfig(AppConfig):
         """Initialize docker control services"""
         logger.info("Docker control app is ready")
 
+        try:
+            from shared_config._migrate_user_config import migrate_if_needed
+            migrate_if_needed()
+        except Exception as e:
+            logger.warning(f"user_config.json migration check failed: {e}")
+
         # Log how many deployments are already tracked
         try:
             from docker_control.models import ModelDeployment

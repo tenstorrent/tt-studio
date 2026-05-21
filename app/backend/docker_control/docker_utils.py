@@ -15,7 +15,7 @@ from shared_config.logger_config import get_logger
 from shared_config.model_config import model_implmentations
 from shared_config.backend_config import backend_config
 from shared_config.model_type_config import ModelTypes
-from shared_config.user_config import get_tavily_api_key
+from shared_config.env_store import env_file_path
 from board_control.services import SystemResourceService
 from docker_control.models import ModelDeployment
 from docker_control.docker_control_client import get_docker_client
@@ -459,6 +459,8 @@ def run_agent_container(container_name, port_bindings, impl):
     llm_host_port = list(port_bindings.values())[0] # port that llm is using for naming convention (for easier removal later)
 
     docker_client = get_docker_client()
+    host_env_file = str(Path(backend_config.host_tt_studio_root) / "app" / ".env")
+    container_env_file = str(env_file_path())
     docker_client.run_container(
         image='agent_image:v1',
         command=f"uvicorn agent:app --reload --host 0.0.0.0 --port {host_agent_port}",
@@ -466,15 +468,20 @@ def run_agent_container(container_name, port_bindings, impl):
         network='tt_studio_network',
         ports={'8080/tcp': host_agent_port},
         environment={
-            'TAVILY_API_KEY': get_tavily_api_key() or '',
+            # Secrets (TAVILY_API_KEY, JWT_SECRET) are read at runtime from the
+            # bind-mounted .env file below, not forwarded via the env block.
             'LLM_CONTAINER_NAME': container_name,
-            'JWT_SECRET': run_kwargs["environment"]['JWT_SECRET'],
             'HF_MODEL_PATH': run_kwargs["environment"]["HF_MODEL_PATH"],
             'INTERNAL_PERSISTENT_STORAGE_VOLUME': backend_config.persistent_storage_volume,
+            'TT_STUDIO_ENV_FILE': container_env_file,
         },
         volumes={
             backend_config.host_peristent_storage_volume: {
                 "bind": backend_config.persistent_storage_volume,
+                "mode": "ro",
+            },
+            host_env_file: {
+                "bind": container_env_file,
                 "mode": "ro",
             },
         },

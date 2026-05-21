@@ -3,7 +3,37 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import os
+from pathlib import Path
 from typing import Optional
+
+
+_DEFAULT_ENV_FILE = "/run/tt_studio/env_file"
+
+
+def _resolve_env_key(key: str) -> Optional[str]:
+    """File-first lookup of a key in the bind-mounted app/.env, falling back
+    to os.environ. Mirrors the helper in agent.py; kept inline here to avoid
+    circular import with the package entry point."""
+    path = Path(os.environ.get("TT_STUDIO_ENV_FILE") or _DEFAULT_ENV_FILE)
+    try:
+        with path.open("r") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                if k.strip() != key:
+                    continue
+                v = v.strip()
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+                    v = v[1:-1]
+                if v:
+                    return v
+                break
+    except OSError:
+        pass
+    return os.environ.get(key) or None
+
 
 class AgentConfig:
     """Configuration class for the enhanced agent"""
@@ -54,8 +84,8 @@ class AgentConfig:
     LOCAL_PORT: str = os.getenv("LOCAL_LLM_PORT", "7000")
     
     # Authentication Configuration
-    JWT_SECRET: Optional[str] = os.getenv("JWT_SECRET")
-    CLOUD_AUTH_TOKEN: Optional[str] = os.getenv("CLOUD_CHAT_UI_AUTH_TOKEN")
+    JWT_SECRET: Optional[str] = _resolve_env_key("JWT_SECRET")
+    CLOUD_AUTH_TOKEN: Optional[str] = _resolve_env_key("CLOUD_CHAT_UI_AUTH_TOKEN")
     
     # Cloud Configuration
     USE_CLOUD_LLM: bool = os.getenv("USE_CLOUD_LLM", "false").lower() == "true"

@@ -34,22 +34,45 @@ from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 
 
+_DEFAULT_ENV_FILE = "/run/tt_studio/env_file"
+
+
+def _read_env_file() -> dict:
+    """Parse the bind-mounted app/.env into a {KEY: value} dict.
+
+    Returns {} if the file is missing or unreadable so callers can fall back
+    to os.environ.
+    """
+    path = Path(os.environ.get("TT_STUDIO_ENV_FILE") or _DEFAULT_ENV_FILE)
+    out: dict = {}
+    try:
+        with path.open("r") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                out[key] = value
+    except OSError:
+        return {}
+    return out
+
+
+def _resolve_env_key(key: str) -> Optional[str]:
+    val = _read_env_file().get(key)
+    if val:
+        return val
+    return os.environ.get(key) or None
+
+
 def _resolve_tavily_api_key() -> Optional[str]:
-    """Read TAVILY_API_KEY fresh from the shared user_config.json (with env fallback)
-    so UI changes apply without restarting the agent container."""
-    base = os.environ.get("INTERNAL_PERSISTENT_STORAGE_VOLUME")
-    if base:
-        path = Path(base) / "backend_volume" / "user_config.json"
-        try:
-            if path.exists():
-                with path.open("r") as f:
-                    data = json.load(f)
-                val = data.get("tavily_api_key") if isinstance(data, dict) else None
-                if val:
-                    return val
-        except (OSError, json.JSONDecodeError):
-            pass
-    return os.environ.get("TAVILY_API_KEY") or None
+    """Read TAVILY_API_KEY fresh from the bind-mounted .env on each call so UI
+    changes apply without restarting the agent container."""
+    return _resolve_env_key("TAVILY_API_KEY")
 
 
 class DynamicTavilySearch(TavilySearchResults):
@@ -78,8 +101,8 @@ app = FastAPI()
 
 # Authentication setup
 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
-jwt_secret = os.getenv("JWT_SECRET")
-cloud_auth_token = os.getenv("CLOUD_CHAT_UI_AUTH_TOKEN")
+jwt_secret = _resolve_env_key("JWT_SECRET")
+cloud_auth_token = _resolve_env_key("CLOUD_CHAT_UI_AUTH_TOKEN")
 
 # Use cloud auth token if available, otherwise fall back to JWT
 if cloud_auth_token:
@@ -363,7 +386,7 @@ def initialize_agent_components():
         # Initialize tools
         tools = []
 
-        # Add search tool — reads the API key from shared user_config.json on each
+        # Add search tool — reads the API key from the bind-mounted .env on each
         # call so UI changes apply without restarting the agent container.
         search = DynamicTavilySearch(
             max_results=2,

@@ -115,7 +115,7 @@ class DeployViewHfPreCheckTests(SimpleTestCase):
         self.hf_repo = model_implmentations[self.impl_id].hf_model_id
 
     @patch("api.hf_access._check_repo", return_value=403)
-    @patch("shared_config.user_config.get_hf_token", return_value="fake-token")
+    @patch("shared_config.env_store.get_hf_token", return_value="fake-token")
     def test_returns_400_when_hf_access_denied(self, _token_mock, _repo_mock):
         with patch(
             "docker_control.models.ModelDeployment.objects.filter"

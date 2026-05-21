@@ -57,7 +57,7 @@ from model_control.model_utils import (
 from shared_config.model_config import model_implmentations
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
-from shared_config.user_config import get_tts_api_key
+from shared_config.env_store import get_tts_api_key, get_env_value
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
@@ -66,15 +66,16 @@ logger.info(f"importing {__name__}")
 
 
 # TTS_API_KEY is resolved at request time via get_tts_api_key() so UI changes apply without restart.
-CLOUD_CHAT_UI_URL =os.environ.get("CLOUD_CHAT_UI_URL")
+# Cloud auth tokens read from the bind-mounted .env (via env_store) so they
+# don't appear in the container's process env or `docker inspect`. URLs stay
+# on os.environ — they are infra config, not secrets.
+CLOUD_CHAT_UI_URL = os.environ.get("CLOUD_CHAT_UI_URL")
 CLOUD_YOLOV4_API_URL = os.environ.get("CLOUD_YOLOV4_API_URL")
-CLOUD_YOLOV4_API_AUTH_TOKEN = os.environ.get("CLOUD_YOLOV4_API_AUTH_TOKEN")
+CLOUD_YOLOV4_API_AUTH_TOKEN = get_env_value("CLOUD_YOLOV4_API_AUTH_TOKEN")
 CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
-CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
+CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = get_env_value("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
 CLOUD_STABLE_DIFFUSION_URL = os.environ.get("CLOUD_STABLE_DIFFUSION_URL")
-CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = os.environ.get("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN")
-CLOUD_SPEECH_RECOGNITION_URL = os.environ.get("CLOUD_SPEECH_RECOGNITION_URL")
-CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN = os.environ.get("CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN")
+CLOUD_STABLE_DIFFUSION_AUTH_TOKEN = get_env_value("CLOUD_STABLE_DIFFUSION_AUTH_TOKEN")
 
 @method_decorator(csrf_exempt, name="dispatch")
 class InferenceCloudView(View):
@@ -1167,8 +1168,8 @@ class ModelAPIInfoView(APIView):
                             health_endpoint_url = f"http://{health_url}" if health_url else f"http://{base_internal_url}/health"
                 
                 # Generate JWT token for this model
-                team_id = os.getenv("TEAM_ID", "tenstorrent")
-                token_id = os.getenv("TOKEN_ID", "debug-test")
+                team_id = get_env_value("TEAM_ID", "tenstorrent")
+                token_id = get_env_value("TOKEN_ID", "debug-test")
                 json_payload = {"team_id": team_id, "token_id": token_id}
                 jwt_secret = backend_config.jwt_secret
                 encoded_jwt = jwt.encode(json_payload, jwt_secret, algorithm="HS256")

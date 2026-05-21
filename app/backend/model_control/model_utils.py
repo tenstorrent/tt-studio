@@ -16,6 +16,7 @@ import json
 from django.core.cache import caches
 
 from shared_config.backend_config import backend_config
+from shared_config.env_store import get_env_value
 from shared_config.logger_config import get_logger
 from docker_control.docker_utils import update_deploy_cache
 from model_control.metrics_tracker import InferenceMetricsTracker
@@ -25,7 +26,7 @@ logger.info(f"importing {__name__}")
 
 json_payload = json.loads('{"team_id": "tenstorrent", "token_id":"debug-test"}')
 encoded_jwt = jwt.encode(json_payload, backend_config.jwt_secret, algorithm="HS256")
-AUTH_TOKEN = os.getenv('CLOUD_CHAT_UI_AUTH_TOKEN', '')
+AUTH_TOKEN = get_env_value('CLOUD_CHAT_UI_AUTH_TOKEN', '') or ''
 
 # Shared async HTTP clients with connection pooling (one pool per target)
 _vllm_client = httpx.AsyncClient(

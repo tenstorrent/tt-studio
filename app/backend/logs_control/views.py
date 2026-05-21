@@ -15,6 +15,7 @@ from typing import Optional, Tuple
 from urllib.parse import unquote, urlencode
 from django.http import JsonResponse, HttpResponse, Http404
 from rest_framework.views import APIView
+from shared_config.env_store import get_env_value
 from shared_config.logger_config import get_logger
 
 # Setting up logger
@@ -480,7 +481,7 @@ def _collect_bug_report_data() -> dict:
         )
         if agent_container:
             container_id = agent_container["id"]
-            jwt_secret = os.getenv("DOCKER_CONTROL_JWT_SECRET", "")
+            jwt_secret = get_env_value("DOCKER_CONTROL_JWT_SECRET", "") or ""
             dcs_url = os.getenv("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
             token = _jwt.encode({"service": "backend"}, jwt_secret, algorithm="HS256")
             resp = _req.get(
