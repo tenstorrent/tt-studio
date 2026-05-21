@@ -3,6 +3,7 @@
 <p align="center">
   <img src="https://raw.githubusercontent.com/tenstorrent/tt-metal/main/docs/source/common/images/favicon.png" width="120" height="120" />
 </p>
+<!-- test -->
 
 <h1 align="center">TT-Studio</h1>
 
