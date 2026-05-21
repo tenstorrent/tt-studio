@@ -137,7 +137,7 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
             qb2_branch = artifact_env
     if qb2_branch:
         result["qb2_mode"] = True
-        print(f"{C_BLUE}   QB2 mode detected (branch: '{qb2_branch}'){C_RESET}")
+        print(f"{C_BLUE}   Mode: QB2 (artifact branch: {qb2_branch}){C_RESET}")
 
     # ── 1. tt-studio self-check ───────────────────────────────────────────────
     try:
@@ -170,9 +170,13 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
         elif local_sha == remote_sha:
             print(f"{C_GREEN}✓  tt-studio '{studio_check_branch}': up to date ({local_sha[:7]}){C_RESET}")
         else:
-            print(f"{C_YELLOW}⚠️  tt-studio '{studio_check_branch}': behind GitHub "
-                  f"({local_sha[:7]} → {remote_sha[:7]}){C_RESET}")
-            print(f"   Run: git pull")
+            print(f"{C_YELLOW}⚠️  tt-studio is behind origin/{studio_check_branch}{C_RESET}")
+            print(f"     local:  {local_sha[:7]}")
+            print(f"     remote: {remote_sha[:7]}")
+            if result["tt_studio_branch_is_release"]:
+                print(f"     → Run: git pull, then re-run python3 run.py   (release branch — cannot continue)")
+            else:
+                print(f"     → To update: git pull   (feature branch — continuing for now)")
             result["tt_studio_behind"] = True
     else:
         print(f"{C_YELLOW}   tt-studio: could not determine branch/SHA{C_RESET}")
@@ -208,8 +212,10 @@ def check_startup_freshness(tt_studio_root: str, get_env_var_fn) -> dict:
     elif stored_sha == remote_sha:
         print(f"{C_GREEN}✓  Artifact '{artifact_branch}': up to date ({stored_sha[:7]}){C_RESET}")
     else:
-        print(f"{C_YELLOW}⚠️  Artifact '{artifact_branch}': behind GitHub "
-              f"({stored_sha[:7]} → {remote_sha[:7]}){C_RESET}")
+        print(f"{C_YELLOW}⚠️  Artifact {artifact_branch} is behind origin{C_RESET}")
+        print(f"     local:  {stored_sha[:7]}")
+        print(f"     remote: {remote_sha[:7]}")
+        print(f"     → Auto-fetching latest...")
         result["artifact_behind"] = True
 
     print()

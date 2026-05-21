@@ -4307,22 +4307,17 @@ def main():
         # Block startup only on release branches (main/dev/tt_qb2_launch_branch/
         # rc-*/release-*). Feature branches just warn and continue so dev work
         # isn't interrupted by stale remote tracking.
-        if freshness.get("tt_studio_behind"):
-            if freshness.get("tt_studio_branch_is_release"):
-                print(f"\n{C_RED}⛔ tt-studio is behind its remote branch. Please run 'git pull' then re-run 'python run.py'.{C_RESET}")
-                startup_log.summary(exit_code=1)
-                startup_log.close()
-                sys.exit(1)
-            else:
-                print(f"{C_YELLOW}   (Feature branch — continuing despite being behind. Run 'git pull' when you're ready.){C_RESET}")
+        # Hard-stop on release branches that are behind origin. The warning
+        # itself (with the git pull hint) is already printed by startup_checks.
+        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
+            print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
+            startup_log.summary(exit_code=1)
+            startup_log.close()
+            sys.exit(1)
 
-        if freshness.get("qb2_mode"):
-            print(f"{C_CYAN}ℹ️  QB2 mode active (branch: {freshness.get('artifact_branch')}){C_RESET}")
-
-        # If the inference-server artifact is outdated, auto-fetch the latest.
+        # Outdated artifact: warning + "auto-fetching" hint are already in
+        # startup_checks; just flip the flag so the download runs.
         if freshness.get("artifact_behind") and not args.pull_branch:
-            artifact_branch = freshness.get("artifact_branch", "")
-            print(f"{C_CYAN}ℹ️  Artifact '{artifact_branch}' is outdated — auto-fetching latest.{C_RESET}")
             args.pull_branch = True
 
         # Get git hash for startup log
