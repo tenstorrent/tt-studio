@@ -1749,13 +1749,21 @@ def _remove_directory_contents(path, preserve_names=None, no_sudo=False):
 
 # Image reference patterns wiped by --cleanup-all. Covers the three TT Studio
 # images (backend/frontend/agent), every model-deployment image pulled from the
-# tt-inference-server registry path (vLLM, yolov4, stable-diffusion, …), and
-# the chroma image declared in docker-compose.yml.
+# tt-inference-server registry path (vLLM, yolov4, stable-diffusion, …), the
+# tt-media-inference-server image (flat repo, separate from tt-inference-server),
+# and the chroma image declared in docker-compose.yml.
 _CLEANUP_IMAGE_REFS = (
     "ghcr.io/tenstorrent/tt-studio/*",
     "ghcr.io/tenstorrent/tt-inference-server/*",
+    "ghcr.io/tenstorrent/tt-media-inference-server",
     "chromadb/chroma",
 )
+
+# Docker named-volume prefix used by model deployments. The inference-server side
+# names volumes `volume_{model_id}` where model_id defaults to
+# `id_{impl_id}-{model_name}-v{version}` — see app/backend/shared_config/model_config.py.
+# These hold model weights and are distinct from the bind-mounted persistent volume.
+_CLEANUP_VOLUME_PREFIX = "volume_id_"
 
 
 def _remove_local_tt_studio_images(has_docker_access):
@@ -1778,6 +1786,40 @@ def _remove_local_tt_studio_images(has_docker_access):
             capture_output=True, check=False,
         )
         return len(ids)
+    except Exception:
+        return 0
+
+
+def _remove_tt_studio_model_volumes(has_docker_access):
+    """Remove docker named volumes that hold model weights (volume_id_*).
+
+    Deployment containers attach to volumes named via
+    `volume_{model_id}` (see app/backend/shared_config/model_config.py); each
+    one stores weights for one model. These survive `compose down -v` because
+    they are not declared in docker-compose.yml — they are created by the
+    inference-server side of the deployment pipeline. Callers must stop the
+    containers using them first or `volume rm` will fail with "in use".
+    Returns count removed.
+    """
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "volume", "ls", "--filter",
+                           f"name={_CLEANUP_VOLUME_PREFIX}", "-q"],
+            capture_output=True, text=True, check=False,
+        )
+        # `--filter name=foo` is substring match; double-check the prefix in
+        # Python so we never delete an unrelated volume that happens to contain
+        # "volume_id_" mid-name.
+        names = [n for n in (line.strip() for line in result.stdout.splitlines())
+                 if n.startswith(_CLEANUP_VOLUME_PREFIX)]
+        if not names:
+            return 0
+        subprocess.run(
+            sudo_prefix + ["docker", "volume", "rm", "-f", *names],
+            capture_output=True, check=False,
+        )
+        return len(names)
     except Exception:
         return 0
 
@@ -1915,7 +1957,9 @@ def cleanup_resources(args):
         print(f"  {C_CYAN}(no host-side state found){C_RESET}")
 
     print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
-    print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, chromadb/chroma")
+    print(f"  💾 Docker named volumes holding model weights ({_CLEANUP_VOLUME_PREFIX}*)")
+    print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, "
+          f"tt-media-inference-server, chromadb/chroma")
     print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
 
     if total_bytes > 0:
@@ -1938,6 +1982,15 @@ def cleanup_resources(args):
     print(f"\n{C_BOLD}🧹 Cleaning up TT Studio...{C_RESET}")
     has_docker_access = check_docker_access()
     _cleanup_runtime(args, has_docker_access)
+
+    # Volumes must come before images: removing a volume while its image is
+    # gone is fine; removing an image while a volume's container is gone is
+    # also fine — but we want both done before the host-state wipe so the
+    # final "Reclaimed approximately X" total is honest.
+    sys.stdout.write(f"  Removing model volumes...  ")
+    sys.stdout.flush()
+    removed_vols = _remove_tt_studio_model_volumes(has_docker_access)
+    print(f"{C_GREEN}done{C_RESET}  ({removed_vols} volume(s))")
 
     sys.stdout.write(f"  Removing local images...   ")
     sys.stdout.flush()

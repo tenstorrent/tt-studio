@@ -136,6 +136,7 @@ class CleanupAllTests(unittest.TestCase):
                 stack.enter_context(patch.object(run, "check_docker_access", return_value=True))
                 stack.enter_context(patch.object(run, "_cleanup_runtime"))
                 stack.enter_context(patch.object(run, "_remove_local_tt_studio_images", return_value=0))
+                stack.enter_context(patch.object(run, "_remove_tt_studio_model_volumes", return_value=0))
                 args = SimpleNamespace(cleanup_all=True, yes=True, no_sudo=True, dev=False)
                 with contextlib.redirect_stdout(io.StringIO()):
                     run.cleanup_resources(args)
@@ -155,14 +156,15 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
     spawned outside compose, and images outside ghcr.io/tenstorrent/tt-studio/*."""
 
     def test_remove_local_tt_studio_images_covers_all_known_refs(self):
-        # One synthetic image ID per ref pattern; ensure each ref is queried
-        # and the union of IDs is force-removed in one shot.
+        # Source of truth is the module constant; the test must follow it,
+        # not duplicate it.
+        ref_to_id = {ref: f"id_{i}" for i, ref in enumerate(run._CLEANUP_IMAGE_REFS)}
+        self.assertIn("ghcr.io/tenstorrent/tt-studio/*", ref_to_id)
+        self.assertIn("ghcr.io/tenstorrent/tt-inference-server/*", ref_to_id)
+        self.assertIn("ghcr.io/tenstorrent/tt-media-inference-server", ref_to_id)
+        self.assertIn("chromadb/chroma", ref_to_id)
+
         queried_refs = []
-        ref_to_id = {
-            "ghcr.io/tenstorrent/tt-studio/*": "111",
-            "ghcr.io/tenstorrent/tt-inference-server/*": "222",
-            "chromadb/chroma": "333",
-        }
 
         def fake_run(cmd, **kwargs):
             if "ls" in cmd:
@@ -170,14 +172,59 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
                 queried_refs.append(ref)
                 return SimpleNamespace(stdout=ref_to_id.get(ref, "") + "\n", returncode=0)
             self.assertEqual(cmd[:4], ["docker", "image", "rm", "-f"])
-            self.assertEqual(sorted(cmd[4:]), ["111", "222", "333"])
+            self.assertEqual(sorted(cmd[4:]), sorted(ref_to_id.values()))
             return SimpleNamespace(stdout="", returncode=0)
 
         with patch("subprocess.run", side_effect=fake_run):
             removed = run._remove_local_tt_studio_images(has_docker_access=True)
 
-        self.assertEqual(removed, 3)
+        self.assertEqual(removed, len(ref_to_id))
         self.assertEqual(sorted(queried_refs), sorted(ref_to_id))
+
+    def test_remove_tt_studio_model_volumes_prefix_filters_unrelated(self):
+        # docker volume ls --filter name=foo is substring match; the helper
+        # must add a Python-side prefix guard so we don't blow away an
+        # unrelated volume whose name happens to contain "volume_id_".
+        listed = (
+            "volume_id_tt_transformers-Llama-3.1-8B\n"
+            "volume_id_whisper-distil-large-v3\n"
+            "not_a_match_volume_id_extra\n"  # contains substring but wrong prefix
+            "\n"
+        )
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            if "ls" in cmd:
+                self.assertIn(f"name={run._CLEANUP_VOLUME_PREFIX}", cmd)
+                return SimpleNamespace(stdout=listed, returncode=0)
+            recorded["rm"] = cmd
+            return SimpleNamespace(stdout="", returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            removed = run._remove_tt_studio_model_volumes(has_docker_access=True)
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(recorded["rm"][:4], ["docker", "volume", "rm", "-f"])
+        self.assertEqual(
+            sorted(recorded["rm"][4:]),
+            ["volume_id_tt_transformers-Llama-3.1-8B",
+             "volume_id_whisper-distil-large-v3"],
+        )
+
+    def test_remove_tt_studio_model_volumes_noop_when_empty(self):
+        rm_called = {"yes": False}
+
+        def fake_run(cmd, **kwargs):
+            if "ls" in cmd:
+                return SimpleNamespace(stdout="\n", returncode=0)
+            rm_called["yes"] = True
+            return SimpleNamespace(stdout="", returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            removed = run._remove_tt_studio_model_volumes(has_docker_access=True)
+
+        self.assertEqual(removed, 0)
+        self.assertFalse(rm_called["yes"], "must not invoke `volume rm` with no volumes")
 
     def test_remove_tt_studio_network_containers_force_removes_all(self):
         recorded = {}
