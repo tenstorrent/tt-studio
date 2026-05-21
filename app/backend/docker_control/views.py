@@ -45,6 +45,7 @@ from .serializers import DeploymentSerializer, StopSerializer
 from shared_config.logger_config import get_logger
 from shared_config.backend_config import backend_config
 from shared_config.device_config import DeviceConfigurations
+from api.paths import FASTAPI_LOG
 from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
@@ -1541,36 +1542,16 @@ class DockerServiceLogsView(APIView):
             
             # Also try to get system logs if available
             try:
-                # Check if fastapi.log exists in multiple possible locations using relative paths
-                possible_fastapi_logs = [
-                    "fastapi.log",  # Current directory
-                    os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
-                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/docker_control/views.py
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
-                    "/app/fastapi.log",  # Container path as fallback
-                ]
-                
-                fastapi_log_found = False
-                for fastapi_log_path in possible_fastapi_logs:
-                    if os.path.exists(fastapi_log_path):
-                        try:
-                            with open(fastapi_log_path, 'r') as f:
-                                lines = f.readlines()
-                                # Get last 8 lines and limit size
-                                log_content = ''.join(lines[-8:])
-                                if len(log_content) > 800:
-                                    log_content = log_content[-800:] + "\n\n... (truncated)"
-                                logs_data["fastapi"] = log_content
-                            fastapi_log_found = True
-                            break
-                        except Exception as read_error:
-                            logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
-                            continue
-                
-                if not fastapi_log_found:
+                if os.path.exists(FASTAPI_LOG):
+                    with open(FASTAPI_LOG, 'r') as f:
+                        lines = f.readlines()
+                        log_content = ''.join(lines[-8:])
+                        if len(log_content) > 800:
+                            log_content = log_content[-800:] + "\n\n... (truncated)"
+                        logs_data["fastapi"] = log_content
+                else:
                     logs_data["fastapi"] = "fastapi.log not accessible from container (logs available from Docker containers above)"
-                    
+
             except Exception as e:
                 logger.error(f"Error reading fastapi.log: {str(e)}")
                 logs_data["fastapi"] = f"Error reading fastapi.log: {str(e)[:500]}"

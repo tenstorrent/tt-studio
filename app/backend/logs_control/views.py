@@ -16,6 +16,7 @@ from urllib.parse import unquote, urlencode
 from django.http import JsonResponse, HttpResponse, Http404
 from rest_framework.views import APIView
 from shared_config.logger_config import get_logger
+from api.paths import FASTAPI_LOG
 
 # Setting up logger
 logger = get_logger(__name__)
@@ -123,44 +124,29 @@ class FastAPILogsView(APIView):
     def get(self, request, *args, **kwargs):
         logger.info("FastAPILogsView endpoint hit")
         
-        # Check if fastapi.log exists in multiple possible locations using relative paths
-        possible_fastapi_logs = [
-            "fastapi.log",  # Current directory
-            os.path.join(os.getcwd(), "fastapi.log"),  # Current working directory
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "fastapi.log"),  # Go up from backend/logs_control/views.py
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "fastapi.log"),  # Relative to backend directory
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "..", "fastapi.log"),  # Two levels up from backend
-            os.path.join(LOGS_ROOT, "fastapi.log"),  # Try in logs directory
-            "/app/fastapi.log",  # Container path as fallback
-        ]
-        
         fastapi_log_found = False
         log_content = ""
-        
-        for fastapi_log_path in possible_fastapi_logs:
-            if os.path.exists(fastapi_log_path):
-                try:
-                    with open(fastapi_log_path, 'r') as f:
-                        lines = f.readlines()
-                        # Get last 20 lines and limit size
-                        log_content = ''.join(lines[-20:])
-                        if len(log_content) > 2000:
-                            log_content = log_content[-2000:] + "\n\n... (truncated)"
-                    fastapi_log_found = True
-                    logger.info(f"Successfully read FastAPI logs from: {fastapi_log_path}")
-                    break
-                except Exception as read_error:
-                    logger.error(f"Error reading {fastapi_log_path}: {str(read_error)}")
-                    continue
-        
+
+        if os.path.exists(FASTAPI_LOG):
+            try:
+                with open(FASTAPI_LOG, 'r') as f:
+                    lines = f.readlines()
+                    log_content = ''.join(lines[-20:])
+                    if len(log_content) > 2000:
+                        log_content = log_content[-2000:] + "\n\n... (truncated)"
+                fastapi_log_found = True
+                logger.info(f"Successfully read FastAPI logs from: {FASTAPI_LOG}")
+            except Exception as read_error:
+                logger.error(f"Error reading {FASTAPI_LOG}: {str(read_error)}")
+
         if not fastapi_log_found:
             log_content = "fastapi.log not accessible from container (logs available from Docker containers above)"
-            logger.warning("FastAPI log file not found in any expected location")
-        
+            logger.warning(f"FastAPI log file not found at {FASTAPI_LOG}")
+
         return JsonResponse({
             "fastapi_logs": log_content,
             "found": fastapi_log_found,
-            "timestamp": os.path.getmtime(fastapi_log_path) if fastapi_log_found else None
+            "timestamp": os.path.getmtime(FASTAPI_LOG) if fastapi_log_found else None
         }, status=200)
 
 

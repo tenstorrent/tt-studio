@@ -91,7 +91,7 @@ services:
   tt_studio_agent:
     hostname: tt-studio-agent
     # Container name and image are defined in mode-specific override files
-    build: ./agent
+    build: ./agents
     depends_on:
       tt_studio_backend:
         condition: service_healthy
