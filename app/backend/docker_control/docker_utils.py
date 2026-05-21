@@ -361,7 +361,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         #     payload["dev_mode"] = True
 
         # TEMP: disabled — do not override docker image for QB2 media models
-        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300Cx2":
+        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
         logger.info(f"API payload: {payload}")
