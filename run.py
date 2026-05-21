@@ -83,14 +83,14 @@ DOCKER_COMPOSE_TT_HARDWARE_FILE = os.path.join(TT_STUDIO_ROOT, "app", "docker-co
 ENV_FILE_PATH = os.path.join(TT_STUDIO_ROOT, "app", ".env")
 ENV_FILE_DEFAULT = os.path.join(TT_STUDIO_ROOT, "app", ".env.default")
 # Updated: Use inference-api instead of tt-inference-server submodule
-INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "inference-api")
+INFERENCE_API_DIR = os.path.join(TT_STUDIO_ROOT, "app", "services", "inference-api")
 INFERENCE_ARTIFACT_DIR = os.path.join(TT_STUDIO_ROOT, ".artifacts", "tt-inference-server")
 # These will be read from .env file or environment variables
 INFERENCE_ARTIFACT_VERSION = None  # Will be set after get_env_var is defined
 INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 FASTAPI_PID_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.pid")
 FASTAPI_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "fastapi.log")
-DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "docker-control-service")
+DOCKER_CONTROL_SERVICE_DIR = os.path.join(TT_STUDIO_ROOT, "app", "services", "docker-control")
 DOCKER_CONTROL_PID_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.pid")
 DOCKER_CONTROL_LOG_FILE = os.path.join(TT_STUDIO_ROOT, "docker-control-service.log")
 PREFS_FILE_PATH = os.path.join(TT_STUDIO_ROOT, ".tt_studio_preferences.json")
@@ -3935,14 +3935,14 @@ def check_spdx_headers():
     repo_root = Path(TT_STUDIO_ROOT)
     directories_to_process = [
         repo_root / "app" / "backend",
-        repo_root / "app" / "agent", 
+        repo_root / "app" / "agents",
         repo_root / "app" / "frontend",
         repo_root / "dev-tools",
-        repo_root / "models",
+        repo_root / "app" / "services" / "models",
         repo_root / "docs",
         repo_root,  # Root level files (like run.py, startup.sh)
     ]
-    
+
     missing_headers = []
     total_files_checked = 0
     
@@ -3994,13 +3994,13 @@ def add_spdx_headers():
     repo_root = Path(TT_STUDIO_ROOT)
     directories_to_process = [
         repo_root / "app" / "backend",
-        repo_root / "app" / "agent", 
+        repo_root / "app" / "agents",
         repo_root / "dev-tools",
-        repo_root / "models",
+        repo_root / "app" / "services" / "models",
         repo_root / "docs",
         repo_root,  # Root level files (like run.py, startup.sh)
     ]
-    
+
     headers = get_spdx_headers()
     files_modified = 0
     total_files_checked = 0

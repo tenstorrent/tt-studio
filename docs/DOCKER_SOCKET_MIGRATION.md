@@ -444,7 +444,7 @@ python3 run.py
 
 ## References
 
-- **docker-control-service README**: `/docker-control-service/README.md`
+- **docker-control-service README**: `/app/services/docker-control/README.md`
 - **Security Best Practices**: [Docker Security](https://docs.docker.com/engine/security/)
 - **JWT Authentication**: [PyJWT Documentation](https://pyjwt.readthedocs.io/)
 - **FastAPI**: [FastAPI Documentation](https://fastapi.tiangolo.com/)

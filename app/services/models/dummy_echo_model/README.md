@@ -34,7 +34,7 @@ curl "http://localhost:8001/inference/dummy_echo" \
 This test runs the backend in a loop awaiting prompts, the script starts by adding some prompts which are processes synchronously within a single process instead of the typical multithreaded implementation so that a breakpoint can be introduced anywhere during processing.
 
 ```bash
-cd models/dummy_echo_model/src
+cd app/services/models/dummy_echo_model/src
 export PYTHONPATH=$PWD
 export CACHE_ROOT=test_cache
 python test_dummy_backend.py

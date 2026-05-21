@@ -79,7 +79,7 @@ MAX_CPUS = 8
 The service is automatically managed by `run.py`. Manual setup:
 
 ```bash
-cd docker-control-service
+cd app/services/docker-control
 
 # Create virtual environment
 python3 -m venv .venv
