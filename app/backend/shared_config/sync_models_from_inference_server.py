@@ -138,7 +138,12 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         # Image generation models use the OpenAI-compatible synchronous endpoint
         if raw_model_type in ("IMAGE", "IMAGE_GENERATION"):
             return "/v1/images/generations"
-        # Other media models (video, embedding, etc.) use enqueue
+        # Video generation models use the OpenAI-compatible video endpoint
+        if raw_model_type in ("VIDEO", "VIDEO_GENERATION"):
+            if "i2v" in hf_model_id.lower():
+                return "/v1/videos/generations/i2v"
+            return "/v1/videos/generations"
+        # Other media models (embedding, etc.) use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         return "/v1/chat/completions"

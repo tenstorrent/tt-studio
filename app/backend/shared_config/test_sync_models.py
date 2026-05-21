@@ -28,13 +28,21 @@ class TestServiceRouteMapping:
         assert map_service_route("media", "", "TEXT_TO_SPEECH") == "/v1/audio/speech"
         assert map_service_route("media", "", "TTS") == "/v1/audio/speech"
     
-    def test_non_tts_media_models_use_enqueue(self):
-        """Non-TTS media models should use /enqueue."""
-        assert map_service_route("media", "", "IMAGE") == "/enqueue"
-        assert map_service_route("media", "", "AUDIO") == "/enqueue"
-        assert map_service_route("media", "", "VIDEO") == "/enqueue"
+    def test_image_gen_media_models_use_v1_images_generations(self):
+        """Image generation media models should use /v1/images/generations."""
+        assert map_service_route("media", "", "IMAGE") == "/v1/images/generations"
+        assert map_service_route("media", "", "IMAGE_GENERATION") == "/v1/images/generations"
+
+    def test_non_image_media_models_use_enqueue(self):
+        """Non-image/non-audio/non-video media models should use /enqueue."""
         assert map_service_route("media", "", "CNN") == "/enqueue"
         assert map_service_route("media", "", "EMBEDDING") == "/enqueue"
+
+    def test_video_gen_media_models_use_v1_videos_generations(self):
+        """T2V video generation media models should use /v1/videos/generations."""
+        assert map_service_route("media", "Wan-AI/Wan2.2-T2V-A14B-Diffusers", "VIDEO") == "/v1/videos/generations"
+        assert map_service_route("media", "Wan-AI/Wan2.2-I2V-A14B-Diffusers", "VIDEO") == "/v1/videos/generations/i2v"
+        assert map_service_route("media", "some-org/some-T2V-model", "VIDEO") == "/v1/videos/generations"
     
     def test_forge_models_use_chat_completions(self):
         """Forge models should use /v1/chat/completions."""
