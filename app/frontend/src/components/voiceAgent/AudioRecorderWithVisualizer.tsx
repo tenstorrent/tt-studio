@@ -60,7 +60,7 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
       animFrameRef.current = null;
     }
     if (analyserRef.current) {
-      try { analyserRef.current.disconnect(); } catch {}
+      try { analyserRef.current.disconnect(); } catch { /* ignore */ }
       analyserRef.current = null;
     }
     if (streamRef.current) {
@@ -86,7 +86,10 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
       });
       streamRef.current = stream;
 
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
       const ctx = new AudioCtx();
       audioContextRef.current = ctx;
 

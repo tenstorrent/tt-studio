@@ -10,9 +10,8 @@ type UseWakeWordOptions = {
   onWake: (event: WakeEvent) => void;
 };
 
-const WS_URL = `${
-  window.location.protocol === "https:" ? "wss" : "ws"
-}://${window.location.host}/ws-api/wakeword/`;
+const WS_URL = `${window.location.protocol === "https:" ? "wss" : "ws"
+  }://${window.location.host}/ws-api/wakeword/`;
 
 export function useWakeWord({ enabled, onWake }: UseWakeWordOptions) {
   const onWakeRef = useRef(onWake);
@@ -32,11 +31,11 @@ export function useWakeWord({ enabled, onWake }: UseWakeWordOptions) {
       cancelled = true;
       try {
         workletNode?.disconnect();
-      } catch {}
+      } catch { }
       try {
         source?.disconnect();
-      } catch {}
-      if (ctx && ctx.state !== "closed") ctx.close().catch(() => {});
+      } catch { }
+      if (ctx && ctx.state !== "closed") ctx.close().catch(() => { });
       stream?.getTracks().forEach((t) => t.stop());
       if (ws && ws.readyState !== WebSocket.CLOSED) ws.close();
     };
@@ -69,6 +68,7 @@ export function useWakeWord({ enabled, onWake }: UseWakeWordOptions) {
         workletNode = new AudioWorkletNode(ctx, "audio-frames");
         workletNode.port.onmessage = (e) => {
           if (ws && ws.readyState === WebSocket.OPEN) {
+            console.log("wake-word: sending data", e.data);
             ws.send(e.data);
           }
         };
