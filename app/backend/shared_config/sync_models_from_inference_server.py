@@ -25,7 +25,7 @@ OUTPUT_JSON = SCRIPT_DIR / "models_from_inference_server.json"
 #   1. Explicit --source CLI argument
 #   2. TT_INFERENCE_ARTIFACT_PATH env var (set by run.py after artifact download)
 #   3. .artifacts/tt-inference-server/ next to repo root (artifact default location)
-#   4. tt-inference-server/ next to repo root (legacy submodule path)
+#   4. tt-inference-server/ next to repo root (manual local dev checkout)
 _REPO_ROOT = SCRIPT_DIR / "../../.."
 _CANDIDATE_SOURCES = [
     _REPO_ROOT / ".artifacts/tt-inference-server/model_specs_output.json",
