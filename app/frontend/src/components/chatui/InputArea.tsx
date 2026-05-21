@@ -4,6 +4,7 @@
 import React from "react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "../ui/button";
+import { FileUpload } from "../ui/file-upload";
 import {
   Paperclip,
   Send,
@@ -880,6 +881,7 @@ export default function InputArea({
             </div>
           </div>
         )}
+        {isFileUploadOpen && <FileUpload onChange={handleFileUpload} />}
       </div>
     </>
   );
