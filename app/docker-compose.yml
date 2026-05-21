@@ -1,127 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+#
+# Main compose file. Service definitions live in their respective
+# folders; this file assembles them via `include:` and declares the
+# shared external network. Mode-specific tweaks are applied via the
+# docker-compose.dev-mode.yml / .prod.yml / .tt-hardware.yml overlays.
 
 include:
+  - ./backend/docker-compose.yml
+  - ./frontend/docker-compose.yml
+  - ./agents/docker-compose.yml
   - ./chroma/docker-compose.yml
-
-services:
-  tt_studio_backend:
-    #! hostnames must not contain underscores
-    hostname: tt-studio-backend-api
-    image: ghcr.io/tenstorrent/tt-studio/backend:v0.0.1
-    build: 
-      context: ./backend
-      args:
-        - VITE_ENABLE_DEPLOYED=${VITE_ENABLE_DEPLOYED}
-    #* DEV: Uncomment devices to use Tenstorrent hardware
-    # devices:
-    #* mounts all tenstorrent devices to backend container
-    # - /dev/tenstorrent:/dev/tenstorrent
-    # note that `network_mode: host` does not work on mac OS
-    networks:
-      - tt_studio_network
-    ports:
-      - "8000:8000"
-    command: >
-      uvicorn api.asgi:application --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 1200
-    depends_on:
-      tt_studio_chroma:
-        condition: service_healthy
-    stdin_open: true
-    tty: true
-    environment:
-      # env vars are defined in .env file, use .env.default as template
-      - CHROMA_DB_HOST=tt_studio_chroma
-      - CHROMA_DB_PORT=8111
-      - TT_STUDIO_ROOT
-      - HOST_PERSISTENT_STORAGE_VOLUME
-      - INTERNAL_PERSISTENT_STORAGE_VOLUME
-      - BACKEND_API_HOSTNAME
-      - JWT_SECRET
-      - TTS_API_KEY
-      - TAVILY_API_KEY
-      - CLOUD_CHAT_UI_URL
-      - CLOUD_CHAT_UI_AUTH_TOKEN
-      - CLOUD_YOLOV4_API_URL
-      - CLOUD_YOLOV4_API_AUTH_TOKEN
-      - RAG_ADMIN_PASSWORD
-      - CLOUD_SPEECH_RECOGNITION_URL
-      - CLOUD_SPEECH_RECOGNITION_AUTH_TOKEN
-      - CLOUD_STABLE_DIFFUSION_URL
-      - CLOUD_STABLE_DIFFUSION_AUTH_TOKEN
-      - TEAM_ID
-      - TOKEN_ID
-      - GITHUB_USERNAME
-      - GITHUB_PAT
-      - VITE_ENABLE_DEPLOYED
-      # Docker Control Service (replaces direct socket mount)
-      - DOCKER_CONTROL_SERVICE_URL
-      - DOCKER_CONTROL_JWT_SECRET
-    volumes:
-      - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
-      # Mount the local api directory for live code changes
-      - ./backend:/backend
-      # Mount tt-inference-server workflow logs for viewing deployment logs
-      - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
-      # Mount fastapi_logs/ directory so the backend can read per-deployment logs
-      - ${TT_STUDIO_ROOT}/fastapi_logs:${TT_STUDIO_ROOT}/fastapi_logs:ro
-
-    healthcheck:
-      # On first application load resources for transformers/etc
-      # are downloaded. The UI should not start until these resources
-      # have been downloaded. Adjust timeout if on a very slow connection
-      test: ["CMD", "curl", "-f", "http://localhost:8000/up/"]
-      timeout: 120s
-      interval: 10s
-      retries: 5
-      start_period: 60s
-    # Allow container to access host services (docker-control-service)
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  tt_studio_frontend:
-    hostname: tt-studio-frontend
-    # Container name and image are defined in mode-specific override files
-    # Build configuration is defined in mode-specific override files
-    depends_on:
-      tt_studio_backend:
-        condition: service_healthy
-    networks:
-      - tt_studio_network
-    # Ports and healthcheck are defined in mode-specific override files
-
-  tt_studio_agent:
-    hostname: tt-studio-agent
-    # Container name and image are defined in mode-specific override files
-    build: ./agents
-    depends_on:
-      tt_studio_backend:
-        condition: service_healthy
-    networks:
-      - tt_studio_network
-    ports:
-      - "8080:8080"
-    environment:
-      - JWT_SECRET
-      - TAVILY_API_KEY
-      - CLOUD_CHAT_UI_URL
-      - CLOUD_CHAT_UI_AUTH_TOKEN
-      - USE_CLOUD_LLM=true
-      - LLM_CONTAINER_NAME
-      - BACKEND_API_HOSTNAME
-      - AGENT_LLM_POLLING_TIMEOUT
-      - AGENT_LLM_POLLING_MAX_ATTEMPTS
-      - AGENT_LLM_POLLING_CIRCUIT_BREAKER_THRESHOLD
-      # - E2B_API_KEY
-    stdin_open: true
-    tty: true
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
-      timeout: 60s
-      interval: 10s
-      retries: 3
-      start_period: 30s
 
 networks:
   tt_studio_network:

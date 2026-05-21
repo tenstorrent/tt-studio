@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+services:
+  tt_studio_frontend:
+    hostname: tt-studio-frontend
+    # Container name and image are defined in mode-specific override files
+    # Build configuration is defined in mode-specific override files
+    depends_on:
+      tt_studio_backend:
+        condition: service_healthy
+    networks:
+      - tt_studio_network
+    # Ports and healthcheck are defined in mode-specific override files
+
+networks:
+  tt_studio_network:
+    external: true
+    name: tt_studio_network

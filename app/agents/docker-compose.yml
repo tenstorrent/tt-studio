@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+
+services:
+  tt_studio_agent:
+    hostname: tt-studio-agent
+    # Container name and image are defined in mode-specific override files
+    build: .
+    depends_on:
+      tt_studio_backend:
+        condition: service_healthy
+    networks:
+      - tt_studio_network
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_SECRET
+      - TAVILY_API_KEY
+      - CLOUD_CHAT_UI_URL
+      - CLOUD_CHAT_UI_AUTH_TOKEN
+      - USE_CLOUD_LLM=true
+      - LLM_CONTAINER_NAME
+      - BACKEND_API_HOSTNAME
+      - AGENT_LLM_POLLING_TIMEOUT
+      - AGENT_LLM_POLLING_MAX_ATTEMPTS
+      - AGENT_LLM_POLLING_CIRCUIT_BREAKER_THRESHOLD
+      # - E2B_API_KEY
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      timeout: 60s
+      interval: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  tt_studio_network:
+    external: true
+    name: tt_studio_network
