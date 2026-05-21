@@ -418,7 +418,7 @@ class DeployView(APIView):
             should_force_full_board_llama = (
                 impl.model_type == ModelTypes.CHAT
                 and force_full_board_requested
-                and board_type == "P300Cx2"
+                and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
             if force_full_board_requested and not should_force_full_board_llama:

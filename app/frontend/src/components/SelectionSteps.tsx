@@ -249,7 +249,7 @@ export default function StepperDemo() {
       const pair = pickPreferredAvailablePair(chipStatus?.slots);
       if (!pair) {
         customToast.error(
-          "Llama 3.1 8B on P300Cx2 needs both devices 0 and 1 free."
+          "Llama 3.1 8B on P300x2 needs both devices 0 and 1 free."
         );
         return { success: false };
       }
@@ -477,7 +477,7 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
+        {/* QB2 hardware config toggle — only shown on P300x2 boards */}
         {isQB2 && (
           <button
             type="button"
