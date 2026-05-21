@@ -150,5 +150,92 @@ class CleanupAllTests(unittest.TestCase):
             self.assertTrue(sentinel.read_text().isdigit())
 
 
+class CleanupDockerSurfaceTests(unittest.TestCase):
+    """Covers the gaps the original cleanup-all missed: deployment containers
+    spawned outside compose, and images outside ghcr.io/tenstorrent/tt-studio/*."""
+
+    def test_remove_local_tt_studio_images_covers_all_known_refs(self):
+        # One synthetic image ID per ref pattern; ensure each ref is queried
+        # and the union of IDs is force-removed in one shot.
+        queried_refs = []
+        ref_to_id = {
+            "ghcr.io/tenstorrent/tt-studio/*": "111",
+            "ghcr.io/tenstorrent/tt-inference-server/*": "222",
+            "chromadb/chroma": "333",
+        }
+
+        def fake_run(cmd, **kwargs):
+            if "ls" in cmd:
+                ref = cmd[cmd.index("--filter") + 1].split("=", 1)[1]
+                queried_refs.append(ref)
+                return SimpleNamespace(stdout=ref_to_id.get(ref, "") + "\n", returncode=0)
+            self.assertEqual(cmd[:4], ["docker", "image", "rm", "-f"])
+            self.assertEqual(sorted(cmd[4:]), ["111", "222", "333"])
+            return SimpleNamespace(stdout="", returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            removed = run._remove_local_tt_studio_images(has_docker_access=True)
+
+        self.assertEqual(removed, 3)
+        self.assertEqual(sorted(queried_refs), sorted(ref_to_id))
+
+    def test_remove_tt_studio_network_containers_force_removes_all(self):
+        recorded = {}
+
+        def fake_run(cmd, **kwargs):
+            if "ps" in cmd:
+                self.assertIn("network=tt_studio_network", cmd)
+                return SimpleNamespace(stdout="abc\ndef\n", returncode=0)
+            recorded["rm"] = cmd
+            return SimpleNamespace(stdout="", returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            removed = run._remove_tt_studio_network_containers(has_docker_access=True)
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(recorded["rm"][:3], ["docker", "rm", "-f"])
+        self.assertEqual(sorted(recorded["rm"][3:]), ["abc", "def"])
+
+    def test_remove_tt_studio_network_containers_uses_sudo_without_access(self):
+        seen_prefixes = []
+
+        def fake_run(cmd, **kwargs):
+            seen_prefixes.append(cmd[0])
+            if "ps" in cmd:
+                return SimpleNamespace(stdout="xyz\n", returncode=0)
+            return SimpleNamespace(stdout="", returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            run._remove_tt_studio_network_containers(has_docker_access=False)
+
+        self.assertEqual(seen_prefixes, ["sudo", "sudo"])
+
+    def test_cleanup_runtime_stops_deployments_before_compose_down(self):
+        order = []
+
+        def record_deployments(*args, **kwargs):
+            order.append("deployments")
+            return 2
+
+        def record_run_docker(cmd, **kwargs):
+            # compose `down -v` must come after deployment teardown so the
+            # network exists when we enumerate containers attached to it.
+            if "down" in cmd:
+                order.append("compose_down")
+            elif "network" in cmd and "rm" in cmd:
+                order.append("network_rm")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        args = SimpleNamespace(dev=False, no_sudo=True)
+        with patch.object(run, "_remove_tt_studio_network_containers", side_effect=record_deployments), \
+             patch.object(run, "run_docker_command", side_effect=record_run_docker), \
+             patch.object(run, "cleanup_fastapi_server"), \
+             patch.object(run, "cleanup_docker_control_service"), \
+             contextlib.redirect_stdout(io.StringIO()):
+            run._cleanup_runtime(args, has_docker_access=True)
+
+        self.assertEqual(order[:3], ["deployments", "compose_down", "network_rm"])
+
+
 if __name__ == "__main__":
     unittest.main()

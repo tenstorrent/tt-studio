@@ -1747,25 +1747,60 @@ def _remove_directory_contents(path, preserve_names=None, no_sudo=False):
     return ok
 
 
-def _remove_local_tt_studio_images(has_docker_access):
-    """Remove locally built/pulled TT Studio Docker images (ghcr.io/tenstorrent/tt-studio/*).
+# Image reference patterns wiped by --cleanup-all. Covers the three TT Studio
+# images (backend/frontend/agent), every model-deployment image pulled from the
+# tt-inference-server registry path (vLLM, yolov4, stable-diffusion, …), and
+# the chroma image declared in docker-compose.yml.
+_CLEANUP_IMAGE_REFS = (
+    "ghcr.io/tenstorrent/tt-studio/*",
+    "ghcr.io/tenstorrent/tt-inference-server/*",
+    "chromadb/chroma",
+)
 
-    Best-effort: skips silently if Docker is unavailable. Returns number of images removed.
-    """
+
+def _remove_local_tt_studio_images(has_docker_access):
+    """Remove TT Studio + inference-server + chroma images. Returns count removed."""
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    ids = []
     try:
-        result = subprocess.run(
-            (["sudo"] if not has_docker_access else []) +
-            ["docker", "image", "ls", "--filter",
-             "reference=ghcr.io/tenstorrent/tt-studio/*", "-q"],
-            capture_output=True, text=True, check=False,
-        )
-        ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        for ref in _CLEANUP_IMAGE_REFS:
+            result = subprocess.run(
+                sudo_prefix + ["docker", "image", "ls", "--filter",
+                               f"reference={ref}", "-q"],
+                capture_output=True, text=True, check=False,
+            )
+            ids.extend(line.strip() for line in result.stdout.splitlines() if line.strip())
         ids = list(dict.fromkeys(ids))
         if not ids:
             return 0
         subprocess.run(
-            (["sudo"] if not has_docker_access else []) +
-            ["docker", "image", "rm", "-f", *ids],
+            sudo_prefix + ["docker", "image", "rm", "-f", *ids],
+            capture_output=True, check=False,
+        )
+        return len(ids)
+    except Exception:
+        return 0
+
+
+def _remove_tt_studio_network_containers(has_docker_access):
+    """Force-remove every container attached to tt_studio_network.
+
+    Deployment containers (vLLM, YOLO, stable-diffusion, …) are spawned outside
+    docker-compose by the backend via docker-control-service, so `compose down`
+    never sees them. They all join `tt_studio_network`, which makes the network
+    a reliable filter. Returns count removed.
+    """
+    sudo_prefix = ["sudo"] if not has_docker_access else []
+    try:
+        result = subprocess.run(
+            sudo_prefix + ["docker", "ps", "-aq", "--filter", "network=tt_studio_network"],
+            capture_output=True, text=True, check=False,
+        )
+        ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not ids:
+            return 0
+        subprocess.run(
+            sudo_prefix + ["docker", "rm", "-f", *ids],
             capture_output=True, check=False,
         )
         return len(ids)
@@ -1879,7 +1914,8 @@ def cleanup_resources(args):
     else:
         print(f"  {C_CYAN}(no host-side state found){C_RESET}")
 
-    print(f"\n  🐳 Local TT Studio Docker images (backend, frontend, agent)")
+    print(f"\n  🐳 Running deployment containers on tt_studio_network (vLLM, YOLO, …)")
+    print(f"  🐳 Local images: tt-studio/*, tt-inference-server/*, chromadb/chroma")
     print(f"  🌐 Browser data (chat history, theme, login)  — wiped on next page load\n")
 
     if total_bytes > 0:
@@ -1939,6 +1975,14 @@ def cleanup_resources(args):
 
 def _cleanup_runtime(args, has_docker_access):
     """Tear down containers, the docker network, FastAPI and Docker Control Service."""
+    # Deployment containers (vLLM, etc.) live outside compose — kill them first
+    # so the subsequent network removal and weight-directory deletion aren't
+    # blocked by running processes holding bind mounts open.
+    sys.stdout.write(f"  Stopping deployments...    ")
+    sys.stdout.flush()
+    deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
+    print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
     docker_compose_cmd.extend(["down", "-v"])
     try:
