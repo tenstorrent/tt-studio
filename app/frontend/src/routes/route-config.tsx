@@ -57,6 +57,7 @@ import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
 import WorkflowsPage from "../pages/WorkflowsPage";
+import CanvasPage from "../pages/CanvasPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -146,6 +147,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/workflows",
       element: <WorkflowsPage />,
+      condition: true,
+    },
+    {
+      path: "/canvas",
+      element: <CanvasPage />,
       condition: true,
     },
     {

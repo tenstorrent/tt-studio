@@ -20,6 +20,7 @@ import {
   type LucideIcon,
   History,
   Workflow,
+  PanelLeft,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -285,11 +286,12 @@ export default function NavBar() {
     return hasLlm && hasStt && hasTts;
   }, [models]);
 
-  // Check if we're in Chat UI, Image Generation, or Workflows mode
+  // Check if we're in Chat UI, Image Generation, Workflows, or Canvas mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
   const isWorkflows = location.pathname === "/workflows";
-  const shouldUseVerticalNav = isChatUI || isImageGeneration || isWorkflows;
+  const isCanvas = location.pathname === "/canvas";
+  const shouldUseVerticalNav = isChatUI || isImageGeneration || isWorkflows || isCanvas;
 
   // console.log("Path:", location.pathname);
   // console.log("isChatUI:", isChatUI);
@@ -340,7 +342,7 @@ export default function NavBar() {
 
   const isMobile = windowWidth < 640;
 
-  if (isMobile && isChatUI) {
+  if (isMobile && (isChatUI || isCanvas)) {
     return null;
   }
 
@@ -487,6 +489,13 @@ export default function NavBar() {
       icon: Workflow,
       label: "Workflows",
       tooltip: "Build and run multi-step AI pipelines",
+    },
+    {
+      type: "link",
+      to: "/canvas",
+      icon: PanelLeft,
+      label: "Canvas",
+      tooltip: "AI code canvas with live preview",
     },
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
