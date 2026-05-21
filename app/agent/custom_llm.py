@@ -25,9 +25,12 @@ from langchain_core.tools import BaseTool
 from langchain_core.runnables import Runnable
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain.callbacks.streaming_stdout_final_only import FinalStreamingStdOutCallbackHandler
+import re
 import requests
 import json 
 import os 
+
+_PYTHON_TAG_RE = re.compile(r'[\[<|]*python_tag[\]>|]*', re.IGNORECASE)
 
 
 class CustomLLM(BaseChatModel):
@@ -80,20 +83,43 @@ class CustomLLM(BaseChatModel):
     ) -> AsyncGenerator[ChatGenerationChunk, None]:
         print('[TRACE_FLOW_STEP_5_AGENT_TO_LLM] _astream called', {'server_url': self.server_url, 'is_cloud': self.is_cloud, 'is_discovered': self.is_discovered, 'llm_info': self.llm_info})
         
-        # Convert LangChain messages to standard role/content format
+        # Convert LangChain messages to OpenAI-compatible role/content format.
+        # Native tool calling requires:
+        #   - AI messages preserve their tool_calls array
+        #   - Tool messages use role "tool" with tool_call_id
         message_payload = []
         for msg in messages:
             if msg.type == "system":
-                role = "system"
+                entry = {"role": "system", "content": str(msg.content)}
             elif msg.type in ("human", "chat"):
-                role = "user"
-            elif msg.type == "ai":
-                role = "assistant"
-            elif msg.type == "function" or msg.type == "tool":
-                role = "assistant"  # Treat function calls as assistant responses
+                entry = {"role": "user", "content": str(msg.content)}
+            elif msg.type in ("ai", "AIMessageChunk"):
+                raw_content = str(msg.content) if msg.content else ""
+                cleaned_content = _PYTHON_TAG_RE.sub('', raw_content).strip()
+                entry = {"role": "assistant", "content": cleaned_content}
+                if hasattr(msg, "tool_calls") and msg.tool_calls:
+                    entry["tool_calls"] = [
+                        {
+                            "id": tc.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc.get("args", {})),
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ]
+            elif msg.type == "tool":
+                entry = {
+                    "role": "tool",
+                    "content": str(msg.content),
+                    "tool_call_id": getattr(msg, "tool_call_id", ""),
+                }
+            elif msg.type == "function":
+                entry = {"role": "assistant", "content": str(msg.content)}
             else:
-                role = "user"  # Fallback
-            message_payload.append({"role": role, "content": str(msg.content)})
+                entry = {"role": "user", "content": str(msg.content)}
+            message_payload.append(entry)
         
         # Check if tools are available in kwargs
         tools = kwargs.get("tools", [])
@@ -105,10 +131,10 @@ class CustomLLM(BaseChatModel):
             headers = {"Authorization": f"Bearer {self.encoded_jwt}"}
             
             json_data = {
-                "model": self.cloud_model_name,  # Use configurable model name
+                "model": self.cloud_model_name,
                 "messages": message_payload,
                 "temperature": 0.7,
-                "max_tokens": 512,
+                "max_tokens": 2048,
                 "stream": True,
             }
             
@@ -129,7 +155,6 @@ class CustomLLM(BaseChatModel):
                 print(f"[DEBUG] hf_model_id from llm_info: {hf_model_id}")
                 print(f"[DEBUG] model_name from llm_info: {model_name}")
                 
-                # Use hf_model_id if it exists and is not None/empty, otherwise fall back to model_name
                 if hf_model_id and hf_model_id.strip():
                     hf_model_path = hf_model_id
                     print(f"[DEBUG] Using hf_model_id: {hf_model_path}")
@@ -141,20 +166,53 @@ class CustomLLM(BaseChatModel):
                 hf_model_path = os.getenv("HF_MODEL_PATH")
                 print(f"Using model from environment variable: {hf_model_path}")
             
-            json_data = {
-                "model": hf_model_path,
-                "messages": message_payload,
-                "temperature": 1,
-                "top_k": 20,
-                "top_p": 0.9,
-                "max_tokens": 512,
-                "stream": True,
-                "stop": ["<|eot_id|>"],
-                "stream_options": {"include_usage": True, "continuous_usage_stats": True}
-            }
+            # Merge caller-provided stop sequences (e.g. "\nObservation:" from
+            # the ReAct agent) with the model's default EOS token so the LLM
+            # stops after "Action Input:" and lets the tool actually run.
+            stop_sequences = ["<|eot_id|>"]
+            if stop:
+                for s in stop:
+                    if s not in stop_sequences:
+                        stop_sequences.append(s)
+
+            is_completions_endpoint = (
+                self.server_url.endswith('/v1/completions')
+                and not self.server_url.endswith('/v1/chat/completions')
+            )
+
+            if is_completions_endpoint:
+                # /v1/completions expects a "prompt" string, not "messages"
+                prompt_parts = []
+                for m in message_payload:
+                    prompt_parts.append(str(m.get("content", "")))
+                prompt_text = "\n".join(prompt_parts)
+
+                json_data = {
+                    "model": hf_model_path,
+                    "prompt": prompt_text,
+                    "temperature": 0.6,
+                    "top_k": 20,
+                    "top_p": 0.9,
+                    "max_tokens": 2048,
+                    "stream": True,
+                    "stop": stop_sequences,
+                    "stream_options": {"include_usage": True, "continuous_usage_stats": True}
+                }
+            else:
+                json_data = {
+                    "model": hf_model_path,
+                    "messages": message_payload,
+                    "temperature": 0.6,
+                    "top_k": 20,
+                    "top_p": 0.9,
+                    "max_tokens": 2048,
+                    "stream": True,
+                    "stop": stop_sequences,
+                    "stream_options": {"include_usage": True, "continuous_usage_stats": True}
+                }
             
-            # Add tools if available
-            if tools:
+            # Add tools if available (chat completions only)
+            if tools and not is_completions_endpoint:
                 json_data["tools"] = tools
                 json_data["tool_choice"] = "auto"
 
@@ -164,12 +222,11 @@ class CustomLLM(BaseChatModel):
         print(f"[LLM REQUEST PAYLOAD] Sending to LLM: {json.dumps(json_data, indent=2)}")
         print(f"[DEBUG] Request URL: {self.server_url}")
         print(f"[DEBUG] Request method: POST")
-        print(f"[DEBUG] Request timeout: 30 seconds")
-        
         try:
             print(f"[DEBUG] Starting HTTP request to LLM...")
             with requests.post(
-                self.server_url, json=json_data, headers=headers, stream=True, timeout=30
+                self.server_url, json=json_data, headers=headers, stream=True,
+                timeout=(10, 300),  # (connect, read) — TT hardware TTFT can be 60s+ on first run
             ) as response:
                 print(f"[DEBUG] Response received - Status: {response.status_code}")
                 print(f"[DEBUG] Response headers: {dict(response.headers)}")
@@ -211,19 +268,25 @@ class CustomLLM(BaseChatModel):
                                         
                                         # Handle tool calls
                                         if "tool_calls" in delta:
-                                            tool_calls = delta["tool_calls"]
-                                            for tool_call in tool_calls:
-                                                # Create a tool call message
+                                            for tc in delta["tool_calls"]:
+                                                func = tc.get("function") or {}
+                                                chunk_obj = {
+                                                    "name": func.get("name"),
+                                                    "args": func.get("arguments", ""),
+                                                    "id": tc.get("id"),
+                                                    "index": tc.get("index", 0),
+                                                }
                                                 new_chunk = ChatGenerationChunk(
                                                     message=AIMessageChunk(
                                                         content="",
-                                                        tool_calls=[tool_call]
+                                                        tool_call_chunks=[chunk_obj],
                                                     )
                                                 )
                                                 yield new_chunk
                                         else:
-                                            # Handle regular content
                                             content = delta.get("content", "")
+                                            if content:
+                                                content = _PYTHON_TAG_RE.sub('', content)
                                             if content:
                                                 new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
                                                 yield new_chunk
@@ -231,14 +294,13 @@ class CustomLLM(BaseChatModel):
                                     print(f"[DEBUG] JSON decode error in cloud response: {e}")
                                     continue
                     else:
-                        # Handle local container response format (existing logic)
+                        # Handle local container response format
                         if chunk.startswith("data: "):
                             new_chunk = chunk[len("data: "):]
                             new_chunk = new_chunk.strip()
                             print(f"[DEBUG] Processing local chunk: {repr(new_chunk)}")
                             if new_chunk == "[DONE]":
                                 print(f"[DEBUG] Received [DONE] marker from local LLM")
-                                # Yield [DONE] to signal that streaming is complete
                                 new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=""))
                                 yield new_chunk
                             else:
@@ -247,30 +309,45 @@ class CustomLLM(BaseChatModel):
                                     print(f"[DEBUG] Parsed chunk: {parsed_chunk}")
                                     if "choices" in parsed_chunk and len(parsed_chunk["choices"]) > 0:
                                         choice = parsed_chunk["choices"][0]
+
+                                        # /v1/chat/completions returns "delta"
                                         if "delta" in choice:
                                             delta = choice["delta"]
-                                            
-                                            # Handle tool calls
                                             if "tool_calls" in delta:
-                                                tool_calls = delta["tool_calls"]
-                                                for tool_call in tool_calls:
-                                                    print(f"[DEBUG] Tool call: {tool_call}")
+                                                for tc in delta["tool_calls"]:
+                                                    func = tc.get("function") or {}
+                                                    chunk_obj = {
+                                                        "name": func.get("name"),
+                                                        "args": func.get("arguments", ""),
+                                                        "id": tc.get("id"),
+                                                        "index": tc.get("index", 0),
+                                                    }
+                                                    print(f"[DEBUG] Tool call chunk: {chunk_obj}")
                                                     new_chunk = ChatGenerationChunk(
                                                         message=AIMessageChunk(
                                                             content="",
-                                                            tool_calls=[tool_call]
+                                                            tool_call_chunks=[chunk_obj],
                                                         )
                                                     )
                                                     yield new_chunk
                                             elif "content" in delta:
-                                                content = delta["content"]
-                                                print(f"[DEBUG] Extracted content: {repr(content)}")
-                                                new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
-                                                yield new_chunk
+                                                content = _PYTHON_TAG_RE.sub('', delta["content"])
+                                                if content:
+                                                    print(f"[DEBUG] Extracted content: {repr(content)}")
+                                                    new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                                                    yield new_chunk
                                             else:
                                                 print(f"[DEBUG] No content or tool_calls in delta: {delta}")
+
+                                        # /v1/completions returns "text"
+                                        elif "text" in choice:
+                                            content = _PYTHON_TAG_RE.sub('', choice["text"])
+                                            if content:
+                                                print(f"[DEBUG] Extracted text: {repr(content)}")
+                                                new_chunk = ChatGenerationChunk(message=AIMessageChunk(content=content))
+                                                yield new_chunk
                                         else:
-                                            print(f"[DEBUG] No delta in choice: {choice}")
+                                            print(f"[DEBUG] No delta or text in choice: {choice}")
                                     else:
                                         print(f"[DEBUG] No choices in response: {parsed_chunk}")
                                 except (json.JSONDecodeError, KeyError) as e:
@@ -281,6 +358,12 @@ class CustomLLM(BaseChatModel):
                             print(f"[DEBUG] Non-data chunk received: {repr(chunk)}")
                 
                 print(f"[DEBUG] Stream completed after {chunk_count} chunks")
+        except requests.exceptions.ReadTimeout:
+            print(f"[ERROR] Read timeout — LLM took too long to respond")
+            error_chunk = ChatGenerationChunk(message=AIMessageChunk(
+                content="The model is taking too long to respond. It may still be warming up — please try again in a moment."
+            ))
+            yield error_chunk
         except requests.RequestException as e:
             print(f"[ERROR] Request exception: {str(e)}")
             print(f"[ERROR] Request exception type: {type(e)}")

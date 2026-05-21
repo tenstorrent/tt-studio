@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "logs_control",
     "board_control",
+    "workflow_control.apps.WorkflowControlConfig",
 ]
 
 MIDDLEWARE = [
@@ -98,6 +99,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "api.wsgi.application"
+
+# Database – SQLite for lightweight ORM models (workflow storage, etc.)
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+    }
+}
 
 # local memory thread-safe default
 # the LOCATION for locmem.LocMemCache cache backend is just a name for tracking

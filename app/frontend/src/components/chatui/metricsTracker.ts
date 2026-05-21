@@ -15,7 +15,8 @@
  * - Network latency: client_ttft - backend_ttft
  */
 
-import type { TokenTimestamp, InferenceStats, ProgressiveStats } from "./types";
+import type { TokenTimestamp, InferenceStats, ProgressiveStats, HardwareMetrics } from "./types";
+import type { GpuBenchmark } from "./benchmarkData";
 
 export class InferenceMetricsTracker {
   // Timing measurements
@@ -210,4 +211,41 @@ export class InferenceMetricsTracker {
   hasReceivedFirstToken(): boolean {
     return this.firstTokenTime !== undefined;
   }
+}
+
+/**
+ * Compute efficiency comparison between TT hardware and GPU baselines.
+ */
+export interface EfficiencyComparison {
+  gpu: string;
+  gpu_tps: number;
+  gpu_tps_per_watt: number;
+  tt_tps: number;
+  tt_tps_per_watt: number;
+  speed_ratio: number;
+  efficiency_ratio: number;
+}
+
+export function computeEfficiencyComparisons(
+  stats: InferenceStats,
+  baselines: GpuBenchmark[],
+): EfficiencyComparison[] {
+  const tps =
+    stats.tps ??
+    (typeof stats.user_tpot === "number" && stats.user_tpot > 0
+      ? 1 / stats.user_tpot
+      : undefined);
+  const tpsPerWatt = stats.tps_per_watt;
+
+  if (!tps || !tpsPerWatt) return [];
+
+  return baselines.map((b) => ({
+    gpu: b.gpu,
+    gpu_tps: b.tps,
+    gpu_tps_per_watt: b.tps_per_watt,
+    tt_tps: tps,
+    tt_tps_per_watt: tpsPerWatt,
+    speed_ratio: Math.round((tps / b.tps) * 100) / 100,
+    efficiency_ratio: Math.round((tpsPerWatt / b.tps_per_watt) * 10) / 10,
+  }));
 }

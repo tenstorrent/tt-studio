@@ -4,7 +4,7 @@
 import React from "react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { usePersistentState } from "./usePersistentState";
+
 import {
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -64,8 +64,6 @@ interface HeaderProps {
   setRagDatasource: (datasource: RagDataSource | undefined) => void;
   isHistoryPanelOpen: boolean;
   setIsHistoryPanelOpen: (isOpen: boolean) => void;
-  isAgentSelected: boolean;
-  setIsAgentSelected: (value: boolean) => void;
   isMobileView?: boolean;
   setIsRagExplicitlyDeselected?: (value: boolean) => void;
   onOpenSettings?: () => void;
@@ -224,8 +222,6 @@ export default function Header({
   setRagDatasource,
   isHistoryPanelOpen,
   setIsHistoryPanelOpen,
-  isAgentSelected,
-  setIsAgentSelected,
   isMobileView = false,
   // setIsRagExplicitlyDeselected,
   // onOpenSettings,
@@ -235,10 +231,6 @@ export default function Header({
   // Log ragDataSources to console to inspect its structure
   // console.log("RAG Data Sources:", ragDataSources);
 
-  const [selectedAIAgent] = usePersistentState<string | null>(
-    "selectedAIAgent",
-    null
-  );
   const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
   // const navigate = useNavigate();
   const { logoUrl } = useLogo();
@@ -256,21 +248,6 @@ export default function Header({
   const toggleMobileMenu = () => {
     setShowMobileMenu(!showMobileMenu);
   };
-
-  // Sync agent selection state on mount
-  React.useEffect(() => {
-    if (selectedAIAgent && !isAgentSelected) {
-      console.log(
-        "Syncing agent state: agent is selected but isAgentSelected is false"
-      );
-      setIsAgentSelected(true);
-    } else if (!selectedAIAgent && isAgentSelected) {
-      console.log(
-        "Syncing agent state: no agent selected but isAgentSelected is true"
-      );
-      setIsAgentSelected(false);
-    }
-  }, [selectedAIAgent, isAgentSelected, setIsAgentSelected]);
 
   return (
     <div className="bg-white dark:bg-[#2A2A2A] rounded-lg p-2 md:p-4 shadow-lg dark:shadow-2xl sticky top-2 z-10 flex flex-col md:flex-row justify-between items-start md:items-center border border-gray-200 dark:border-[#7C68FA]/20 transition-all duration-300 ease-in-out">

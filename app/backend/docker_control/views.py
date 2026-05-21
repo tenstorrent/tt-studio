@@ -450,6 +450,16 @@ class DeployView(APIView):
             else:
                 service_port = BASE_SERVICE_PORT + device_id
 
+            # Build vllm_override_args when tool calling is requested
+            vllm_override_args = None
+            if serializer.validated_data.get("enable_tool_calling"):
+                import json as _json
+                vllm_override_args = _json.dumps({
+                    "enable-auto-tool-choice": True,
+                    "tool-call-parser": impl.tool_call_parser,
+                })
+                logger.info(f"Tool calling enabled for {impl.model_name} (parser={impl.tool_call_parser}): {vllm_override_args}")
+
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
             # without requiring docker_utils.py to handle async "job started" responses.
@@ -483,6 +493,7 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
+                needs_dev_mode = qwen32b_p300x2 or bool(vllm_override_args)
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
@@ -490,8 +501,9 @@ class DeployView(APIView):
                     service_port=service_port,
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
+                    vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
-                    dev_mode=qwen32b_p300x2,
+                    dev_mode=needs_dev_mode,
                 )
                 if result.status != "success":
                     return Response(
@@ -525,6 +537,7 @@ class DeployView(APIView):
                         device_ids=device_ids,
                         status="starting",
                         port=service_port,
+                        tool_calling_enabled=bool(vllm_override_args),
                     )
                 except Exception as e:
                     logger.warning(f"Could not create ModelDeployment for chat job {result.job_id}: {e}")
@@ -549,7 +562,7 @@ class DeployView(APIView):
             else:
                 # Continue with deployment using allocated device_id(s) and optional host_port
                 host_port = serializer.validated_data.get("host_port")
-                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
+                response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override, vllm_override_args=vllm_override_args)
 
                 # Add allocated_device_id to response
                 response["allocated_device_id"] = device_id
