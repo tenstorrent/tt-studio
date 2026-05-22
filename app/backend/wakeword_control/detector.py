@@ -8,24 +8,24 @@ import time
 import numpy as np
 from openwakeword.model import Model
 
-from .apps import BUNDLED_DIR, MODELS_DIR, WAKE_DEBUG_SCORES, WAKE_MODEL, WAKE_THRESHOLD
+from .apps import BUNDLED_DIR, MODELS_DIR, WAKEWORD_DEBUG_SCORES, WAKEWORD_MODEL, WAKEWORD_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
 
 def _resolve_wake_model_path():
     # Resolution order: repo-bundled → manually dropped in volume → downloaded.
-    bundled = BUNDLED_DIR / f"{WAKE_MODEL}.onnx"
+    bundled = BUNDLED_DIR / f"{WAKEWORD_MODEL}.onnx"
     if bundled.is_file():
         return bundled
-    manual = MODELS_DIR / f"{WAKE_MODEL}.onnx"
+    manual = MODELS_DIR / f"{WAKEWORD_MODEL}.onnx"
     if manual.is_file():
         return manual
-    return next(MODELS_DIR.glob(f"{WAKE_MODEL}_*.onnx"))
+    return next(MODELS_DIR.glob(f"{WAKEWORD_MODEL}_*.onnx"))
 
 
 class WakeDetector:
-    def __init__(self, threshold: float = WAKE_THRESHOLD, debounce_seconds: float = 1.5):
+    def __init__(self, threshold: float = WAKEWORD_THRESHOLD, debounce_seconds: float = 1.5):
         self.threshold = threshold
         self.debounce_seconds = debounce_seconds
         self._model = Model(
@@ -41,7 +41,7 @@ class WakeDetector:
         scores = self._model.predict(audio)
         top_model, top_score = max(scores.items(), key=lambda kv: kv[1])
 
-        if WAKE_DEBUG_SCORES and top_score >= 0.1:
+        if WAKEWORD_DEBUG_SCORES and top_score >= 0.1:
             logger.info("wake score=%.3f model=%s threshold=%.2f", top_score, top_model, self.threshold)
 
         now = time.monotonic()
