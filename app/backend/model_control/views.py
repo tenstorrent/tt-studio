@@ -385,13 +385,13 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
         from docker_control.docker_control_client import get_docker_client
         client = get_docker_client()
         lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
-        if not lines:
-            return None
+        # Even if `lines` is empty (container hasn't logged yet, or the tail
+        # was all noise upstream), still run the classifier — it'll default to
+        # phases[0], and `_apply_phase_latch` promotes that to the previously
+        # latched maximum so the bar never reports null mid-warmup.
         phase_dict = classify_startup_phase(
-            lines, model_type=model_type, model_name=model_name,
+            lines or [], model_type=model_type, model_name=model_name,
         )
-        # Merge in previous-poll maxima so brief tail rotation can't regress
-        # the bar or drop the cached badge. See `_apply_phase_latch`.
         phase_dict = _apply_phase_latch(deploy_id, phase_dict)
     except Exception as e:
         logger.warning(f"startup phase classify failed for {deploy_id[:12]}: {e}")

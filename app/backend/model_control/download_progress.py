@@ -44,6 +44,22 @@ _EMA_ALPHA_LATER = 0.15
 _ETA_SMOOTH_ALPHA = 0.3             # how much new raw ETA influences smoothed ETA
 _EXEC_TIMEOUT_SECONDS = 4           # bound how long du can run before we give up
 
+# Media (tt-media-inference-server) logs only the repo, not a target path.
+# Weights land in the HF hub cache under HF_HOME, which is set to
+# ${CACHE_ROOT}/huggingface by app/backend/shared_config/model_config.py:76-78.
+_MEDIA_HF_CACHE_PREFIX = "/home/container_app_user/cache_root/huggingface/hub/models--"
+
+
+def _media_container_path(repo: Optional[str]) -> Optional[str]:
+    """Derive the in-container HF hub cache path for a media download.
+
+    Mirrors huggingface_hub's repo→path convention (slashes become "--").
+    Returns None for invalid repo strings.
+    """
+    if not repo or "/" not in repo:
+        return None
+    return _MEDIA_HF_CACHE_PREFIX + repo.replace("/", "--")
+
 
 def _container_dir_size(deploy_id: str, container_path: str) -> Optional[int]:
     """Return recursive byte count of `container_path` inside the running deploy.
@@ -141,6 +157,11 @@ def compute_download_progress(
         "weights_repo": repo,
         "weights_cached": cached,
     }
+
+    # Media-server logs only the repo, not a target path. Derive the canonical
+    # HF hub cache path so we can du -sb it via the existing endpoint.
+    if not container_path and repo:
+        container_path = _media_container_path(repo)
 
     if not container_path:
         return out
