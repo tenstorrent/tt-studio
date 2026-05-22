@@ -625,6 +625,7 @@ export default function VoiceAgentApp() {
           selectedConversation={selectedConversation}
           isStreaming={isStreaming}
           isTTSGenerating={isTTSGenerating}
+          stage={stage}
         />
       </motion.div>
 

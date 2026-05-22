@@ -76,9 +76,37 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
 
   useEffect(() => cleanup, [cleanup]);
 
+  const playChime = (startHz: number, endHz: number) => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(startHz, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(endHz, ctx.currentTime + 0.11);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.2);
+      osc.onended = () => ctx.close().catch(() => {});
+    } catch {
+      /* audio unavailable — chime is non-essential */
+    }
+  };
+  const playStartChime = () => playChime(880, 1320);
+  const playEndChime = () => playChime(880, 660);
+
   const startRecording = async () => {
     if (disabled) return;
     cleanup();
+    // Play before opening the mic so the chime isn't captured into the recording.
+    playStartChime();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -127,6 +155,7 @@ export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+      playEndChime();
     }
     setIsRecording(false);
     setLevels(new Array(LEVEL_BARS).fill(0));
