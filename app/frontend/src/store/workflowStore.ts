@@ -117,16 +117,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   createWorkflow: async (name, description = "") => {
-    const { nodes, edges } = get();
     const wf = await createWorkflow({
       name,
       description,
-      graph_data: { nodes, edges },
+      graph_data: { nodes: [], edges: [] },
     });
     set((s) => ({
       workflows: [wf, ...s.workflows],
       currentWorkflow: wf,
+      nodes: [],
+      edges: [],
+      selectedNodeId: null,
     }));
+    get().resetExecution();
     return wf;
   },
 
