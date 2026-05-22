@@ -126,6 +126,7 @@ class WorkflowRunView(View):
             return JsonResponse({"errors": serializer.errors}, status=400)
 
         initial_input = serializer.validated_data["input"]
+        graph_data = serializer.validated_data.get("graph_data") or wf.graph_data
 
         run = await WorkflowRun.objects.acreate(
             workflow=wf,
@@ -134,7 +135,7 @@ class WorkflowRunView(View):
 
         async def stream():
             async for chunk in execute_workflow(
-                wf.graph_data, initial_input, run
+                graph_data, initial_input, run
             ):
                 yield chunk
 

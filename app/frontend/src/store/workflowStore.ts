@@ -237,7 +237,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   // -----------------------------------------------------------------------
 
   runWorkflow: (input) => {
-    const { currentWorkflow } = get();
+    const { currentWorkflow, nodes, edges } = get();
     if (!currentWorkflow) return;
 
     get().resetExecution();
@@ -246,6 +246,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const controller = executeWorkflow(
       currentWorkflow.id,
       input,
+      { nodes, edges },
       (event) => get().handleSSEEvent(event),
       () => set({ isRunning: false }),
       (err) => set({ isRunning: false, runError: err.message })

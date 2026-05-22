@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import axios from "axios";
-import type { Workflow, WorkflowRun, SSEEvent } from "../types/workflow";
+import type { Workflow, WorkflowRun, SSEEvent, GraphData } from "../types/workflow";
 
 const BASE = "/workflows-api";
 
@@ -52,6 +52,7 @@ export async function getWorkflowRun(runId: string): Promise<WorkflowRun> {
 export function executeWorkflow(
   workflowId: string,
   input: string,
+  graphData: GraphData,
   onEvent: (event: SSEEvent) => void,
   onDone: () => void,
   onError: (err: Error) => void
@@ -61,7 +62,7 @@ export function executeWorkflow(
   fetch(`${BASE}/${workflowId}/run/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ input, graph_data: graphData }),
     signal: controller.signal,
   })
     .then(async (response) => {

@@ -75,6 +75,7 @@ async def handle_llm(
     ``model_control.model_utils.stream_response_from_external_api``.
     """
     from model_control.model_utils import get_deploy_cache
+    from shared_config.model_type_config import ModelTypes
 
     deploy_id = config.get("deploy_id", "")
     prompt_template = config.get("prompt_template", "{input}")
@@ -88,11 +89,13 @@ async def handle_llm(
     entry = deploy_cache.get(deploy_id)
     if not entry:
         for _cid, e in deploy_cache.items():
-            if e.get("status") == "running":
+            impl = e.get("model_impl")
+            model_type = getattr(impl, "model_type", None)
+            if e.get("status") == "running" and model_type == ModelTypes.CHAT:
                 entry = e
                 break
     if not entry:
-        yield _sse("node_error", node_id, {"error": "No deployed LLM found"})
+        yield _sse("node_error", node_id, {"error": "No deployed chat model found"})
         return
 
     internal_url = entry.get("internal_url", "")

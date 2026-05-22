@@ -48,3 +48,4 @@ class WorkflowRunInputSerializer(serializers.Serializer):
     """Validates the POST body for /workflows/{id}/run/"""
 
     input = serializers.CharField(required=True, help_text="Initial user input text")
+    graph_data = serializers.JSONField(required=False, default=None, help_text="Override graph data from the saved workflow")

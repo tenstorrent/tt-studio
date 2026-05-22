@@ -9,6 +9,7 @@ interface DeployedModel {
   id: string;
   name: string;
   status: string;
+  model_type: string;
 }
 
 interface Props {
@@ -30,8 +31,9 @@ export default function LLMConfigPanel({ nodeId, data }: Props) {
           id,
           name: (info.cached_model_name as string) || (info.model_name as string) || id.slice(0, 12),
           status: (info.status as string) || "unknown",
+          model_type: ((info.model_impl as Record<string, unknown>)?.model_type as string) || "",
         }));
-        setModels(entries.filter((m) => m.status === "running"));
+        setModels(entries.filter((m) => m.status === "running" && m.model_type === "chat"));
       })
       .catch(() => setModels([]));
   }, []);
