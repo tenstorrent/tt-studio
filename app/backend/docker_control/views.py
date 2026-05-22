@@ -487,7 +487,7 @@ class DeployView(APIView):
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
                     override_tt_config=override_tt_config,
-                    dev_mode=qwen32b_p300x2,
+                    dev_mode=False,
                 )
                 if result.status != "success":
                     return Response(
