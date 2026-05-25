@@ -381,6 +381,7 @@ class DeployView(APIView):
             impl_id = request.data.get("model_id")
             weights_id = request.data.get("weights_id")
             use_image_override = request.data.get("use_image_override", True)
+            force_full_board_requested = serializer.validated_data.get("force_full_board", False)
 
             # Get manual override if in advanced mode (optional).
             # device_id may be a single integer or a comma-separated list (e.g. "0,1")
@@ -399,6 +400,19 @@ class DeployView(APIView):
 
             impl = model_implmentations[impl_id]
             chips_required = infer_chips_required(impl.device_configurations)
+            board_type = detect_board_type() if impl.model_type == ModelTypes.CHAT else None
+            should_force_full_board_llama = (
+                impl.model_type == ModelTypes.CHAT
+                and force_full_board_requested
+                and board_type == "P300Cx2"
+                and _is_llama31_8b_model(impl.model_name)
+            )
+            if force_full_board_requested and not should_force_full_board_llama:
+                logger.info(
+                    "Ignoring force_full_board for model=%s board=%s",
+                    impl.model_name,
+                    board_type,
+                )
 
             # Stop and clean up any existing starting/running deployments of this
             # model before deploying a new instance. Prevents stale records with
@@ -428,45 +442,62 @@ class DeployView(APIView):
             # are always set correctly (port = 7000 + device_id).
             try:
                 allocator = ChipSlotAllocator()
-                device_id = allocator.allocate_chip_slot(
-                    impl.model_name,
-                    manual_override=manual_device_id
-                )
-                # If multiple device IDs were requested, validate every slot and pass
-                # them all to the inference server call; otherwise use the allocated slot.
-                if requested_device_ids and len(requested_device_ids) > 1:
-                    if chips_required != 1:
+                if should_force_full_board_llama:
+                    # Simplified QB2 Llama full-board path must reserve all slots.
+                    full_board_validation = allocator._validate_manual_allocation(
+                        0, 4, impl.model_name
+                    )
+                    if not full_board_validation["valid"]:
                         return Response(
                             {
                                 "status": "error",
-                                "error_type": "allocation_failed",
-                                "message": (
-                                    f"{impl.model_name} does not support explicit multi-slot "
-                                    "single-card device_id selection."
-                                ),
+                                "error_type": "multi_chip_conflict",
+                                "message": full_board_validation["message"],
                             },
                             status=status.HTTP_409_CONFLICT,
                         )
-                    normalized_requested_device_ids = []
-                    for requested_slot in requested_device_ids:
-                        if requested_slot in normalized_requested_device_ids:
-                            continue
-                        validation = allocator._validate_manual_allocation(
-                            requested_slot, 1, impl.model_name
-                        )
-                        if not validation["valid"]:
+                    device_id = 0
+                    device_ids = list(range(min(4, allocator.total_slots)))
+                else:
+                    device_id = allocator.allocate_chip_slot(
+                        impl.model_name,
+                        manual_override=manual_device_id
+                    )
+                    # If multiple device IDs were requested, validate every slot and pass
+                    # them all to the inference server call; otherwise use the allocated slot.
+                    if requested_device_ids and len(requested_device_ids) > 1:
+                        if chips_required != 1:
                             return Response(
                                 {
                                     "status": "error",
                                     "error_type": "allocation_failed",
-                                    "message": validation["message"],
+                                    "message": (
+                                        f"{impl.model_name} does not support explicit multi-slot "
+                                        "single-card device_id selection."
+                                    ),
                                 },
                                 status=status.HTTP_409_CONFLICT,
                             )
-                        normalized_requested_device_ids.append(requested_slot)
-                    device_ids = normalized_requested_device_ids
-                else:
-                    device_ids = [device_id]
+                        normalized_requested_device_ids = []
+                        for requested_slot in requested_device_ids:
+                            if requested_slot in normalized_requested_device_ids:
+                                continue
+                            validation = allocator._validate_manual_allocation(
+                                requested_slot, 1, impl.model_name
+                            )
+                            if not validation["valid"]:
+                                return Response(
+                                    {
+                                        "status": "error",
+                                        "error_type": "allocation_failed",
+                                        "message": validation["message"],
+                                    },
+                                    status=status.HTTP_409_CONFLICT,
+                                )
+                            normalized_requested_device_ids.append(requested_slot)
+                        device_ids = normalized_requested_device_ids
+                    else:
+                        device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 logger.info(f"Allocated device_id={device_id} (request={device_ids_str}) for {impl.model_name}")
 
@@ -488,33 +519,39 @@ class DeployView(APIView):
                 }, status=status.HTTP_409_CONFLICT)
 
             BASE_SERVICE_PORT = 7000
-            service_port = BASE_SERVICE_PORT + device_id
+            if should_force_full_board_llama:
+                service_port = BASE_SERVICE_PORT
+            else:
+                service_port = BASE_SERVICE_PORT + device_id
 
             # Chat models are deployed via the TT Inference Server (FastAPI) run endpoint.
             # We call it directly here so we can return job_id immediately for progress polling,
             # without requiring docker_utils.py to handle async "job started" responses.
             if impl.model_type == ModelTypes.CHAT:
-                board_type = detect_board_type()
-                if chips_required == 1:
-                    device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-                else:
-                    device = map_board_type_to_device_name(board_type)
-                # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
-                # should run with --tt-device p300 (not p150).
-                if (
-                    board_type == "P300Cx2"
-                    and _is_llama31_8b_model(impl.model_name)
-                    and sorted(device_ids) == [0, 1]
-                ):
-                    device = "p300"
-                # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
-                # server selects the physical chip itself — omit device_id entirely.
-                # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
-                # lands on its allocated slot(s).
-                if board_type == "P300Cx2" and device == "p300x2":
+                if should_force_full_board_llama:
+                    device = "p300x2"
                     inference_device_id = None
                 else:
-                    inference_device_id = device_ids_str
+                    if chips_required == 1:
+                        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+                    else:
+                        device = map_board_type_to_device_name(board_type)
+                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
+                    # should run with --tt-device p300 (not p150).
+                    if (
+                        board_type == "P300Cx2"
+                        and _is_llama31_8b_model(impl.model_name)
+                        and sorted(device_ids) == [0, 1]
+                    ):
+                        device = "p300"
+                    # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
+                    # server selects the physical chip itself — omit device_id entirely.
+                    # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
+                    # lands on its allocated slot(s).
+                    if board_type == "P300Cx2" and device == "p300x2":
+                        inference_device_id = None
+                    else:
+                        inference_device_id = device_ids_str
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"

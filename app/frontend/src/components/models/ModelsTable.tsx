@@ -12,6 +12,7 @@ import {
 } from "../ui/table";
 import {
   Activity,
+  AlertTriangle,
   Cpu,
   Network,
   // Settings,
@@ -21,6 +22,7 @@ import {
 } from "lucide-react";
 import type {
   ColumnVisibilityMap,
+  FailedDeploymentInfo,
   ModelRow,
   HealthStatus,
 } from "../../types/models";
@@ -46,6 +48,7 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
       case "healthy":
         return "bg-[#4CAF50] text-white";
       case "unhealthy":
+      case "failed":
         return "bg-red-500 text-white";
       default:
         return "bg-yellow-500 text-white";
@@ -57,11 +60,18 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
       case "healthy":
         return "bg-[#A5D6A7]";
       case "unhealthy":
+      case "failed":
         return "bg-red-300";
       default:
         return "bg-yellow-300";
     }
   };
+
+  const isFailed = status === "failed";
+  const label = isFailed ? "Died Unexpectedly" : status;
+  const tooltip = isFailed
+    ? "The container exited without being stopped by the user. This may indicate an out-of-memory error, a crash, or a hardware issue. Open logs for details, or remove this entry."
+    : `Model Health: ${status}`;
 
   return (
     <TooltipProvider>
@@ -71,14 +81,18 @@ function HealthStatusCell({ health }: { health?: HealthStatus }) {
             className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap leading-none ${getBgColor()} transition-colors duration-200`}
             style={{ minHeight: 28 }}
           >
-            <div
-              className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${status === "healthy" || status === "starting" ? "animate-pulse" : ""}`}
-            />
-            {status}
+            {isFailed ? (
+              <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+            ) : (
+              <div
+                className={`w-2 h-2 rounded-full mr-2 ${getDotColor()} ${status === "healthy" || status === "starting" ? "animate-pulse" : ""}`}
+              />
+            )}
+            {label}
           </div>
         </TooltipTrigger>
-        <TooltipContent>
-          <p>Model Health: {status}</p>
+        <TooltipContent className="max-w-xs">
+          <p>{tooltip}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -99,6 +113,7 @@ interface Props {
   rows: ModelRow[];
   visibleMap: ColumnVisibilityMap;
   healthMap: Record<string, HealthStatus>;
+  failedMap?: Record<string, FailedDeploymentInfo>;
   onOpenLogs: (id: string) => void;
   onDelete: (id: string) => void;
   onRedeploy: (image?: string) => void;
@@ -120,6 +135,7 @@ export default function ModelsTable({
   onNavigateToModel,
   onOpenApi,
   healthMap,
+  failedMap,
   refreshHealthById,
   density = "normal",
   hideDeviceId = false,
@@ -311,12 +327,14 @@ export default function ModelsTable({
                     image={row.image}
                     model_type={row.model_type}
                     health={healthMap[row.id]}
+                    isFailed={!!failedMap?.[row.id]}
                     onDelete={onDelete}
                     onRedeploy={onRedeploy}
                     onNavigateToModel={onNavigateToModel}
                     onOpenApi={onOpenApi}
                     deleteInProgress={deleteInProgress}
                     isCurrentlyDeleting={deletingTargetId === row.id}
+                    onOpenLogs={onOpenLogs}
                   />
                 </TableCell>
               </TableRow>
