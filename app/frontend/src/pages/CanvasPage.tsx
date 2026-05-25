@@ -56,6 +56,7 @@ export default function CanvasPage() {
     isStreaming,
     streamingText,
     streamingThinking,
+    streamingCode,
     previewErrors,
     creativity,
     setCreativity,
@@ -166,6 +167,7 @@ export default function CanvasPage() {
                     code={currentCode}
                     streamingText={streamingText}
                     streamingThinking={streamingThinking}
+                    streamingCode={streamingCode}
                     isStreaming={isStreaming}
                   />
                 </ResizablePanel>

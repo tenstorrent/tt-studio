@@ -70,3 +70,44 @@ export function parseStreamingCode(text: string): string | null {
 
   return null;
 }
+
+/**
+ * Extract code-in-progress from a partially-streamed response. Unlike
+ * parseStreamingCode this does NOT require a closing ``` fence, so callers
+ * can show the code growing as it arrives.
+ */
+export function parseStreamingCodePartial(text: string): string | null {
+  // Opening ```html fence — everything after it up to a closing fence (or end).
+  const htmlFenceIdx = text.indexOf("```html");
+  if (htmlFenceIdx >= 0) {
+    const afterTag = text.slice(htmlFenceIdx + "```html".length);
+    const newlineIdx = afterTag.indexOf("\n");
+    const body = newlineIdx >= 0 ? afterTag.slice(newlineIdx + 1) : "";
+    const closeIdx = body.indexOf("```");
+    return closeIdx >= 0 ? body.slice(0, closeIdx).trimEnd() : body;
+  }
+
+  // Raw HTML doc start (no fence — common for edit responses).
+  const docMatch = /(<!DOCTYPE html|<html\b)/i.exec(text);
+  if (docMatch) {
+    return text.slice(docMatch.index);
+  }
+
+  // Generic ``` fence containing HTML-ish content.
+  const genericFenceMatch = /```\s*\n/.exec(text);
+  if (genericFenceMatch) {
+    const body = text.slice(
+      genericFenceMatch.index + genericFenceMatch[0].length,
+    );
+    if (
+      body.includes("<html") ||
+      body.includes("<!DOCTYPE") ||
+      body.includes("<body")
+    ) {
+      const closeIdx = body.indexOf("```");
+      return closeIdx >= 0 ? body.slice(0, closeIdx).trimEnd() : body;
+    }
+  }
+
+  return null;
+}

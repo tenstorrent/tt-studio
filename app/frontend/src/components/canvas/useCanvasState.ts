@@ -7,6 +7,7 @@ import type { CanvasFileAttachment } from "./canvasSystemPrompt";
 import {
   parseCanvasResponse,
   parseStreamingCode,
+  parseStreamingCodePartial,
 } from "./canvasCodeParser";
 
 export interface CanvasChatMessage {
@@ -63,6 +64,7 @@ interface UseCanvasStateReturn {
   isStreaming: boolean;
   streamingText: string;
   streamingThinking: string;
+  streamingCode: string;
   previewErrors: CanvasError[];
   creativity: CanvasCreativity;
   setCreativity: (c: CanvasCreativity) => void;
@@ -100,6 +102,7 @@ export function useCanvasState(
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [streamingThinking, setStreamingThinking] = useState("");
+  const [streamingCode, setStreamingCode] = useState("");
   const [previewErrors, setPreviewErrors] = useState<CanvasError[]>([]);
   const [creativity, setCreativity] = useState<CanvasCreativity>(
     persisted?.creativity ?? "medium",
@@ -131,6 +134,7 @@ export function useCanvasState(
       setIsStreaming(true);
       setStreamingText("");
       setStreamingThinking("");
+      setStreamingCode("");
       setPreviewErrors([]);
 
       const controller = new AbortController();
@@ -261,6 +265,7 @@ export function useCanvasState(
               contentText += content;
 
               // Also extract inline <think> blocks from the content stream
+              let visibleText = contentText;
               const inlineThink = contentText.match(
                 /^<think>([\s\S]*?)(<\/think>|$)/,
               );
@@ -272,15 +277,23 @@ export function useCanvasState(
                 }
                 if (inlineThink[2] === "</think>") {
                   thinkingDone = true;
-                  const afterThink = contentText
+                  visibleText = contentText
                     .slice(inlineThink[0].length)
                     .trimStart();
-                  setStreamingText(afterThink);
+                  setStreamingText(visibleText);
                 } else {
+                  visibleText = "";
                   setStreamingText("");
                 }
               } else {
                 setStreamingText(contentText);
+              }
+
+              // Live code extraction so the code panel can stream alongside
+              // the model output instead of waiting for completion.
+              if (visibleText) {
+                const liveCode = parseStreamingCodePartial(visibleText);
+                if (liveCode) setStreamingCode(liveCode);
               }
             }
           }
@@ -299,6 +312,7 @@ export function useCanvasState(
           setIsStreaming(false);
           setStreamingText("");
           setStreamingThinking("");
+          setStreamingCode("");
           controllerRef.current = null;
           return;
         }
@@ -331,6 +345,7 @@ export function useCanvasState(
       setIsStreaming(false);
       setStreamingText("");
       setStreamingThinking("");
+      setStreamingCode("");
       controllerRef.current = null;
     },
     [messages, currentCode, modelId, isAgentSelected, creativity],
@@ -342,6 +357,7 @@ export function useCanvasState(
     setCurrentCode(null);
     setStreamingText("");
     setStreamingThinking("");
+    setStreamingCode("");
     setPreviewErrors([]);
     sessionStorage.removeItem(STORAGE_KEY);
   }, [stopStreaming]);
@@ -352,6 +368,7 @@ export function useCanvasState(
     isStreaming,
     streamingText,
     streamingThinking,
+    streamingCode,
     previewErrors,
     creativity,
     setCreativity,

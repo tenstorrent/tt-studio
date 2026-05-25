@@ -10,6 +10,7 @@ interface CanvasCodeViewProps {
   code: string | null;
   streamingText: string;
   streamingThinking?: string;
+  streamingCode?: string;
   isStreaming: boolean;
 }
 
@@ -17,6 +18,7 @@ export default function CanvasCodeView({
   code,
   streamingText,
   streamingThinking,
+  streamingCode,
   isStreaming,
 }: CanvasCodeViewProps) {
   const [highlighted, setHighlighted] = useState<string>("");
@@ -57,7 +59,7 @@ export default function CanvasCodeView({
     if (isStreaming && scrollRef.current && !userScrolledUp.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [streamingText, streamingThinking, isStreaming]);
+  }, [streamingText, streamingThinking, streamingCode, isStreaming]);
 
   const handleScroll = useCallback(
     (e: UIEvent<HTMLDivElement>) => {
@@ -184,6 +186,10 @@ export default function CanvasCodeView({
               {streamingThinking}
             </pre>
           </div>
+        ) : isStreaming ? (
+          <pre className="p-4 text-xs leading-relaxed text-zinc-300 whitespace-pre-wrap font-mono text-left">
+            {streamingCode || streamingText}
+          </pre>
         ) : highlighted ? (
           <div
             className="p-4 text-left [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!text-left [&_code]:!text-xs [&_code]:!leading-relaxed"
@@ -191,7 +197,7 @@ export default function CanvasCodeView({
           />
         ) : (
           <pre className="p-4 text-xs leading-relaxed text-zinc-300 whitespace-pre-wrap font-mono text-left">
-            {isStreaming ? streamingText : displayCode}
+            {displayCode}
           </pre>
         )}
       </div>
