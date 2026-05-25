@@ -38,9 +38,12 @@ export default function CanvasPage() {
     } else if (!isDeployedEnabled) {
       fetchModels()
         .then((models: Model[]) => {
-          if (models.length > 0) {
-            setModelId(models[0].id || null);
-            setModelName(models[0].name || null);
+          const chatModel = models.find(
+            (m) => (m.model_type || "").toLowerCase() === "chat"
+          );
+          if (chatModel) {
+            setModelId(chatModel.id || null);
+            setModelName(chatModel.name || null);
           }
         })
         .catch(() => {});
