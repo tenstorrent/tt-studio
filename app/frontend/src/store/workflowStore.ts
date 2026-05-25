@@ -50,7 +50,7 @@ export interface WorkflowState {
   // Actions – CRUD
   loadWorkflows: () => Promise<void>;
   loadTemplates: () => Promise<void>;
-  createWorkflow: (name: string, description?: string) => Promise<Workflow>;
+  createWorkflow: (name: string, description?: string, blank?: boolean) => Promise<Workflow>;
   saveWorkflow: () => Promise<void>;
   deleteWorkflow: (id: string) => Promise<void>;
   setCurrentWorkflow: (wf: Workflow | null) => void;
@@ -116,20 +116,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  createWorkflow: async (name, description = "") => {
+  createWorkflow: async (name, description = "", blank = false) => {
+    const { nodes, edges } = get();
+    const graph_data = blank ? { nodes: [], edges: [] } : { nodes, edges };
     const wf = await createWorkflow({
       name,
       description,
-      graph_data: { nodes: [], edges: [] },
+      graph_data,
     });
     set((s) => ({
       workflows: [wf, ...s.workflows],
       currentWorkflow: wf,
-      nodes: [],
-      edges: [],
-      selectedNodeId: null,
+      ...(blank ? { nodes: [], edges: [], selectedNodeId: null } : {}),
     }));
-    get().resetExecution();
+    if (blank) get().resetExecution();
     return wf;
   },
 

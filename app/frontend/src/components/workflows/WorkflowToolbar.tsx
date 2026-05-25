@@ -22,22 +22,26 @@ export default function WorkflowToolbar() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [newName, setNewName] = useState("");
   const [showNewDialog, setShowNewDialog] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"new" | "save">("new");
 
   const handleNew = () => {
+    setDialogMode("new");
     setShowNewDialog(true);
     setNewName("Untitled Workflow");
   };
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
-    await createWorkflow(newName.trim());
+    await createWorkflow(newName.trim(), "", dialogMode === "new");
     setShowNewDialog(false);
     setNewName("");
   };
 
   const handleSave = async () => {
     if (!currentWorkflow) {
-      handleNew();
+      setDialogMode("save");
+      setShowNewDialog(true);
+      setNewName("Untitled Workflow");
       return;
     }
     await saveWorkflow();
@@ -115,7 +119,7 @@ export default function WorkflowToolbar() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-96">
             <h3 className="text-sm font-semibold text-zinc-200 mb-4">
-              Create New Workflow
+              {dialogMode === "save" ? "Save Workflow" : "Create New Workflow"}
             </h3>
             <input
               type="text"
@@ -138,7 +142,7 @@ export default function WorkflowToolbar() {
                 onClick={handleCreate}
                 className="px-3 py-1.5 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded transition-colors"
               >
-                Create
+                {dialogMode === "save" ? "Save" : "Create"}
               </button>
             </div>
           </div>
