@@ -30,6 +30,7 @@ from .docker_utils import (
     get_container_status,
     perform_reset,
     perform_device_reset,
+    perform_devices_reset,
     check_image_exists,
     detect_board_type,
     map_board_type_to_device_name,
@@ -104,51 +105,16 @@ def _lookup_deployment_device_ids(container_id):
         logger.warning(f"Failed to look up device_ids for container {container_id}: {e}")
         return []
 
-
-def _reset_devices(device_ids):
-    """Reset each device in device_ids via perform_device_reset and aggregate results."""
-    per_device = []
-    success_count = 0
-    error_count = 0
-    outputs = []
-    messages = []
-    for device_id in device_ids:
-        result = perform_device_reset(device_id)
-        per_device.append({"device_id": device_id, **result})
-        if result.get("status") == "success":
-            success_count += 1
-        else:
-            error_count += 1
-        if result.get("output"):
-            outputs.append(f"[device {device_id}] {result['output']}")
-        if result.get("message"):
-            messages.append(f"device {device_id}: {result['message']}")
-
-    if error_count == 0:
-        aggregate_status = "success"
-        http_status_code = 200
-    elif success_count == 0:
-        aggregate_status = "error"
-        http_status_code = 500
-    else:
-        aggregate_status = "partial"
-        http_status_code = 207
-
-    return {
-        "status": aggregate_status,
-        "message": "; ".join(messages) if messages else "",
-        "output": "\n".join(outputs),
-        "device_results": per_device,
-        "http_status": http_status_code,
-    }
-
-
 class StopView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = StopSerializer(data=request.data)
         if serializer.is_valid():
-            container_id = request.data.get("container_id")
-            logger.info(f"Received request to stop container with ID: {container_id}")
+            container_id = serializer.validated_data["container_id"]
+            skip_device_reset = serializer.validated_data.get("skip_device_reset", False)
+            logger.info(
+                f"Received request to stop container with ID: {container_id} "
+                f"(skip_device_reset={skip_device_reset})"
+            )
 
             device_ids = _lookup_deployment_device_ids(container_id)
             logger.info(f"Deployment {container_id} occupies device_ids={device_ids}")
@@ -178,13 +144,22 @@ class StopView(APIView):
             reset_status = "success"
 
             if stop_response.get("status") == "success":
-                if not device_ids:
+                if skip_device_reset:
+                    logger.info(
+                        f"skip_device_reset=True for {container_id}; deferring chip reset."
+                    )
+                    reset_status = "skipped"
+                    try:
+                        SystemResourceService.force_refresh_tt_smi_cache()
+                    except Exception as e:
+                        logger.warning(f"Failed to refresh tt-smi cache after model stop: {e}")
+                elif not device_ids:
                     logger.warning(
                         f"No device_ids found for container {container_id}; skipping device reset. "
                         "Container is already stopped."
                     )
                 else:
-                    reset_response = _reset_devices(device_ids)
+                    reset_response = perform_devices_reset(device_ids)
                     logger.info(f"Reset response: {reset_response}")
 
                     if reset_response.get("status") == "error":

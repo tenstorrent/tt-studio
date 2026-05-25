@@ -52,3 +52,8 @@ class DeploymentSerializer(serializers.Serializer):
 
 class StopSerializer(serializers.Serializer):
     container_id = serializers.CharField(required=True)
+    # When true, the stop endpoint skips ``tt-smi -r`` on this deployment's
+    # chips. Used by the reset-all flow, where a single global ``tt-smi -r``
+    # runs after all containers have been stopped — making per-stop chip
+    # resets redundant and counterproductive on multi-chip boards.
+    skip_device_reset = serializers.BooleanField(required=False, default=False)
