@@ -933,10 +933,7 @@ def get_canonical_deployments():
             entry["deployment_id"] = dep.id
             entry["deployment_model_name"] = dep.model_name
             if not enriched:
-                # Container is alive but we can't resolve a model_impl. Keep it
-                # in the canonical view (so the allocator sees the slot is
-                # occupied), but downstream views that require model_impl will
-                # filter it out via `model_impl is None`.
+                # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
                 entry.setdefault("model_impl", None)
             result[match_id] = entry
             continue
