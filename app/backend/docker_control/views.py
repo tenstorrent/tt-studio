@@ -28,6 +28,8 @@ from .docker_utils import (
     run_container,
     stop_container,
     get_container_status,
+    get_canonical_deployments,
+    serialize_canonical_entry_for_http,
     perform_reset,
     perform_device_reset,
     check_image_exists,
@@ -241,28 +243,65 @@ class ContainersView(APIView):
 
 
 class StatusView(APIView):
-    def get(self, request, *args, **kwargs):
-        data = get_container_status()
-        # Enrich with model_type from deploy cache so frontend navbar can route correctly (e.g. Speech -> /speech-to-text).
-        try:
-            from model_control.model_utils import get_deploy_cache
+    """Thin shim over get_canonical_deployments() preserving the historical
+    /docker-api/status/ response shape: dict keyed by container_id with Docker fields (name, status, health, image, port_bindings, networks, device_id, device_ids) plus a model_type echo for navbar routing.
+    """
 
-            deploy_cache = get_deploy_cache()
-            for con_id, con_data in data.items():
-                if con_id in deploy_cache:
-                    model_impl = deploy_cache[con_id].get("model_impl")
-                    if model_impl is not None:
-                        mt = getattr(model_impl, "model_type", None)
-                        if mt is not None:
-                            con_data["model_type"] = getattr(
-                                mt, "value", str(mt)
-                            )
+    def get(self, request, *args, **kwargs):
+        try:
+            canonical = get_canonical_deployments()
         except Exception as e:
-            logger.warning(
-                "Could not enrich status with model_type from deploy cache: %s",
-                e,
-            )
+            logger.warning(f"StatusView: get_canonical_deployments failed: {e}")
+            return Response({}, status=status.HTTP_200_OK)
+
+        data = {}
+        for con_id, entry in canonical.items():
+            # Drop internal-only fields and the Python model_impl object;
+            # echo model_type at the top level for navbar routing.
+            model_impl = entry.get("model_impl")
+            model_type = None
+            if model_impl is not None:
+                mt = getattr(model_impl, "model_type", None)
+                if mt is not None:
+                    model_type = getattr(mt, "value", str(mt))
+            data[con_id] = {
+                "name": entry.get("name"),
+                "status": entry.get("status"),
+                "health": entry.get("health"),
+                "create": entry.get("create"),
+                "image_id": entry.get("image_id"),
+                "image_name": entry.get("image_name"),
+                "port_bindings": entry.get("port_bindings") or {},
+                "networks": entry.get("networks") or {},
+                "device_id": entry.get("device_id"),
+                "device_ids": entry.get("device_ids"),
+                "model_type": model_type,
+            }
         return Response(data, status=status.HTTP_200_OK)
+
+
+class DeploymentsView(APIView):
+    """Canonical endpoint — the single source of truth. 
+    Returns a dict keyed by Docker container_id (or a pending-<id> key for placeholder records during the CHAT-model job_id window). 
+    Each entry includes Docker container fields, deployment_store fields, a serialized model_impl, plus is_pending and source markers so callers can distinguish fully-deployed models from in-flight starts and from discovered-but-unregistered containers.
+
+    Other endpoints (/docker-api/status/, /models-api/deployed/, /docker-api/chip-status/) are now thin shims over this view. Their response shapes are preserved for backwards compatibility.
+    """
+
+    def get(self, request, *args, **kwargs):
+        try:
+            canonical = get_canonical_deployments()
+        except Exception as e:
+            logger.exception("DeploymentsView: get_canonical_deployments failed")
+            return Response(
+                {"error": "Failed to compute deployments", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {con_id: serialize_canonical_entry_for_http(entry) for con_id, entry in canonical.items()},
+            status=status.HTTP_200_OK,
+        )
 
 
 class ChipStatusView(APIView):
