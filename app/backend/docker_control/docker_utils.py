@@ -1086,6 +1086,177 @@ def perform_device_reset(device_id: int):
         }
 
 
+def perform_devices_reset(device_ids):
+    """
+    Reset a set of TT chips/devices in a single tt-smi invocation:
+    ``tt-smi -r <id1> <id2> ...``. This calls ``full_lds_reset`` once with
+    the full PCI-interface list, which on multi-chip boards coordinates the
+    PCIe secondary-bus reset and ethernet bring-up across all chips at once.
+    Calling ``tt-smi -r <id>`` per chip in a Python loop disturbs the
+    neighbouring chips' links on every invocation and is strictly worse.
+
+    Returns the same dict shape ``_reset_devices`` previously assembled,
+    including a synthesised ``device_results`` list so existing callers
+    keep working.
+    """
+    # Normalise & dedupe while preserving order
+    ids = []
+    seen = set()
+    for d in device_ids or []:
+        try:
+            i = int(d)
+        except (TypeError, ValueError):
+            continue
+        if i not in seen:
+            seen.add(i)
+            ids.append(i)
+
+    if not ids:
+        return {
+            "status": "success",
+            "message": "No devices to reset",
+            "output": "",
+            "device_results": [],
+            "http_status": 200,
+        }
+
+    id_args = [str(i) for i in ids]
+    pretty = " ".join(id_args)
+
+    try:
+        logger.info(f"Starting batched chip reset — running tt-smi -r {pretty}")
+
+        SystemResourceService.set_resetting_state()
+
+        MAX_ATTEMPTS = 2
+        # Per-chip timeout headroom, with a sensible floor; batched resets are
+        # roughly constant-time but allow extra slack for larger boards.
+        timeout_s = max(30, 15 * len(ids))
+        last_output = ""
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.info(
+                f"Batched reset attempt {attempt} of {MAX_ATTEMPTS} for devices {pretty} "
+                f"(timeout {timeout_s}s)"
+            )
+            try:
+                process = subprocess.Popen(
+                    ["tt-smi", "-r", *id_args],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    preexec_fn=os.setsid,
+                )
+
+                try:
+                    stdout, _ = process.communicate(timeout=timeout_s)
+                    last_output = stdout
+                    logger.info(
+                        f"tt-smi -r {pretty} attempt {attempt} output: {stdout.strip()!r:.200}"
+                    )
+
+                    if process.returncode == 0:
+                        logger.info(
+                            f"Batched reset of devices {pretty} succeeded on attempt {attempt}"
+                        )
+                        SystemResourceService.clear_device_state_cache()
+                        per_device = [
+                            {
+                                "device_id": i,
+                                "status": "success",
+                                "message": f"Device {i} reset successfully (batched)",
+                                "attempts_used": attempt,
+                                "output": stdout,
+                                "http_status": 200,
+                            }
+                            for i in ids
+                        ]
+                        return {
+                            "status": "success",
+                            "message": f"Devices {pretty} reset successfully after {attempt} attempt(s)",
+                            "output": stdout,
+                            "device_results": per_device,
+                            "http_status": 200,
+                        }
+
+                    logger.warning(
+                        f"Batched reset attempt {attempt} for devices {pretty} failed: "
+                        f"exit code {process.returncode}"
+                    )
+
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        f"Batched reset attempt {attempt} for devices {pretty} "
+                        f"timed out after {timeout_s}s"
+                    )
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except Exception:
+                            pass
+                    last_output = "(timeout)"
+
+            except Exception as exc:
+                logger.error(
+                    f"Batched reset attempt {attempt} for devices {pretty} raised exception: {exc}"
+                )
+                last_output = str(exc)
+
+        logger.error(
+            f"All {MAX_ATTEMPTS} batched reset attempts for devices {pretty} failed"
+        )
+        SystemResourceService.clear_device_state_cache()
+        per_device = [
+            {
+                "device_id": i,
+                "status": "error",
+                "message": f"Device {i} did not recover after {MAX_ATTEMPTS} batched reset attempt(s)",
+                "attempts_used": MAX_ATTEMPTS,
+                "output": last_output,
+                "http_status": 500,
+            }
+            for i in ids
+        ]
+        return {
+            "status": "error",
+            "message": (
+                f"Devices {pretty} did not recover after {MAX_ATTEMPTS} batched reset attempts. "
+                "Manual intervention may be required."
+            ),
+            "output": last_output,
+            "device_results": per_device,
+            "http_status": 500,
+        }
+
+    except Exception as e:
+        logger.exception(
+            f"Unexpected error during batched reset of devices {pretty}"
+        )
+        SystemResourceService.clear_device_state_cache()
+        per_device = [
+            {
+                "device_id": i,
+                "status": "error",
+                "message": str(e),
+                "attempts_used": 0,
+                "output": "",
+                "http_status": 500,
+            }
+            for i in ids
+        ]
+        return {
+            "status": "error",
+            "message": str(e),
+            "output": "",
+            "device_results": per_device,
+            "http_status": 500,
+        }
+
+
 def check_image_exists(image_name, image_tag):
     """Check if a Docker image exists locally with robust matching"""
     try:

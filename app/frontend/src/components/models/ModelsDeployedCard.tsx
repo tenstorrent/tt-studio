@@ -51,7 +51,7 @@ import axios from "axios";
 import { ChipStatusDisplay } from "../ChipStatusDisplay";
 
 export default function ModelsDeployedCard(): JSX.Element {
-  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel } = useModels();
+  const { models, setModels, refreshModels, userStoppedModel, setUserStoppedModel, setIsDeleteInFlight } = useModels();
   const { refreshTrigger, triggerRefresh, triggerHardwareRefresh } =
     useRefresh();
 
@@ -173,6 +173,15 @@ export default function ModelsDeployedCard(): JSX.Element {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const deleteStream = useDeleteStream();
+  const isDeleteInFlight = deleteStream.status === "running";
+
+  useEffect(() => {
+    setIsDeleteInFlight(isDeleteInFlight);
+    return () => {
+      // Clear flag on unmount so we don't leave the rest of the app in a stuck disabled state
+      setIsDeleteInFlight(false);
+    };
+  }, [isDeleteInFlight, setIsDeleteInFlight]);
 
   useEffect(() => {
     loadModels();
@@ -421,7 +430,7 @@ export default function ModelsDeployedCard(): JSX.Element {
   // Auto-close the dialog once deletion finishes successfully
   const autoCloseTimerRef = useRef<number | null>(null);
   useEffect(() => {
-    if (deleteStream.status === "success" && showDeleteModal) {
+    if (deleteStream.status === "success") {
       localStorage.setItem("hasEverDeployed", "true");
       setUserStoppedModel(true);
       autoCloseTimerRef.current = window.setTimeout(() => {
@@ -661,6 +670,8 @@ export default function ModelsDeployedCard(): JSX.Element {
                   hideDeviceId={false}
                   healthMap={effectiveHealthMap}
                   failedMap={failedMap}
+                  deleteInProgress={isDeleteInFlight}
+                  deletingTargetId={isDeleteInFlight ? deleteTargetId : null}
                   onOpenLogs={(id: string) => {
                     const failed = failedMap[id];
                     if (failed) {
@@ -671,31 +682,8 @@ export default function ModelsDeployedCard(): JSX.Element {
                     }
                   }}
                   onDelete={(id: string) => {
-                    if (failedMap[id]) {
-                      // Quick remove for failed/died containers: hide row
-                      // immediately. The container is already dead, but we still
-                      // fire the stop endpoint in the background to clean up
-                      // any chip slot reservation and update the DB record.
-                      setDismissedFailedIds((prev: Set<string>) => {
-                        const next = new Set(prev);
-                        next.add(id);
-                        return next;
-                      });
-                      seenLiveIdsRef.current.delete(id);
-                      customToast.success("Removed failed deployment");
-                      axios
-                        .post(`/docker-api/stop/`, { container_id: id })
-                        .catch(() => {
-                          // best-effort cleanup; the row is already hidden
-                        })
-                        .finally(() => {
-                          refreshModels();
-                          window.setTimeout(() => refreshAllHealth(), 500);
-                        });
-                    } else {
-                      setDeleteTargetId(id);
-                      setShowDeleteModal(true);
-                    }
+                    setDeleteTargetId(id);
+                    setShowDeleteModal(true);
                   }}
                   onRedeploy={(image?: string) => image && handleRedeploy(image)}
                   onNavigateToModel={(id: string, name: string) => {
@@ -745,12 +733,22 @@ export default function ModelsDeployedCard(): JSX.Element {
         <DeleteModelDialog
           open={showDeleteModal}
           modelId={deleteTargetId || ""}
+          deviceIds={(() => {
+            const row = rows.find((r) => r.id === deleteTargetId);
+            if (!row) return undefined;
+            if (Array.isArray(row.device_ids) && row.device_ids.length > 0) return row.device_ids;
+            if (row.device_id != null) return [row.device_id];
+            return undefined;
+          })()}
+          totalDevices={chipStatus?.total_slots}
+          boardType={chipStatus?.board_type}
           isLoading={deleteStream.status === "running"}
           deleteStep={deleteStream.step}
           streamStatus={deleteStream.status}
           stepLogs={deleteStream.stepLogs}
           errorMessage={deleteStream.errorMessage}
           onConfirm={handleConfirmDelete}
+          onMinimize={() => setShowDeleteModal(false)}
           onCancel={handleCloseDeleteModal}
         />
 
