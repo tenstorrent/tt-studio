@@ -60,7 +60,6 @@ def _media_container_path(repo: Optional[str]) -> Optional[str]:
         return None
     return _MEDIA_HF_CACHE_PREFIX + repo.replace("/", "--")
 
-
 def _container_dir_size(deploy_id: str, container_path: str) -> Optional[int]:
     """Return recursive byte count of `container_path` inside the running deploy.
 
