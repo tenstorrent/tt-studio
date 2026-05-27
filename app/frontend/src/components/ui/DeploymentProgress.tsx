@@ -1,8 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useEffect } from 'react';
 import { Progress } from './progress';
+
+/** Log / TT_PROGRESS lines when host setup finished or weights were already present (no long download). */
+function isCacheReadyOrSetupCompleteMessage(msg: string): boolean {
+  const t = msg.toLowerCase();
+  if (!msg.trim()) return false;
+  if (t.includes('setup already completed')) return true;
+  if (t.includes('host setup complete') || t.includes('setup complete')) return true;
+  // Backend `_weights_progress_monitor` emits this on a cache hit (Docker volume already populated).
+  if (t.includes('weights already cached') || t.includes('skipping download')) return true;
+  // e.g. "✅ Host setup complete" or similar from structured progress
+  if (/[\u2705\u2714\u2713✓]/.test(msg) && t.includes('complete') && /\b(setup|host)\b/.test(t)) {
+    return true;
+  }
+  return false;
+}
 
 interface DeploymentProgressProps {
   progress: {
@@ -13,6 +28,7 @@ interface DeploymentProgressProps {
     last_updated?: number;
     weights_repo?: string;
     downloaded_bytes?: number;
+    total_bytes?: number | null;
     eta_seconds?: number | null;
     speed_bps?: number | null;
   } | null;
@@ -26,8 +42,12 @@ interface DeploymentProgressProps {
 const stageDisplayNames: Record<string, string> = {
   initialization: 'Initializing',
   setup: 'Setting up environment',
-  model_preparation: 'Preparing model',
-  container_setup: 'Creating container',
+  // Most models download weights *inside* the container after orchestration —
+  // see app/backend/model_control/log_classifier.py downloading_weights phase
+  // and ModelPreparingBanner on /models-deployed. The byte/speed/ETA panel
+  // below only lights up for the rare host-side download (--host-hf-cache).
+  model_preparation: 'Preparing deployment',
+  container_setup: 'Starting container',
   finalizing: 'Finalizing deployment',
   complete: 'Complete',
   error: 'Error',
@@ -75,13 +95,16 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
 
   const { status, stage, progress: progressPercent, message } = progress;
   const isError = status === 'error' || status === 'failed';
+  const showProminentSetupMessage =
+    !isError && isCacheReadyOrSetupCompleteMessage(message);
   const isComplete = status === 'completed';
   const isStalled = status === 'stalled';
   const isCancelled = status === 'cancelled';
   const isRunning = status === 'running' || status === 'starting';
 
   const formatBytes = (bytes?: number | null) => {
-    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes === undefined || bytes === null || bytes < 0) return '—';
+    if (bytes === 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     let value = bytes;
     let u = 0;
@@ -93,16 +116,69 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     return `${value.toFixed(decimals)} ${units[u]}`;
   };
 
+  /** Human-readable remaining time; avoids noisy seconds when minutes or hours fit better. */
+  const formatEtaRemaining = (eta: number | null | undefined): string | null => {
+    if (eta === undefined || eta === null || !Number.isFinite(eta) || eta < 0) return null;
+    if (eta > 86400 * 2) return 'More than 2 days left';
+    if (eta < 50) return `~${Math.max(1, Math.round(eta))} s left`;
+    if (eta < 90) return '~1 min left';
+    if (eta < 3600) {
+      const mins = Math.max(1, Math.round(eta / 60));
+      return `~${mins} min left`;
+    }
+    const hours = Math.floor(eta / 3600);
+    const mins = Math.round((eta % 3600) / 60);
+    if (mins === 0) return `~${hours} h left`;
+    return `~${hours} h ${mins} min left`;
+  };
+
   const weightsDetails =
     stage === 'model_preparation' &&
     (progress.downloaded_bytes !== undefined ||
       progress.speed_bps !== undefined ||
-      progress.eta_seconds !== undefined);
+      progress.eta_seconds !== undefined ||
+      progress.total_bytes !== undefined);
 
   const speedText =
     progress.speed_bps !== null && progress.speed_bps !== undefined
       ? `${formatBytes(progress.speed_bps)}/s`
       : null;
+
+  const etaText = formatEtaRemaining(progress.eta_seconds);
+
+  const totalBytes =
+    progress.total_bytes !== undefined && progress.total_bytes !== null && progress.total_bytes > 0
+      ? progress.total_bytes
+      : null;
+  const downloadedBytes =
+    progress.downloaded_bytes !== undefined && progress.downloaded_bytes !== null
+      ? progress.downloaded_bytes
+      : null;
+
+  const downloadPercent =
+    totalBytes !== null && downloadedBytes !== null
+      ? Math.min(100, Math.max(0, (downloadedBytes / totalBytes) * 100))
+      : null;
+
+  // Unified percent that drives both the bar and the % label across every
+  // phase-A stage. During model_preparation we map the byte-level download
+  // fraction onto the 15→40 window (the same window backend `_weights_progress_monitor`
+  // uses), so the bar advances smoothly with bytes. For every other stage we
+  // fall back to the stage's coarse `progress` value the backend already sets
+  // (initialization=5, setup=15, container_setup=50–70, finalizing=85–90, complete=100).
+  const downloadFraction =
+    totalBytes !== null && downloadedBytes !== null && totalBytes > 0
+      ? Math.min(1, Math.max(0, downloadedBytes / totalBytes))
+      : null;
+
+  const displayPercent = (() => {
+    if (isError) return 100;
+    if (isComplete) return 100;
+    if (stage === 'model_preparation' && downloadFraction !== null) {
+      return 15 + downloadFraction * 25;
+    }
+    return Math.min(100, Math.max(0, progressPercent ?? 0));
+  })();
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -139,61 +215,96 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
             </span>
           )}
           <span className="text-sm text-muted-foreground font-mono">
-            {isError ? 'Failed' : isComplete ? '100%' : `${progressPercent}%`}
+            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : `${Math.round(displayPercent)}%`}
           </span>
         </div>
       </div>
 
-      {/* Progress bar */}
+      {/* Message (highlight when setup finished / weights already on disk) */}
+      {showProminentSetupMessage ? (
+        <div
+          className="rounded-lg border border-emerald-500/45 bg-emerald-500/[0.12] dark:bg-emerald-400/10 px-3 py-3 shadow-sm"
+          role="status"
+        >
+          {/* `message` is verbatim from the API; any ✅ etc. only appears if the backend sent it. */}
+          <p className="text-sm sm:text-base font-semibold text-emerald-950 dark:text-emerald-50 leading-snug tracking-tight">
+            {message}
+          </p>
+        </div>
+      ) : (
+        <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
+          {message}
+        </p>
+      )}
+
+      {/* Progress bar + weights download details */}
       <div className="mb-3">
         <Progress
-          value={isError ? 100 : isComplete ? 100 : progressPercent}
+          value={displayPercent}
           className="h-2"
-          indicatorClassName={getProgressBarColor()}
+          indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
         />
       </div>
 
-      {/* Message */}
-      <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
-        {message}
-      </p>
-
-      {/* Weights download details (when available) */}
       {weightsDetails && (
-        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-foreground/80">
-                Model weights download
-              </span>
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-3">
+
+            {!isComplete && !isError && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground/80" />
-                <span className="text-xs">Downloading…</span>
+                <span className="text-xs">
+                  {downloadPercent !== null && downloadPercent >= 100
+                    ? 'Finalizing…' : ''}
+                </span>
               </div>
-            </div>
-            <Progress
-              value={100}
-              className="h-2"
-              indicatorClassName="bg-TT-purple-accent/80 animate-pulse"
-            />
+            )}
           </div>
 
-          <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono tabular-nums">
-            {progress.downloaded_bytes !== undefined ? (
-              <span>{formatBytes(progress.downloaded_bytes)}</span>
-            ) : null}
-            {speedText ? <span>• {speedText}</span> : null}
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono tabular-nums text-foreground/90">
+              {totalBytes !== null && downloadedBytes !== null ? (
+                <>
+                  <span>
+                    {formatBytes(downloadedBytes)} of {formatBytes(totalBytes)}
+                  </span>
+                </>
+              ) : downloadedBytes !== null ? (
+                <span>{formatBytes(downloadedBytes)} downloaded</span>
+              ) : totalBytes !== null ? (
+                <span>{formatBytes(totalBytes)} total</span>
+              ) : null}
+            </div>
+
+            {(speedText || etaText) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-sans text-[11px] text-muted-foreground">
+                {speedText ? <span>{speedText}</span> : null}
+
+                {speedText && etaText ? (
+                  <span aria-hidden="true">·</span>
+                ) : null}
+
+                {etaText ? <span>{etaText}</span> : null}
+              </div>
+            )}
           </div>
+
           {progress.weights_repo ? (
-            <div className="truncate" title={progress.weights_repo}>
+            <div
+              className="truncate"
+              title={progress.weights_repo}
+            >
               Repo: {progress.weights_repo}
             </div>
           ) : null}
 
           <div className="rounded-md border bg-muted/30 p-2 text-muted-foreground">
-            <span className="font-medium text-foreground/80">Note:</span> You can leave this page
-            while the model downloads. The download continues in the background, and future
-            deploys will reuse the cached weights.
+            <span className="font-medium text-foreground/80">
+              Note:
+            </span>{' '}
+            You can leave this page while the model downloads. The
+            download continues in the background, and future deploys
+            will reuse the cached weights.
           </div>
         </div>
       )}

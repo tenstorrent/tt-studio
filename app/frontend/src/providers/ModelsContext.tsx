@@ -16,6 +16,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [userStoppedModel, setUserStoppedModelState] = useState<boolean>(
     () => sessionStorage.getItem("userStoppedModel") === "true"
   );
+  const [isDeleteInFlight, setIsDeleteInFlight] = useState<boolean>(false);
 
   const setUserStoppedModel = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
     setUserStoppedModelState((prev) => {
@@ -84,7 +85,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <ModelsContext.Provider
-      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel }}
+      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel, isDeleteInFlight, setIsDeleteInFlight }}
     >
       {children}
     </ModelsContext.Provider>
