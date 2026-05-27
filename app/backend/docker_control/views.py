@@ -30,6 +30,7 @@ from .docker_utils import (
     get_container_status,
     perform_reset,
     perform_device_reset,
+    perform_devices_reset,
     check_image_exists,
     detect_board_type,
     map_board_type_to_device_name,
@@ -77,18 +78,52 @@ def _is_llama31_8b_model(model_name: str) -> bool:
     token = (model_name or "").lower().replace("_", "").replace(" ", "")
     return "llama-3.1-8b" in token or "llama3.18b" in token
 
+def _lookup_deployment_device_ids(container_id):
+    """Return the list of device slot ids associated with a deployment, or []."""
+    try:
+        from docker_control.models import ModelDeployment
+        deployment = ModelDeployment.objects.filter(container_id=container_id).first()
+        if not deployment:
+            return []
+        ids = getattr(deployment, "device_ids", None) or []
+        normalized = []
+        for d in ids:
+            try:
+                normalized.append(int(d))
+            except (TypeError, ValueError):
+                continue
+        if normalized:
+            return normalized
+        single = getattr(deployment, "device_id", None)
+        if single is not None:
+            try:
+                return [int(single)]
+            except (TypeError, ValueError):
+                return []
+        return []
+    except Exception as e:
+        logger.warning(f"Failed to look up device_ids for container {container_id}: {e}")
+        return []
+
 class StopView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = StopSerializer(data=request.data)
         if serializer.is_valid():
-            container_id = request.data.get("container_id")
-            logger.info(f"Received request to stop container with ID: {container_id}")
+            container_id = serializer.validated_data["container_id"]
+            skip_device_reset = serializer.validated_data.get("skip_device_reset", False)
+            logger.info(
+                f"Received request to stop container with ID: {container_id} "
+                f"(skip_device_reset={skip_device_reset})"
+            )
+
+            device_ids = _lookup_deployment_device_ids(container_id)
+            logger.info(f"Deployment {container_id} occupies device_ids={device_ids}")
 
             # Mark deployment as stopped by user in database
             try:
                 from docker_control.models import ModelDeployment
                 from django.utils import timezone
-                
+
                 deployment = ModelDeployment.objects.filter(container_id=container_id).first()
                 if deployment:
                     deployment.stopped_by_user = True
@@ -109,24 +144,38 @@ class StopView(APIView):
             reset_status = "success"
 
             if stop_response.get("status") == "success":
-                reset_response = perform_reset()
-                logger.info(f"Reset response: {reset_response}")
-
-                if reset_response.get("status") == "error":
-                    error_message = reset_response.get(
-                        "message", "An error occurred during reset."
+                if skip_device_reset:
+                    logger.info(
+                        f"skip_device_reset=True for {container_id}; deferring chip reset."
                     )
-                    http_status = reset_response.get(
-                        "http_status", status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
-                    logger.warning(f"Reset failed: {error_message}")
-                    reset_status = "error"
-                else:
-                    # Refresh tt-smi cache after successful stop and reset
+                    reset_status = "skipped"
                     try:
                         SystemResourceService.force_refresh_tt_smi_cache()
                     except Exception as e:
                         logger.warning(f"Failed to refresh tt-smi cache after model stop: {e}")
+                elif not device_ids:
+                    logger.warning(
+                        f"No device_ids found for container {container_id}; skipping device reset. "
+                        "Container is already stopped."
+                    )
+                else:
+                    reset_response = perform_devices_reset(device_ids)
+                    logger.info(f"Reset response: {reset_response}")
+
+                    if reset_response.get("status") == "error":
+                        error_message = reset_response.get(
+                            "message", "An error occurred during reset."
+                        )
+                        logger.warning(f"Reset failed: {error_message}")
+                        reset_status = "error"
+                    elif reset_response.get("status") == "partial":
+                        logger.warning(f"Reset partially failed: {reset_response.get('message')}")
+                        reset_status = "partial"
+                    else:
+                        try:
+                            SystemResourceService.force_refresh_tt_smi_cache()
+                        except Exception as e:
+                            logger.warning(f"Failed to refresh tt-smi cache after model stop: {e}")
 
             # Ensure that we always return a status field
             combined_status = (
@@ -2188,6 +2237,8 @@ class StopStreamView(View):
             truncated = container_id[:12]
             current_step = "deleting"
 
+            device_ids = await asyncio.to_thread(_lookup_deployment_device_ids, container_id)
+
             # --- Step 1: mark deployment stopped in DB ---
             yield sse({"type": "step", "step": "deleting", "message": f"Stopping model {truncated}…"})
 
@@ -2248,80 +2299,104 @@ class StopStreamView(View):
 
             yield sse({"type": "log", "step": current_step, "message": f"Container {truncated} stopped and removed successfully"})
 
-            # --- Step 4: board reset (stream tt-smi output line-by-line) ---
+            # --- Step 4: per-device reset (stream tt-smi output line-by-line) ---
             current_step = "resetting"
-            yield sse({"type": "step", "step": "resetting", "message": "Resetting the board…"})
+
+            if not device_ids:
+                yield sse({"type": "step", "step": "resetting", "message": "Skipping device reset (no device_ids on record)"})
+                yield sse({"type": "log", "step": current_step, "message": f"Warning: no device_ids found for container {truncated}; skipping reset."})
+                yield sse({"type": "complete", "status": "success", "message": "Model deleted (no device reset performed)"})
+                return
+
+            device_label = ", ".join(str(d) for d in device_ids)
+            yield sse({"type": "step", "step": "resetting", "message": f"Resetting device(s) {device_label}…"})
 
             await asyncio.to_thread(SystemResourceService.set_resetting_state)
 
             MAX_ATTEMPTS = 2
-            reset_ok = False
+            success_devices = []
+            failed_devices = []
 
-            for attempt in range(1, MAX_ATTEMPTS + 1):
-                yield sse({"type": "log", "step": current_step, "message": f"Running tt-smi -r (attempt {attempt}/{MAX_ATTEMPTS})…"})
-
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "tt-smi", "-r",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.STDOUT,
-                        stdin=asyncio.subprocess.DEVNULL,
-                    )
+            for device_id in device_ids:
+                device_ok = False
+                for attempt in range(1, MAX_ATTEMPTS + 1):
+                    yield sse({"type": "log", "step": current_step, "message": f"Running tt-smi -r {device_id} (attempt {attempt}/{MAX_ATTEMPTS})…"})
 
                     try:
-                        async def _read_with_timeout():
-                            while True:
-                                raw_line = await asyncio.wait_for(
-                                    proc.stdout.readline(), timeout=90
-                                )
-                                if not raw_line:
-                                    break
-                                cleaned = ansi_re.sub("", raw_line.decode("utf-8", errors="replace")).strip()
-                                if cleaned:
-                                    yield cleaned
+                        proc = await asyncio.create_subprocess_exec(
+                            "tt-smi", "-r", str(device_id),
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT,
+                            stdin=asyncio.subprocess.DEVNULL,
+                        )
 
-                        async for line in _read_with_timeout():
-                            yield sse({"type": "log", "step": current_step, "message": line})
-
-                        await asyncio.wait_for(proc.wait(), timeout=10)
-
-                    except asyncio.TimeoutError:
-                        yield sse({"type": "log", "step": current_step, "message": "Timed out after 90s"})
                         try:
-                            proc.terminate()
-                            await asyncio.sleep(2)
-                            proc.kill()
-                        except Exception:
-                            pass
+                            async def _read_with_timeout():
+                                while True:
+                                    raw_line = await asyncio.wait_for(
+                                        proc.stdout.readline(), timeout=90
+                                    )
+                                    if not raw_line:
+                                        break
+                                    cleaned = ansi_re.sub("", raw_line.decode("utf-8", errors="replace")).strip()
+                                    if cleaned:
+                                        yield cleaned
 
-                    returncode = proc.returncode if proc.returncode is not None else -1
+                            async for line in _read_with_timeout():
+                                yield sse({"type": "log", "step": current_step, "message": line})
 
-                except Exception as exc:
-                    yield sse({"type": "log", "step": current_step, "message": str(exc)})
-                    returncode = -1
+                            await asyncio.wait_for(proc.wait(), timeout=10)
 
-                if returncode == 0:
-                    reset_ok = True
-                    yield sse({"type": "log", "step": current_step, "message": f"Board reset succeeded on attempt {attempt}"})
-                    break
+                        except asyncio.TimeoutError:
+                            yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} reset timed out after 90s"})
+                            try:
+                                proc.terminate()
+                                await asyncio.sleep(2)
+                                proc.kill()
+                            except Exception:
+                                pass
+
+                        returncode = proc.returncode if proc.returncode is not None else -1
+
+                    except Exception as exc:
+                        yield sse({"type": "log", "step": current_step, "message": str(exc)})
+                        returncode = -1
+
+                    if returncode == 0:
+                        device_ok = True
+                        yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} reset succeeded on attempt {attempt}"})
+                        break
+                    else:
+                        yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} attempt {attempt} failed (exit code {returncode})"})
+
+                if device_ok:
+                    success_devices.append(device_id)
                 else:
-                    yield sse({"type": "log", "step": current_step, "message": f"Attempt {attempt} failed (exit code {returncode})"})
+                    failed_devices.append(device_id)
 
             await asyncio.to_thread(SystemResourceService.clear_device_state_cache)
 
-            if reset_ok:
+            if success_devices and not failed_devices:
+                final_status = "success"
+            elif success_devices and failed_devices:
+                final_status = "partial"
+            else:
+                final_status = "partial"
+
+            if success_devices:
                 try:
                     await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
                     yield sse({"type": "log", "step": current_step, "message": "tt-smi cache refreshed"})
                 except Exception as e:
                     yield sse({"type": "log", "step": current_step, "message": f"Warning: tt-smi cache refresh failed: {e}"})
 
-            final_status = "success" if reset_ok else "partial"
-            final_msg = (
-                "Model deleted and board reset successfully"
-                if reset_ok
-                else "Model deleted but board reset failed"
-            )
+            if final_status == "success":
+                final_msg = f"Model deleted and device(s) {device_label} reset successfully"
+            else:
+                final_msg = (
+                    f"Model deleted; reset succeeded for {success_devices or 'none'}, "
+                    f"failed for {failed_devices}"
+                )
             yield sse({"type": "complete", "status": final_status, "message": final_msg})
 
         response = StreamingHttpResponse(generate(), content_type="text/event-stream")
