@@ -11,6 +11,7 @@ interface DeploymentProgress {
   last_updated?: number;
   weights_repo?: string;
   downloaded_bytes?: number;
+  total_bytes?: number | null;
   eta_seconds?: number | null;
   speed_bps?: number | null;
 }
@@ -24,15 +25,18 @@ interface UseDeploymentProgressReturn {
   isSSEConnected: boolean;
 }
 
+/** Minimum delay after each progress response before the next poll (sequential; avoids request pile-up). */
+export const DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS = 3000;
+
 export const useDeploymentProgress = (
-  pollingInterval: number = 1000
+  pollingInterval: number = DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS
 ): UseDeploymentProgressReturn => {
   const [progress, setProgress] = useState<DeploymentProgress | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSSEConnected, setIsSSEConnected] = useState(false);
   
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentJobIdRef = useRef<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const notFoundCountRef = useRef<number>(0);
@@ -42,9 +46,9 @@ export const useDeploymentProgress = (
   const NOT_FOUND_GRACE_PERIOD_MS = 90 * 1000; // 90 seconds — covers legitimate startup races, not server restarts
 
   const stopPolling = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (pollingTimerRef.current) {
+      clearTimeout(pollingTimerRef.current);
+      pollingTimerRef.current = null;
     }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -171,16 +175,19 @@ export const useDeploymentProgress = (
   const startPollingFallback = useCallback((jobId: string) => {
     console.log(`[Progress] Starting polling fallback for job: ${jobId}`);
     setIsPolling(true);
-    
-    // Initial fetch
-    fetchProgress(jobId);
-    
-    // Start polling interval
-    intervalRef.current = setInterval(() => {
-      if (currentJobIdRef.current) {
-        fetchProgress(currentJobIdRef.current);
-      }
-    }, pollingInterval);
+
+    // One in-flight request at a time: wait for each response, then wait `pollingInterval`
+    // before the next fetch. Avoids overlapping polls when the backend is slower than the timer.
+    const tick = async () => {
+      if (!currentJobIdRef.current) return;
+      await fetchProgress(currentJobIdRef.current);
+      if (!currentJobIdRef.current) return;
+      pollingTimerRef.current = setTimeout(() => {
+        void tick();
+      }, pollingInterval);
+    };
+
+    void tick();
   }, [fetchProgress, pollingInterval]);
 
   const startPolling = useCallback((jobId: string, useSSE: boolean = false) => {

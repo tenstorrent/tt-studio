@@ -6,8 +6,6 @@ import React, { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Rocket, CheckCircle, XCircle } from "lucide-react";
 import { useDeploymentProgress } from "../../hooks/useDeploymentProgress";
-import { DeploymentProgress } from "../ui/DeploymentProgress";
-import { SimpleDeploymentProgress } from "../ui/SimpleDeploymentProgress";
 import { safeGetItem, safeRemoveItem, safeSetItem } from "../../lib/storage";
 
 interface AnimatedDeployButtonProps {
@@ -35,8 +33,10 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     initialText
   );
 
-  // Use the deployment progress hook
-  const { progress, isPolling, startPolling, stopPolling } = useDeploymentProgress();
+  // Polling drives the isDeployed/failed state transitions; the bar itself is
+  // intentionally not rendered — the spinner-on-button + checkmark + redirect
+  // to /models-deployed (where the warm-up banner takes over) is the full UX.
+  const { progress, startPolling, stopPolling } = useDeploymentProgress();
 
   // Handle progress updates
   useEffect(() => {
@@ -146,15 +146,14 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     }
   };
 
-  const buttonClass = `relative flex w-[200px] items-center justify-center overflow-hidden rounded-md p-[10px] outline outline-1 ${
-    disabled
+  const buttonClass = `relative flex w-[200px] items-center justify-center overflow-hidden rounded-md p-[10px] outline outline-1 ${disabled
       ? "bg-gray-400 cursor-not-allowed"
       : isDeployed
         ? "bg-green-600 hover:bg-green-700"
         : deploymentFailed
           ? "bg-red-600 hover:bg-red-700"
           : "bg-gray-600 hover:bg-gray-700"
-  } text-white dark:text-gray-200`;
+    } text-white dark:text-gray-200`;
 
   const particles = Array.from({ length: 5 }, (_, i) => (
     <motion.div
@@ -164,10 +163,10 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
       animate={
         isRocketFlying
           ? {
-              opacity: [0, 1, 0],
-              y: [0, -20 - Math.random() * 30],
-              x: [-5 + Math.random() * 10, -10 + Math.random() * 20],
-            }
+            opacity: [0, 1, 0],
+            y: [0, -20 - Math.random() * 30],
+            x: [-5 + Math.random() * 10, -10 + Math.random() * 20],
+          }
           : {}
       }
       transition={{ duration: 1, ease: "easeOut", delay: Math.random() * 0.2 }}
@@ -178,10 +177,9 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     <div className="w-full flex flex-col items-center">
       <AnimatePresence mode="wait">
         <motion.button
-          className={`${buttonClass} ${
-            !disabled &&
+          className={`${buttonClass} ${!disabled &&
             "cursor-pointer transition-transform duration-700 ease-in-out hover:scale-105"
-          }`}
+            }`}
           onClick={handleDeploy}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -197,7 +195,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
             {isDeploying ? (
               <div className="flex items-center gap-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                <span>Deploying...</span>
+                <span>Starting Deployment...</span>
               </div>
             ) : (
               displayText
@@ -241,29 +239,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
           </motion.span>
         </motion.button>
       </AnimatePresence>
-      
-      {/* Show progress - use API-based progress if available, otherwise show time-based progress */}
-      {isDeploying && !isDeployed && (
-        <motion.div
-          className="w-full max-w-md"
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.3 }}
-        >
-          {(isPolling || progress) && progress ? (
-            <DeploymentProgress 
-              progress={progress} 
-              className=""
-            />
-          ) : (
-            <SimpleDeploymentProgress 
-              isDeploying={isDeploying}
-              className=""
-            />
-          )}
-        </motion.div>
-      )}
+
     </div>
   );
 };
