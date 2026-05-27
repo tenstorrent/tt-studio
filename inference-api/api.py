@@ -15,9 +15,11 @@ import uuid
 import re
 import json
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 import math
+import shlex
 import urllib.request
 import urllib.error
 
@@ -188,6 +190,7 @@ setup_fastapi_file_logging()
 progress_store: Dict[str, Dict[str, Any]] = {}
 log_store: Dict[str, deque] = {}
 progress_lock = threading.Lock()
+_run_main_lock = threading.Lock()
 
 # Store per-deployment log handlers for cleanup
 deployment_log_handlers: Dict[str, logging.FileHandler] = {}
@@ -196,6 +199,8 @@ deployment_log_handlers: Dict[str, logging.FileHandler] = {}
 MAX_LOG_MESSAGES = 100
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
+# Mark a job as stalled when no run.py log/progress update arrives for this long.
+PULL_STALL_THRESHOLD_SECONDS = 120
 
 # Regex pattern for structured progress signals
 PROG_RE = re.compile(r"TT_PROGRESS stage=(\w+) pct=(\d{1,3}) msg=(.*)$")
@@ -204,10 +209,17 @@ _DOCKER_RUN_NAME_RE = re.compile(r"--name\s+(?P<name>[^\s]+)")
 _RUN_LOG_PATH_RE = re.compile(r"This log file is saved on local machine at:\s*(?P<path>\S+)")
 _DOCKER_WORKFLOW_LOG_PATH_RE = re.compile(r"Running docker container with log file:\s*(?P<path>\S+)")
 
-# Host-setup / weights download hints (from tt-inference-server logs)
-_HF_DOWNLOAD_REPO_RE = re.compile(r"Downloading model from Hugging Face:\s*(?P<repo>[^\s]+)")
-_HOST_HF_HOME_RE = re.compile(r"HOST_HF_HOME set to\s*(?P<path>\S+)")
+# Host-setup / weights download hints (from tt-inference-server logs).
+# setup_host.py emits "Downloading model to host volume: {repo}" or
+# "Downloading model to host HF cache: {repo}" right before invoking `hf download`.
+_HF_DOWNLOAD_REPO_RE = re.compile(
+    r"Downloading model (?:to host (?:volume|HF cache)|from Hugging Face):\s*(?P<repo>[^\s]+)"
+)
+# setup_host.py:388 emits "✅ HF_HOME set to {path}" (no "HOST_" prefix).
+_HOST_HF_HOME_RE = re.compile(r"HF_HOME set to\s*(?P<path>\S+)")
 _HOST_VOLUME_WEIGHTS_MISSING_RE = re.compile(r"Weights directory does not exist for\s*(?P<model>.+?)\.")
+# setup_host.py:582 emits "Weights already exist in host volume, skipping download" on cache hit.
+_HF_CACHED_RE = re.compile(r"Weights already exist in host volume")
 _PREFERRED_HOST_VOLUME_PATH = Path("~/data/tt-cache")
 _HOST_VOLUME_MODELS_CONFIG_PATH = Path(__file__).with_name("host_volume_models.json")
 _DEFAULT_HOST_VOLUME_MODEL_ALLOWLIST = {"qwen3-32b"}
@@ -518,6 +530,16 @@ def _extract_repo_and_hf_home_from_job_logs(job_id: str) -> Tuple[Optional[str],
     return repo, hf_home
 
 
+def _job_logs_contain(job_id: str, pattern: re.Pattern) -> bool:
+    """True if any captured run.py log message for this job matches `pattern`."""
+    with progress_lock:
+        entries = list(log_store.get(job_id, []))
+    for e in entries:
+        if pattern.search(str(e.get("message", ""))):
+            return True
+    return False
+
+
 def _default_hf_home() -> Path:
     # Mirror tt-inference-server defaulting behavior (HOST_HF_HOME -> HF_HOME -> ~/.cache/huggingface)
     return Path(
@@ -561,6 +583,146 @@ def _dir_size_bytes(path: Path) -> int:
         return 0
 
 
+def _dir_size_bytes_recursive(path: Path) -> int:
+    """Recursive size sum (walks subdirs). Used for `hf download --local-dir` layouts."""
+    try:
+        if not path.exists() or not path.is_dir():
+            return 0
+        total = 0
+        for root, _dirs, files in os.walk(path, followlinks=False):
+            for fname in files:
+                fp = os.path.join(root, fname)
+                try:
+                    total += os.stat(fp, follow_symlinks=False).st_size
+                except FileNotFoundError:
+                    continue
+        return total
+    except Exception:
+        return 0
+
+
+@dataclass
+class WeightsLocation:
+    """Where the weights-progress monitor should read downloaded bytes from.
+
+    read_mode:
+      - "host_fs": scan host_path directly (host bind-mount layout).
+      - "docker_volume": exec `du -sb` inside an ephemeral container against
+        a named Docker volume (the named-volume default path the user can't
+        read directly because /var/lib/docker/volumes/ is root-only).
+      - "hf_cache": legacy HF-hub layout under host_path/hub/models--<repo>/.
+    """
+    read_mode: str
+    host_path: Optional[Path] = None
+    volume_name: Optional[str] = None
+    volume_subpath: Optional[str] = None  # path inside the mounted volume to scan
+
+
+def _resolve_weights_location(
+    model_name: str, device: str, impl: Optional[str]
+) -> Optional[WeightsLocation]:
+    """Pick the right read strategy for this deployment.
+
+    The host-volume allowlist (currently just qwen3-32b) uses a host-readable
+    bind mount. Everything else lands in a Docker named volume named
+    `volume_id_{impl_id}-{model_name}` per generate_docker_volume_name() in
+    tt-inference-server/workflows/run_docker_server.py.
+    """
+    # Host-volume allowlist path: weights live at a bind-mount we can read.
+    if _model_uses_preferred_host_volume(model_name):
+        (
+            preferred_host_volume,
+            _expected_volume_dir,
+            expected_weights_dir,
+            _expected_tt_metal_cache_dir,
+            _reason,
+        ) = _resolve_preferred_host_volume(model_name, device, impl)
+        if preferred_host_volume and expected_weights_dir:
+            return WeightsLocation(
+                read_mode="host_fs",
+                host_path=expected_weights_dir,
+            )
+
+    # Default path: Docker named volume.
+    try:
+        model_spec, _, _ = get_runtime_model_spec(model_name, device, impl=impl)
+    except Exception as exc:
+        logger.warning(
+            "weights-monitor: could not resolve model spec for %s/%s/%s: %s",
+            model_name, device, impl, exc,
+        )
+        return None
+    volume_name = f"volume_id_{model_spec.impl.impl_id}-{model_spec.model_name}"
+    # setup_host.setup_weights_huggingface writes to {host_model_volume_root}/weights/{model_name}/
+    return WeightsLocation(
+        read_mode="docker_volume",
+        volume_name=volume_name,
+        volume_subpath=f"weights/{model_spec.model_name}",
+    )
+
+
+_DU_HELPER_IMAGE = "alpine:3"
+
+
+def _du_bytes_in_volume(volume_name: str, subpath: str) -> int:
+    """Return recursive byte count of `subpath` inside a Docker named volume.
+
+    Uses an ephemeral alpine container so the FastAPI process doesn't need
+    root access to /var/lib/docker/volumes/. Returns 0 on any error (e.g.
+    volume not yet populated, daemon hiccup) so the monitor keeps polling.
+    """
+    if not volume_name or not subpath:
+        return 0
+    safe_target = "/v/" + subpath.lstrip("/")
+    cmd = ["sh", "-c", f"du -sb {shlex.quote(safe_target)} 2>/dev/null | cut -f1"]
+    try:
+        client = docker.from_env()
+        out = client.containers.run(
+            image=_DU_HELPER_IMAGE,
+            command=cmd,
+            volumes={volume_name: {"bind": "/v", "mode": "ro"}},
+            remove=True,
+            detach=False,
+            network_disabled=True,
+            stdout=True,
+            stderr=False,
+        )
+        if isinstance(out, bytes):
+            text = out.decode("utf-8", errors="ignore").strip()
+        else:
+            text = str(out).strip()
+        if not text:
+            return 0
+        # `du` may emit multiple lines if the target is missing; take the first integer.
+        first = text.splitlines()[0].strip()
+        return int(first) if first.isdigit() else 0
+    except docker.errors.ImageNotFound:
+        logger.debug("weights-monitor: %s missing; will be pulled at startup", _DU_HELPER_IMAGE)
+        return 0
+    except Exception as exc:
+        logger.debug("weights-monitor: du in volume %s failed: %s", volume_name, exc)
+        return 0
+
+
+def _downloaded_bytes_for_location(
+    hf_home: Optional[Path], repo_id: Optional[str], location: Optional[WeightsLocation]
+) -> int:
+    """Dispatch to the right reader for the resolved weights location.
+
+    Falls back to the legacy HF-hub cache layout if no WeightsLocation was
+    resolved (best-effort for unusual deployments that set HF_HOME via logs).
+    """
+    if location is not None:
+        if location.read_mode == "host_fs" and location.host_path:
+            return _dir_size_bytes_recursive(location.host_path)
+        if location.read_mode == "docker_volume" and location.volume_name and location.volume_subpath:
+            return _du_bytes_in_volume(location.volume_name, location.volume_subpath)
+    # Legacy fallback (hf_home discovered via log scrape).
+    if hf_home is not None and repo_id:
+        return _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
+    return 0
+
+
 def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
     """Estimate downloaded bytes by summing HF cache blobs (and temp/incomplete) sizes."""
     repo_root = _hf_cache_repo_root(hf_home, repo_id)
@@ -572,11 +734,16 @@ def _get_downloaded_bytes_from_hf_cache(hf_home: Path, repo_id: str) -> int:
     return blobs + tmp
 
 
-def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterable[str]) -> Optional[int]:
-    """Fetch total expected bytes from Hugging Face model metadata (best-effort)."""
+def _fetch_hf_total_bytes(repo_id: str, hf_token: str) -> Optional[int]:
+    """Fetch total expected bytes from Hugging Face repo tree (best-effort).
+
+    The tree endpoint returns `{type, path, size, oid, lfs?}` per entry. For LFS
+    files we prefer `lfs.size` (always the resolved blob size); historic API
+    responses returned the LFS pointer size at the top-level `size` field.
+    """
     if not repo_id or "/" not in repo_id:
         return None
-    url = f"https://huggingface.co/api/models/{repo_id}"
+    url = f"https://huggingface.co/api/models/{repo_id}/tree/main?recursive=true"
     headers = {"User-Agent": "tt-studio/weights-progress"}
     if hf_token:
         headers["Authorization"] = f"Bearer {hf_token}"
@@ -584,16 +751,25 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterabl
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = resp.read()
-        payload = json.loads(data.decode("utf-8"))
-        siblings = payload.get("siblings", [])
+        entries = json.loads(data.decode("utf-8"))
+        if not isinstance(entries, list):
+            return None
         total = 0
-        for s in siblings:
+        for entry in entries:
             try:
-                name = s.get("rfilename") or ""
-                if any(name.startswith(pfx) for pfx in exclude_prefixes):
+                if entry.get("type") != "file":
                     continue
-                size = s.get("size")
-                if isinstance(size, int) and size > 0:
+                lfs = entry.get("lfs")
+                size: Optional[int] = None
+                if isinstance(lfs, dict):
+                    lfs_size = lfs.get("size")
+                    if isinstance(lfs_size, int) and lfs_size > 0:
+                        size = lfs_size
+                if size is None:
+                    top_size = entry.get("size")
+                    if isinstance(top_size, int) and top_size > 0:
+                        size = top_size
+                if size is not None:
                     total += size
             except Exception:
                 continue
@@ -606,18 +782,44 @@ def _fetch_hf_total_bytes(repo_id: str, hf_token: str, exclude_prefixes: Iterabl
         return None
 
 
-def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
-    """Background monitor: converts HF cache growth into % + ETA and updates progress_store.
+def _weights_progress_monitor(
+    job_id: str,
+    stop_event: threading.Event,
+    model_name: Optional[str] = None,
+    device: Optional[str] = None,
+    impl: Optional[str] = None,
+) -> None:
+    """Background monitor: converts download progress into % + ETA and updates progress_store.
 
     This is designed to cover long-running `hf download <repo>` operations where tt-inference-server
     does not emit structured per-file progress events.
+
+    Path resolution: when model_name/device are provided, we derive the exact
+    Docker named volume (or host bind-mount path) the deployment writes to.
+    Otherwise we fall back to log-scraped HF_HOME (legacy path).
     """
     last_bytes = 0
     last_t = time.time()
     ema_speed_bps: Optional[float] = None
+    stable_speed_bps: Optional[float] = None
+    stagnant_polls = 0
+    MAX_STAGNANT_POLLS = 15  # 15s grace period
+    MIN_SPEED_BPS = 64 * 1024  # Ignore tiny fluctuations under 64KB/s
     repo_id: Optional[str] = None
     hf_home: Optional[Path] = None
-    exclude_prefixes = ("original/",)
+    total_bytes: Optional[int] = None
+    total_bytes_attempted = False
+    cached_announced_at: Optional[float] = None
+    CACHED_LINGER_SECONDS = 1.8
+
+    weights_location: Optional[WeightsLocation] = None
+    if model_name and device:
+        weights_location = _resolve_weights_location(model_name, device, impl)
+        if weights_location:
+            logger.info(
+                "Job %s: weights-monitor resolved location: %s",
+                job_id, weights_location,
+            )
 
     # Poll at 1s cadence; keep it lightweight (single dir scan).
     while not stop_event.is_set():
@@ -644,21 +846,64 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
         if hf_home is None:
             hf_home = _default_hf_home()
 
+        # Cache-hit short-circuit: setup_host logs "Weights already exist in host volume..."
+        # when nothing needs to be downloaded. Show a brief "cached" state then exit.
+        if cached_announced_at is None and _job_logs_contain(job_id, _HF_CACHED_RE):
+            cached_announced_at = time.time()
+            with progress_lock:
+                cur = progress_store.get(job_id)
+                if cur and cur.get("stage") not in {"container_setup", "finalizing", "complete"}:
+                    progress_val = max(cur.get("progress", 0) or 0, 39)
+                    cur.update({
+                        "status": "running",
+                        "stage": "model_preparation",
+                        "progress": progress_val,
+                        "message": "Weights already cached — skipping download",
+                        "downloaded_bytes": total_bytes,
+                        "total_bytes": total_bytes,
+                        "speed_bps": None,
+                        "eta_seconds": 0,
+                        "last_updated": time.time(),
+                    })
+        if cached_announced_at is not None and (time.time() - cached_announced_at) >= CACHED_LINGER_SECONDS:
+            return
+
         if repo_id:
-            downloaded = _get_downloaded_bytes_from_hf_cache(hf_home, repo_id)
+            if not total_bytes_attempted:
+                total_bytes_attempted = True
+                total_bytes = _fetch_hf_total_bytes(repo_id, os.getenv("HF_TOKEN") or "")
+            downloaded = _downloaded_bytes_for_location(hf_home, repo_id, weights_location)
             now = time.time()
             dt = max(1e-3, now - last_t)
             delta = downloaded - last_bytes
-            if delta > 0:
+           
+            if delta > MIN_SPEED_BPS:
+                stagnant_polls = 0
+
                 inst_speed = delta / dt
-                # Exponential moving average to stabilize ETA.
+
+                # Faster convergence early, slower later
+                alpha = 0.35 if ema_speed_bps is None else 0.15
+
                 if ema_speed_bps is None:
                     ema_speed_bps = inst_speed
                 else:
-                    alpha = 0.2
                     ema_speed_bps = alpha * inst_speed + (1 - alpha) * ema_speed_bps
+
+                stable_speed_bps = ema_speed_bps
+
                 last_bytes = downloaded
                 last_t = now
+            else:
+                stagnant_polls += 1
+
+                # Hold previous speed briefly during shard verification/unpacking
+                if stagnant_polls < MAX_STAGNANT_POLLS:
+                    ema_speed_bps = stable_speed_bps
+                else:
+                    # Slowly decay speed instead of hard-dropping
+                    if ema_speed_bps is not None:
+                        ema_speed_bps *= 0.92
 
             # Map weights download into the pre-40% portion of model_preparation.
             # tt-inference-server emits pct=40 when host setup completes; stay below that.
@@ -679,7 +924,26 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                     progress_val = max(progress_val, min(max_before_host_setup_done, base + 1))
 
                     speed_txt = _format_bytes(ema_speed_bps) + "/s" if ema_speed_bps else "—"
-                    msg = f"Downloading weights: {_format_bytes(downloaded)} • {speed_txt}"
+                    
+                    if total_bytes and downloaded >= total_bytes:
+                        msg = "Finalizing model weights and cache..."
+                        eta_seconds = None
+                    else:
+                        msg = f"Downloading weights: {_format_bytes(downloaded)} / {_format_bytes(total_bytes) if total_bytes else '?'} • {speed_txt}"
+
+                    eta_seconds: Optional[float] = None
+                    if (
+                        total_bytes is not None
+                        and ema_speed_bps is not None
+                        and ema_speed_bps > 0
+                        and total_bytes > downloaded
+                    ):
+                        raw_eta = (total_bytes - downloaded) / ema_speed_bps
+                        # Clamp unrealistic spikes/jitter
+                        if eta_seconds is None:
+                            eta_seconds = raw_eta
+                        else:
+                            eta_seconds = (0.7 * eta_seconds) + (0.3 * raw_eta)
 
                     cur.update(
                         {
@@ -690,7 +954,9 @@ def _weights_progress_monitor(job_id: str, stop_event: threading.Event) -> None:
                             "last_updated": time.time(),
                             "weights_repo": repo_id,
                             "downloaded_bytes": int(downloaded),
+                            "total_bytes": int(total_bytes) if total_bytes is not None else None,
                             "speed_bps": float(ema_speed_bps) if ema_speed_bps is not None else None,
+                            "eta_seconds": float(eta_seconds) if eta_seconds is not None else None,
                         }
                     )
 
@@ -730,13 +996,27 @@ class ProgressHandler(logging.Handler):
     def __init__(self, job_id: str):
         super().__init__()
         self.job_id = job_id
-        
+        # Record the thread that spawned this handler so we only capture
+        # log records emitted by that thread.  Multiple concurrent jobs share
+        # the same 'run_log' logger; without this filter every handler would
+        # receive every other job's messages and _extract_from_job_logs()
+        # would pick up the wrong container name.
+        self._owner_thread = threading.current_thread().ident
+        # Per-layer counters for docker pull so the bar/message advances
+        # instead of sitting at a flat 50% during multi-GB image downloads.
+        self._pull_layers_total = 0
+        self._pull_layers_complete = 0
+
         # Initialize log store for this job
         with progress_lock:
             if job_id not in log_store:
                 log_store[job_id] = deque(maxlen=MAX_LOG_MESSAGES)
         
     def emit(self, record):
+        # Ignore records from other job threads to prevent cross-contamination
+        # of log stores when multiple models are deployed concurrently.
+        if record.thread != self._owner_thread:
+            return
         message = record.getMessage()
         
         # Store raw log message
@@ -811,14 +1091,28 @@ class ProgressHandler(logging.Handler):
             # Docker image layer pull (e.g. "abc123: Download complete", "Pulling from ...")
             elif any(keyword in message.lower() for keyword in [
                 "pulling from",
+                ": pulling fs layer",
                 ": download complete",
                 ": verifying checksum",
                 ": pull complete",
                 ": already exists",
             ]):
                 stage = "container_setup"
-                progress = 50
-                message = "Pulling container image layers..."
+                msg_l = message.lower()
+                if ": pulling fs layer" in msg_l:
+                    self._pull_layers_total += 1
+                elif ": pull complete" in msg_l or ": already exists" in msg_l:
+                    self._pull_layers_complete += 1
+                if self._pull_layers_total > 0:
+                    ratio = min(1.0, self._pull_layers_complete / self._pull_layers_total)
+                    progress = 30 + int(ratio * 30)  # ramp 30 -> 60 during pull
+                    message = (
+                        f"Pulling container image layers "
+                        f"({self._pull_layers_complete}/{self._pull_layers_total})..."
+                    )
+                else:
+                    progress = 30
+                    message = "Pulling container image layers..."
             elif any(keyword in message.lower() for keyword in ["docker run command", "running docker container"]):
                 stage = "container_setup"
                 progress = 70
@@ -864,13 +1158,17 @@ class ProgressHandler(logging.Handler):
                         if current_status in ("completed", "failed", "cancelled"):
                             pass
                         elif progress > current_progress or status == "error" or status == "completed":
-                            progress_store[self.job_id].update({
+                            update_payload = {
                                 "status": status,
                                 "stage": stage,
                                 "progress": progress,
                                 "message": message[:200],
                                 "last_updated": time.time()
-                            })
+                            }
+                            if self._pull_layers_total > 0:
+                                update_payload["pull_layers_complete"] = self._pull_layers_complete
+                                update_payload["pull_layers_total"] = self._pull_layers_total
+                            progress_store[self.job_id].update(update_payload)
                     else:
                         # Initialize if not exists
                         progress_store[self.job_id] = {
@@ -902,6 +1200,32 @@ app = FastAPI(
 logger.info("FastAPI application initialized")
 logger.info("Progress tracking system enabled")
 logger.debug("Debug logging test message")
+
+
+@app.on_event("startup")
+def _prepull_weights_monitor_helper_image() -> None:
+    """Pre-pull the alpine helper image used by _du_bytes_in_volume.
+
+    Doing this once at boot avoids a multi-second stall on the first poll of
+    the first deployment after a fresh install. Failures are non-fatal —
+    the helper itself retries on each call.
+    """
+    try:
+        client = docker.from_env()
+        try:
+            client.images.get(_DU_HELPER_IMAGE)
+            logger.info("weights-monitor helper image already present: %s", _DU_HELPER_IMAGE)
+            return
+        except docker.errors.ImageNotFound:
+            pass
+        logger.info("weights-monitor: pulling helper image %s", _DU_HELPER_IMAGE)
+        client.images.pull(_DU_HELPER_IMAGE)
+        logger.info("weights-monitor: helper image ready")
+    except Exception as exc:
+        logger.warning(
+            "weights-monitor: could not pre-pull %s (%s); the monitor will retry per poll.",
+            _DU_HELPER_IMAGE, exc,
+        )
 
 class RunRequest(BaseModel):
     model: str
@@ -970,21 +1294,39 @@ def create_deployment_log_handler(job_id: str, model: str, device: str):
     logger.info(f"Created per-deployment log file: {log_file_path}")
     return file_handler, log_file_path
 
+class _RunLogForwarder(logging.Handler):
+    """Module-level singleton handler that forwards run_log records to the
+    FastAPI logger.  Defined at module scope so isinstance() checks work
+    correctly across calls and only one instance is ever installed."""
+
+    def emit(self, record):
+        logger.info(f"[RUN.PY] {record.getMessage()}")
+
+
+_run_log_forwarder_installed: bool = False
+
+
 def setup_run_logging_to_fastapi():
-    """Configure run.py logging to also write to FastAPI logger"""
-    # Get the run_log logger that run.py uses
+    """Install the run_log → FastAPI forwarder exactly once per process.
+
+    Previous implementation defined FastAPIHandler inside the function body,
+    which gave every call a *new* class object.  The isinstance-based dedup
+    check therefore never matched, so a fresh handler was appended for every
+    concurrent job — causing log lines to be emitted N times after N jobs.
+    Using a module-level class fixes isinstance() and the global flag prevents
+    any double-installation race.
+    """
+    global _run_log_forwarder_installed
+    if _run_log_forwarder_installed:
+        return
     run_logger = logging.getLogger("run_log")
-
-    # Add the FastAPI handler to run_logger
-    fastapi_handler = FastAPIHandler()
-    fastapi_handler.setLevel(logging.DEBUG)  # Capture DEBUG messages too
-
-    # Check if this handler is already added to avoid duplicates
-    handler_exists = any(isinstance(h, FastAPIHandler) for h in run_logger.handlers)
-
-    if not handler_exists:
-        run_logger.addHandler(fastapi_handler)
+    # Guard against duplicate installation even if the flag races
+    if not any(isinstance(h, _RunLogForwarder) for h in run_logger.handlers):
+        handler = _RunLogForwarder()
+        handler.setLevel(logging.DEBUG)
+        run_logger.addHandler(handler)
         logger.info("Added FastAPI logging handler to run_log logger")
+    _run_log_forwarder_installed = True
 
 @app.get("/")
 async def root():
@@ -1023,13 +1365,14 @@ async def get_run_progress(job_id: str):
             "last_updated": time.time()
         })
         
-        # Add stalled detection (>120s no updates)
+        # Add stalled detection (>120s no updates from run.py)
         if progress["status"] == "running" and "last_updated" in progress:
             time_since_update = time.time() - progress["last_updated"]
-            if time_since_update > DEPLOYMENT_TIMEOUT_SECONDS:  # 2 minutes
+            if time_since_update > PULL_STALL_THRESHOLD_SECONDS:
                 progress = progress.copy()  # Don't modify the stored version
                 progress["status"] = "stalled"
                 progress["message"] = f"No progress updates for {int(time_since_update)}s - deployment may be stalled"
+                progress["stale_seconds"] = int(time_since_update)
                 
     return progress
 
@@ -1286,15 +1629,6 @@ async def run_inference(request: RunRequest):
         elif not os.getenv("HF_TOKEN"):
             logger.warning("HF_TOKEN not set - this may cause issues with model downloads")
             
-        # Set environment variables
-        for key, value in env_vars_to_set.items():
-            if key in ["JWT_SECRET", "HF_TOKEN"]:
-                logger.info(f"Setting environment variable: {key}=[REDACTED]")
-            else:
-                logger.info(f"Setting environment variable: {key}={value}")
-            os.environ[key] = value
-
-        
         # Convert the request to command line arguments
         base_argv = ["run.py"]
         
@@ -1370,26 +1704,15 @@ async def run_inference(request: RunRequest):
                 job_id,
                 host_volume_resolution_reason,
             )
-
-        sys.argv = list(initial_argv)
-
         def _run_job_in_background():
             weights_stop_event = threading.Event()
             progress_handler = None
-            # Save global state (best-effort; TT Studio typically runs one deployment at a time)
-            prev_argv = list(initial_argv)
-            prev_cwd = Path.cwd()
-            prev_env = os.environ.copy()
             run_logger = logging.getLogger("run_log")
             try:
-                # Apply env vars (including secrets if provided)
-                for key, value in env_vars_to_set.items():
-                    os.environ[key] = value
-
                 # Start weights progress monitor (keeps progress moving during long hf downloads)
                 threading.Thread(
                     target=_weights_progress_monitor,
-                    args=(job_id, weights_stop_event),
+                    args=(job_id, weights_stop_event, request.model, normalized_device, request.impl),
                     daemon=True,
                 ).start()
 
@@ -1398,125 +1721,168 @@ async def run_inference(request: RunRequest):
                 progress_handler = ProgressHandler(job_id)
                 run_logger.addHandler(progress_handler)
 
-                # Switch cwd for tt-inference-server execution
-                if prev_cwd != script_dir:
-                    os.chdir(script_dir)
+                # run_main() relies on process globals (sys.argv, os.environ, cwd), so
+                # serialize this setup/execution phase across concurrent /run requests.
+                with _run_main_lock:
+                    prev_argv = list(sys.argv)
+                    prev_cwd = Path.cwd()
+                    prev_env = os.environ.copy()
+                    try:
+                        # Apply env vars (including secrets if provided)
+                        for key, value in env_vars_to_set.items():
+                            if key in ["JWT_SECRET", "HF_TOKEN"]:
+                                logger.info(f"Setting environment variable: {key}=[REDACTED]")
+                            else:
+                                logger.info(f"Setting environment variable: {key}={value}")
+                            os.environ[key] = value
 
-                def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
-                    """Execute run_main() for one attempt and return (code, container_info)."""
-                    attempt_mode = "host-volume" if "--host-volume" in argv_for_attempt else "baseline"
-                    sys.argv = argv_for_attempt
-                    logger.info(
-                        f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}"
-                    )
-                    logger.info(
-                        "Job %s: Starting run_main() in %s mode: %s",
-                        job_id,
-                        attempt_mode,
-                        " ".join(argv_for_attempt),
-                    )
-                    run_result = run_main()
-                    if isinstance(run_result, tuple):
-                        attempt_return_code, attempt_container_info = run_result
-                    else:
-                        attempt_return_code = run_result
-                        attempt_container_info = None
-                    logger.info(f"Job {job_id}: run_main() return code: {attempt_return_code}")
-                    logger.info(f"Job {job_id}: container_info:= {attempt_container_info}")
-                    return attempt_return_code, attempt_container_info
+                        # Switch cwd for tt-inference-server execution
+                        if prev_cwd != script_dir:
+                            os.chdir(script_dir)
 
-                def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
-                    retry_argv = list(sys.argv)
-                    retry_reason_parts: list[str] = []
-                    if "--host-volume" in retry_argv:
-                        retry_argv = _strip_cli_option(retry_argv, "--host-volume")
-                        retry_reason_parts.append("baseline startup without --host-volume")
-                    if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
-                        retry_argv.append("--skip-system-sw-validation")
-                        retry_reason_parts.append("--skip-system-sw-validation")
-                    retry_reason = " and ".join(retry_reason_parts) if retry_reason_parts else "same options"
-                    return retry_argv, retry_reason
+                        sys.argv = list(initial_argv)
 
-                try:
-                    return_code, container_info = _execute_run(sys.argv)
-                except Exception as first_attempt_error:
-                    # run_main() can raise directly (e.g. local setup validation errors)
-                    # and bypass return-code based retry logic.
-                    #
-                    # PermissionError on the log directory means the workflow_logs dir is
-                    # root-owned (leftover from a previous sudo-based startup). Retrying
-                    # with different Docker args won't help — re-raise immediately so the
-                    # caller gets a clear error instead of a misleading retry.
-                    if isinstance(first_attempt_error, PermissionError) and "workflow_logs" in str(first_attempt_error):
-                        logger.error(
-                            "Job %s: PermissionError on workflow_logs directory — directory is likely "
-                            "root-owned from a previous sudo-based startup. Fix with: "
-                            "sudo chown -R $USER: %s/workflow_logs",
-                            job_id,
-                            script_dir,
-                        )
-                        raise
-                    retry_argv, retry_reason = _build_retry_argv_and_reason()
-                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
-                        logger.warning(
-                            "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
-                            job_id,
-                            expected_host_volume_dir,
-                            expected_host_weights_dir,
-                        )
-                    logger.warning(
-                        "Job %s: first run raised (%s), retrying once with %s",
-                        job_id,
-                        type(first_attempt_error).__name__,
-                        retry_reason,
-                    )
-                    with progress_lock:
-                        if job_id in progress_store:
-                            current_progress = progress_store[job_id].get("progress", 0)
-                            progress_store[job_id].update(
-                                {
-                                    "status": "retrying",
-                                    "stage": "container_setup",
-                                    "progress": max(current_progress, 70),
-                                    "message": f"Retrying deployment with {retry_reason}...",
-                                    "last_updated": time.time(),
-                                }
+                        def _execute_run(argv_for_attempt: list[str]) -> Tuple[int, Optional[Dict[str, Any]]]:
+                            """Execute run_main() for one attempt and return (code, container_info)."""
+                            attempt_mode = "host-volume" if "--host-volume" in argv_for_attempt else "baseline"
+                            sys.argv = argv_for_attempt
+                            logger.info(
+                                f"Job {job_id}: run.py command: python {' '.join(argv_for_attempt)}"
                             )
-                    return_code, container_info = _execute_run(retry_argv)
-
-                # Retry once when the initial run fails.
-                if return_code != 0:
-                    retry_argv, retry_reason = _build_retry_argv_and_reason()
-                    if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
-                        logger.warning(
-                            "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
-                            job_id,
-                            expected_host_volume_dir,
-                            expected_host_weights_dir,
-                        )
-                    logger.warning(
-                        "Job %s: first run failed (code %s), retrying once with %s",
-                        job_id,
-                        return_code,
-                        retry_reason,
-                    )
-                    with progress_lock:
-                        if job_id in progress_store:
-                            current_progress = progress_store[job_id].get("progress", 0)
-                            progress_store[job_id].update(
-                                {
-                                    "status": "retrying",
-                                    "stage": "container_setup",
-                                    "progress": max(current_progress, 70),
-                                    "message": f"Retrying deployment with {retry_reason}...",
-                                    "last_updated": time.time(),
-                                }
+                            logger.info(
+                                "Job %s: Starting run_main() in %s mode: %s",
+                                job_id,
+                                attempt_mode,
+                                " ".join(argv_for_attempt),
                             )
-                    return_code, container_info = _execute_run(retry_argv)
+                            run_result = run_main()
+                            if isinstance(run_result, tuple):
+                                attempt_return_code, attempt_container_info = run_result
+                            else:
+                                attempt_return_code = run_result
+                                attempt_container_info = None
+                            logger.info(f"Job {job_id}: run_main() return code: {attempt_return_code}")
+                            logger.info(f"Job {job_id}: container_info:= {attempt_container_info}")
+                            return attempt_return_code, attempt_container_info
+
+                        def _build_retry_argv_and_reason() -> Tuple[list[str], str]:
+                            retry_argv = list(sys.argv)
+                            retry_reason_parts: list[str] = []
+                            if "--host-volume" in retry_argv:
+                                retry_argv = _strip_cli_option(retry_argv, "--host-volume")
+                                retry_reason_parts.append("baseline startup without --host-volume")
+                            if request.skip_system_sw_validation and "--skip-system-sw-validation" not in retry_argv:
+                                retry_argv.append("--skip-system-sw-validation")
+                                retry_reason_parts.append("--skip-system-sw-validation")
+                            retry_reason = " and ".join(retry_reason_parts) if retry_reason_parts else "same options"
+                            return retry_argv, retry_reason
+
+                        try:
+                            return_code, container_info = _execute_run(sys.argv)
+                        except Exception as first_attempt_error:
+                            # run_main() can raise directly (e.g. local setup validation errors)
+                            # and bypass return-code based retry logic.
+                            #
+                            # PermissionError on the log directory means the workflow_logs dir is
+                            # root-owned (leftover from a previous sudo-based startup). Retrying
+                            # with different Docker args won't help — re-raise immediately so the
+                            # caller gets a clear error instead of a misleading retry.
+                            if isinstance(first_attempt_error, PermissionError) and "workflow_logs" in str(first_attempt_error):
+                                logger.error(
+                                    "Job %s: PermissionError on workflow_logs directory — directory is likely "
+                                    "root-owned from a previous sudo-based startup. Fix with: "
+                                    "sudo chown -R $USER: %s/workflow_logs",
+                                    job_id,
+                                    script_dir,
+                                )
+                                raise
+                            retry_argv, retry_reason = _build_retry_argv_and_reason()
+                            if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                                logger.warning(
+                                    "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
+                                    job_id,
+                                    expected_host_volume_dir,
+                                    expected_host_weights_dir,
+                                )
+                            logger.warning(
+                                "Job %s: first run raised (%s), retrying once with %s",
+                                job_id,
+                                type(first_attempt_error).__name__,
+                                retry_reason,
+                            )
+                            with progress_lock:
+                                if job_id in progress_store:
+                                    current_progress = progress_store[job_id].get("progress", 0)
+                                    progress_store[job_id].update(
+                                        {
+                                            "status": "retrying",
+                                            "stage": "container_setup",
+                                            "progress": max(current_progress, 70),
+                                            "message": f"Retrying deployment with {retry_reason}...",
+                                            "last_updated": time.time(),
+                                        }
+                                    )
+                            return_code, container_info = _execute_run(retry_argv)
+
+                        # Retry once when the initial run fails.
+                        if return_code != 0:
+                            retry_argv, retry_reason = _build_retry_argv_and_reason()
+                            if "--host-volume" in sys.argv and _job_has_host_volume_weights_warning(job_id):
+                                logger.warning(
+                                    "Job %s: host-volume attempt for %s logged a missing weights directory warning before the retry. Expected weights under %s",
+                                    job_id,
+                                    expected_host_volume_dir,
+                                    expected_host_weights_dir,
+                                )
+                            logger.warning(
+                                "Job %s: first run failed (code %s), retrying once with %s",
+                                job_id,
+                                return_code,
+                                retry_reason,
+                            )
+                            with progress_lock:
+                                if job_id in progress_store:
+                                    current_progress = progress_store[job_id].get("progress", 0)
+                                    progress_store[job_id].update(
+                                        {
+                                            "status": "retrying",
+                                            "stage": "container_setup",
+                                            "progress": max(current_progress, 70),
+                                            "message": f"Retrying deployment with {retry_reason}...",
+                                            "last_updated": time.time(),
+                                        }
+                                    )
+                            return_code, container_info = _execute_run(retry_argv)
+                    finally:
+                        # Restore globals while still holding lock so the next run
+                        # starts from a consistent process state.
+                        try:
+                            sys.argv = prev_argv
+                        except Exception:
+                            pass
+                        try:
+                            if Path.cwd() != prev_cwd:
+                                os.chdir(prev_cwd)
+                        except Exception:
+                            pass
+                        try:
+                            os.environ.clear()
+                            os.environ.update(prev_env)
+                        except Exception:
+                            pass
 
                 if return_code == 0:
+                    # Always extract from captured job logs — provides docker_log_file_path
+                    # even when run_main() returned a bare int (no container_info dict).
+                    extracted = _extract_from_job_logs(job_id)
+                    logger.info(
+                        f"Job {job_id}: _extract_from_job_logs result: "
+                        f"container_name={extracted.get('container_name')!r} "
+                        f"docker_log_file_path={extracted.get('docker_log_file_path')!r} "
+                        f"run_log_file_path={extracted.get('run_log_file_path')!r}"
+                    )
+
                     if not isinstance(container_info, dict) or not container_info.get("container_name"):
-                        extracted = _extract_from_job_logs(job_id)
                         inferred_name = extracted.get("container_name")
                         if inferred_name:
                             container_info = {
@@ -1530,8 +1896,16 @@ async def run_inference(request: RunRequest):
 
                     container_name = container_info.get("container_name") if isinstance(container_info, dict) else None
                     container_id = container_info.get("container_id") if isinstance(container_info, dict) else None
-                    docker_log_file_path = container_info.get("docker_log_file_path") if isinstance(container_info, dict) else None
-                    run_log_file_path = container_info.get("run_log_file_path") if isinstance(container_info, dict) else None
+                    # Prefer container_info value; fall back to log-extracted value so that
+                    # docker_log_file_path is never lost when container name extraction fails.
+                    docker_log_file_path = (
+                        (container_info.get("docker_log_file_path") if isinstance(container_info, dict) else None)
+                        or extracted.get("docker_log_file_path")
+                    )
+                    run_log_file_path = (
+                        (container_info.get("run_log_file_path") if isinstance(container_info, dict) else None)
+                        or extracted.get("run_log_file_path")
+                    )
 
                     response_data = {
                         "job_id": job_id,
@@ -1671,22 +2045,6 @@ async def run_inference(request: RunRequest):
                         with progress_lock:
                             if job_id in deployment_log_handlers:
                                 del deployment_log_handlers[job_id]
-                except Exception:
-                    pass
-
-                # Restore globals
-                try:
-                    sys.argv = prev_argv
-                except Exception:
-                    pass
-                try:
-                    if Path.cwd() != prev_cwd:
-                        os.chdir(prev_cwd)
-                except Exception:
-                    pass
-                try:
-                    os.environ.clear()
-                    os.environ.update(prev_env)
                 except Exception:
                     pass
 

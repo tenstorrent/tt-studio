@@ -33,6 +33,16 @@ class ContainerStopRequest(BaseModel):
     timeout: int = Field(10, description="Timeout in seconds before killing")
 
 
+class ContainerDirSizeRequest(BaseModel):
+    """Request model for `du -sb` inside a running container.
+
+    Read-only: only used to report download progress to the UI. Path must be
+    an absolute container path; the service refuses anything else.
+    """
+    path: str = Field(..., description="Absolute path inside the container to size")
+    timeout: float = Field(4.0, description="Hard cap on the `du` exec, in seconds")
+
+
 class ImagePullRequest(BaseModel):
     """Request model for pulling an image"""
     image_name: str = Field(..., description="Image name")

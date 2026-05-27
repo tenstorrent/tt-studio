@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import requests
 
@@ -25,12 +25,13 @@ def start_chat_deployment(
     *,
     model_name: str,
     device: str,
-    device_id: Optional[int] = None,
+    device_id: Optional[Union[int, str]] = None,
     service_port: Optional[int] = None,
     fastapi_run_url: str = "http://172.18.0.1:8001/run",
     timeout_seconds: int = 30,
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
+    override_tt_config: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -49,6 +50,8 @@ def start_chat_deployment(
         payload["service_port"] = str(service_port)
     if device_id is not None:
         payload["device_id"] = str(device_id)
+    if override_tt_config is not None:
+        payload["override_tt_config"] = override_tt_config
 
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)

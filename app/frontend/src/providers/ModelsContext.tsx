@@ -16,6 +16,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [userStoppedModel, setUserStoppedModelState] = useState<boolean>(
     () => sessionStorage.getItem("userStoppedModel") === "true"
   );
+  const [isDeleteInFlight, setIsDeleteInFlight] = useState<boolean>(false);
 
   const setUserStoppedModel = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
     setUserStoppedModelState((prev) => {
@@ -53,6 +54,8 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
             status: dockerModel?.status || "deployed",
             health: dockerModel?.health || "unknown",
             ports: dockerModel?.ports || "No ports",
+            device_id: dockerModel?.device_id ?? null,
+            device_ids: dockerModel?.device_ids,
             model_type: deployedModel.model_type,
           };
         });
@@ -82,7 +85,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <ModelsContext.Provider
-      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel }}
+      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel, isDeleteInFlight, setIsDeleteInFlight }}
     >
       {children}
     </ModelsContext.Provider>

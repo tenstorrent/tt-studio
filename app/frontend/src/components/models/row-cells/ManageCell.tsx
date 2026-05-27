@@ -10,6 +10,7 @@ import {
   MessageSquareText,
   Image as ImageIcon,
   Crosshair,
+  Loader2,
   Mic,
   Volume2,
   ScanFace,
@@ -20,6 +21,12 @@ import {
   getModelTypeFromBackendType,
   ModelType,
 } from "../../../api/modelsDeployedApis";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../ui/tooltip";
 
 interface Props {
   id: string;
@@ -27,10 +34,14 @@ interface Props {
   image?: string;
   model_type?: string;
   health?: HealthStatus;
+  isFailed?: boolean;
   onDelete: (id: string) => void;
   onRedeploy: (image?: string) => void;
   onNavigateToModel: (id: string, name: string, navigate?: any) => void;
   onOpenApi: (id: string) => void;
+  deleteInProgress?: boolean;
+  isCurrentlyDeleting?: boolean;
+  onOpenLogs?: (id: string) => void;
 }
 
 export default React.memo(function ManageCell({
@@ -39,10 +50,14 @@ export default React.memo(function ManageCell({
   image: _image,
   model_type,
   health,
+  isFailed,
   onDelete,
   onRedeploy: _onRedeploy,
   onNavigateToModel,
   onOpenApi,
+  deleteInProgress = false,
+  isCurrentlyDeleting = false,
+  onOpenLogs,
 }: Props) {
   const baseBtn =
     "group/btn rounded-full border pl-4 pr-6 py-2 text-sm font-medium transition-all duration-200 inline-flex items-center gap-2 hover:ring-1 hover:ring-current min-h-[36px] leading-none";
@@ -80,6 +95,88 @@ export default React.memo(function ManageCell({
             : modelType === ModelType.TTS
               ? Volume2
               : MessageSquareText;
+
+  if (isFailed) {
+    return (
+      <div className="relative flex items-center justify-center gap-2 flex-wrap">
+        {onOpenLogs && (
+          <Button
+            variant="outline"
+            size="sm"
+            effect="expandIcon"
+            icon={ScrollText}
+            iconPlacement="left"
+            onClick={() => onOpenLogs(id)}
+            className={`${baseBtn} !border-TT-purple-accent/60 !text-TT-purple-accent/90`}
+          >
+            Logs
+          </Button>
+        )}
+        {isCurrentlyDeleting ? (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  effect="expandIcon"
+                  icon={Loader2}
+                  iconPlacement="right"
+                  onClick={() => onDelete(id)}
+                  className={`${baseBtn} ${dangerBtn} [&_svg]:animate-spin`}
+                >
+                  Removing…
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                <p className="text-sm">
+                  Removal in progress. Click to view progress.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : deleteInProgress ? (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    effect="expandIcon"
+                    icon={Trash2}
+                    iconPlacement="right"
+                    onClick={() => onDelete(id)}
+                    disabled
+                    className={`${baseBtn} ${dangerBtn}`}
+                  >
+                    Remove &amp; Reset
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                <p className="text-sm">
+                  A model is currently being deleted. Please wait for it to finish before starting another destructive action.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            effect="expandIcon"
+            icon={Trash2}
+            iconPlacement="right"
+            onClick={() => onDelete(id)}
+            className={`${baseBtn} ${dangerBtn}`}
+          >
+            Remove &amp; Reset
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex items-center justify-center gap-2 flex-wrap">
@@ -121,17 +218,68 @@ export default React.memo(function ManageCell({
       >
         Logs
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        effect="expandIcon"
-        icon={Trash2}
-        iconPlacement="right"
-        onClick={() => onDelete(id)}
-        className={`${baseBtn} ${dangerBtn}`}
-      >
-        Delete
-      </Button>
+      {isCurrentlyDeleting ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                effect="expandIcon"
+                icon={Loader2}
+                iconPlacement="right"
+                onClick={() => onDelete(id)}
+                className={`${baseBtn} ${dangerBtn} [&_svg]:animate-spin`}
+              >
+                Deleting…
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs">
+              <p className="text-sm">
+                Deletion in progress. Click to view progress.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : deleteInProgress ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  effect="expandIcon"
+                  icon={Trash2}
+                  iconPlacement="right"
+                  onClick={() => onDelete(id)}
+                  disabled
+                  className={`${baseBtn} ${dangerBtn}`}
+                >
+                  Delete
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs">
+              <p className="text-sm">
+                A model is currently being deleted. Please wait for it to finish before starting another destructive action.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          effect="expandIcon"
+          icon={Trash2}
+          iconPlacement="right"
+          onClick={() => onDelete(id)}
+          className={`${baseBtn} ${dangerBtn}`}
+        >
+          Delete
+        </Button>
+      )}
 
       {/* Hover tier: admin actions */}
       {/* Hover tier removed per redesign; health refresh is now in Settings */}

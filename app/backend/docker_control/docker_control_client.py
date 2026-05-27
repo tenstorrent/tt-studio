@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Docker Control Service API Client
@@ -9,6 +9,7 @@ This module provides a client wrapper for the docker-control-service API,
 replacing direct Docker SDK usage for improved security.
 """
 
+import json
 import os
 import jwt
 import requests
@@ -26,12 +27,14 @@ class DockerControlClient:
         Initialize the Docker Control Service client
 
         Args:
-            url: Base URL of the docker-control-service (default: from env DOCKER_CONTROL_SERVICE_URL)
-            jwt_secret: JWT secret for authentication (default: from env DOCKER_CONTROL_JWT_SECRET)
+            url: Base URL of the docker-control-service (default: env DOCKER_CONTROL_SERVICE_URL)
+            jwt_secret: JWT secret for authentication (default: env DOCKER_CONTROL_JWT_SECRET)
         """
-        self.url = url or os.getenv("DOCKER_CONTROL_SERVICE_URL", "http://host.docker.internal:8002")
+        self.url = url or os.getenv("DOCKER_CONTROL_SERVICE_URL")
         self.jwt_secret = jwt_secret or os.getenv("DOCKER_CONTROL_JWT_SECRET")
 
+        if not self.url:
+            raise ValueError("DOCKER_CONTROL_SERVICE_URL environment variable is required")
         if not self.jwt_secret:
             raise ValueError("DOCKER_CONTROL_JWT_SECRET environment variable is required")
 
@@ -161,6 +164,79 @@ class DockerControlClient:
         """Inspect a container (alias for get_container)"""
         return self.get_container(container_id)
 
+    def dir_size(self, container_id: str, path: str, timeout: float = 4.0) -> Optional[int]:
+        """Recursive byte count of `path` inside the running container.
+
+        Wraps the docker-control-service's read-only `du` helper. Returns None
+        on transport failure / 404; callers should treat that as "no signal".
+        Returns 0 (not None) when the path exists but is empty or missing
+        inside the container — see download_progress.py for the difference.
+        """
+        url = f"{self.url}/api/v1/containers/{container_id}/dir-size"
+        try:
+            response = requests.post(
+                url,
+                headers=self._get_headers(),
+                json={"path": path, "timeout": timeout},
+                timeout=max(2.0, timeout + 2.0),
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+            n = data.get("bytes")
+            return int(n) if isinstance(n, int) else None
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"dir_size({container_id[:12]}, {path}) failed: {e}")
+            return None
+        except (ValueError, TypeError) as e:
+            logger.warning(f"dir_size({container_id[:12]}) parse failure: {e}")
+            return None
+
+    def tail_logs(self, container_id: str, tail: int = 200, timeout: float = 5.0) -> List[str]:
+        """Fetch a one-shot snapshot of the most recent container log lines.
+
+        Wraps the SSE-based logs endpoint with follow=false: the upstream stream
+        terminates after emitting the requested tail, so we collect chunks and
+        unwrap the `data: {"message": ...}\\n\\n` payloads into plain strings.
+
+        Args:
+            container_id: container id or name
+            tail: number of trailing lines to fetch
+            timeout: hard cap on total wait, in seconds
+
+        Returns:
+            list of raw log lines (oldest first). Empty list on failure.
+        """
+        url = f"{self.url}/api/v1/containers/{container_id}/logs"
+        params = {"follow": "false", "tail": tail}
+        try:
+            response = requests.get(
+                url,
+                headers=self._get_headers(),
+                params=params,
+                stream=True,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+
+            lines: List[str] = []
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if not raw_line or not raw_line.startswith("data: "):
+                    continue
+                payload = raw_line[len("data: "):]
+                try:
+                    obj = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                msg = obj.get("message")
+                if isinstance(msg, str):
+                    lines.append(msg)
+            return lines
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"tail_logs({container_id[:12]}) failed: {e}")
+            return []
+
     def get_logs_stream(self, container_id: str, follow: bool = True, tail: int = 100):
         """
         Stream logs from a container using Server-Sent Events.
@@ -258,6 +334,23 @@ class DockerControlClient:
         """Disconnect a container from a network"""
         payload = {"container": container, "force": force}
         response = self._request("POST", f"/api/v1/networks/{network_name}/disconnect", json=payload)
+        return response.json()
+
+    # Host log files
+
+    def get_service_log(self, tail: int = 500) -> Dict:
+        """Fetch docker-control-service log content from the host"""
+        response = self._request("GET", "/api/v1/logs/service", params={"tail": tail})
+        return response.json()
+
+    def get_startup_log(self, tail: int = 200) -> Dict:
+        """Fetch startup.log content from the host"""
+        response = self._request("GET", "/api/v1/logs/startup", params={"tail": tail})
+        return response.json()
+
+    def get_fastapi_log(self, tail: int = 500) -> Dict:
+        """Fetch fastapi.log content from the host"""
+        response = self._request("GET", "/api/v1/logs/fastapi", params={"tail": tail})
         return response.json()
 
     # Health check

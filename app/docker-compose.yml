@@ -61,6 +61,8 @@ services:
       - ./backend:/backend
       # Mount tt-inference-server workflow logs for viewing deployment logs
       - ${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:${TT_STUDIO_ROOT}/.artifacts/tt-inference-server/workflow_logs:ro
+      # Mount fastapi_logs/ directory so the backend can read per-deployment logs
+      - ${TT_STUDIO_ROOT}/fastapi_logs:${TT_STUDIO_ROOT}/fastapi_logs:ro
 
     healthcheck:
       # On first application load resources for transformers/etc
