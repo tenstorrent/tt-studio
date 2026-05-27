@@ -162,16 +162,39 @@ def health_check(url, json_data, timeout=5):
             content = {}
         return True, content
 
-    # 503 with "not ready" means model is still loading (media-server models)
+    # Detect transient "still warming up" responses. The media-server stack
+    # raises HTTPException at multiple layers and the same logical state can
+    # surface as different status codes:
+    #   - scheduler raises HTTPException(405, "Model is not ready") before
+    #     warmup completes
+    #   - tt_maintenance_api.health() catches that and re-raises as 500
+    #     "Health check failed: 405: Model is not ready"
+    #   - if the service worker reports model_ready=False at a later stage,
+    #     /health raises HTTPException(503, "Model not ready") directly
+    # The canonical signal is "not ready" somewhere in the response body, so
+    # look for that first and treat it as "starting" regardless of status.
+    body_detail = ""
+    try:
+        body_json = response.json() if response.content else {}
+        if isinstance(body_json, dict):
+            body_detail = str(body_json.get("detail", "")) or str(body_json.get("message", ""))
+    except Exception:
+        body_detail = ""
+    body_text = (body_detail or response.text or "").lower()
+
+    if "not ready" in body_text or "still loading" in body_text or "starting up" in body_text:
+        logger.info(
+            f"Health check: model not ready yet (starting): "
+            f"{response.status_code} {body_detail or response.text[:200]}"
+        )
+        return None, body_detail or response.text[:200]
+
+    # Bare 503 from /health (no explicit detail) — only legitimate reason for
+    # the inference server to emit this is "service warming up", so treat as
+    # starting rather than failed.
     if response.status_code == 503:
-        try:
-            body = response.json()
-        except Exception:
-            body = {}
-        detail = body.get("detail", "")
-        if "not ready" in detail.lower():
-            logger.info(f"Health check: model not ready yet (starting): {detail}")
-            return None, detail
+        logger.info(f"Health check: 503 from {url} — treating as starting")
+        return None, body_detail or response.text[:200]
 
     logger.error(f"Health check failed: {response.status_code} {response.text[:200]}")
     return False, response.text[:200]

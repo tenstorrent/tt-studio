@@ -12,11 +12,12 @@ import datetime
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from models.requests import ContainerRunRequest, ContainerStopRequest
+from models.requests import ContainerRunRequest, ContainerStopRequest, ContainerDirSizeRequest
 from models.responses import (
     ContainerRunResponse,
     ContainerListResponse,
     ContainerDetailsResponse,
+    ContainerDirSizeResponse,
     OperationResponse
 )
 from services.container_service import ContainerService
@@ -186,6 +187,57 @@ async def rename_container(container_id: str, new_name: str):
 
     except Exception as e:
         logger.error(f"Unexpected error renaming container: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/containers/{container_id}/dir-size", response_model=ContainerDirSizeResponse)
+async def container_dir_size(container_id: str, request: ContainerDirSizeRequest):
+    """Recursive byte count of an absolute path inside a running container.
+
+    Read-only helper used by the backend's download-progress display. The body
+    is intentionally narrow — a single absolute path and a timeout — so this
+    endpoint cannot be repurposed as a generic exec.
+    """
+    if not request.path.startswith("/"):
+        raise HTTPException(status_code=400, detail="path must be absolute")
+    if "\x00" in request.path:
+        raise HTTPException(status_code=400, detail="path contains NUL")
+
+    try:
+        client = docker.from_env()
+        try:
+            container = client.containers.get(container_id)
+        except docker.errors.NotFound:
+            raise HTTPException(status_code=404, detail=f"container {container_id} not found")
+
+        # Single-quote escape for `sh -c`. stderr discarded so a transient ENOENT
+        # (path being created mid-download) returns "" rather than erroring.
+        quoted = "'" + request.path.replace("'", "'\\''") + "'"
+        cmd = ["sh", "-c", f"du -sb {quoted} 2>/dev/null | cut -f1"]
+
+        result = container.exec_run(cmd, demux=False, stream=False, tty=False)
+        output = result.output
+        if isinstance(output, bytes):
+            text = output.decode("utf-8", errors="ignore").strip()
+        elif isinstance(output, str):
+            text = output.strip()
+        else:
+            text = ""
+
+        if not text:
+            return ContainerDirSizeResponse(status="success", bytes=0)
+        first = text.splitlines()[0].strip()
+        if not first.isdigit():
+            return ContainerDirSizeResponse(status="success", bytes=0)
+        return ContainerDirSizeResponse(status="success", bytes=int(first))
+
+    except HTTPException:
+        raise
+    except docker.errors.APIError as e:
+        logger.warning(f"dir-size docker API error on {container_id[:12]}: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.warning(f"dir-size failed on {container_id[:12]}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
