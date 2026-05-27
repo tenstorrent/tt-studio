@@ -30,6 +30,12 @@ import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
 import MultiCardResetDialog from "./MultiCardResetDialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 // Board types that have multiple individually-resettable chips
 const MULTI_CHIP_BOARDS = new Set([
@@ -61,15 +67,14 @@ function StepRow({
 }) {
   return (
     <div
-      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${
-        state === "active"
+      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${state === "active"
           ? "bg-blue-900/30 border-blue-500/40"
           : state === "done"
             ? "bg-green-900/20 border-green-600/30"
             : state === "skipped"
               ? "bg-stone-800/30 border-stone-700/30"
               : "bg-stone-800/50 border-stone-700/40"
-      }`}
+        }`}
     >
       <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
         {state === "active" ? (
@@ -86,11 +91,10 @@ function StepRow({
       </div>
       <div className="flex-1 min-w-0">
         <div
-          className={`font-medium text-sm inline-flex items-center gap-1.5 ${
-            state === "pending" || state === "skipped"
+          className={`font-medium text-sm inline-flex items-center gap-1.5 ${state === "pending" || state === "skipped"
               ? "text-stone-400"
               : "text-white"
-          }`}
+            }`}
         >
           {icon}
           {label}
@@ -164,7 +168,7 @@ function BoardStatusBanner({
 // ── Main component ────────────────────────────────────────────────────────────
 const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
   const { theme } = useTheme();
-  const { models, refreshModels } = useModels();
+  const { models, refreshModels, isDeleteInFlight } = useModels();
   const { deviceState, refresh: refreshDeviceState } = useDeviceState();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -212,15 +216,13 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
     setShowOutput(false);
 
     try {
-      // Step 1: delete deployed models
+      // Pass skip_device_reset to only stop containers, leaving whole board reset to run later.
       setResetStep("deleting");
       const currentModels = await fetchModels();
-      for (const model of currentModels) {
-        await deleteModel(model.id);
-      }
+      await Promise.all(currentModels.map((m) => deleteModel(m.id, true)));
       await refreshModels();
 
-      // Step 2: run board reset
+      // Run the global board reset.
       setResetStep("resetting");
       const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
         responseType: "blob",
@@ -280,6 +282,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
   };
 
   const handleOpen = () => {
+    if (isDeleteInFlight) return;
     if (isMultiChip) {
       setIsMultiCardOpen(true);
       return;
@@ -327,270 +330,293 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
         open={isDialogOpen && !isMultiChip}
         onOpenChange={(open) => (open ? handleOpen() : handleClose())}
       >
-      <DialogTrigger asChild>
-        <Button
-          variant="navbar"
-          size="icon"
-          className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${btnBg} ${btnHover}`}
-          onClick={handleOpen}
-        >
-          {isLoading ? (
-            <Spinner />
-          ) : isCompleted ? (
-            <CheckCircle className={`w-5 h-5 text-green-500`} />
-          ) : (
-            <>
-              <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
-              {/* Red dot if board is unhealthy */}
-              {(isBadState || isNotPresent) && (
-                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
-              )}
-            </>
-          )}
-        </Button>
-      </DialogTrigger>
-
-      <DialogContent
-        className="sm:max-w-md p-6 rounded-xl shadow-2xl bg-stone-900 text-white border border-stone-700 backdrop-blur-md"
-      >
-        {/* ── HEADER ── */}
-        <DialogHeader>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-3">
-              {isLoading ? (
-                <div className="w-9 h-9 rounded-full bg-blue-900/50 flex items-center justify-center">
-                  <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
-                </div>
-              ) : isCompleted ? (
-                <div className="w-9 h-9 rounded-full bg-green-900/50 flex items-center justify-center">
-                  <CheckCircle className="h-5 w-5 text-green-400" />
-                </div>
-              ) : isFailed ? (
-                <div className="w-9 h-9 rounded-full bg-red-900/50 flex items-center justify-center">
-                  <XCircle className="h-5 w-5 text-red-400" />
-                </div>
-              ) : (
-                <div className="w-9 h-9 rounded-full bg-yellow-900/50 flex items-center justify-center">
-                  <RotateCcw className="h-5 w-5 text-yellow-400" />
-                </div>
-              )}
-              <div>
-                <DialogTitle className="text-base font-semibold text-white leading-tight">
-                  {isLoading
-                    ? resetStep === "deleting"
-                      ? "Removing deployed models…"
-                      : "Resetting board…"
-                    : isCompleted
-                      ? "Reset complete"
-                      : isFailed
-                        ? "Reset failed"
-                        : "Reset Card"}
-                </DialogTitle>
-                {isLoading && (
-                  <p className="text-xs text-stone-400 mt-0.5">
-                    Step {resetStep === "deleting" ? "1" : "2"} of 2 — do not
-                    close this window
+        <DialogTrigger asChild>
+          {isDeleteInFlight ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="inline-flex">
+                    <Button
+                      variant="navbar"
+                      size="icon"
+                      disabled
+                      className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${btnBg} ${btnHover}`}
+                    >
+                      <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="text-sm">
+                    A model is currently being deleted. Please wait for it to finish before starting another destructive action.
                   </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Button
+              variant="navbar"
+              size="icon"
+              className={`relative inline-flex items-center justify-center p-2 rounded-full transition-all duration-300 ease-in-out ${btnBg} ${btnHover}`}
+              onClick={handleOpen}
+            >
+              {isLoading ? (
+                <Spinner />
+              ) : isCompleted ? (
+                <CheckCircle className={`w-5 h-5 text-green-500`} />
+              ) : (
+                <>
+                  <Cpu className={`w-5 h-5 ${iconColor} ${hoverIconColor}`} />
+                  {/* Red dot if board is unhealthy */}
+                  {(isBadState || isNotPresent) && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+                  )}
+                </>
+              )}
+            </Button>
+          )}
+        </DialogTrigger>
+
+        <DialogContent
+          className="sm:max-w-md p-6 rounded-xl shadow-2xl bg-stone-900 text-white border border-stone-700 backdrop-blur-md"
+        >
+          {/* ── HEADER ── */}
+          <DialogHeader>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-3">
+                {isLoading ? (
+                  <div className="w-9 h-9 rounded-full bg-blue-900/50 flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+                  </div>
+                ) : isCompleted ? (
+                  <div className="w-9 h-9 rounded-full bg-green-900/50 flex items-center justify-center">
+                    <CheckCircle className="h-5 w-5 text-green-400" />
+                  </div>
+                ) : isFailed ? (
+                  <div className="w-9 h-9 rounded-full bg-red-900/50 flex items-center justify-center">
+                    <XCircle className="h-5 w-5 text-red-400" />
+                  </div>
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-yellow-900/50 flex items-center justify-center">
+                    <RotateCcw className="h-5 w-5 text-yellow-400" />
+                  </div>
                 )}
+                <div>
+                  <DialogTitle className="text-base font-semibold text-white leading-tight">
+                    {isLoading
+                      ? resetStep === "deleting"
+                        ? "Removing deployed models…"
+                        : "Resetting board…"
+                      : isCompleted
+                        ? "Reset complete"
+                        : isFailed
+                          ? "Reset failed"
+                          : "Reset Card"}
+                  </DialogTitle>
+                  {isLoading && (
+                    <p className="text-xs text-stone-400 mt-0.5">
+                      Step {resetStep === "deleting" ? "1" : "2"} of 2 — do not
+                      close this window
+                    </p>
+                  )}
+                </div>
               </div>
+              {/* Board badge — only when idle */}
+              {!isLoading && !isCompleted && !isFailed && boardType !== "unknown" && (
+                <BoardBadge boardName={boardType} />
+              )}
             </div>
-            {/* Board badge — only when idle */}
-            {!isLoading && !isCompleted && !isFailed && boardType !== "unknown" && (
-              <BoardBadge boardName={boardType} />
+          </DialogHeader>
+
+          <div className="space-y-3 mt-3">
+            {/* ── IDLE: board status + step overview ── */}
+            {!isLoading && !isCompleted && !isFailed && (
+              <>
+                <BoardStatusBanner
+                  state={deviceStateName}
+                  boardType={boardType}
+                />
+
+                {isResettingContext && (
+                  <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
+                    <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
+                    <span>Board is already resetting…</span>
+                  </div>
+                )}
+
+                {/* Step overview */}
+                <StepRow
+                  number={1}
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  label={
+                    deployedCount > 0
+                      ? `Stop ${deployedCount} deployed model${deployedCount > 1 ? "s" : ""}`
+                      : "Stop deployed models"
+                  }
+                  state="pending"
+                />
+                <StepRow
+                  number={2}
+                  icon={<RotateCcw className="w-3.5 h-3.5" />}
+                  label="Reset the board (tt-smi -r)"
+                  state="pending"
+                />
+
+                {/* Warning */}
+                <div className="flex items-start gap-2 p-3 bg-red-950/40 border border-red-500/25 rounded-lg text-red-200 text-sm">
+                  <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+                  <span>
+                    <strong className="text-red-300">Warning:</strong> This will
+                    interrupt any ongoing processes on the card.
+                    {resetHistory.length > 0 && (
+                      <span className="block mt-1 text-red-300/70">
+                        Last reset:{" "}
+                        {resetHistory[resetHistory.length - 1].toLocaleTimeString()}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {/* ── LOADING: step progress ── */}
+            {isLoading && (
+              <>
+                <StepRow
+                  number={1}
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  label={
+                    deployedCount > 0
+                      ? `Stop ${deployedCount} deployed model${deployedCount > 1 ? "s" : ""}`
+                      : "Stop deployed models"
+                  }
+                  sublabel="Sending stop signal to all containers…"
+                  state={step1State}
+                />
+                <StepRow
+                  number={2}
+                  icon={<RotateCcw className="w-3.5 h-3.5" />}
+                  label="Reset the board"
+                  sublabel="Running tt-smi -r, this may take 10–30 seconds…"
+                  state={step2State}
+                />
+              </>
+            )}
+
+            {/* ── COMPLETED ── */}
+            {isCompleted && (
+              <>
+                <StepRow
+                  number={1}
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  label="Deployed models removed"
+                  state={deployedCount === 0 ? "skipped" : "done"}
+                />
+                <StepRow
+                  number={2}
+                  icon={<RotateCcw className="w-3.5 h-3.5" />}
+                  label="Board reset"
+                  state="done"
+                />
+                {cmdOutput && (
+                  <button
+                    type="button"
+                    onClick={() => setShowOutput((v) => !v)}
+                    className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 transition-colors"
+                  >
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
+                    />
+                    {showOutput ? "Hide" : "Show"} command output
+                  </button>
+                )}
+                {showOutput && cmdOutput && (
+                  <ScrollArea className="h-36 rounded-lg border border-stone-700">
+                    <pre className="p-3 text-xs text-green-400 whitespace-pre-wrap font-mono bg-stone-950">
+                      {cmdOutput}
+                    </pre>
+                  </ScrollArea>
+                )}
+              </>
+            )}
+
+            {/* ── FAILED ── */}
+            {isFailed && (
+              <>
+                <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg">
+                  <XCircle className="h-5 w-5 text-red-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-red-200">
+                      {errorMessage}
+                    </p>
+                    {cmdOutput && (
+                      <button
+                        type="button"
+                        onClick={() => setShowOutput((v) => !v)}
+                        className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 mt-2 transition-colors"
+                      >
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
+                        />
+                        {showOutput ? "Hide" : "Show"} command output
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {showOutput && cmdOutput && (
+                  <ScrollArea className="h-36 rounded-lg border border-stone-700">
+                    <pre className="p-3 text-xs text-red-300 whitespace-pre-wrap font-mono bg-stone-950">
+                      {cmdOutput}
+                    </pre>
+                  </ScrollArea>
+                )}
+              </>
             )}
           </div>
-        </DialogHeader>
 
-        <div className="space-y-3 mt-3">
-          {/* ── IDLE: board status + step overview ── */}
-          {!isLoading && !isCompleted && !isFailed && (
-            <>
-              <BoardStatusBanner
-                state={deviceStateName}
-                boardType={boardType}
-              />
-
-              {isResettingContext && (
-                <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
-                  <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
-                  <span>Board is already resetting…</span>
-                </div>
-              )}
-
-              {/* Step overview */}
-              <StepRow
-                number={1}
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                label={
-                  deployedCount > 0
-                    ? `Stop ${deployedCount} deployed model${deployedCount > 1 ? "s" : ""}`
-                    : "Stop deployed models"
-                }
-                state="pending"
-              />
-              <StepRow
-                number={2}
-                icon={<RotateCcw className="w-3.5 h-3.5" />}
-                label="Reset the board (tt-smi -r)"
-                state="pending"
-              />
-
-              {/* Warning */}
-              <div className="flex items-start gap-2 p-3 bg-red-950/40 border border-red-500/25 rounded-lg text-red-200 text-sm">
-                <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
-                <span>
-                  <strong className="text-red-300">Warning:</strong> This will
-                  interrupt any ongoing processes on the card.
-                  {resetHistory.length > 0 && (
-                    <span className="block mt-1 text-red-300/70">
-                      Last reset:{" "}
-                      {resetHistory[resetHistory.length - 1].toLocaleTimeString()}
-                    </span>
-                  )}
-                </span>
-              </div>
-            </>
-          )}
-
-          {/* ── LOADING: step progress ── */}
-          {isLoading && (
-            <>
-              <StepRow
-                number={1}
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                label={
-                  deployedCount > 0
-                    ? `Stop ${deployedCount} deployed model${deployedCount > 1 ? "s" : ""}`
-                    : "Stop deployed models"
-                }
-                sublabel="Sending stop signal to all containers…"
-                state={step1State}
-              />
-              <StepRow
-                number={2}
-                icon={<RotateCcw className="w-3.5 h-3.5" />}
-                label="Reset the board"
-                sublabel="Running tt-smi -r, this may take 10–30 seconds…"
-                state={step2State}
-              />
-            </>
-          )}
-
-          {/* ── COMPLETED ── */}
-          {isCompleted && (
-            <>
-              <StepRow
-                number={1}
-                icon={<Trash2 className="w-3.5 h-3.5" />}
-                label="Deployed models removed"
-                state={deployedCount === 0 ? "skipped" : "done"}
-              />
-              <StepRow
-                number={2}
-                icon={<RotateCcw className="w-3.5 h-3.5" />}
-                label="Board reset"
-                state="done"
-              />
-              {cmdOutput && (
-                <button
-                  type="button"
-                  onClick={() => setShowOutput((v) => !v)}
-                  className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 transition-colors"
-                >
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
-                  />
-                  {showOutput ? "Hide" : "Show"} command output
-                </button>
-              )}
-              {showOutput && cmdOutput && (
-                <ScrollArea className="h-36 rounded-lg border border-stone-700">
-                  <pre className="p-3 text-xs text-green-400 whitespace-pre-wrap font-mono bg-stone-950">
-                    {cmdOutput}
-                  </pre>
-                </ScrollArea>
-              )}
-            </>
-          )}
-
-          {/* ── FAILED ── */}
-          {isFailed && (
-            <>
-              <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg">
-                <XCircle className="h-5 w-5 text-red-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-red-200">
-                    {errorMessage}
-                  </p>
-                  {cmdOutput && (
-                    <button
-                      type="button"
-                      onClick={() => setShowOutput((v) => !v)}
-                      className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 mt-2 transition-colors"
-                    >
-                      <ChevronDown
-                        className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
-                      />
-                      {showOutput ? "Hide" : "Show"} command output
-                    </button>
-                  )}
-                </div>
-              </div>
-              {showOutput && cmdOutput && (
-                <ScrollArea className="h-36 rounded-lg border border-stone-700">
-                  <pre className="p-3 text-xs text-red-300 whitespace-pre-wrap font-mono bg-stone-950">
-                    {cmdOutput}
-                  </pre>
-                </ScrollArea>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* ── FOOTER ── */}
-        <DialogFooter className="mt-5 flex justify-end gap-2">
-          {(isCompleted || isFailed) ? (
-            <Button
-              variant="outline"
-              onClick={handleClose}
-              className="border-stone-600 text-stone-300 hover:bg-stone-800"
-            >
-              Close
-            </Button>
-          ) : (
-            <>
+          {/* ── FOOTER ── */}
+          <DialogFooter className="mt-5 flex justify-end gap-2">
+            {(isCompleted || isFailed) ? (
               <Button
                 variant="outline"
                 onClick={handleClose}
                 className="border-stone-600 text-stone-300 hover:bg-stone-800"
               >
-                {isLoading ? "Minimize" : "Cancel"}
+                Close
               </Button>
-              <Button
-                onClick={executeReset}
-                disabled={isLoading || isResettingContext || isNotPresent}
-                className={`min-w-[120px] border ${
-                  isBadState
-                    ? "bg-orange-600 hover:bg-orange-700 border-orange-500/40 text-white"
-                    : "bg-red-600 hover:bg-red-700 border-red-500/30 text-white"
-                }`}
-              >
-                {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Processing…
-                  </span>
-                ) : isBadState ? (
-                  "Reset (Recommended)"
-                ) : (
-                  "Reset Card"
-                )}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={handleClose}
+                  className="border-stone-600 text-stone-300 hover:bg-stone-800"
+                >
+                  {isLoading ? "Minimize" : "Cancel"}
+                </Button>
+                <Button
+                  onClick={executeReset}
+                  disabled={isLoading || isResettingContext || isNotPresent}
+                  className={`min-w-[120px] border ${isBadState
+                      ? "bg-orange-600 hover:bg-orange-700 border-orange-500/40 text-white"
+                      : "bg-red-600 hover:bg-red-700 border-red-500/30 text-white"
+                    }`}
+                >
+                  {isLoading ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Processing…
+                    </span>
+                  ) : isBadState ? (
+                    "Reset (Recommended)"
+                  ) : (
+                    "Reset Card"
+                  )}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

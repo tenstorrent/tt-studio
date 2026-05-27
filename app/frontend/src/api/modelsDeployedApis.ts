@@ -240,8 +240,15 @@ export const fetchModels = async (): Promise<Model[]> => {
   }
 };
 
-export const deleteModel = async (modelId: string): Promise<StopResponse> => {
-  const payload = JSON.stringify({ container_id: modelId });
+export const deleteModel = async (
+  modelId: string,
+  skipDeviceReset: boolean = false,
+): Promise<StopResponse> => {
+  //pass skip_device_reset as False by default to selectively reset devices
+  const payload = JSON.stringify({
+    container_id: modelId,
+    skip_device_reset: skipDeviceReset,
+  });
 
   const response = await axios.post<StopResponse>(stopModelsURL, payload, {
     headers: {
