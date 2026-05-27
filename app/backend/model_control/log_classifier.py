@@ -333,11 +333,7 @@ _DONE_CAPTURE_RE = re.compile(
 )
 COMPILE_TRACE_TOTAL = 5  # 4 prefill seq_lens + 1 decode capture.
 
-# MEDIA sub-step counters for the long phases (loading_weights, warming_up).
-# Verified against real distil-large-v3 / speecht5_tts logs. We count distinct
-# milestones and interpolate the progress percent across the phase's band so
-# the bar advances smoothly during the otherwise-silent HF model load and the
-# multi-size encoder warmup loop.
+# MEDIA sub-step counters for the long phases (loading_weights, warming_up). Verified against real distil-large-v3 / speecht5_tts logs.
 _MEDIA_LOAD_STEP_RE = re.compile(
     r"Loading Whisper model|"
     r"Loading SpeechT5 model|"
@@ -380,8 +376,7 @@ _MEDIA_MODEL_TYPES = frozenset({
 })
 
 # Backstop name patterns — used when the caller doesn't pass a model_type
-# hint and we have to guess from the model name. Tries to match the names
-# from models_from_inference_server.json that live on the media server.
+# hint and we have to guess from the model name.
 _MEDIA_NAME_PATTERNS = [
     re.compile(r"whisper",                 re.IGNORECASE),
     re.compile(r"distil-large",            re.IGNORECASE),
