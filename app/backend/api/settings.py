@@ -48,6 +48,7 @@ CORS_ALLOW_ALL_ORIGINS = False
 from corsheaders.defaults import default_headers
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'accept',
+    'x-session-id',
 ]
 # Allow credentials for EventSource with withCredentials: true
 CORS_ALLOW_CREDENTIALS = True
@@ -71,6 +72,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "logs_control",
     "board_control",
+    "connectors_control.apps.ConnectorsControlConfig",
 ]
 
 MIDDLEWARE = [

@@ -10,11 +10,13 @@ import {
   X,
   File,
   Plus,
+  Plug,
   ExternalLink,
   FileText,
   FileIcon,
   Info as InfoIcon,
 } from "lucide-react";
+import { ConnectorBadge } from "../connectors/ConnectorBadge";
 import { VoiceInput } from "./VoiceInput";
 import {
   isImageFile,
@@ -131,6 +133,8 @@ interface InputAreaProps {
   onCreateNewConversation?: () => void;
   onStopInference?: () => void;
   showInitialPromptAnimation?: boolean;
+  onOpenConnectors?: () => void;
+  activeConnectorCount?: number;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -154,6 +158,8 @@ export default function InputArea({
   onCreateNewConversation,
   onStopInference,
   showInitialPromptAnimation = true,
+  onOpenConnectors,
+  activeConnectorCount = 0,
 }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -615,6 +621,33 @@ export default function InputArea({
                   </div>
                 )}
               </div>
+              {onOpenConnectors && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size={isMobileView ? "sm" : "default"}
+                        onClick={onOpenConnectors}
+                        aria-label="Open connectors"
+                        className="p-1 sm:p-2 rounded-full text-gray-600 dark:text-white/90 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-[#7C68FA]/20"
+                      >
+                        <Plug className={isMobileView ? "h-4 w-4" : "h-5 w-5"} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Connectors</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+              {onOpenConnectors && (
+                <ConnectorBadge
+                  count={activeConnectorCount}
+                  onClick={onOpenConnectors}
+                />
+              )}
             </div>
 
             <div className="flex items-center gap-2">

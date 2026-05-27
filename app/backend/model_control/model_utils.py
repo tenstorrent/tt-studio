@@ -205,15 +205,25 @@ async def stream_response_from_agent_api(url: str, json_data: dict):
         "thread_id": json_data["thread_id"],
         "message": json_data["messages"][-1]["content"],
     }
+    # Optional connector context for per-request, user-scoped tool building.
+    if json_data.get("session_id"):
+        new_json_data["session_id"] = json_data["session_id"]
+    if json_data.get("enabled_connectors"):
+        new_json_data["enabled_connectors"] = json_data["enabled_connectors"]
     logger.info(f"POST {url} data:={new_json_data}")
     try:
         async with _vllm_client.stream("POST", url, json=new_json_data) as response:
             response.raise_for_status()
             async for chunk in response.aiter_text():
                 logger.debug(f"stream_response_from_agent_api chunk:={chunk}")
-                if chunk.strip() == "[DONE]":
+                stripped = chunk.strip()
+                if stripped == "[DONE]":
                     yield f"data: [DONE]\n\n"
-                elif chunk.strip():
+                elif stripped.startswith("[EVENT]"):
+                    # Structured tool-call event from the agent: passthrough as
+                    # raw SSE so the frontend can branch on the `event` field.
+                    yield "data: " + stripped[len("[EVENT]"):] + "\n\n"
+                elif stripped:
                     json_chunk = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
                     yield "data: " + json.dumps(json_chunk) + "\n\n"
         logger.info("stream_response_from_agent_api done")

@@ -28,6 +28,16 @@ export interface FileData {
   video_url?: string;
 }
 
+// A single tool invocation surfaced from the agent service. Created when a
+// `tool_call_started` SSE event arrives and updated on `tool_call_completed`.
+export interface ChatToolCall {
+  id: string;
+  tool: string;
+  input?: string;
+  output_summary?: string;
+  status: "running" | "done";
+}
+
 // Chat and Message Types
 export interface ChatMessage {
   id: string;
@@ -39,6 +49,7 @@ export interface ChatMessage {
   isStopped?: boolean;
   finishReason?: string | null;
   timing?: TimingInfo;
+  toolCalls?: ChatToolCall[];
 }
 
 export type MessageContent =

@@ -207,6 +207,12 @@ class AgentView(View):
         deploy_id = data.get("deploy_id", "")
         logger.info(f"Deploy ID: {deploy_id}")
 
+        # Forward session id (from header) and enabled connectors (from body)
+        # to the agent service so it can build per-user tool lists.
+        session_id = request.headers.get("X-Session-Id", "").strip()
+        if session_id:
+            data["session_id"] = session_id
+
         deploy_cache = get_deploy_cache()
         if deploy_id and deploy_id in deploy_cache:
             deploy = deploy_cache[deploy_id]

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
-// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 import type React from "react";
 import type {
   InferenceRequest,
   RagDataSource,
   ChatMessage,
+  ChatToolCall,
   InferenceStats,
   TimingInfo,
 } from "./types";
@@ -14,6 +14,7 @@ import { generatePrompt } from "./templateRenderer";
 import { v4 as uuidv4 } from "uuid";
 import { processUploadedFiles } from "./processUploadedFiles";
 import { InferenceMetricsTracker } from "./metricsTracker";
+import { getSessionIdSync, initSessionId } from "../../lib/sessionId";
 
 export const runInference = async (
   request: InferenceRequest,
@@ -27,6 +28,7 @@ export const runInference = async (
   systemPrompt: string | null = null,
   hardwareContext: string | null = null,
   modelName: string | null = null,
+  enabledConnectors: string[] = [],
 ) => {
   console.log("[TRACE_FLOW_STEP_1_FRONTEND_ENTRY] runInference called", {
     request,
@@ -196,6 +198,13 @@ export const runInference = async (
     if (AUTH_TOKEN) {
       headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
     }
+    // Browser-session id (needed for the agent path to scope Composio tools
+    // per user). Send on every request — the backend ignores it on non-agent
+    // routes.
+    const sessionId = getSessionIdSync() ?? (await initSessionId());
+    if (sessionId) {
+      headers["X-Session-Id"] = sessionId;
+    }
 
     let requestBody;
     const threadIdStr = threadId.toString();
@@ -235,6 +244,9 @@ export const runInference = async (
           continuous_usage_stats: true,
         },
         thread_id: threadIdStr,
+        ...(enabledConnectors.length > 0
+          ? { enabled_connectors: enabledConnectors }
+          : {}),
       };
     }
 
@@ -302,6 +314,8 @@ export const runInference = async (
     let rafScheduled = false;
     let finishReason: string | null = null;
     let sseEventCount = 0;
+    const toolCalls: ChatToolCall[] = [];
+    let toolCallsDirty = false;
 
     const scheduleUiUpdate = () => {
       if (!rafScheduled) {
@@ -309,11 +323,18 @@ export const runInference = async (
         requestAnimationFrame(() => {
           // Read current value at callback time — avoids stale snapshot bug
           const currentText = accumulatedText;
+          const snapshotToolCalls = toolCallsDirty
+            ? toolCalls.map((c) => ({ ...c }))
+            : null;
+          toolCallsDirty = false;
           setChatHistory((prevHistory) => {
             const updatedHistory = [...prevHistory];
             const lastMessage = updatedHistory[updatedHistory.length - 1];
             if (lastMessage?.id === newMessageId) {
               lastMessage.text = currentText;
+              if (snapshotToolCalls) {
+                lastMessage.toolCalls = snapshotToolCalls;
+              }
             }
             return updatedHistory;
           });
@@ -356,6 +377,39 @@ export const runInference = async (
 
           sseEventCount++;
           if (!t.firstSSE) t.firstSSE = performance.now();
+
+          // Structured tool-call events forwarded by the agent service
+          // (see backend/model_control/model_utils.stream_response_from_agent_api).
+          if (jsonData.event === "tool_call_started") {
+            toolCalls.push({
+              id: String(jsonData.id ?? uuidv4()),
+              tool: String(jsonData.tool ?? "tool"),
+              input: jsonData.input ? String(jsonData.input) : undefined,
+              status: "running",
+            });
+            toolCallsDirty = true;
+            scheduleUiUpdate();
+            continue;
+          }
+          if (jsonData.event === "tool_call_completed") {
+            const idx = toolCalls.findIndex((c) => c.id === jsonData.id);
+            const update: ChatToolCall = {
+              id: String(jsonData.id ?? uuidv4()),
+              tool: String(jsonData.tool ?? "tool"),
+              output_summary: jsonData.output_summary
+                ? String(jsonData.output_summary)
+                : undefined,
+              status: "done",
+            };
+            if (idx >= 0) {
+              toolCalls[idx] = { ...toolCalls[idx], ...update };
+            } else {
+              toolCalls.push(update);
+            }
+            toolCallsDirty = true;
+            scheduleUiUpdate();
+            continue;
+          }
 
           // Backend custom stats chunk (sent after [DONE] by stream_response_from_external_api)
           if (!isAgentSelected && jsonData.tokens_decoded !== undefined) {

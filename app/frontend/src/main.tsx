@@ -5,6 +5,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { clearStore } from "./components/chatui/indexedDBManager";
+import { initSessionId } from "./lib/sessionId";
 
 // Wipe browser-side state (IndexedDB chat history + localStorage) once when
 // `python run.py --cleanup-all` has armed the sentinel at /.cleanup-pending.
@@ -59,10 +60,12 @@ async function applyCleanupSentinel(): Promise<void> {
   }
 }
 
-applyCleanupSentinel().finally(() => {
-  ReactDOM.createRoot(document.getElementById("root")!).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-});
+applyCleanupSentinel()
+  .finally(() => initSessionId().catch(() => undefined))
+  .finally(() => {
+    ReactDOM.createRoot(document.getElementById("root")!).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  });

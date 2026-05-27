@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "../ui/card";
 import { Skeleton } from "../ui/skeleton";
@@ -29,6 +29,8 @@ import { v4 as uuidv4 } from "uuid";
 import { usePersistentState } from "./usePersistentState";
 import { checkDeployedModels } from "../../api/modelsDeployedApis";
 import Settings from "./Settings";
+import { ConnectorsDialog } from "../connectors/ConnectorsDialog";
+import { listConnections } from "../../api/connectorsApi";
 
 // Define a type for conversation with title
 interface ChatThread {
@@ -93,6 +95,20 @@ export default function ChatComponent() {
   const [isAgentSelected, setIsAgentSelected] = usePersistentState<boolean>(
     "isAgentSelected",
     false
+  );
+  const [isConnectorsDialogOpen, setIsConnectorsDialogOpen] = useState(false);
+  const { data: connectionsData } = useQuery({
+    queryKey: ["connectors", "connections"],
+    queryFn: listConnections,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const activeConnectorProviders = useMemo(
+    () =>
+      (connectionsData ?? [])
+        .filter((c) => String(c.status) === "ACTIVE" && !!c.provider)
+        .map((c) => c.provider),
+    [connectionsData]
   );
   const [screenSize, setScreenSize] = useState({
     isMobileView: false,
@@ -706,6 +722,7 @@ export default function ChatComponent() {
           modelSettings.systemPrompt || null,
           hardwareContext,
           modelName,
+          activeConnectorProviders,
         );
       } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
@@ -1360,10 +1377,17 @@ export default function ChatComponent() {
               onCreateNewConversation={createNewConversation}
               onStopInference={handleStopInference}
               showInitialPromptAnimation={showInitialPromptAnimation}
+              onOpenConnectors={() => setIsConnectorsDialogOpen(true)}
+              activeConnectorCount={activeConnectorProviders.length}
             />
           </div>
         </div>
       </Card>
+
+      <ConnectorsDialog
+        open={isConnectorsDialogOpen}
+        onOpenChange={setIsConnectorsDialogOpen}
+      />
 
       {/* Settings Panel */}
       <Settings

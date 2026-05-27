@@ -55,6 +55,10 @@ services:
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
       - DOCKER_CONTROL_JWT_SECRET
+      # Connectors (Composio OAuth proxy)
+      - COMPOSIO_API_KEY
+      - COMPOSIO_AUTH_CONFIG_NOTION
+      - CONNECTORS_BACKEND_CALLBACK_URL
     volumes:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # Mount the local api directory for live code changes
@@ -111,6 +115,8 @@ services:
       - AGENT_LLM_POLLING_MAX_ATTEMPTS
       - AGENT_LLM_POLLING_CIRCUIT_BREAKER_THRESHOLD
       # - E2B_API_KEY
+      # Connectors (Composio) — agent fetches user-scoped tools per request
+      - COMPOSIO_API_KEY
     stdin_open: true
     tty: true
     healthcheck:

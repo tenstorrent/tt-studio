@@ -17,6 +17,10 @@ requests==2.32.3
 tavily-python==0.5.0 
 typing-inspect==0.9.0 
 typing_extensions==4.12.2 
-uvicorn 
-fastapi 
+uvicorn
+fastapi
 pyjwt
+
+# Connectors (Composio)
+composio==1.0.0rc2
+composio-langchain==1.0.0rc2

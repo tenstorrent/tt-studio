@@ -56,6 +56,7 @@ import SpeechToTextPage from "../pages/SpeechToTextPage";
 import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
+import ConnectorCallbackPage from "../pages/ConnectorCallbackPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -146,6 +147,12 @@ export const getRoutes = (): RouteConfig[] => {
       // Redirect old voice-pipeline route to voice-agent
       path: "/voice-pipeline",
       element: <Navigate to="/voice-agent" replace />,
+      condition: true,
+    },
+    {
+      // Composio OAuth popup target — closes itself via postMessage.
+      path: "/connectors/callback",
+      element: <ConnectorCallbackPage />,
       condition: true,
     },
     {

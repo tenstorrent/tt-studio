@@ -17,6 +17,9 @@ beautifulsoup4==4.12.3
 # dev
 pytest==8.2.2
 
+# Connectors (Composio)
+composio==1.0.0rc2
+
 # Chroma loader dependencies
 chromadb==0.5.3
 langchain==0.2.14

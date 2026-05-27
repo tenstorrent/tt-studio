@@ -8,6 +8,7 @@ import { Database, File, X } from "lucide-react";
 import { motion } from "framer-motion";
 import ChatExamples from "./ChatExamples";
 import StreamingMessage from "./StreamingMessage";
+import { ToolCallBlock } from "../connectors/ToolCallBlock";
 import MessageActions from "./MessageActions";
 import MessageIndicator from "./MessageIndicator";
 import FileDisplay from "./FileDisplay";
@@ -254,6 +255,13 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
                         </div>
                       )}
                       <div className="w-full text-left">
+                        {message.toolCalls && message.toolCalls.length > 0 && (
+                          <div className="mb-2">
+                            {message.toolCalls.map((call) => (
+                              <ToolCallBlock key={call.id} call={call} />
+                            ))}
+                          </div>
+                        )}
                         <StreamingMessage
                           content={message.text}
                           isStreamFinished={

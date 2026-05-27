@@ -10,6 +10,7 @@ try:
     from .llm_discovery import LLMDiscoveryService, LLMInfo
     from .health_monitor import LLMHealthMonitor, HealthStatus
     from .config import AgentConfig
+    from .connectors import get_composio_tools
 except ImportError:
     # Fall back to absolute imports (when run directly)
     from custom_llm import CustomLLM
@@ -18,6 +19,7 @@ except ImportError:
     from llm_discovery import LLMDiscoveryService, LLMInfo
     from health_monitor import LLMHealthMonitor, HealthStatus
     from config import AgentConfig
+    from connectors import get_composio_tools
 
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools.tavily_search import TavilySearchResults
@@ -29,7 +31,7 @@ import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 app = FastAPI()
 
@@ -52,6 +54,10 @@ else:
 class RequestPayload(BaseModel):
     message: str
     thread_id: str
+    # Browser session id (forwarded by Django from the X-Session-Id header).
+    # Used to scope user-owned Composio connector tools per request.
+    session_id: Optional[str] = None
+    enabled_connectors: List[str] = []
 
 # Global variables for LLM management
 discovery_service = LLMDiscoveryService()
@@ -416,20 +422,35 @@ async def startup_event():
 @app.post("/poll_requests")
 async def handle_requests(payload: RequestPayload):
     global current_llm, agent_executer, llm_initialization_complete
-    
+
     print('[TRACE_FLOW_STEP_4_AGENT_ENTRY] handle_requests called', {'thread_id': payload.thread_id, 'message': payload.message})
-    
+
     # Check if agent is ready
     if not llm_initialization_complete or current_llm is None or agent_executer is None:
         return StreamingResponse(
             iter([f"data: {json.dumps({'status': 'waiting', 'message': 'Agent is still initializing, waiting for LLM to become available...'})}\n\n"]),
             media_type="text/plain"
         )
-    
+
     config = {"configurable": {"thread_id": payload.thread_id}}
+
+    # If the caller has connectors enabled for this session, build a per-request
+    # executor with the merged tool list (base + Composio). Otherwise reuse
+    # the globally-cached executor for performance.
+    connector_tools = get_composio_tools(payload.session_id, payload.enabled_connectors)
+    if connector_tools:
+        request_tools = list(tools) + connector_tools
+        request_executor = setup_executer(current_llm, memory, request_tools)
+    else:
+        request_tools = tools
+        request_executor = agent_executer
+
     try:
         # use await to prevent handle_requests from blocking, allow other tasks to execute
-        return StreamingResponse(poll_requests(agent_executer, config, tools, memory, payload.message), media_type="text/plain")
+        return StreamingResponse(
+            poll_requests(request_executor, config, request_tools, memory, payload.message),
+            media_type="text/plain",
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
