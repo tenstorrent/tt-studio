@@ -53,5 +53,9 @@ COPY ./requirements.txt /backend/
 RUN pip3 install --upgrade pip && \
     pip3 install -r requirements.txt --no-cache-dir
 
+# openwakeword pins tflite-runtime as a hard Linux dep, which has no Python 3.12 wheel.
+# We use inference_framework="onnx", so install without deps (onnxruntime is in requirements.txt).
+RUN pip3 install --no-cache-dir --no-deps openwakeword==0.6.0
+
 # Copy application code
 COPY . /backend/
