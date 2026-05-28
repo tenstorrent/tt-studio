@@ -3,7 +3,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { buildCanvasMessages } from "./canvasSystemPrompt";
-import type { CanvasFileAttachment } from "./canvasSystemPrompt";
+import type { CanvasFileAttachment, MessageContent } from "./canvasSystemPrompt";
 import {
   parseCanvasResponse,
   parseStreamingCode,
@@ -16,7 +16,10 @@ export interface CanvasChatMessage {
   content: string;
   thinking?: string;
   files?: Array<{ name: string; url: string }>;
+  failed?: boolean;
 }
+
+type ApiMessage = { role: "system" | "user" | "assistant"; content: MessageContent };
 
 export interface CanvasError {
   message: string;
@@ -69,6 +72,7 @@ interface UseCanvasStateReturn {
   creativity: CanvasCreativity;
   setCreativity: (c: CanvasCreativity) => void;
   sendMessage: (text: string, files?: CanvasFileAttachment[]) => Promise<void>;
+  retryLastGeneration: () => void;
   stopStreaming: () => void;
   resetCanvas: () => void;
   setPreviewErrors: (errors: CanvasError[]) => void;
@@ -120,17 +124,8 @@ export function useCanvasState(
     setIsStreaming(false);
   }, []);
 
-  const sendMessage = useCallback(
-    async (text: string, files?: CanvasFileAttachment[]) => {
-      if (!text.trim() && (!files || files.length === 0)) return;
-
-      const userMsg: CanvasChatMessage = {
-        id: nextId(),
-        role: "user",
-        content: text,
-        files: files?.map((f) => ({ name: f.name, url: f.image_url.url })),
-      };
-      setMessages((prev) => [...prev, userMsg]);
+  const runInference = useCallback(
+    async (apiMessages: ApiMessage[]) => {
       setIsStreaming(true);
       setStreamingText("");
       setStreamingThinking("");
@@ -139,17 +134,6 @@ export function useCanvasState(
 
       const controller = new AbortController();
       controllerRef.current = controller;
-
-      const conversationHistory = messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
-      const apiMessages = buildCanvasMessages(
-        text,
-        currentCode,
-        conversationHistory,
-        files,
-      );
 
       const apiUrlDefined =
         import.meta.env.VITE_ENABLE_DEPLOYED === "true";
@@ -301,14 +285,7 @@ export function useCanvasState(
         reader.releaseLock();
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
-          // User-initiated stop
-        } else {
-          const errorMsg: CanvasChatMessage = {
-            id: nextId(),
-            role: "assistant",
-            content: `Error: ${err instanceof Error ? err.message : "Unknown error occurred"}`,
-          };
-          setMessages((prev) => [...prev, errorMsg]);
+          // User-initiated stop — leave the chat clean, no failed message.
           setIsStreaming(false);
           setStreamingText("");
           setStreamingThinking("");
@@ -316,6 +293,19 @@ export function useCanvasState(
           controllerRef.current = null;
           return;
         }
+        const errorMsg: CanvasChatMessage = {
+          id: nextId(),
+          role: "assistant",
+          content: `Generation failed: ${err instanceof Error ? err.message : "Unknown error occurred"}`,
+          failed: true,
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+        setIsStreaming(false);
+        setStreamingText("");
+        setStreamingThinking("");
+        setStreamingCode("");
+        controllerRef.current = null;
+        return;
       }
 
       // Strip inline <think> blocks from the final content for parsing
@@ -335,11 +325,17 @@ export function useCanvasState(
         setCurrentCode(streamCode);
       }
 
+      const failed = !streamCode;
+      const fallbackContent = failed
+        ? "The model didn't return a complete HTML document. Tap Retry to try again."
+        : "";
       const assistantMsg: CanvasChatMessage = {
         id: nextId(),
         role: "assistant",
-        content: parsed.explanation || cleanContent || contentText,
+        content:
+          parsed.explanation || cleanContent || contentText || fallbackContent,
         thinking: thinkingText || undefined,
+        failed: failed || undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
       setIsStreaming(false);
@@ -348,8 +344,75 @@ export function useCanvasState(
       setStreamingCode("");
       controllerRef.current = null;
     },
-    [messages, currentCode, modelId, isAgentSelected, creativity],
+    [modelId, isAgentSelected, creativity],
   );
+
+  const sendMessage = useCallback(
+    async (text: string, files?: CanvasFileAttachment[]) => {
+      if (!text.trim() && (!files || files.length === 0)) return;
+
+      const userMsg: CanvasChatMessage = {
+        id: nextId(),
+        role: "user",
+        content: text,
+        files: files?.map((f) => ({ name: f.name, url: f.image_url.url })),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      const conversationHistory = messages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      const apiMessages = buildCanvasMessages(
+        text,
+        currentCode,
+        conversationHistory,
+        files,
+      );
+
+      await runInference(apiMessages);
+    },
+    [messages, currentCode, runInference],
+  );
+
+  const retryLastGeneration = useCallback(() => {
+    if (isStreaming) return;
+
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx === -1) return;
+
+    const userMsg = messages[lastUserIdx];
+    const trimmed = messages.slice(0, lastUserIdx + 1);
+    setMessages(trimmed);
+
+    const conversationHistory = trimmed.slice(0, -1).map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+
+    const files: CanvasFileAttachment[] | undefined = userMsg.files?.map(
+      (f) => ({
+        type: "image_url" as const,
+        image_url: { url: f.url },
+        name: f.name,
+      }),
+    );
+
+    const apiMessages = buildCanvasMessages(
+      userMsg.content,
+      currentCode,
+      conversationHistory,
+      files,
+    );
+
+    void runInference(apiMessages);
+  }, [messages, currentCode, isStreaming, runInference]);
 
   const resetCanvas = useCallback(() => {
     stopStreaming();
@@ -373,6 +436,7 @@ export function useCanvasState(
     creativity,
     setCreativity,
     sendMessage,
+    retryLastGeneration,
     stopStreaming,
     resetCanvas,
     setPreviewErrors,

@@ -61,6 +61,7 @@ export default function CanvasPage() {
     creativity,
     setCreativity,
     sendMessage,
+    retryLastGeneration,
     stopStreaming,
     resetCanvas,
     setPreviewErrors,
@@ -141,6 +142,7 @@ export default function CanvasPage() {
                     onSend={sendMessage}
                     onStop={stopStreaming}
                     onReset={resetCanvas}
+                    onRetry={retryLastGeneration}
                     hasCode={!!currentCode}
                     modelId={modelId}
                     isCloudMode={isDeployedEnabled}

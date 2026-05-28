@@ -16,6 +16,8 @@ import {
   ChevronRight,
   Brain,
   AlertCircle,
+  AlertTriangle,
+  RefreshCw,
   Rocket,
   Cpu,
   Cloud,
@@ -36,6 +38,7 @@ interface CanvasChatProps {
   onSend: (text: string, files?: CanvasFileAttachment[]) => void;
   onStop: () => void;
   onReset: () => void;
+  onRetry: () => void;
   hasCode: boolean;
   modelId: string | null;
   isCloudMode: boolean;
@@ -154,6 +157,7 @@ export default function CanvasChat({
   onSend,
   onStop,
   onReset,
+  onRetry,
   hasCode,
   modelId,
   isCloudMode,
@@ -360,40 +364,69 @@ export default function CanvasChat({
           </div>
         ) : (
           <div className="space-y-4 text-left">
-            {messages.map((msg) => (
-              <div key={msg.id} className="flex gap-2.5">
-                <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                    msg.role === "user"
-                      ? "bg-zinc-200 dark:bg-zinc-700"
-                      : "bg-violet-100 dark:bg-violet-900/50"
-                  }`}
-                >
-                  {msg.role === "user" ? (
-                    <User className="w-3 h-3 text-zinc-600 dark:text-zinc-300" />
-                  ) : (
-                    <Bot className="w-3 h-3 text-violet-600 dark:text-violet-400" />
-                  )}
+            {messages.map((msg, idx) => {
+              const isLast = idx === messages.length - 1;
+              const showRetry =
+                msg.role === "assistant" &&
+                !!msg.failed &&
+                isLast &&
+                !isStreaming;
+              return (
+                <div key={msg.id} className="flex gap-2.5">
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                      msg.role === "user"
+                        ? "bg-zinc-200 dark:bg-zinc-700"
+                        : msg.failed
+                          ? "bg-red-100 dark:bg-red-900/40"
+                          : "bg-violet-100 dark:bg-violet-900/50"
+                    }`}
+                  >
+                    {msg.role === "user" ? (
+                      <User className="w-3 h-3 text-zinc-600 dark:text-zinc-300" />
+                    ) : msg.failed ? (
+                      <AlertTriangle className="w-3 h-3 text-red-500 dark:text-red-400" />
+                    ) : (
+                      <Bot className="w-3 h-3 text-violet-600 dark:text-violet-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0 pt-0.5 space-y-2 flex-1">
+                    {msg.role === "assistant" && msg.thinking && (
+                      <ThinkingBlock thinking={msg.thinking} isLive={false} />
+                    )}
+                    {msg.files && msg.files.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {msg.files.map((f, i) => (
+                          <div key={i} className="w-16 h-16 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                            <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p
+                      className={`text-xs whitespace-pre-wrap break-words leading-relaxed text-left ${
+                        msg.failed
+                          ? "text-red-600 dark:text-red-300"
+                          : "text-zinc-700 dark:text-zinc-300"
+                      }`}
+                    >
+                      {msg.content}
+                    </p>
+                    {showRetry && (
+                      <button
+                        type="button"
+                        onClick={onRetry}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-red-300 dark:border-red-700/60 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-medium transition-colors"
+                        title="Regenerate the HTML for the previous prompt"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        Retry
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-0 pt-0.5 space-y-2 flex-1">
-                  {msg.role === "assistant" && msg.thinking && (
-                    <ThinkingBlock thinking={msg.thinking} isLive={false} />
-                  )}
-                  {msg.files && msg.files.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {msg.files.map((f, i) => (
-                        <div key={i} className="w-16 h-16 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700">
-                          <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-words leading-relaxed text-left">
-                    {msg.content}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Live streaming section */}
             <AnimatePresence>
