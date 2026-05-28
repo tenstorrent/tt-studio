@@ -9,6 +9,7 @@ import { StepperFormActions } from "./StepperFormActions";
 import { useModels } from "../hooks/useModels";
 import { useRefresh } from "../hooks/useRefresh";
 import { Cpu, AlertTriangle, ExternalLink, Info, Wrench } from "lucide-react";
+import { DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS } from "../hooks/useDeploymentProgress";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { useNavigate } from "react-router-dom";
@@ -92,12 +93,14 @@ export function DeployModelStep({
     }
   }, [showLogs]);
 
-  // Poll for deployment progress to detect errors
+  // Poll for deployment progress to detect errors (sequential + spaced: avoids overlapping requests)
   useEffect(() => {
     if (!currentJobId || !shouldPoll) return;
 
+    let cancelled = false;
     let notFoundCount = 0;
     const MAX_NOT_FOUND = 10;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const pollProgress = async () => {
       try {
@@ -138,13 +141,21 @@ export function DeployModelStep({
       }
     };
 
-    // Poll immediately
-    pollProgress();
-    
-    // Then poll every second
-    const interval = setInterval(pollProgress, 1000);
+    const tick = async () => {
+      if (cancelled) return;
+      await pollProgress();
+      if (cancelled) return;
+      timer = setTimeout(() => {
+        void tick();
+      }, DEFAULT_DEPLOYMENT_PROGRESS_POLL_MS);
+    };
 
-    return () => clearInterval(interval);
+    void tick();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [currentJobId, shouldPoll]);
 
   useEffect(() => {

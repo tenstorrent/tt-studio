@@ -481,38 +481,55 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {/* TODO: Re-enable this when we want to support hardware configuration for multi-chip boards */}
         {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
-        {/* {isQB2 && (
-          <div className="flex items-center justify-between gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
-            <span className="text-sm font-mono text-gray-300 select-none">
-              Advanced: Configure Hardware
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showHardwareConfig}
-              onClick={() => {
-                setShowHardwareConfig((v: boolean) => !v);
-                // Reset chip mode when toggling off
-                if (showHardwareConfig) setChipMode(null);
-              }}
-              className={`
-                relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent
-                transition-colors duration-200 focus:outline-none
-                ${showHardwareConfig ? "bg-TT-purple-accent" : "bg-gray-700"}
-              `}
+        {isQB2 && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showHardwareConfig}
+            onClick={() => {
+              setShowHardwareConfig((v: boolean) => !v);
+              // Reset chip mode when toggling off
+              if (showHardwareConfig) setChipMode(null);
+            }}
+            className={`group flex items-center justify-between gap-3 w-full px-4 py-3 mb-4 rounded-lg border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent/50 ${
+              showHardwareConfig
+                ? "border-TT-purple-accent/70 bg-TT-purple/10 hover:bg-TT-purple/15 shadow-[0_0_18px_rgba(124,104,250,0.15)]"
+                : "border-TT-purple-accent/30 bg-TT-purple/5 hover:border-TT-purple-accent/60 hover:bg-TT-purple/10"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={`p-2 rounded-md transition-colors ${
+                  showHardwareConfig
+                    ? "bg-TT-purple-accent/20 text-TT-purple-accent"
+                    : "bg-TT-purple/10 text-TT-purple-accent/80 group-hover:bg-TT-purple-accent/20 group-hover:text-TT-purple-accent"
+                }`}
+              >
+                <Cpu className="w-4 h-4" />
+              </div>
+              <div className="text-left min-w-0">
+                <div className="text-sm font-semibold text-foreground leading-tight">
+                  Advanced: Configure Hardware
+                </div>
+                <div className="text-xs text-muted-foreground leading-tight mt-0.5">
+                  Manually choose which chips this model deploys to
+                </div>
+              </div>
+            </div>
+            <span
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+                showHardwareConfig ? "bg-TT-purple-accent" : "bg-gray-700"
+              }`}
             >
               <span
-                className={`
-                  pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform
-                  transition-transform duration-200
-                  ${showHardwareConfig ? "translate-x-4" : "translate-x-0"}
-                `}
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
+                  showHardwareConfig ? "translate-x-4" : "translate-x-0"
+                }`}
               />
-            </button>
-          </div>
-        )} */}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setDeployMode(null)}

@@ -81,15 +81,14 @@ function StepRow({
 }) {
   return (
     <div
-      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${
-        state === "active"
+      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${state === "active"
           ? "bg-blue-900/30 border-blue-500/40"
           : state === "done"
             ? "bg-green-900/20 border-green-600/30"
             : state === "skipped"
               ? "bg-stone-800/30 border-stone-700/30"
               : "bg-stone-800/50 border-stone-700/40"
-      }`}
+        }`}
     >
       <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
         {state === "active" ? (
@@ -106,9 +105,8 @@ function StepRow({
       </div>
       <div className="flex-1 min-w-0">
         <div
-          className={`font-medium text-sm inline-flex items-center gap-1.5 ${
-            state === "pending" || state === "skipped" ? "text-stone-400" : "text-white"
-          }`}
+          className={`font-medium text-sm inline-flex items-center gap-1.5 ${state === "pending" || state === "skipped" ? "text-stone-400" : "text-white"
+            }`}
         >
           {icon}
           {label}
@@ -255,15 +253,14 @@ function DeviceCard({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center ${
-              isActive
+            className={`w-8 h-8 rounded-full flex items-center justify-center ${isActive
                 ? "bg-blue-900/50"
                 : isDone
                   ? "bg-green-900/50"
                   : isFailed
                     ? "bg-red-900/50"
                     : "bg-stone-700/50"
-            }`}
+              }`}
           >
             {isActive ? (
               <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
@@ -340,9 +337,8 @@ function DeviceCard({
           {showOutput && (
             <ScrollArea className="mt-1 h-24 rounded border border-stone-700">
               <pre
-                className={`p-2 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${
-                  isDone ? "text-green-400" : "text-red-300"
-                }`}
+                className={`p-2 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${isDone ? "text-green-400" : "text-red-300"
+                  }`}
               >
                 {cmdOutput}
               </pre>
@@ -469,9 +465,10 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
             if (slot.is_multi_chip) return true;
             return false;
           });
-          for (const model of toStop) {
-            await deleteModel(model.id);
-          }
+          // Per-slot reset only does tt-smi -r <slotId> for this single chip;
+          // a multi-chip model's other chips still need resetting. So let
+          // /stop run its batched per-model reset (skip_device_reset=false).
+          await Promise.all(toStop.map((m) => deleteModel(m.id)));
           await refreshModels();
         }
 
@@ -516,10 +513,9 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     setShowBoardOutput(false);
 
     try {
+      // Pass skip_device_reset to only stop containers, leaving whole board reset to run later.
       const currentModels = await fetchModels();
-      for (const model of currentModels) {
-        await deleteModel(model.id);
-      }
+      await Promise.all(currentModels.map((m) => deleteModel(m.id, true)));
       await refreshModels();
 
       setBoardStep("resetting");
@@ -530,8 +526,9 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
 
       setBoardOutput(output);
       if (!success) throw new Error("Board reset failed. See command output for details.");
-
       setBoardStep("done");
+
+      // Run the global board reset.
       refreshDeviceState();
       fetchChipStatus();
       if (onReset) onReset();
@@ -547,9 +544,9 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     chipFetch.status === "success"
       ? chipFetch.data.slots
       : Array.from({ length: 4 }, (_, i) => ({
-          slot_id: i,
-          status: "available" as const,
-        }));
+        slot_id: i,
+        status: "available" as const,
+      }));
 
   const totalSlots = chipFetch.status === "success" ? chipFetch.data.total_slots : slots.length;
   const allDevicesDone =
@@ -566,15 +563,14 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <div
-                className={`w-9 h-9 rounded-full flex items-center justify-center ${
-                  isBoardResetting || isAnyDeviceResetting
+                className={`w-9 h-9 rounded-full flex items-center justify-center ${isBoardResetting || isAnyDeviceResetting
                     ? "bg-blue-900/50"
                     : boardStep === "done" || allDevicesDone
                       ? "bg-green-900/50"
                       : boardStep === "failed"
                         ? "bg-red-900/50"
                         : "bg-yellow-900/50"
-                }`}
+                  }`}
               >
                 {isBoardResetting || isAnyDeviceResetting ? (
                   <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
@@ -730,9 +726,8 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                   {showBoardOutput && (
                     <ScrollArea className="h-36 rounded-lg border border-stone-700">
                       <pre
-                        className={`p-3 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${
-                          boardStep === "done" ? "text-green-400" : "text-red-300"
-                        }`}
+                        className={`p-3 text-xs whitespace-pre-wrap font-mono bg-stone-950 ${boardStep === "done" ? "text-green-400" : "text-red-300"
+                          }`}
                       >
                         {boardOutput}
                       </pre>

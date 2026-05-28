@@ -72,6 +72,8 @@ INSTALLED_APPS = [
     "logs_control",
     "board_control",
     "workflow_control.apps.WorkflowControlConfig",
+    "channels",
+    "wakeword_control",
 ]
 
 MIDDLEWARE = [
@@ -99,6 +101,11 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "api.wsgi.application"
+ASGI_APPLICATION = "api.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+}
 
 # Database – SQLite for lightweight ORM models (workflow storage, etc.)
 DATABASES = {
