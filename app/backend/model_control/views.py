@@ -58,17 +58,22 @@ _phase_latch: dict[str, dict] = {}
 
 
 def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
-    """Merge in the highest phase + sticky cached fields seen for this deploy.
+    """Merge in the highest phase + sticky fields seen for this deploy.
 
-    Phase ordering comes from `phase_dict["phases"]`. If a previous poll saw a
-    later phase, we restore it. Same for weights_cached / weights_repo so the
-    cached badge stays visible after the cached log line scrolls out.
+    Phase ordering comes from `phase_dict["phases"]`. Three independent
+    monotonic guarantees:
+      1. `phase` can only advance forward (or stay).
+      2. `progress` (numeric percent) can never regress, even within the same
+         phase. This protects against substep-counter drops when an earlier
+         marker scrolls out of the 200-line tail.
+      3. `weights_cached` / `weights_repo` are sticky once seen.
     """
     phases = phase_dict.get("phases") or []
     current = phase_dict.get("phase")
     with _phase_latch_lock:
         prev = _phase_latch.get(deploy_id) or {}
         prev_phase = prev.get("phase")
+        prev_max_progress = int(prev.get("max_progress", 0))
 
         # Resolve max phase by index in the (stable) phases list. If categories
         # changed mid-deploy we play it safe and skip the comparison.
@@ -76,7 +81,6 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
         if prev_phase and current and prev_phase in phases and current in phases:
             if phases.index(prev_phase) > phases.index(current):
                 new_phase = prev_phase
-                # Mirror the label/progress for the latched phase.
                 labels = phase_dict.get("phase_labels") or {}
                 base_pct = phase_dict.get("phase_base_pct") or {}
                 phase_dict["phase"] = prev_phase
@@ -84,6 +88,13 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
                 phase_dict["progress"] = max(
                     phase_dict.get("progress", 0), base_pct.get(prev_phase, 0)
                 )
+
+        # Floor progress at the maximum ever recorded for this deploy so the
+        # bar can never visually go backwards.
+        cur_progress = int(phase_dict.get("progress", 0) or 0)
+        if cur_progress < prev_max_progress:
+            phase_dict["progress"] = prev_max_progress
+        new_max_progress = max(prev_max_progress, int(phase_dict.get("progress", 0) or 0))
 
         # Sticky cached/repo so the badge persists across tail rotations.
         if prev.get("weights_cached") and not phase_dict.get("weights_cached"):
@@ -93,6 +104,7 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
 
         _phase_latch[deploy_id] = {
             "phase": new_phase,
+            "max_progress": new_max_progress,
             "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
             "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
         }
@@ -385,13 +397,13 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
         from docker_control.docker_control_client import get_docker_client
         client = get_docker_client()
         lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
-        if not lines:
-            return None
+        # Even if `lines` is empty (container hasn't logged yet, or the tail
+        # was all noise upstream), still run the classifier — it'll default to
+        # phases[0], and `_apply_phase_latch` promotes that to the previously
+        # latched maximum so the bar never reports null mid-warmup.
         phase_dict = classify_startup_phase(
-            lines, model_type=model_type, model_name=model_name,
+            lines or [], model_type=model_type, model_name=model_name,
         )
-        # Merge in previous-poll maxima so brief tail rotation can't regress
-        # the bar or drop the cached badge. See `_apply_phase_latch`.
         phase_dict = _apply_phase_latch(deploy_id, phase_dict)
     except Exception as e:
         logger.warning(f"startup phase classify failed for {deploy_id[:12]}: {e}")
