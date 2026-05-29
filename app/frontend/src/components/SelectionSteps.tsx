@@ -477,9 +477,8 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {/* TODO: Re-enable this when we want to support hardware configuration for multi-chip boards */}
         {/* QB2 hardware config toggle — only shown on P300x2 boards */}
-        {/* {isQB2 && (
+        {isQB2 && (
           <div className="flex items-center justify-between gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
             <span className="text-sm font-mono text-gray-300 select-none">
               Advanced: Configure Hardware
@@ -508,7 +507,7 @@ export default function StepperDemo() {
               />
             </button>
           </div>
-        )} */}
+        )}
 
         <button
           onClick={() => setDeployMode(null)}
