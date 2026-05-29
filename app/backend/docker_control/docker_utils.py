@@ -114,7 +114,7 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "E150":  "e150",
     "P100":  "p100",
     "P150":  "p150",
-    "P300": "p300c",
+    "P300": "p300",
     "unknown": "cpu",
 }
 
