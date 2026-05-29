@@ -11,6 +11,7 @@ const modelAPIURL = "/models-api/";
 const statusURl = `${dockerAPIURL}status/`;
 const stopModelsURL = `${dockerAPIURL}stop/`;
 const deployedModelsURL = `${modelAPIURL}deployed/`;
+const deploymentsURL = `${dockerAPIURL}deployments/`;
 
 interface PortBinding {
   HostIp: string;
@@ -110,6 +111,53 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
   }
 };
 
+/**
+ * One canonical row per deployed-or-pending model, returned by
+ * /docker-api/deployments/. This is the SoT view backed by deployment_store
+ * reconciled against live Docker. Every UI surface should prefer this over fetchModels()/fetchDeployedModelsInfo(), which remain as thin shims.
+ */
+export interface CanonicalDeployment {
+  id: string; // Docker container_id (or "pending-<deployment_id>" during placeholder window).
+  name: string;
+  status: string;
+  health: string;
+  image_name: string | null;
+  image_id: string | null;
+  port_bindings: { [key: string]: PortBinding[] | null };
+  networks: { [key: string]: Network };
+  device_id: number | null;
+  device_ids: number[] | null;
+  model_type: string | null;  // Top-level echo of model_impl.model_type.value for navbar routing.
+  model_impl: {
+    model_name?: string;
+    hf_model_id?: string;
+    model_type?: string;
+    param_count?: number | null;
+    [key: string]: unknown;
+  } | null;
+  internal_url: string | null;
+  health_url: string | null;
+  source: "managed" | "docker_only";
+  is_pending: boolean;
+  deployed_at: string | null;
+  stopped_by_user: boolean;
+  deployment_id?: number;
+  deployment_model_name?: string;
+}
+
+// Fetch the current deployed models from the canonical endpoint, which is the single source of truth for current deployed models.
+export const fetchDeployments = async (): Promise<CanonicalDeployment[]> => {
+  const response = await axios.get<{ [containerId: string]: Omit<CanonicalDeployment, "id"> }>(
+    deploymentsURL,
+    {
+      timeout: 10000,
+      headers: { "Cache-Control": "no-cache" },
+    },
+  );
+  const data = response.data || {};
+  return Object.entries(data).map(([id, entry]) => ({ id, ...entry }));
+};
+
 export const fetchModels = async (): Promise<Model[]> => {
   try {
     console.log(`Fetching models from ${statusURl}`);
@@ -192,8 +240,15 @@ export const fetchModels = async (): Promise<Model[]> => {
   }
 };
 
-export const deleteModel = async (modelId: string): Promise<StopResponse> => {
-  const payload = JSON.stringify({ container_id: modelId });
+export const deleteModel = async (
+  modelId: string,
+  skipDeviceReset: boolean = false,
+): Promise<StopResponse> => {
+  //pass skip_device_reset as False by default to selectively reset devices
+  const payload = JSON.stringify({
+    container_id: modelId,
+    skip_device_reset: skipDeviceReset,
+  });
 
   const response = await axios.post<StopResponse>(stopModelsURL, payload, {
     headers: {

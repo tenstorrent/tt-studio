@@ -23,6 +23,8 @@ export interface ModelsContextType {
   hasDeployedModels: boolean;
   userStoppedModel: boolean;
   setUserStoppedModel: React.Dispatch<React.SetStateAction<boolean>>;
+  isDeleteInFlight: boolean;
+  setIsDeleteInFlight: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export const ModelsContext = createContext<ModelsContextType | undefined>(
