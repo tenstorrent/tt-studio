@@ -68,7 +68,6 @@ export function useWakeWord({ enabled, onWake }: UseWakeWordOptions) {
         workletNode = new AudioWorkletNode(ctx, "audio-frames");
         workletNode.port.onmessage = (e) => {
           if (ws && ws.readyState === WebSocket.OPEN) {
-            console.log("wake-word: sending data", e.data);
             ws.send(e.data);
           }
         };
