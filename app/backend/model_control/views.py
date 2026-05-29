@@ -459,23 +459,35 @@ def _format_bytes(n: int | float | None) -> str:
 
 
 class DeployedModelsView(APIView):
+    """Thin shim over get_canonical_deployments() preserving the existing
+    response shape: dict keyed by container_id, every entry has a serialized
+    model_impl (asdict, enums rendered as .value), env_vars and docker_config stripped for security.
+
+    Filters to fully-deployed managed containers only (source="managed" and not is_pending) — matches the historical behaviour where this endpoint only surfaced models that had reached the running state.
+    """
+
     def get(self, request, *args, **kwargs):
-        """user filtered version of deploy_cache, add more data as needed."""
-        deployed_data = get_deploy_cache()
-        for k, v in deployed_data.items():
-            # serialize
-            v["model_impl"] = v["model_impl"].asdict()
-            v["model_impl"]["device_configurations"] = [
-                e.name for e in v["model_impl"]["device_configurations"]
-            ]
-            # Convert enum values to their string representations for JSON serialization
-            if hasattr(v["model_impl"]["model_type"], 'value'):
-                v["model_impl"]["model_type"] = v["model_impl"]["model_type"].value
-            if hasattr(v["model_impl"]["setup_type"], 'value'):
-                v["model_impl"]["setup_type"] = v["model_impl"]["setup_type"].value
-            # for security reasons remove variables
-            del v["model_impl"]["docker_config"]
-            del v["env_vars"]
+        from docker_control.docker_utils import (
+            get_canonical_deployments,
+            serialize_canonical_entry_for_http,
+        )
+
+        canonical = get_canonical_deployments()
+        deployed_data = {}
+        for con_id, entry in canonical.items():
+            if entry.get("source") != "managed":
+                continue
+            if entry.get("is_pending"):
+                continue
+            if entry.get("model_impl") is None:
+                continue
+            serialized = serialize_canonical_entry_for_http(entry)
+            # Existing consumers don't expect these internal markers.
+            serialized.pop("source", None)
+            serialized.pop("is_pending", None)
+            serialized.pop("deployment_id", None)
+            serialized.pop("deployment_model_name", None)
+            deployed_data[con_id] = serialized
 
         logger.info(f"deployed_data:={deployed_data}")
         return Response(deployed_data, status=status.HTTP_200_OK)
