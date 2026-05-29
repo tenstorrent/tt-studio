@@ -311,46 +311,32 @@ class ChipSlotAllocator:
 
     def _get_active_deployments(self) -> List[ModelDeployment]:
         """
-        Get list of active deployments (starting or running status).
+        Get list of active deployments (starting or running status), reconciled
+        against live Docker.
 
-        Returns:
-            List of ModelDeployment objects
-
-        For 'starting' records (CHAT models awaiting FastAPI completion):
-          - A background deployment_sync thread owns the starting->running
-            transition and typically completes within seconds.
-          - We trust 'starting' records that are less than 60 seconds old so
-            the allocator never blocks a slot during the brief launch window.
-          - Records older than 60 s are cross-referenced against Docker like
-            'running' records; if the container is gone the slot is freed.
-          - No per-request FastAPI calls are made here — that would add network
-            latency to every allocation and is redundant with the sync thread.
+        Delegates to get_canonical_deployments as its the single source of truth for current deployed models. Canonical handles the container_id-or-name
+        match, the 60s placeholder grace window, and marks stale records as status="stopped" so the slot frees up immediately.
         """
-        active_deployments = list(ModelDeployment.objects.filter(status__in=["starting", "running"]))
-        if not active_deployments:
-            return []
+        from docker_control.docker_utils import get_canonical_deployments
 
-        live_containers = self._get_live_container_status()
-        if live_containers is None:
-            return active_deployments
-
-        live_containers_by_name = {
-            container_data.get("name"): (container_id, container_data)
-            for container_id, container_data in live_containers.items()
-            if container_data.get("name")
-        }
-
-        reconciled_deployments = []
-        for deployment in active_deployments:
-            reconciled = self._reconcile_deployment_record(
-                deployment,
-                live_containers,
-                live_containers_by_name,
+        try:
+            canonical = get_canonical_deployments()
+        except Exception as e:
+            logger.warning(
+                f"Falling back to raw deployment_store list: canonical query failed: {e}"
             )
-            if reconciled is not None:
-                reconciled_deployments.append(reconciled)
+            return list(ModelDeployment.objects.filter(status__in=["starting", "running"]))
 
-        return reconciled_deployments
+        live_deployment_ids = {
+            entry.get("deployment_id")
+            for entry in canonical.values()
+            if entry.get("source") == "managed" and entry.get("deployment_id") is not None
+        }
+        if not live_deployment_ids:
+            return []
+        
+        # To comply with the current interface, we return a list of ModelDeployment objects despite having canonical data.
+        return list(ModelDeployment.objects.filter(id__in=live_deployment_ids))
 
     _STARTING_GRACE_SECONDS = 60
 
