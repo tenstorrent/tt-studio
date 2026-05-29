@@ -370,6 +370,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
             "Llama-3.1-8B-Instruct",
             "Llama-3.1-70B",
             "Llama-3.1-70B-Instruct",
+            "Llama-3.3-70B-Instruct",
         }:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
 
