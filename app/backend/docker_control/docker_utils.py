@@ -390,7 +390,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
 
             if job_id:
                 try:
-                    deployment_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
+                    # Record the full set of chip slots the model occupies, even though only the primary slot is passed to the inference server via device_ids_str
+                    if chips_required == 4:
+                        deployment_device_ids = list(range(4))
+                    else:
+                        deployment_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
                     ModelDeployment.objects.create(
                         container_id=job_id,
                         container_name=impl.model_name,
