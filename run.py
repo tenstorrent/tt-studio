@@ -1299,6 +1299,14 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
 
+    # LiteLLM auto-configured with safe local defaults so existing .env files pick up the new keys on the next run / --reconfigure.
+    if should_configure_var("LITELLM_MASTER_KEY", get_env_var("LITELLM_MASTER_KEY")):
+        write_env_var("LITELLM_MASTER_KEY", "sk-tt-studio-local-change-me", quote_value=False)
+    if should_configure_var("LITELLM_UPSTREAM_KEY", get_env_var("LITELLM_UPSTREAM_KEY")):
+        write_env_var("LITELLM_UPSTREAM_KEY", "change-me-internal", quote_value=False)
+    if should_configure_var("LITELLM_PORT", get_env_var("LITELLM_PORT")):
+        write_env_var("LITELLM_PORT", "4000", quote_value=False)
+
     if not easy_mode:
         print(f"\n{C_TT_PURPLE}{C_BOLD}--- 🔑  Security Credentials  ---{C_RESET}")
 

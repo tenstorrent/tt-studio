@@ -58,6 +58,10 @@ services:
       # Docker Control Service (replaces direct socket mount)
       - DOCKER_CONTROL_SERVICE_URL
       - DOCKER_CONTROL_JWT_SECRET
+      # LiteLLM coding-agent gateway
+      - LITELLM_MASTER_KEY
+      - LITELLM_UPSTREAM_KEY
+      - LITELLM_PORT
     volumes:
       - ${HOST_PERSISTENT_STORAGE_VOLUME}:${INTERNAL_PERSISTENT_STORAGE_VOLUME}
       # Mount the local api directory for live code changes
@@ -121,6 +125,31 @@ services:
       timeout: 60s
       interval: 10s
       retries: 3
+      start_period: 30s
+
+  tt_studio_litellm:
+    hostname: tt-studio-litellm
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: tt_studio_litellm
+    networks:
+      - tt_studio_network
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    environment:
+      - LITELLM_MASTER_KEY
+      - LITELLM_UPSTREAM_KEY
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    depends_on:
+      tt_studio_backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/health/liveliness || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
       start_period: 30s
 
   tt_studio_chroma:

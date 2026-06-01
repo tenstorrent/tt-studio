@@ -40,7 +40,7 @@ from .docker_utils import (
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment
+from .tt_inference_client import start_chat_deployment, tool_call_parser_for
 from .docker_control_client import get_docker_client
 from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
@@ -571,6 +571,19 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
+                # Enable vLLM tool calling for chat-completions models so coding
+                # agents (Claude Code, Cursor) that send tool_choice:"auto" work.
+                # Only for /v1/chat/completions models with a known parser — base
+                # (/v1/completions) models and unknown families are left untouched.
+                vllm_override_args = None
+                if impl.service_route == "/v1/chat/completions":
+                    tool_parser = tool_call_parser_for(
+                        impl.model_name, getattr(impl, "hf_model_id", "")
+                    )
+                    if tool_parser:
+                        vllm_override_args = json.dumps(
+                            {"enable-auto-tool-choice": True, "tool-call-parser": tool_parser}
+                        )
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
@@ -580,6 +593,7 @@ class DeployView(APIView):
                     skip_system_sw_validation=True,
                     override_tt_config=override_tt_config,
                     dev_mode=False,
+                    vllm_override_args=vllm_override_args,
                 )
                 if result.status != "success":
                     return Response(

@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   type LucideIcon,
   History,
+  Terminal,
 } from "lucide-react";
 
 import { useLogo } from "../utils/logo";
@@ -479,6 +480,13 @@ export default function NavBar() {
       icon: History,
       label: "Deployment History",
       tooltip: "View deployment history and container status",
+    },
+    {
+      type: "link",
+      to: "/coding-agents",
+      icon: Terminal,
+      label: "Coding Agents",
+      tooltip: "Connect Claude Code, Cursor, or any OpenAI client to your models",
     },
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
