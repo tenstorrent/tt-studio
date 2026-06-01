@@ -1843,6 +1843,16 @@ def _remove_tt_studio_network_containers(has_docker_access):
             capture_output=True, text=True, check=False,
         )
         ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        # Media (TTS/STT) containers don't always join tt_studio_network reliably —
+        # the post-deploy network-connect hook in inference-api/api.py is best-effort.
+        # Fall back to image-ancestor so cleanup catches them anyway. See issue #825.
+        for ref in _CLEANUP_IMAGE_REFS:
+            anc = subprocess.run(
+                sudo_prefix + ["docker", "ps", "-aq", "--filter", f"ancestor={ref}"],
+                capture_output=True, text=True, check=False,
+            )
+            ids.extend(line.strip() for line in anc.stdout.splitlines() if line.strip())
+        ids = list(dict.fromkeys(ids))
         if not ids:
             return 0
         subprocess.run(

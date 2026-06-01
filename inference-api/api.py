@@ -103,6 +103,27 @@ def _patched_setup_run_logger(logger, run_id, run_log_path, log_level=logging.DE
 
 workflows_log_setup.setup_run_logger = _patched_setup_run_logger
 
+# Isolate docker subprocess invocations from this uvicorn process's signal cascade.
+# The artifact's run_docker_server.py uses `subprocess.Popen(["docker", "run", ...])`
+# in foreground (no -d, with --rm), so when this FastAPI process gets killed/restarted
+# by run.py (`--cleanup` or `--dev` re-entry on port 8001), the docker-run client
+# inherits the signal and tears down its container. start_new_session=True puts the
+# child in its own session/process group, immune to the parent's signal-group death.
+# Media containers happen to survive today without this; LLM containers don't.
+# See issue #825.
+import subprocess as _subprocess  # noqa: E402
+_orig_popen = _subprocess.Popen
+
+
+def _isolated_popen(*args, **kwargs):
+    argv = args[0] if args else kwargs.get("args")
+    if isinstance(argv, (list, tuple)) and argv and argv[0] == "docker":
+        kwargs.setdefault("start_new_session", True)
+    return _orig_popen(*args, **kwargs)
+
+
+_subprocess.Popen = _isolated_popen
+
 # Import from tt-inference-server
 try:
     from run import main as run_main, WorkflowType, DeviceTypes  # noqa: E402
