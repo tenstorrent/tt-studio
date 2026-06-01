@@ -5,6 +5,7 @@
 # model_control/views.py
 import os
 from pathlib import Path
+from typing import Optional
 import asyncio
 import threading
 import requests
@@ -43,6 +44,77 @@ class IgnoreClientContentNegotiation(DefaultContentNegotiation):
         return (renderers[0], renderers[0].media_type)
 
 from .serializers import InferenceSerializer, ModelWeightsSerializer
+from .log_classifier import classify_startup_phase
+
+
+# Module-level latch: tracks the highest phase + cached state we've ever seen
+# for each deploy_id. Without this, the classifier can briefly regress (e.g.
+# Llama hits `device_init` then the tail rotates and only `container_starting`
+# markers remain → bar jumps back to 2%). Also catches the "weights cached"
+# flag during the brief window when the cached log line is in the tail, and
+# remembers it across later polls when that line has scrolled out.
+_phase_latch_lock = threading.Lock()
+_phase_latch: dict[str, dict] = {}
+
+
+def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
+    """Merge in the highest phase + sticky fields seen for this deploy.
+
+    Phase ordering comes from `phase_dict["phases"]`. Three independent
+    monotonic guarantees:
+      1. `phase` can only advance forward (or stay).
+      2. `progress` (numeric percent) can never regress, even within the same
+         phase. This protects against substep-counter drops when an earlier
+         marker scrolls out of the 200-line tail.
+      3. `weights_cached` / `weights_repo` are sticky once seen.
+    """
+    phases = phase_dict.get("phases") or []
+    current = phase_dict.get("phase")
+    with _phase_latch_lock:
+        prev = _phase_latch.get(deploy_id) or {}
+        prev_phase = prev.get("phase")
+        prev_max_progress = int(prev.get("max_progress", 0))
+
+        # Resolve max phase by index in the (stable) phases list. If categories
+        # changed mid-deploy we play it safe and skip the comparison.
+        new_phase = current
+        if prev_phase and current and prev_phase in phases and current in phases:
+            if phases.index(prev_phase) > phases.index(current):
+                new_phase = prev_phase
+                labels = phase_dict.get("phase_labels") or {}
+                base_pct = phase_dict.get("phase_base_pct") or {}
+                phase_dict["phase"] = prev_phase
+                phase_dict["phase_label"] = labels.get(prev_phase, prev_phase)
+                phase_dict["progress"] = max(
+                    phase_dict.get("progress", 0), base_pct.get(prev_phase, 0)
+                )
+
+        # Floor progress at the maximum ever recorded for this deploy so the
+        # bar can never visually go backwards.
+        cur_progress = int(phase_dict.get("progress", 0) or 0)
+        if cur_progress < prev_max_progress:
+            phase_dict["progress"] = prev_max_progress
+        new_max_progress = max(prev_max_progress, int(phase_dict.get("progress", 0) or 0))
+
+        # Sticky cached/repo so the badge persists across tail rotations.
+        if prev.get("weights_cached") and not phase_dict.get("weights_cached"):
+            phase_dict["weights_cached"] = True
+        if prev.get("weights_repo") and not phase_dict.get("weights_repo"):
+            phase_dict["weights_repo"] = prev["weights_repo"]
+
+        _phase_latch[deploy_id] = {
+            "phase": new_phase,
+            "max_progress": new_max_progress,
+            "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
+            "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
+        }
+    return phase_dict
+
+
+def _drop_phase_latch(deploy_id: str) -> None:
+    """Forget latched state for a deploy (e.g. when it becomes healthy or is removed)."""
+    with _phase_latch_lock:
+        _phase_latch.pop(deploy_id, None)
 from model_control.model_utils import (
     encoded_jwt,
     get_deploy_cache,
@@ -236,35 +308,186 @@ class ModelHealthView(APIView):
             if check_passed is True:
                 ret_status = status.HTTP_200_OK
                 content = {"message": "Healthy", "details": health_content}
+                # Container is healthy — release the latched startup state.
+                _drop_phase_latch(deploy_id)
             elif check_passed is None:
                 ret_status = status.HTTP_202_ACCEPTED
                 content = {"message": "Starting", "details": health_content}
+                # Enrich the "starting" response with real phase info parsed from
+                # the container's stdout. Best-effort: if anything fails we still
+                # return the basic 202 so the badge logic is unaffected.
+                content["phase"] = _get_startup_phase(deploy_id)
             else:
                 ret_status = status.HTTP_503_SERVICE_UNAVAILABLE
                 content = {"message": "Unavailable", "details": health_content}
+                # Permanently unavailable — release the latch so a fresh deploy
+                # with the same id doesn't inherit stale phase state.
+                _drop_phase_latch(deploy_id)
             return Response(content, status=ret_status)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _resolve_model_identity(deploy_id: str) -> tuple[Optional[str], Optional[str]]:
+    """Look up (model_type, model_name) for a deploy_id from the deploy cache.
+
+    Used by `_get_startup_phase` so the classifier can pick the right phase
+    template (LLM vs MEDIA). Returns (None, None) if the cache miss — the
+    classifier then falls back to name-regex routing or defaults to LLM.
+    """
+    try:
+        cache = get_deploy_cache() or {}
+        entry = cache.get(deploy_id) or {}
+        model_impl = entry.get("model_impl")
+        if model_impl is None:
+            return (None, None)
+        mtype = getattr(getattr(model_impl, "model_type", None), "value", None)
+        mname = getattr(model_impl, "model_name", None)
+        return (mtype, mname)
+    except Exception as e:
+        logger.debug(f"_resolve_model_identity({deploy_id[:12]}) failed: {e}")
+        return (None, None)
+
+
+def _refine_download_progress(phase_dict: dict, dl: dict) -> None:
+    """Mutate phase_dict in-place: layer byte-ratio refinement on top of the
+    coarse base_pct, using whichever phase template is in effect."""
+    base_pct = phase_dict.get("phase_base_pct") or {}
+    phases = phase_dict.get("phases") or []
+    dl_start = base_pct.get("downloading_weights")
+    if dl_start is None:
+        return
+    # Find the next phase to bound the download band. Leave a 2-pct gap so
+    # the boundary nudges visibly when phase advances.
+    try:
+        idx = phases.index("downloading_weights")
+        next_key = phases[idx + 1] if idx + 1 < len(phases) else None
+    except ValueError:
+        next_key = None
+    next_pct = base_pct.get(next_key) if next_key else None
+    band_end = (next_pct - 2) if next_pct is not None else (dl_start + 20)
+    band_end = max(band_end, dl_start)
+
+    total = dl.get("total_bytes")
+    downloaded = dl.get("downloaded_bytes")
+    if total and downloaded is not None and total > 0:
+        ratio = min(1.0, max(0.0, downloaded / total))
+        phase_dict["progress"] = int(round(dl_start + ratio * (band_end - dl_start)))
+    elif dl.get("weights_cached"):
+        # No total_bytes available but we know it's cached — pin to the top
+        # of the band so the bar doesn't read as "starting from scratch".
+        phase_dict["progress"] = max(phase_dict.get("progress", 0), band_end)
+
+
+def _get_startup_phase(deploy_id: str) -> dict | None:
+    """Tail the container's recent logs and run the phase classifier.
+
+    Picks the LLM or MEDIA phase template based on the deploy's model_type.
+    When the classifier reports `downloading_weights`, also reads byte counts
+    from the container via the docker-control-service dir-size endpoint and
+    merges byte / speed / ETA fields into the response so the Preparing banner
+    can render a live progress bar — see download_progress.py.
+
+    Returns None if the tail fails — callers should treat None as "no phase
+    info available", not as an error.
+    """
+    model_type, model_name = _resolve_model_identity(deploy_id)
+
+    try:
+        from docker_control.docker_control_client import get_docker_client
+        client = get_docker_client()
+        lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
+        # Even if `lines` is empty (container hasn't logged yet, or the tail
+        # was all noise upstream), still run the classifier — it'll default to
+        # phases[0], and `_apply_phase_latch` promotes that to the previously
+        # latched maximum so the bar never reports null mid-warmup.
+        phase_dict = classify_startup_phase(
+            lines or [], model_type=model_type, model_name=model_name,
+        )
+        phase_dict = _apply_phase_latch(deploy_id, phase_dict)
+    except Exception as e:
+        logger.warning(f"startup phase classify failed for {deploy_id[:12]}: {e}")
+        return None
+
+    try:
+        if phase_dict.get("phase") == "downloading_weights":
+            from .download_progress import compute_download_progress
+            dl = compute_download_progress(
+                deploy_id=deploy_id,
+                repo=phase_dict.get("weights_repo"),
+                container_path=phase_dict.get("weights_target_path"),
+                cached=bool(phase_dict.get("weights_cached")),
+            )
+            phase_dict.update(dl)
+            _refine_download_progress(phase_dict, dl)
+            # Surface a richer message when we have a repo to name.
+            repo = dl.get("weights_repo")
+            downloaded = dl.get("downloaded_bytes")
+            total = dl.get("total_bytes")
+            if dl.get("weights_cached"):
+                phase_dict["message"] = (
+                    f"Weights cached — skipping download ({repo})" if repo
+                    else "Weights cached — skipping download"
+                )
+            elif repo:
+                from_b = _format_bytes(downloaded) if downloaded is not None else "—"
+                to_b = _format_bytes(total) if total else "?"
+                phase_dict["message"] = f"Downloading {repo}: {from_b} / {to_b}"
+    except Exception as e:
+        logger.debug(f"download_progress merge failed for {deploy_id[:12]}: {e}")
+
+    return phase_dict
+
+
+def _format_bytes(n: int | float | None) -> str:
+    """Compact human-readable byte size (matches the frontend formatter)."""
+    if n is None or n < 0:
+        return "—"
+    if n == 0:
+        return "0 B"
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    v = float(n)
+    u = 0
+    while v >= 1024 and u < len(units) - 1:
+        v /= 1024
+        u += 1
+    if v >= 100 or u == 0:
+        return f"{int(v)} {units[u]}"
+    if v >= 10:
+        return f"{v:.1f} {units[u]}"
+    return f"{v:.2f} {units[u]}"
+
+
 class DeployedModelsView(APIView):
+    """Thin shim over get_canonical_deployments() preserving the existing
+    response shape: dict keyed by container_id, every entry has a serialized
+    model_impl (asdict, enums rendered as .value), env_vars and docker_config stripped for security.
+
+    Filters to fully-deployed managed containers only (source="managed" and not is_pending) — matches the historical behaviour where this endpoint only surfaced models that had reached the running state.
+    """
+
     def get(self, request, *args, **kwargs):
-        """user filtered version of deploy_cache, add more data as needed."""
-        deployed_data = get_deploy_cache()
-        for k, v in deployed_data.items():
-            # serialize
-            v["model_impl"] = v["model_impl"].asdict()
-            v["model_impl"]["device_configurations"] = [
-                e.name for e in v["model_impl"]["device_configurations"]
-            ]
-            # Convert enum values to their string representations for JSON serialization
-            if hasattr(v["model_impl"]["model_type"], 'value'):
-                v["model_impl"]["model_type"] = v["model_impl"]["model_type"].value
-            if hasattr(v["model_impl"]["setup_type"], 'value'):
-                v["model_impl"]["setup_type"] = v["model_impl"]["setup_type"].value
-            # for security reasons remove variables
-            del v["model_impl"]["docker_config"]
-            del v["env_vars"]
+        from docker_control.docker_utils import (
+            get_canonical_deployments,
+            serialize_canonical_entry_for_http,
+        )
+
+        canonical = get_canonical_deployments()
+        deployed_data = {}
+        for con_id, entry in canonical.items():
+            if entry.get("source") != "managed":
+                continue
+            if entry.get("is_pending"):
+                continue
+            if entry.get("model_impl") is None:
+                continue
+            serialized = serialize_canonical_entry_for_http(entry)
+            # Existing consumers don't expect these internal markers.
+            serialized.pop("source", None)
+            serialized.pop("is_pending", None)
+            serialized.pop("deployment_id", None)
+            serialized.pop("deployment_model_name", None)
+            deployed_data[con_id] = serialized
 
         logger.info(f"deployed_data:={deployed_data}")
         return Response(deployed_data, status=status.HTTP_200_OK)
