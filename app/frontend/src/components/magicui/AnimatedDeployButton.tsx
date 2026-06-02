@@ -6,6 +6,7 @@ import React, { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Rocket, CheckCircle, XCircle } from "lucide-react";
 import { useDeploymentProgress } from "../../hooks/useDeploymentProgress";
+import { DeploymentProgress } from "../ui/DeploymentProgress";
 import { safeGetItem, safeRemoveItem, safeSetItem } from "../../lib/storage";
 
 interface AnimatedDeployButtonProps {
@@ -29,6 +30,12 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [isRocketFlying, setIsRocketFlying] = useState<boolean>(false);
   const [deploymentFailed, setDeploymentFailed] = useState<boolean>(false);
+  // Drives the elapsed-time readout on the in-flight progress panel.
+  const [deployStartTime, setDeployStartTime] = useState<number | undefined>(undefined);
+  // Sticky once the deploy reports a 'pulling_image' stage. Keeps the progress panel
+  // visible through the post-pull container-start phase (rendered as an indeterminate
+  // bar) instead of collapsing to a blind spinner. Cached deploys never set it.
+  const [hadImagePull, setHadImagePull] = useState<boolean>(false);
   const [displayText, setDisplayText] = useState<React.ReactElement | string>(
     initialText
   );
@@ -41,6 +48,9 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   // Handle progress updates
   useEffect(() => {
     if (progress) {
+      if (progress.stage === 'pulling_image') {
+        setHadImagePull(true);
+      }
       if (progress.status === 'completed') {
         setIsDeployed(true);
         setIsDeploying(false);
@@ -88,6 +98,7 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     setDeploymentFailed(false);
     setIsRocketFlying(true);
     setDisplayText(changeText);
+    setDeployStartTime(stored.startedAt ?? Date.now());
     startPolling(stored.jobId);
   }, [ACTIVE_DEPLOYMENT_KEY, changeText, deploymentFailed, disabled, isDeployed, isDeploying, startPolling]);
 
@@ -107,6 +118,8 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
     setDisplayText(changeText);
     setIsRocketFlying(true);
     setDeploymentFailed(false);
+    setDeployStartTime(Date.now());
+    setHadImagePull(false);
 
     try {
       const result = await onDeploy();
@@ -240,6 +253,18 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         </motion.button>
       </AnimatePresence>
 
+      {/* Live progress panel for uncached deploys (those that pull an image). Shows
+          the real byte-level pull bar, then an indeterminate "Starting container"
+          phase, then disappears on completion → redirect. Cached deploys never report
+          'pulling_image', so the panel never appears for them — just the spinner. */}
+      {isDeploying && progress && (progress.stage === 'pulling_image' || hadImagePull) && (
+        <DeploymentProgress
+          progress={progress}
+          startTime={deployStartTime}
+          imagePulled={hadImagePull}
+          className="w-full max-w-md"
+        />
+      )}
     </div>
   );
 };

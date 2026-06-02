@@ -42,6 +42,8 @@ from .docker_utils import (
 )
 from .tt_inference_client import start_chat_deployment
 from .docker_control_client import get_docker_client
+from .image_pull import start_prepull_and_deploy, get_pull_job
+from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer, StopSerializer
@@ -52,6 +54,19 @@ from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+
+def _split_image_version(image_version: str):
+    """Split an 'name:tag' image ref into (name, tag), defaulting tag to 'latest'.
+
+    ghcr refs have no registry port, so a single rsplit on ':' is safe.
+    """
+    if not image_version:
+        return "", "latest"
+    if ":" in image_version:
+        name, tag = image_version.rsplit(":", 1)
+        return name, tag
+    return image_version, "latest"
 
 # Build model_name → status lookup from catalog JSON
 _CATALOG_PATH = Path(__file__).parent.parent / "shared_config/models_from_inference_server.json"
@@ -571,7 +586,7 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
-                result = start_chat_deployment(
+                chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
                     device_id=inference_device_id,
@@ -581,6 +596,105 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     dev_mode=False,
                 )
+
+                # If the image isn't cached yet, pull it ourselves first so the UI can
+                # show real byte-level progress, then trigger the deployment. The
+                # inference server's own pull during /run then becomes a cache hit.
+                # Best-effort: any failure here must never block a deploy (see image_pull.py).
+                image_name, image_tag = _split_image_version(impl.image_version)
+                need_pull = False
+                if image_name:
+                    try:
+                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                    except Exception as e:
+                        logger.warning(f"image_exists check failed for {impl.image_version}: {e}")
+                        need_pull = False
+
+                if need_pull:
+                    pull_id = f"imgpull_{uuid4().hex}"
+                    # Create the ModelDeployment record now (placeholder container_id =
+                    # pull_id) so the chip slot reads IN USE during the pull. deploy_fn
+                    # repoints it at the real inference job_id once /run is dispatched.
+                    try:
+                        from docker_control.models import ModelDeployment
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=device,
+                            device_id=device_id,
+                            device_ids=device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
+
+                    def _refresh_placeholder(_pull_id=pull_id):
+                        # Keep the placeholder record's grace window fresh during the
+                        # (possibly long) pull so get_canonical_deployments doesn't
+                        # reconcile it to 'stopped' and free its chip slot.
+                        from datetime import datetime, timezone
+                        from docker_control.models import ModelDeployment
+                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                        if dep and dep.status == "starting":
+                            dep.deployed_at = datetime.now(timezone.utc)
+                            dep.save()
+
+                    def deploy_fn(_pull_id=pull_id, _kwargs=chat_deploy_kwargs):
+                        from datetime import datetime, timezone
+                        from docker_control.models import ModelDeployment
+                        from docker_control.deployment_sync import start_deployment_sync
+                        result = start_chat_deployment(**_kwargs)
+                        if result.status != "success" or not result.job_id:
+                            # Free the chip slot: mark the placeholder stopped.
+                            try:
+                                dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                                if dep:
+                                    dep.status = "stopped"
+                                    dep.save()
+                            except Exception:
+                                pass
+                            return None, (result.message or "TT Inference Server did not return a job_id")
+                        # Repoint the placeholder record at the real inference job_id so
+                        # deployment_sync can find it, and reset status/deployed_at so the
+                        # record is equivalent to a fresh non-pre-pull deploy from here on.
+                        # (This store uses instance.save(), not QuerySet.update().)
+                        try:
+                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                            if dep:
+                                dep.container_id = result.job_id
+                                dep.status = "starting"
+                                dep.deployed_at = datetime.now(timezone.utc)
+                                dep.save()
+                        except Exception as e:
+                            logger.warning(f"Could not repoint ModelDeployment {_pull_id} -> {result.job_id}: {e}")
+                        try:
+                            start_deployment_sync(result.job_id)
+                        except Exception as e:
+                            logger.warning(f"Could not start deployment sync for job {result.job_id}: {e}")
+                        return result.job_id, None
+
+                    start_prepull_and_deploy(
+                        pull_id=pull_id,
+                        image_name=image_name,
+                        image_tag=image_tag,
+                        image_ref=impl.image_version,
+                        deploy_fn=deploy_fn,
+                        heartbeat_fn=_refresh_placeholder,
+                    )
+                    return Response(
+                        {
+                            "status": "success",
+                            "job_id": pull_id,
+                            "message": "Pulling model image…",
+                            "allocated_device_id": device_id,
+                        },
+                        status=status.HTTP_201_CREATED,
+                    )
+
+                # Image already cached → deploy inline (fast path, unchanged behavior).
+                result = start_chat_deployment(**chat_deploy_kwargs)
                 if result.status != "success":
                     return Response(
                         {"status": "error", "message": result.message},
@@ -818,6 +932,53 @@ class DeploymentProgressView(APIView):
 
         try:
             logger.info(f"Fetching deployment progress for job_id: {job_id}")
+
+            # Image pre-pull phase: if this job_id is a tracked image pull, report
+            # byte-level pull progress until the real deployment is dispatched, then
+            # hand off to the FastAPI proxy below using the real inference job_id.
+            pull_job = get_pull_job(job_id)
+            if pull_job is not None:
+                real_job_id = pull_job.get("real_job_id")
+                if real_job_id:
+                    # Pull finished and /run dispatched — track the real job from here on.
+                    job_id = real_job_id
+                elif pull_job.get("status") == "error":
+                    return Response(
+                        {
+                            "status": "error",
+                            "stage": "error",
+                            "progress": 0,
+                            "message": pull_job.get("message") or "Image pull failed",
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                else:
+                    downloaded = pull_job.get("downloaded_bytes") or 0
+                    total = pull_job.get("total_bytes") or 0
+                    pct = int(round(downloaded / total * 100)) if total > 0 else 0
+                    pct = max(0, min(99, pct))  # reserve 100% for the actual deploy handoff
+                    if pull_job.get("status") == "success":
+                        msg = "Image ready — starting container…"
+                    else:
+                        layers_total = pull_job.get("layers_total") or 0
+                        layers_done = pull_job.get("layers_done") or 0
+                        msg = "Pulling model image — first run only; future deploys reuse the cache."
+                        if layers_total:
+                            msg += f" ({layers_done}/{layers_total} layers)"
+                    return Response(
+                        {
+                            "status": "running",
+                            "stage": "pulling_image",
+                            "progress": pct,
+                            "message": msg,
+                            "downloaded_bytes": downloaded,
+                            "total_bytes": total or None,
+                            "speed_bps": pull_job.get("speed_bps"),
+                            "eta_seconds": pull_job.get("eta_seconds"),
+                            "weights_repo": pull_job.get("image_ref"),
+                        },
+                        status=status.HTTP_200_OK,
+                    )
 
             # Track deployment start time if not already tracked
             if job_id not in deployment_start_times:

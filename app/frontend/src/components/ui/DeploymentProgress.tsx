@@ -37,7 +37,21 @@ interface DeploymentProgressProps {
   onCancel?: () => void;
   onViewLogs?: () => void;
   startTime?: number;
+  /** True once the image has been pulled in this deploy — surfaces a "✓ Image ready"
+   *  confirmation during the subsequent (indeterminate) container-start phase. */
+  imagePulled?: boolean;
 }
+
+/** Friendly, stable sub-text for the container-start stages. The backend message for
+ *  these can be noisy (e.g. the raw `docker run` command), so we describe the phase
+ *  instead — the stage name is the headline, this is the reassuring detail. */
+const containerStartMessages: Record<string, string> = {
+  starting: 'Starting the container…',
+  initialization: 'Starting the container…',
+  setup: 'Preparing the container environment…',
+  container_setup: 'Creating and starting the container…',
+  finalizing: 'Connecting to the network and finalizing…',
+};
 
 const stageDisplayNames: Record<string, string> = {
   initialization: 'Initializing',
@@ -47,6 +61,9 @@ const stageDisplayNames: Record<string, string> = {
   // and ModelPreparingBanner on /models-deployed. The byte/speed/ETA panel
   // below only lights up for the rare host-side download (--host-hf-cache).
   model_preparation: 'Preparing deployment',
+  // Host-side Docker image pull that runs before the container starts (uncached
+  // images only). Carries real byte/speed/ETA download details, like model_preparation.
+  pulling_image: 'Pulling container image',
   container_setup: 'Starting container',
   finalizing: 'Finalizing deployment',
   complete: 'Complete',
@@ -62,6 +79,7 @@ const stageIcons: Record<string, string> = {
   initialization: '⚙️',
   setup: '🔧',
   model_preparation: '📦',
+  pulling_image: '🐳',
   container_setup: '🐳',
   finalizing: '🔗',
   complete: '✅',
@@ -77,7 +95,8 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   onRetry,
   onCancel,
   onViewLogs,
-  startTime
+  startTime,
+  imagePulled = false
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
 
@@ -132,8 +151,11 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     return `~${hours} h ${mins} min left`;
   };
 
+  // The byte/speed/ETA detail block lights up both for the host-side image pull
+  // (stage 'pulling_image') and the in-container weights download ('model_preparation').
+  const isImagePull = stage === 'pulling_image';
   const weightsDetails =
-    stage === 'model_preparation' &&
+    (stage === 'model_preparation' || isImagePull) &&
     (progress.downloaded_bytes !== undefined ||
       progress.speed_bps !== undefined ||
       progress.eta_seconds !== undefined ||
@@ -180,6 +202,16 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     return Math.min(100, Math.max(0, progressPercent ?? 0));
   })();
 
+  // Container-start phase: running, past the image pull, with no byte-level detail
+  // to show. We render an animated indeterminate sweep instead of a number that
+  // would otherwise jump backwards from the pull's ~100%.
+  const isContainerStarting =
+    !isError && !isComplete && !isStalled && !isCancelled && !isImagePull;
+  const indeterminate = isContainerStarting && downloadFraction === null;
+  const displayMessage = indeterminate
+    ? (containerStartMessages[stage] ?? message)
+    : message;
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -215,7 +247,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
             </span>
           )}
           <span className="text-sm text-muted-foreground font-mono">
-            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : `${Math.round(displayPercent)}%`}
+            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : indeterminate ? '' : `${Math.round(displayPercent)}%`}
           </span>
         </div>
       </div>
@@ -233,18 +265,34 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         </div>
       ) : (
         <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
-          {message}
+          {displayMessage}
         </p>
       )}
 
-      {/* Progress bar + weights download details */}
+      {/* Progress bar — determinate (with a real %) for the image pull and known
+          stages, indeterminate sweep for the container-start phase where no precise
+          percentage exists (so it never appears to "reset" backwards). */}
       <div className="mb-3">
-        <Progress
-          value={displayPercent}
-          className="h-2"
-          indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
-        />
+        {indeterminate ? (
+          <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
+            <div className="absolute inset-y-0 left-0 w-2/5 rounded-full bg-primary animate-indeterminate-bar" />
+          </div>
+        ) : (
+          <Progress
+            value={displayPercent}
+            className="h-2"
+            indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
+          />
+        )}
       </div>
+
+      {/* Confirm the pull finished while the container spins up. */}
+      {imagePulled && isContainerStarting && (
+        <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 mb-3">
+          <span aria-hidden="true">✓</span>
+          <span>Image ready</span>
+        </div>
+      )}
 
       {weightsDetails && (
         <div className="space-y-2 text-xs text-muted-foreground">
@@ -294,7 +342,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
               className="truncate"
               title={progress.weights_repo}
             >
-              Repo: {progress.weights_repo}
+              {isImagePull ? 'Image' : 'Repo'}: {progress.weights_repo}
             </div>
           ) : null}
 
@@ -302,9 +350,9 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
             <span className="font-medium text-foreground/80">
               Note:
             </span>{' '}
-            You can leave this page while the model downloads. The
-            download continues in the background, and future deploys
-            will reuse the cached weights.
+            {isImagePull
+              ? 'The container image is downloading. This only happens the first time — future deploys reuse the cached image.'
+              : 'You can leave this page while the model downloads. The download continues in the background, and future deploys will reuse the cached weights.'}
           </div>
         </div>
       )}
