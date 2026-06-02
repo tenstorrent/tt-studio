@@ -2079,14 +2079,24 @@ def cleanup_resources(args):
 
 
 def _cleanup_runtime(args, has_docker_access):
-    """Tear down containers, the docker network, FastAPI and Docker Control Service."""
-    # Deployment containers (vLLM, etc.) live outside compose — kill them first
-    # so the subsequent network removal and weight-directory deletion aren't
-    # blocked by running processes holding bind mounts open.
-    sys.stdout.write(f"  Stopping deployments...    ")
-    sys.stdout.flush()
-    deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
-    print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+    """Tear down host services and compose containers. Deployment containers
+    (vLLM, TTS, STT, …) survive a plain ``--cleanup`` so loaded models keep
+    serving across a TT Studio restart; ``--cleanup-all`` still removes them
+    as part of the full reset."""
+    full_cleanup = bool(getattr(args, "cleanup_all", False))
+
+    if full_cleanup:
+        # Deployment containers (vLLM, etc.) live outside compose — kill them first
+        # so the subsequent network removal and weight-directory deletion aren't
+        # blocked by running processes holding bind mounts open.
+        sys.stdout.write(f"  Stopping deployments...    ")
+        sys.stdout.flush()
+        deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
+        print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+    else:
+        sys.stdout.write(f"  Preserving deployments...  ")
+        sys.stdout.flush()
+        print(f"{C_GREEN}done{C_RESET}  (use --cleanup-all to remove)")
 
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
     docker_compose_cmd.extend(["down", "-v"])
@@ -2098,14 +2108,19 @@ def _cleanup_runtime(args, has_docker_access):
     except Exception:
         print(f"{C_YELLOW}skipped{C_RESET}")
 
-    try:
-        sys.stdout.write(f"  Removing network...        ")
-        sys.stdout.flush()
-        run_docker_command(["docker", "network", "rm", "tt_studio_network"],
-                            use_sudo=not has_docker_access, capture_output=True)
-        print(f"{C_GREEN}done{C_RESET}")
-    except Exception:
-        print(f"{C_YELLOW}skipped{C_RESET}")
+    # Skip explicit network removal when deployments are preserved — they stay
+    # attached to ``tt_studio_network`` and need it for DNS resolution so the
+    # backend can reconnect after restart. ``compose down`` also tries to
+    # remove the network and fails silently when external containers hold it.
+    if full_cleanup:
+        try:
+            sys.stdout.write(f"  Removing network...        ")
+            sys.stdout.flush()
+            run_docker_command(["docker", "network", "rm", "tt_studio_network"],
+                                use_sudo=not has_docker_access, capture_output=True)
+            print(f"{C_GREEN}done{C_RESET}")
+        except Exception:
+            print(f"{C_YELLOW}skipped{C_RESET}")
 
     sys.stdout.write(f"  Stopping FastAPI server... ")
     sys.stdout.flush()
