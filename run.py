@@ -48,6 +48,7 @@ except ImportError:
     HAS_REQUESTS = False
 
 from venv_utils import recreate_venv_if_stale, print_manual_fix_steps
+from startup_checks import check_startup_freshness
 
 # --- Color Definitions ---
 C_RESET = '\033[0m'
@@ -2936,8 +2937,13 @@ def setup_tt_inference_server(pull_branch=False):
                             branch_mismatch = True
                         elif current_sha and stored_sha:
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]}){C_RESET}")
+                        elif current_sha and not stored_sha:
+                            # Artifact was downloaded without recording a commit SHA — re-fetch
+                            # so we can record the SHA for future freshness checks.
+                            print(f"{C_YELLOW}⚠️  No stored commit SHA for '{artifact_branch}' — re-fetching to record current commit ({current_sha[:7]}){C_RESET}")
+                            branch_mismatch = True
                         else:
-                            # API unreachable or no stored SHA — fall back gracefully
+                            # GitHub unreachable and no stored SHA — fall back gracefully
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
@@ -3077,7 +3083,8 @@ def setup_tt_inference_server(pull_branch=False):
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                        _sha = fetch_branch_commit_sha(artifact_branch)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
                     elif artifact_version:
                         _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
                 return True
@@ -4650,6 +4657,23 @@ def main():
             return
         
         display_welcome_banner()
+        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+
+        # Block startup only on release branches (main/dev/tt_qb2_launch_branch/
+        # rc-*/release-*). Feature branches just warn and continue so dev work
+        # isn't interrupted by stale remote tracking.
+        # Hard-stop on release branches that are behind origin. The warning
+        # itself (with the git pull hint) is already printed by startup_checks.
+        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
+            print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
+            startup_log.summary(exit_code=1)
+            startup_log.close()
+            sys.exit(1)
+
+        # Outdated artifact: warning + "auto-fetching" hint are already in
+        # startup_checks; just flip the flag so the download runs.
+        if freshness.get("artifact_behind") and not args.pull_branch:
+            args.pull_branch = True
 
         # Get git hash for startup log
         try:

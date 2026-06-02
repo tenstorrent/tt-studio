@@ -209,9 +209,6 @@ export default function ModelsDeployedCard(): JSX.Element {
     workflow_log_path: string | null;
   };
   const [history, setHistory] = useState<HistoryRecord[]>([]);
-  // IDs the user has explicitly dismissed from the UI. Hide immediately so the
-  // user gets feedback even before the backend stop endpoint flips state.
-  const [dismissedFailedIds, setDismissedFailedIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     let cancelled = false;
     const fetchHistory = async () => {
@@ -256,7 +253,6 @@ export default function ModelsDeployedCard(): JSX.Element {
     for (const d of history) {
       if (!d.container_id || d.container_id.startsWith("pending_")) continue;
       if (d.stopped_by_user) continue;
-      if (dismissedFailedIds.has(d.container_id)) continue;
       // Only flag deployments we've actually seen alive this session OR that
       // are still in the live set (so a row that's currently visible can flip
       // to failed). Anything we never saw is ignored — that's history.
@@ -291,7 +287,7 @@ export default function ModelsDeployedCard(): JSX.Element {
       Object.keys(next),
     );
     return next;
-  }, [history, liveContainerIds, dismissedFailedIds]);
+  }, [history, liveContainerIds]);
 
   // Build synthetic rows ONLY for failed containers that were alive in this
   // session but have since disappeared from /docker-api/status/. This keeps
@@ -358,15 +354,13 @@ export default function ModelsDeployedCard(): JSX.Element {
 
   const rows: ModelRow[] = useMemo(() => {
     const baseRows = models as ModelRow[];
-    // Hide rows the user has explicitly dismissed.
-    const visibleBase = baseRows.filter((r: ModelRow) => !dismissedFailedIds.has(r.id));
     // Append synthetic rows for failed deployments whose live container is gone.
-    const baseIds = new Set(visibleBase.map((r: ModelRow) => r.id));
+    const baseIds = new Set(baseRows.map((r: ModelRow) => r.id));
     const extras = syntheticFailedRows.filter(
-      (r: ModelRow) => !baseIds.has(r.id) && !dismissedFailedIds.has(r.id),
+      (r: ModelRow) => !baseIds.has(r.id),
     );
-    return [...visibleBase, ...extras];
-  }, [models, syntheticFailedRows, dismissedFailedIds]);
+    return [...baseRows, ...extras];
+  }, [models, syntheticFailedRows]);
 
   const preparingModels = useMemo(() => {
     return rows.filter((r) => healthMap[r.id] === "starting");

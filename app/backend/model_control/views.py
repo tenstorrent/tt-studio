@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Optional
 import asyncio
+import base64
 import threading
 import requests
 from PIL import Image
@@ -58,17 +59,22 @@ _phase_latch: dict[str, dict] = {}
 
 
 def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
-    """Merge in the highest phase + sticky cached fields seen for this deploy.
+    """Merge in the highest phase + sticky fields seen for this deploy.
 
-    Phase ordering comes from `phase_dict["phases"]`. If a previous poll saw a
-    later phase, we restore it. Same for weights_cached / weights_repo so the
-    cached badge stays visible after the cached log line scrolls out.
+    Phase ordering comes from `phase_dict["phases"]`. Three independent
+    monotonic guarantees:
+      1. `phase` can only advance forward (or stay).
+      2. `progress` (numeric percent) can never regress, even within the same
+         phase. This protects against substep-counter drops when an earlier
+         marker scrolls out of the 200-line tail.
+      3. `weights_cached` / `weights_repo` are sticky once seen.
     """
     phases = phase_dict.get("phases") or []
     current = phase_dict.get("phase")
     with _phase_latch_lock:
         prev = _phase_latch.get(deploy_id) or {}
         prev_phase = prev.get("phase")
+        prev_max_progress = int(prev.get("max_progress", 0))
 
         # Resolve max phase by index in the (stable) phases list. If categories
         # changed mid-deploy we play it safe and skip the comparison.
@@ -76,7 +82,6 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
         if prev_phase and current and prev_phase in phases and current in phases:
             if phases.index(prev_phase) > phases.index(current):
                 new_phase = prev_phase
-                # Mirror the label/progress for the latched phase.
                 labels = phase_dict.get("phase_labels") or {}
                 base_pct = phase_dict.get("phase_base_pct") or {}
                 phase_dict["phase"] = prev_phase
@@ -84,6 +89,13 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
                 phase_dict["progress"] = max(
                     phase_dict.get("progress", 0), base_pct.get(prev_phase, 0)
                 )
+
+        # Floor progress at the maximum ever recorded for this deploy so the
+        # bar can never visually go backwards.
+        cur_progress = int(phase_dict.get("progress", 0) or 0)
+        if cur_progress < prev_max_progress:
+            phase_dict["progress"] = prev_max_progress
+        new_max_progress = max(prev_max_progress, int(phase_dict.get("progress", 0) or 0))
 
         # Sticky cached/repo so the badge persists across tail rotations.
         if prev.get("weights_cached") and not phase_dict.get("weights_cached"):
@@ -93,6 +105,7 @@ def _apply_phase_latch(deploy_id: str, phase_dict: dict) -> dict:
 
         _phase_latch[deploy_id] = {
             "phase": new_phase,
+            "max_progress": new_max_progress,
             "weights_cached": bool(phase_dict.get("weights_cached") or prev.get("weights_cached")),
             "weights_repo": phase_dict.get("weights_repo") or prev.get("weights_repo"),
         }
@@ -396,13 +409,13 @@ def _get_startup_phase(deploy_id: str) -> dict | None:
         from docker_control.docker_control_client import get_docker_client
         client = get_docker_client()
         lines = client.tail_logs(deploy_id, tail=200, timeout=3.0)
-        if not lines:
-            return None
+        # Even if `lines` is empty (container hasn't logged yet, or the tail
+        # was all noise upstream), still run the classifier — it'll default to
+        # phases[0], and `_apply_phase_latch` promotes that to the previously
+        # latched maximum so the bar never reports null mid-warmup.
         phase_dict = classify_startup_phase(
-            lines, model_type=model_type, model_name=model_name,
+            lines or [], model_type=model_type, model_name=model_name,
         )
-        # Merge in previous-poll maxima so brief tail rotation can't regress
-        # the bar or drop the cached badge. See `_apply_phase_latch`.
         phase_dict = _apply_phase_latch(deploy_id, phase_dict)
     except Exception as e:
         logger.warning(f"startup phase classify failed for {deploy_id[:12]}: {e}")
@@ -458,23 +471,35 @@ def _format_bytes(n: int | float | None) -> str:
 
 
 class DeployedModelsView(APIView):
+    """Thin shim over get_canonical_deployments() preserving the existing
+    response shape: dict keyed by container_id, every entry has a serialized
+    model_impl (asdict, enums rendered as .value), env_vars and docker_config stripped for security.
+
+    Filters to fully-deployed managed containers only (source="managed" and not is_pending) — matches the historical behaviour where this endpoint only surfaced models that had reached the running state.
+    """
+
     def get(self, request, *args, **kwargs):
-        """user filtered version of deploy_cache, add more data as needed."""
-        deployed_data = get_deploy_cache()
-        for k, v in deployed_data.items():
-            # serialize
-            v["model_impl"] = v["model_impl"].asdict()
-            v["model_impl"]["device_configurations"] = [
-                e.name for e in v["model_impl"]["device_configurations"]
-            ]
-            # Convert enum values to their string representations for JSON serialization
-            if hasattr(v["model_impl"]["model_type"], 'value'):
-                v["model_impl"]["model_type"] = v["model_impl"]["model_type"].value
-            if hasattr(v["model_impl"]["setup_type"], 'value'):
-                v["model_impl"]["setup_type"] = v["model_impl"]["setup_type"].value
-            # for security reasons remove variables
-            del v["model_impl"]["docker_config"]
-            del v["env_vars"]
+        from docker_control.docker_utils import (
+            get_canonical_deployments,
+            serialize_canonical_entry_for_http,
+        )
+
+        canonical = get_canonical_deployments()
+        deployed_data = {}
+        for con_id, entry in canonical.items():
+            if entry.get("source") != "managed":
+                continue
+            if entry.get("is_pending"):
+                continue
+            if entry.get("model_impl") is None:
+                continue
+            serialized = serialize_canonical_entry_for_http(entry)
+            # Existing consumers don't expect these internal markers.
+            serialized.pop("source", None)
+            serialized.pop("is_pending", None)
+            serialized.pop("deployment_id", None)
+            serialized.pop("deployment_model_name", None)
+            deployed_data[con_id] = serialized
 
         logger.info(f"deployed_data:={deployed_data}")
         return Response(deployed_data, status=status.HTTP_200_OK)
@@ -600,34 +625,51 @@ class ImageGenerationInferenceView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
-                data = {"prompt": prompt}
-                inference_data = requests.post(internal_url, json=data, headers=headers, timeout=5)
-                inference_data.raise_for_status()
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
 
-                # begin fetch status loop
-                ready_latest = False
-                task_id = inference_data.json().get("task_id")
-                get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
-                while (not ready_latest):
-                    latest_prompt = requests.get(get_status_url, headers=headers)
-                    if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
-                        latest_prompt.raise_for_status()
-                        if latest_prompt.json()["status"] == "Completed":
-                            ready_latest = True
-                    time.sleep(1)
+                if "/v1/images/generations" in internal_url:
+                    # Synchronous OpenAI-compatible API — returns base64 JSON immediately
+                    inference_data = requests.post(
+                        internal_url,
+                        json={"prompt": prompt},
+                        headers=headers,
+                        timeout=2000,
+                    )
+                    inference_data.raise_for_status()
+                    resp_json = inference_data.json()
+                    if "images" in resp_json:
+                        b64_image = resp_json["images"][0]
+                    else:
+                        b64_image = resp_json["data"][0]["b64_json"]
+                    image_bytes = base64.b64decode(b64_image)
+                    django_response = HttpResponse(image_bytes, content_type="image/jpeg")
+                    django_response["Content-Disposition"] = "attachment; filename=image.jpg"
+                    return django_response
+                else:
+                    # Legacy enqueue/poll/fetch API
+                    inference_data = requests.post(
+                        internal_url, json={"prompt": prompt}, headers=headers, timeout=5
+                    )
+                    inference_data.raise_for_status()
 
-                # call get_image to get image
-                get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
-                latest_image = requests.get(get_image_url, headers=headers, stream=True)
-                latest_image.raise_for_status()
-                content_type = latest_image.headers.get('Content-Type', 'application/octet-stream')
-                content_disposition = f'attachment; filename=image.png'
-                
-                # Create a Django HttpResponse with the content of the file from Flask
-                django_response = HttpResponse(latest_image.content, content_type=content_type)
-                django_response['Content-Disposition'] = content_disposition
-                return django_response
+                    ready_latest = False
+                    task_id = inference_data.json().get("task_id")
+                    get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
+                    while not ready_latest:
+                        latest_prompt = requests.get(get_status_url, headers=headers)
+                        if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
+                            latest_prompt.raise_for_status()
+                            if latest_prompt.json()["status"] == "Completed":
+                                ready_latest = True
+                        time.sleep(1)
+
+                    get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
+                    latest_image = requests.get(get_image_url, headers=headers, stream=True)
+                    latest_image.raise_for_status()
+                    content_type = latest_image.headers.get("Content-Type", "application/octet-stream")
+                    django_response = HttpResponse(latest_image.content, content_type=content_type)
+                    django_response["Content-Disposition"] = "attachment; filename=image.png"
+                    return django_response
 
             except requests.exceptions.HTTPError as http_err:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:

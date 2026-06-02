@@ -28,6 +28,8 @@ from .docker_utils import (
     run_container,
     stop_container,
     get_container_status,
+    get_canonical_deployments,
+    serialize_canonical_entry_for_http,
     perform_reset,
     perform_device_reset,
     perform_devices_reset,
@@ -61,7 +63,7 @@ except Exception:
     _status_lookup = {}
 
 # Manual compatibility overrides: model names always shown as compatible regardless of board.
-# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for qb2 (P300Cx2)
+# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for P300x2
 # until proper board support is confirmed. Edit model_compatibility_overrides.json to re-enable.
 _OVERRIDE_PATH = Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
 try:
@@ -223,14 +225,14 @@ class ContainersView(APIView):
             # Blackhole single devices
             'P100': [DeviceConfigurations.P100],
             'P150': [DeviceConfigurations.P150],
-            'P300c': [DeviceConfigurations.P300c],
-            
+            'P300': [DeviceConfigurations.P300],
+
             # Blackhole multi-device
             'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
             'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
-            # P300Cx2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
-            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P150, DeviceConfigurations.P300c],
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300c],
+            # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
+            'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P150, DeviceConfigurations.P300],
+            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300],
             
             # Galaxy systems
             'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
@@ -290,28 +292,65 @@ class ContainersView(APIView):
 
 
 class StatusView(APIView):
-    def get(self, request, *args, **kwargs):
-        data = get_container_status()
-        # Enrich with model_type from deploy cache so frontend navbar can route correctly (e.g. Speech -> /speech-to-text).
-        try:
-            from model_control.model_utils import get_deploy_cache
+    """Thin shim over get_canonical_deployments() preserving the historical
+    /docker-api/status/ response shape: dict keyed by container_id with Docker fields (name, status, health, image, port_bindings, networks, device_id, device_ids) plus a model_type echo for navbar routing.
+    """
 
-            deploy_cache = get_deploy_cache()
-            for con_id, con_data in data.items():
-                if con_id in deploy_cache:
-                    model_impl = deploy_cache[con_id].get("model_impl")
-                    if model_impl is not None:
-                        mt = getattr(model_impl, "model_type", None)
-                        if mt is not None:
-                            con_data["model_type"] = getattr(
-                                mt, "value", str(mt)
-                            )
+    def get(self, request, *args, **kwargs):
+        try:
+            canonical = get_canonical_deployments()
         except Exception as e:
-            logger.warning(
-                "Could not enrich status with model_type from deploy cache: %s",
-                e,
-            )
+            logger.warning(f"StatusView: get_canonical_deployments failed: {e}")
+            return Response({}, status=status.HTTP_200_OK)
+
+        data = {}
+        for con_id, entry in canonical.items():
+            # Drop internal-only fields and the Python model_impl object;
+            # echo model_type at the top level for navbar routing.
+            model_impl = entry.get("model_impl")
+            model_type = None
+            if model_impl is not None:
+                mt = getattr(model_impl, "model_type", None)
+                if mt is not None:
+                    model_type = getattr(mt, "value", str(mt))
+            data[con_id] = {
+                "name": entry.get("name"),
+                "status": entry.get("status"),
+                "health": entry.get("health"),
+                "create": entry.get("create"),
+                "image_id": entry.get("image_id"),
+                "image_name": entry.get("image_name"),
+                "port_bindings": entry.get("port_bindings") or {},
+                "networks": entry.get("networks") or {},
+                "device_id": entry.get("device_id"),
+                "device_ids": entry.get("device_ids"),
+                "model_type": model_type,
+            }
         return Response(data, status=status.HTTP_200_OK)
+
+
+class DeploymentsView(APIView):
+    """Canonical endpoint — the single source of truth. 
+    Returns a dict keyed by Docker container_id (or a pending-<id> key for placeholder records during the CHAT-model job_id window). 
+    Each entry includes Docker container fields, deployment_store fields, a serialized model_impl, plus is_pending and source markers so callers can distinguish fully-deployed models from in-flight starts and from discovered-but-unregistered containers.
+
+    Other endpoints (/docker-api/status/, /models-api/deployed/, /docker-api/chip-status/) are now thin shims over this view. Their response shapes are preserved for backwards compatibility.
+    """
+
+    def get(self, request, *args, **kwargs):
+        try:
+            canonical = get_canonical_deployments()
+        except Exception as e:
+            logger.exception("DeploymentsView: get_canonical_deployments failed")
+            return Response(
+                {"error": "Failed to compute deployments", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {con_id: serialize_canonical_entry_for_http(entry) for con_id, entry in canonical.items()},
+            status=status.HTTP_200_OK,
+        )
 
 
 class ChipStatusView(APIView):
@@ -379,7 +418,7 @@ class DeployView(APIView):
             should_force_full_board_llama = (
                 impl.model_type == ModelTypes.CHAT
                 and force_full_board_requested
-                and board_type == "P300Cx2"
+                and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
             if force_full_board_requested and not should_force_full_board_llama:
@@ -524,16 +563,16 @@ class DeployView(APIView):
                     # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
                     # should run with --tt-device p300 (not p150).
                     if (
-                        board_type == "P300Cx2"
+                        board_type == "P300x2"
                         and _is_llama31_8b_model(impl.model_name)
                         and sorted(device_ids) == [0, 1]
                     ):
                         device = "p300"
-                    # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
+                    # For P300x2 with the whole-board p300x2 device, the inference
                     # server selects the physical chip itself — omit device_id entirely.
-                    # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
+                    # For slot-pinned p150/p300 mode on P300x2, pass device_id so each model
                     # lands on its allocated slot(s).
-                    if board_type == "P300Cx2" and device == "p300x2":
+                    if board_type == "P300x2" and device == "p300x2":
                         inference_device_id = None
                     else:
                         inference_device_id = device_ids_str
@@ -542,7 +581,7 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
-                needs_dev_mode = qwen32b_p300x2 or bool(vllm_override_args)
+                needs_dev_mode = bool(vllm_override_args)
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
@@ -1475,12 +1514,12 @@ class BoardInfoView(APIView):
                 # Blackhole devices
                 'P100': 'Tenstorrent P100',
                 'P150': 'Tenstorrent P150',
-                'P300c': 'Tenstorrent P300c',
-                
+                'P300': 'Tenstorrent P300',
+
                 # Blackhole multi-device
                 'P150X4': 'Tenstorrent P150x4',
                 'P150X8': 'Tenstorrent P150x8',
-                'P300Cx2': 'Tenstorrent P300Cx2',  # 2 cards (4 chips)
+                'P300x2': 'Tenstorrent P300x2',    # 2 cards (4 chips)
                 'P300Cx4': 'Tenstorrent P300Cx4',  # 4 cards (8 chips)
                 
                 # Galaxy systems
