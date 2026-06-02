@@ -515,8 +515,15 @@ class DeployView(APIView):
                 device_ids_str = ",".join(str(d) for d in device_ids)
                 # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
                 if should_force_full_board_llama:
-                    occupied_device_ids = list(range(min(4, allocator.total_slots)))
+                    # Forced full-board Llama takes over every slot on the board.
+                    occupied_device_ids = list(range(allocator.total_slots))
+                elif chips_required > 1:
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id), clamped to the board size
+                    occupied_device_ids = list(
+                        range(device_id, min(device_id + chips_required, allocator.total_slots))
+                    )
                 else:
+                    # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
                     occupied_device_ids = device_ids
                 logger.info(
                     f"Allocated device_id={device_id} (request={device_ids_str}, "

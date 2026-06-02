@@ -390,11 +390,17 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
 
             if job_id:
                 try:
-                    # Record the full set of chip slots the model occupies, even though only the primary slot is passed to the inference server via device_ids_str
-                    if chips_required == 4:
-                        deployment_device_ids = list(range(4))
+                    # Record the full set of chip slots the model occupies but only the primary slot is passed to inference server
+                    explicit_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
+                    if len(explicit_device_ids) > 1:
+                        # Caller passed an explicit multi-slot list — respect it as-is.
+                        deployment_device_ids = explicit_device_ids
+                    elif chips_required > 1:
+                        # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot.
+                        base_slot = explicit_device_ids[0]
+                        deployment_device_ids = list(range(base_slot, base_slot + chips_required))
                     else:
-                        deployment_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
+                        deployment_device_ids = explicit_device_ids
                     ModelDeployment.objects.create(
                         container_id=job_id,
                         container_name=impl.model_name,
