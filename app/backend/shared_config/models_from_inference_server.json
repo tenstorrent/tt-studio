@@ -684,6 +684,9 @@
       "display_model_type": "VIDEO",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
