@@ -45,7 +45,7 @@ The tool processes the following directories:
 The tool automatically skips the following directories:
 
 - `node_modules/` - External dependencies (should not have SPDX headers)
-- `tt-inference-server/` - Submodule (external code)
+- `tt-inference-server/` - Artifact extraction directory (external code, not owned source)
 - `.git/` - Git metadata
 - `.venv/` - Python virtual environments
 - `__pycache__/` - Python cache files

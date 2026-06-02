@@ -7,8 +7,9 @@
 <h1 align="center">TT-Studio</h1>
 
 > A web UI for deploying and chatting with AI models on Tenstorrent hardware. It wraps [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) packaging and [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) execution behind a Django + React + agent stack.
->
+
 > **No Tenstorrent hardware?** You can still use it — point it at [remote endpoints](docs/remote-endpoint-setup.md) running on cards elsewhere.
+
 
 ---
 
