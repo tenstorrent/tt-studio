@@ -239,8 +239,8 @@ export function FirstStepForm({
     "N150X4": "N150",
     "P150X4": "P150",
     "P150X8": "P150",
-    "P300Cx2": "P300c",
-    "P300Cx4": "P300c",
+    "P300x2": "P300",
+    "P300Cx4": "P300",
     "GALAXY": "N300",
     "GALAXY_T3K": "N300",
   };
@@ -257,8 +257,10 @@ export function FirstStepForm({
     EXPERIMENTAL: 1,
   };
 
-  // Audio/TTS models only make sense as single-chip deployments; hide them unless
-  // the user has explicitly chosen single-chip mode via the hardware config step.
+  // Audio/TTS models only make sense as single-chip deployments; hide them only when
+  // the user has explicitly chosen multi-chip mode. They stay visible in single-chip
+  // mode and in the simplified flow (single-chip boards + QB2 default), where chipMode
+  // is undefined.
   const SINGLE_CHIP_ONLY_TYPES = new Set(["AUDIO", "TEXT_TO_SPEECH"]);
 
   // Filter models by chip mode, and exclude incompatible models entirely
@@ -271,7 +273,7 @@ export function FirstStepForm({
     : models
   )
     .filter((m) => m.is_compatible !== false)
-    .filter((m) => chipMode === "single" || !SINGLE_CHIP_ONLY_TYPES.has(m.display_model_type ?? ""));
+    .filter((m) => chipMode !== "multi" || !SINGLE_CHIP_ONLY_TYPES.has(m.display_model_type ?? ""));
 
   // Group models by display type, then by status, then by hardware compatibility
   type CompatibilityGroup = { compatible: Model[]; unknown: Model[] };

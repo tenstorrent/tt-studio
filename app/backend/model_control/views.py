@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Optional
 import asyncio
+import base64
 import threading
 import requests
 from PIL import Image
@@ -613,34 +614,51 @@ class ImageGenerationInferenceView(APIView):
             deploy = get_deploy_cache()[deploy_id]
             internal_url = "http://" + deploy["internal_url"]
             try:
-                headers = {"Authorization": f"Bearer {encoded_jwt}"}
-                data = {"prompt": prompt}
-                inference_data = requests.post(internal_url, json=data, headers=headers, timeout=5)
-                inference_data.raise_for_status()
+                headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
 
-                # begin fetch status loop
-                ready_latest = False
-                task_id = inference_data.json().get("task_id")
-                get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
-                while (not ready_latest):
-                    latest_prompt = requests.get(get_status_url, headers=headers)
-                    if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
-                        latest_prompt.raise_for_status()
-                        if latest_prompt.json()["status"] == "Completed":
-                            ready_latest = True
-                    time.sleep(1)
+                if "/v1/images/generations" in internal_url:
+                    # Synchronous OpenAI-compatible API — returns base64 JSON immediately
+                    inference_data = requests.post(
+                        internal_url,
+                        json={"prompt": prompt},
+                        headers=headers,
+                        timeout=2000,
+                    )
+                    inference_data.raise_for_status()
+                    resp_json = inference_data.json()
+                    if "images" in resp_json:
+                        b64_image = resp_json["images"][0]
+                    else:
+                        b64_image = resp_json["data"][0]["b64_json"]
+                    image_bytes = base64.b64decode(b64_image)
+                    django_response = HttpResponse(image_bytes, content_type="image/jpeg")
+                    django_response["Content-Disposition"] = "attachment; filename=image.jpg"
+                    return django_response
+                else:
+                    # Legacy enqueue/poll/fetch API
+                    inference_data = requests.post(
+                        internal_url, json={"prompt": prompt}, headers=headers, timeout=5
+                    )
+                    inference_data.raise_for_status()
 
-                # call get_image to get image
-                get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
-                latest_image = requests.get(get_image_url, headers=headers, stream=True)
-                latest_image.raise_for_status()
-                content_type = latest_image.headers.get('Content-Type', 'application/octet-stream')
-                content_disposition = f'attachment; filename=image.png'
-                
-                # Create a Django HttpResponse with the content of the file from Flask
-                django_response = HttpResponse(latest_image.content, content_type=content_type)
-                django_response['Content-Disposition'] = content_disposition
-                return django_response
+                    ready_latest = False
+                    task_id = inference_data.json().get("task_id")
+                    get_status_url = internal_url.replace("/enqueue", f"/status/{task_id}")
+                    while not ready_latest:
+                        latest_prompt = requests.get(get_status_url, headers=headers)
+                        if latest_prompt.status_code != status.HTTP_404_NOT_FOUND:
+                            latest_prompt.raise_for_status()
+                            if latest_prompt.json()["status"] == "Completed":
+                                ready_latest = True
+                        time.sleep(1)
+
+                    get_image_url = internal_url.replace("/enqueue", f"/fetch_image/{task_id}")
+                    latest_image = requests.get(get_image_url, headers=headers, stream=True)
+                    latest_image.raise_for_status()
+                    content_type = latest_image.headers.get("Content-Type", "application/octet-stream")
+                    django_response = HttpResponse(latest_image.content, content_type=content_type)
+                    django_response["Content-Disposition"] = "attachment; filename=image.png"
+                    return django_response
 
             except requests.exceptions.HTTPError as http_err:
                 if inference_data.status_code == status.HTTP_401_UNAUTHORIZED:

@@ -28,10 +28,13 @@ class TestServiceRouteMapping:
         assert map_service_route("media", "", "TEXT_TO_SPEECH") == "/v1/audio/speech"
         assert map_service_route("media", "", "TTS") == "/v1/audio/speech"
     
-    def test_non_tts_media_models_use_enqueue(self):
-        """Non-TTS media models should use /enqueue."""
-        assert map_service_route("media", "", "IMAGE") == "/enqueue"
-        assert map_service_route("media", "", "AUDIO") == "/enqueue"
+    def test_image_gen_media_models_use_v1_images_generations(self):
+        """Image generation media models should use /v1/images/generations."""
+        assert map_service_route("media", "", "IMAGE") == "/v1/images/generations"
+        assert map_service_route("media", "", "IMAGE_GENERATION") == "/v1/images/generations"
+
+    def test_non_image_media_models_use_enqueue(self):
+        """Non-image/non-audio media models should use /enqueue."""
         assert map_service_route("media", "", "VIDEO") == "/enqueue"
         assert map_service_route("media", "", "CNN") == "/enqueue"
         assert map_service_route("media", "", "EMBEDDING") == "/enqueue"

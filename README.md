@@ -64,7 +64,7 @@ git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python
 1. **Downloads TT-Studio** - Gets the code from GitHub
 2. **Enters the directory** - Changes to the tt-studio folder
 3. **Runs the setup script** - Automatically configures everything (easy mode: only prompts for your Hugging Face token; uses defaults for the rest)
-4. **Initializes submodules** - Downloads TT Inference Server and dependencies
+4. **Fetches TT Inference Server** - Downloads the release artifact configured by `TT_INFERENCE_ARTIFACT_VERSION` in `app/.env.default`
 5. **Builds containers** - Sets up Docker environments for frontend and backend
 6. **Starts all services** - Launches the web interface and backend server
 
@@ -125,7 +125,7 @@ python3 run.py --dev
 
 - **Hot Reload**: Code changes automatically trigger rebuilds
 - **Container Mounting**: Local files mounted for real-time development
-- **Automatic Setup**: All submodules and dependencies handled automatically
+- **Automatic Setup**: Dependencies and inference server artifact downloaded automatically
 
 **Get Started:**
 
@@ -200,7 +200,7 @@ python3 run.py --dev  # Enables hot reload for development
 
 - **Hot Reload**: Code changes automatically trigger rebuilds
 - **Container Mounting**: Local files mounted for real-time development
-- **Automatic Setup**: All submodules and dependencies handled automatically
+- **Automatic Setup**: Dependencies and inference server artifact downloaded automatically
 
 **Resources:**
 
