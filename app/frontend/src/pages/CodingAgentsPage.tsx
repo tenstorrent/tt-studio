@@ -74,11 +74,6 @@ export ANTHROPIC_MODEL=${firstModel}
 export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 claude`;
 
-  const cursorSnippet = `# In Cursor: Settings → Models → OpenAI API Key → "Override OpenAI Base URL"
-Base URL:  ${openaiBase}
-API Key:   ${masterKey || "<your-api-key>"}
-Model:     ${firstModel}    # add this name under "Add model"`;
-
   const curlSnippet = `curl ${openaiBase}/chat/completions \\
   -H "Authorization: Bearer ${masterKey || "<your-api-key>"}" \\
   -H "Content-Type: application/json" \\
@@ -119,8 +114,8 @@ Model:     ${firstModel}    # add this name under "Add model"`;
               Coding Agents
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Connect Claude Code, Cursor, or any OpenAI-compatible client to
-              your locally deployed models.
+              Connect Claude Code or any OpenAI-compatible client to your
+              locally deployed models.
             </p>
           </div>
         </div>
@@ -250,7 +245,6 @@ Model:     ${firstModel}    # add this name under "Add model"`;
                 <Tabs defaultValue="claude-code" className="w-full">
                   <TabsList>
                     <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
-                    <TabsTrigger value="cursor">Cursor</TabsTrigger>
                     <TabsTrigger value="openai">OpenAI / cURL</TabsTrigger>
                   </TabsList>
 
@@ -261,14 +255,6 @@ Model:     ${firstModel}    # add this name under "Add model"`;
                       with the <code>/model</code> command.
                     </p>
                     <CodeBlock code={claudeCodeSnippet} language="bash" />
-                  </TabsContent>
-
-                  <TabsContent value="cursor" className="space-y-3">
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      In Cursor, open Settings → Models, enable the OpenAI API
-                      key override, and fill in:
-                    </p>
-                    <CodeBlock code={cursorSnippet} language="bash" />
                   </TabsContent>
 
                   <TabsContent value="openai" className="space-y-3">

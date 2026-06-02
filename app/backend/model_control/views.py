@@ -1605,6 +1605,12 @@ from shared_config.model_type_config import ModelTypes  # noqa: E402
 # Model types coding agents can talk to (text chat surfaces).
 _CODING_AGENT_MODEL_TYPES = (ModelTypes.CHAT, ModelTypes.VLM)
 
+# Models eligible for the coding-agent gateway. Native tool calling (required by
+# Claude Code / Cursor) only works on models deployed with vLLM tool-calling
+# enabled — for now that's limited to Qwen3-32B (deployed in dev_mode). Expand
+# this set once the tt-inference-server tool-calling fix lands for other models.
+_CODING_AGENT_ELIGIBLE_MODELS = {"Qwen3-32B"}
+
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
 LITELLM_PORT = int(os.environ.get("LITELLM_PORT", "4000"))
@@ -1616,10 +1622,12 @@ _rr_counters: dict[str, int] = {}
 
 
 def _running_coding_agent_deploys() -> list[tuple[str, dict]]:
-    """Return [(deploy_id, entry), ...] for running CHAT/VLM deployments.
+    """Return [(deploy_id, entry), ...] for running, coding-agent-eligible deployments.
 
-    Resilient to deploy-cache failures (e.g. docker-control-service down): logs
-    and returns an empty list so callers degrade gracefully instead of 500ing.
+    Eligible = a chat-capable model (CHAT/VLM) whose name is in
+    _CODING_AGENT_ELIGIBLE_MODELS. Resilient to deploy-cache failures (e.g.
+    docker-control-service down): logs and returns an empty list so callers
+    degrade gracefully instead of 500ing.
     """
     out = []
     try:
@@ -1631,8 +1639,11 @@ def _running_coding_agent_deploys() -> list[tuple[str, dict]]:
         impl = entry.get("model_impl")
         if impl is None or not entry.get("internal_url"):
             continue
-        if getattr(impl, "model_type", None) in _CODING_AGENT_MODEL_TYPES:
-            out.append((deploy_id, entry))
+        if getattr(impl, "model_type", None) not in _CODING_AGENT_MODEL_TYPES:
+            continue
+        if getattr(impl, "model_name", None) not in _CODING_AGENT_ELIGIBLE_MODELS:
+            continue
+        out.append((deploy_id, entry))
     return out
 
 

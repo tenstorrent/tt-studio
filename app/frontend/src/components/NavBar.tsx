@@ -286,6 +286,16 @@ export default function NavBar() {
     return hasLlm && hasStt && hasTts;
   }, [models]);
 
+  // Coding Agents (Claude Code / OpenAI clients) requires a deployed model that
+  // supports native tool calling. Keep this list in sync with the backend's
+  // _CODING_AGENT_ELIGIBLE_MODELS — for now only Qwen3-32B qualifies.
+  const isCodingAgentReady = useMemo(() => {
+    const CODING_AGENT_ELIGIBLE_MODELS = ["Qwen3-32B"];
+    return models.some((m) =>
+      CODING_AGENT_ELIGIBLE_MODELS.some((name) => m.name?.includes(name))
+    );
+  }, [models]);
+
   // Check if we're in Chat UI or Image Generation mode
   const isChatUI = location.pathname === "/chat";
   const isImageGeneration = location.pathname === "/image-generation";
@@ -481,13 +491,19 @@ export default function NavBar() {
       label: "Deployment History",
       tooltip: "View deployment history and container status",
     },
-    {
-      type: "link",
-      to: "/coding-agents",
-      icon: Terminal,
-      label: "Coding Agents",
-      tooltip: "Connect Claude Code, Cursor, or any OpenAI client to your models",
-    },
+    // Coding Agents is only shown when a coding-agent-eligible model is deployed
+    ...(isCodingAgentReady
+      ? [
+          {
+            type: "link" as const,
+            to: "/coding-agents",
+            icon: Terminal,
+            label: "Coding Agents",
+            tooltip:
+              "Connect Claude Code or any OpenAI client to your models",
+          },
+        ]
+      : []),
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
       ? [
