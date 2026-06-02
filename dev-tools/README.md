@@ -1,5 +1,7 @@
 # Developer Tools
 
+> **Canonical dev workflow** lives in the [top-level README](../README.md#dev-workflow) and [docs/development.md](../docs/development.md). This file only documents tools in `dev-tools/`.
+
 This directory contains development tools and utilities for the TT-Studio project.
 
 ## Quick Start
