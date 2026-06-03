@@ -361,9 +361,21 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
         #     payload["dev_mode"] = True
 
-        # TEMP: disabled — do not override docker image for QB2 media models
-        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
-        #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
+        # Pin every deploy to the v0.14.0 (tt-metal 80180b9) inference images,
+        # off the v0.15.0 artifact. vLLM/CHAT models use the vLLM release image;
+        # all other (media/forge) models use the media-inference-server image.
+        # These match what tt-inference-server's model_spec.py resolves for
+        # Llama-3.1-8B-Instruct on P300 (version 0.14.0, tt_metal 80180b9, vllm 7678b70).
+        if use_image_override:
+            if impl.model_type == ModelTypes.CHAT:
+                payload["override_docker_image"] = (
+                    "ghcr.io/tenstorrent/tt-inference-server/"
+                    "vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
+                )
+            else:
+                payload["override_docker_image"] = (
+                    "ghcr.io/tenstorrent/tt-media-inference-server:0.14.0-80180b9"
+                )
 
         logger.info(f"API payload: {payload}")
 
