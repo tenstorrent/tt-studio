@@ -6,6 +6,7 @@ export interface VideoMessage {
   sender: "user" | "bot";
   text: string;
   video?: string;
+  imagePreview?: string;
 }
 
 export interface VideoGenChatProps {

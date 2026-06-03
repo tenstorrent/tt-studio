@@ -14,5 +14,6 @@ class ModelTypes(Enum):
     VLM = "vlm"
     TTS = "tts"
     VIDEO = "video_generation"
+    VIDEO_I2V = "video_i2v"
     EMBEDDING = "embedding"
     CNN = "cnn"

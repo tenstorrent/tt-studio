@@ -770,6 +770,117 @@ class VideoGenerationInferenceView(APIView):
             return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class VideoGenerationI2VInferenceView(APIView):
+    def post(self, request, *args, **kwargs):
+        """Video generation inference view for tt-media-server I2V API."""
+        logger.info(f"{self.__class__.__name__} request received")
+
+        deploy_id = request.data.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        image_file = request.FILES.get("image")
+        if not image_file:
+            return Response({"error": "image file is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        content_type = getattr(image_file, "content_type", "") or ""
+        if not content_type.startswith("image/"):
+            return Response({"error": "uploaded file must be an image"}, status=status.HTTP_400_BAD_REQUEST)
+
+        MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MB
+        if image_file.size > MAX_IMAGE_BYTES:
+            return Response({"error": "image must be smaller than 20 MB"}, status=status.HTTP_400_BAD_REQUEST)
+
+        prompt = request.data.get("prompt", "")
+        image_b64 = base64.b64encode(image_file.read()).decode("ascii")
+
+        payload = {
+            "prompt": prompt,
+            "image_prompts": [{"image": image_b64, "frame_pos": 0}],
+        }
+        if request.data.get("seed") is not None:
+            try:
+                payload["seed"] = int(request.data["seed"])
+            except (TypeError, ValueError):
+                pass
+        if request.data.get("num_inference_steps") is not None:
+            try:
+                payload["num_inference_steps"] = int(request.data["num_inference_steps"])
+            except (TypeError, ValueError):
+                pass
+
+        deploy = get_deploy_cache()[deploy_id]
+        internal_url = "http://" + deploy["internal_url"]
+        headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+
+        try:
+            init_resp = requests.post(internal_url, json=payload, headers=headers, timeout=30)
+            init_resp.raise_for_status()
+
+            # Sync mode: server returned video bytes directly (use_async_video=False)
+            if init_resp.status_code == status.HTTP_200_OK:
+                content_type = init_resp.headers.get("Content-Type", "video/mp4")
+                django_response = HttpResponse(init_resp.content, content_type=content_type)
+                django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+                return django_response
+
+            # Async mode: server returned 202 with job_id — poll then download
+            job_data = init_resp.json()
+            job_id = job_data.get("job_id") or job_data.get("id")
+            if not job_id:
+                logger.error(f"No job_id in async response: {job_data}")
+                return Response({"error": "No job_id in response"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            base_url = internal_url.replace("/v1/videos/generations/i2v", "").rstrip("/")
+            poll_url = f"{base_url}/v1/videos/generations/{job_id}"
+            download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
+
+            POLL_TIMEOUT_SECS = 900
+            POLL_INTERVAL_SECS = 2
+            elapsed = 0
+            while elapsed < POLL_TIMEOUT_SECS:
+                poll_resp = requests.get(poll_url, headers=headers, timeout=30)
+                if poll_resp.status_code == status.HTTP_200_OK:
+                    job_status = poll_resp.json().get("status", "").lower()
+                    logger.info(f"VideoGenerationI2VInferenceView job {job_id} status: {job_status} (elapsed={elapsed}s)")
+                    if job_status in ("completed", "complete", "done", "success"):
+                        break
+                    if job_status in ("failed", "error"):
+                        return Response(
+                            {"error": f"Video generation failed: {poll_resp.json()}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
+                time.sleep(POLL_INTERVAL_SECS)
+                elapsed += POLL_INTERVAL_SECS
+            else:
+                return Response(
+                    {"error": f"Video generation timed out after {POLL_TIMEOUT_SECS}s"},
+                    status=status.HTTP_504_GATEWAY_TIMEOUT,
+                )
+
+            dl_resp = requests.get(download_url, headers=headers, timeout=60)
+            dl_resp.raise_for_status()
+            content_type = dl_resp.headers.get("Content-Type", "video/mp4")
+            django_response = HttpResponse(dl_resp.content, content_type=content_type)
+            django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationI2VInferenceView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = 0
+            if err_status == status.HTTP_401_UNAUTHORIZED:
+                return Response(status=status.HTTP_401_UNAUTHORIZED)
+            elif err_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+                return Response(status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationI2VInferenceView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class SpeechRecognitionInferenceView(APIView):
     def post(self, request, *args, **kwargs):
         """special automatic speec recognition inference view"""

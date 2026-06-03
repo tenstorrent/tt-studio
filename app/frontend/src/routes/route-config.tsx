@@ -57,6 +57,7 @@ import ApiInfoPage from "../pages/ApiInfoPage";
 import DeploymentHistoryPage from "../pages/DeploymentHistoryPage";
 import TTSPage from "../pages/TTSPage";
 import VideoGenPage from "../pages/VideoGenPage";
+import VideoGenI2VPage from "../pages/VideoGenI2VPage";
 
 // Define route configuration type
 export interface RouteConfig {
@@ -146,6 +147,11 @@ export const getRoutes = (): RouteConfig[] => {
     {
       path: "/video-generation",
       element: <VideoGenPage />,
+      condition: true,
+    },
+    {
+      path: "/video-generation-i2v",
+      element: <VideoGenI2VPage />,
       condition: true,
     },
     {

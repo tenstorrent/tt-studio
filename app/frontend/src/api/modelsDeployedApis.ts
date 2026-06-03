@@ -70,6 +70,7 @@ export const ModelType = {
   VLM: "VLM",
   ImageGeneration: "ImageGeneration",
   VideoGeneration: "VideoGeneration",
+  VideoGenerationI2V: "VideoGenerationI2V",
   ObjectDetectionModel: "ObjectDetectionModel",
   SpeechRecognitionModel: "SpeechRecognitionModel",
   FaceRecognitionModel: "FaceRecognitionModel",
@@ -94,6 +95,8 @@ export const getModelTypeFromBackendType = (backendType: string): string => {
       return ModelType.ImageGeneration;
     case "video_generation":
       return ModelType.VideoGeneration;
+    case "video_i2v":
+      return ModelType.VideoGenerationI2V;
     case "object_detection":
       return ModelType.ObjectDetectionModel;
     case "speech_recognition":
@@ -300,6 +303,8 @@ export const getDestinationFromModelType = (modelType: string): string => {
       return "/image-generation";
     case ModelType.VideoGeneration:
       return "/video-generation";
+    case ModelType.VideoGenerationI2V:
+      return "/video-generation-i2v";
     case ModelType.ObjectDetectionModel:
       return "/object-detection";
     case ModelType.SpeechRecognitionModel:
