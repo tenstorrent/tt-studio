@@ -406,7 +406,9 @@ async def stream_response_from_external_api(url: str, json_data: dict):
                             )
                             if delta_reasoning:
                                 tracker.record_thinking_token()
-                            delta_content = delta.get("content", "")
+                            # chat completions: choices[0].delta.content
+                            # base/completions:  choices[0].text
+                            delta_content = delta.get("content") or choices[0].get("text") or ""
                             if delta_content:
                                 tracker.record_content_token()
                                 logger.debug(f"Recorded token: count={tracker.num_tokens}, TTFT={tracker.get_ttft():.4f}s, TPOT={tracker.get_tpot():.4f}s")
