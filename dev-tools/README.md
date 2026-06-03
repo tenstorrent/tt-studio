@@ -1,5 +1,7 @@
 # Developer Tools
 
+> **Canonical dev workflow** lives in the [top-level README](../README.md#dev-workflow) and [docs/development.md](../docs/development.md). This file only documents tools in `dev-tools/`.
+
 This directory contains development tools and utilities for the TT-Studio project.
 
 ## Quick Start
@@ -43,7 +45,7 @@ The tool processes the following directories:
 The tool automatically skips the following directories:
 
 - `node_modules/` - External dependencies (should not have SPDX headers)
-- `tt-inference-server/` - Submodule (external code)
+- `tt-inference-server/` - Artifact extraction directory (external code, not owned source)
 - `.git/` - Git metadata
 - `.venv/` - Python virtual environments
 - `__pycache__/` - Python cache files

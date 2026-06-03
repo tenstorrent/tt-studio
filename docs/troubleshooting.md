@@ -4,48 +4,10 @@ This guide covers common issues you might encounter when working with TT-Studio 
 
 ## Table of Contents
 
-1. [Setup and Submodule Issues](#setup-and-submodule-issues)
-2. [Hardware Issues](#hardware-issues)
-3. [Docker and Deployment Issues](#docker-and-deployment-issues)
-4. [Frontend Issues](#frontend-issues)
-5. [Backend Issues](#backend-issues)
-
----
-
-## Setup and Submodule Issues
-
-### Missing Submodules
-
-If you have an existing clone of TT-Studio and encounter submodule-related issues, simply run the setup script again:
-
-```bash
-cd tt-studio
-python run.py
-```
-
-The script will automatically detect and fix any missing or misconfigured submodules. Alternatively, you can manually initialize submodules:
-
-```bash
-git submodule update --init --recursive
-```
-
-### Submodule Initialization Problems
-
-If you encounter issues with submodules not being properly initialized:
-
-1. **For new clones**: The setup script automatically handles all submodule initialization, so you don't need to worry about `--recurse-submodules`.
-
-2. **For existing clones**: Run the setup script which will detect and fix any submodule issues:
-
-   ```bash
-   python run.py
-   ```
-
-3. **Manual fix**: If needed, you can manually reset submodules:
-   ```bash
-   git submodule deinit --all
-   git submodule update --init --recursive
-   ```
+1. [Hardware Issues](#hardware-issues)
+2. [Docker and Deployment Issues](#docker-and-deployment-issues)
+3. [Frontend Issues](#frontend-issues)
+4. [Backend Issues](#backend-issues)
 
 ---
 

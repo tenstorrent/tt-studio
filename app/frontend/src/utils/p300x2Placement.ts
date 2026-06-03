@@ -17,7 +17,7 @@ function toSortedUnique(ids: number[]): number[] {
 }
 
 export function isP300x2Board(boardType?: string | null): boolean {
-  return boardType === "P300Cx2";
+  return boardType === "P300x2";
 }
 
 export function isLlama31_8BModel(modelNameOrId?: string | null): boolean {

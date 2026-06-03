@@ -103,8 +103,8 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Blackhole boards → constituent single-chip device
     "P150X4":  "p150",
     "P150X8":  "p150",
-    "P300Cx2": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
-    "P300Cx4": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
+    "P300x2": "p150",   # single-chip mode only: each P300 card uses --tt-device p150
+    "P300Cx4": "p150",  # single-chip mode only: each P300 card uses --tt-device p150
     # Galaxy (N300-based)
     "GALAXY":     "n300",
     "GALAXY_T3K": "n300",
@@ -114,7 +114,7 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "E150":  "e150",
     "P100":  "p100",
     "P150":  "p150",
-    "P300c": "p300c",
+    "P300": "p300",
     "unknown": "cpu",
 }
 
@@ -135,12 +135,12 @@ def map_board_type_to_device_name(board_type):
         # Blackhole devices
         "P100": "p100",
         "P150": "p150",
-        "P300c": "p300c",
-        
+        "P300": "p300",
+
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300Cx2": "p300x2",  # 2 cards (4 chips)
+        "P300x2": "p300x2",   # 2 cards (4 chips)
         "P300Cx4": "p300cx4",  # 4 cards (8 chips)
         
         # Galaxy systems
@@ -351,7 +351,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
         if impl.model_name == "Qwen3-32B" and device == "p300x2":
             payload["override_tt_config"] = '{"trace_region_size": 53000000}'
-            payload["dev_mode"] = True
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -362,8 +361,18 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         #     payload["dev_mode"] = True
 
         # TEMP: disabled — do not override docker image for QB2 media models
-        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300Cx2":
+        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
+
+        # These models use v0.14.0 image (P300X2 compatible)
+        if impl.model_name in {
+            "Llama-3.1-8B",
+            "Llama-3.1-8B-Instruct",
+            "Llama-3.1-70B",
+            "Llama-3.1-70B-Instruct",
+            "Llama-3.3-70B-Instruct",
+        }:
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
 
         logger.info(f"API payload: {payload}")
 
@@ -526,7 +535,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.N300_WH_ARCH_YAML,
         DeviceConfigurations.P100,
         DeviceConfigurations.P150,
-        DeviceConfigurations.P300c,
+        DeviceConfigurations.P300,
     }
 
     # Multi-chip configurations manage their own chip allocation; expose full directory
@@ -552,7 +561,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.T3K_LINE,
         DeviceConfigurations.P150X4,
         DeviceConfigurations.P150X8,
-        DeviceConfigurations.P300Cx2,
+        DeviceConfigurations.P300x2,
         DeviceConfigurations.P300Cx4,
         DeviceConfigurations.GALAXY,
         DeviceConfigurations.GALAXY_T3K,

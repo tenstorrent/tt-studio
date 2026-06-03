@@ -58,7 +58,7 @@ MULTI_CHIP_BOARD_SLOTS = {
     "N300x4": 4,
     "P150X4": 4,
     "P150X8": 8,
-    "P300Cx2": 4,
+    "P300x2": 4,
     "P300Cx4": 8,
     "GALAXY": 32,
     "GALAXY_T3K": 32,
@@ -93,7 +93,7 @@ class ChipSlotAllocator:
         if self.board_type in MULTI_CHIP_BOARD_SLOTS:
             return MULTI_CHIP_BOARD_SLOTS[self.board_type]
 
-        # Single-chip boards (N150, N300, E150, P100, P150, P300c) have 1 slot
+        # Single-chip boards (N150, N300, E150, P100, P150, P300) have 1 slot
         return 1
 
     def get_chip_status(self) -> Dict:

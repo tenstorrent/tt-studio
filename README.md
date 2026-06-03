@@ -6,223 +6,66 @@
 
 <h1 align="center">TT-Studio</h1>
 
-> To use TT-Studio's deployment features, you need access to a Tenstorrent AI accelerator.<br>
-> Alternatively, you can connect to [remote endpoints](docs/remote-endpoint-setup.md) running models on Tenstorrent cards without local hardware.
+> A web UI for deploying and chatting with AI models on Tenstorrent hardware. It wraps [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) packaging and [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) execution behind a Django + React + agent stack.
 
-**TL;DR:** TT-Studio is an easy-to-use web interface for running AI models on Tenstorrent hardware. It handles all the technical setup automatically and gives you a simple GUI to deploy models, chat with models, and more.
+> **No Tenstorrent hardware?** You can still use it — point it at [remote endpoints](docs/remote-endpoint-setup.md) running on cards elsewhere.
+
 
 ---
 
-TT-Studio combines [TT Inference Server's](https://github.com/tenstorrent/tt-inference-server) core packaging setup, containerization, and deployment automation with [TT-Metal's](https://github.com/tenstorrent-metal/tt-metal) model execution framework specifically optimized for Tenstorrent hardware and provides an intuitive GUI for model management and interaction.
+## Table of Contents
 
-## Prerequisites
+- [Before you start](#before-you-start)
+- [Quickstart](#quickstart)
+- [Documentation](#documentation)
+- [Community & License](#community--license)
 
-Before you start, make sure you have:
+---
 
-> **⚠️ IMPORTANT**: Complete the base Tenstorrent software installation first:
->
-> **[Follow the Tenstorrent Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html)**
->
-> This guide covers hardware setup, driver installation, and system configuration. You must complete this before using TT-Studio.
+## Before you start
 
-**Also ensure you have:**
+You'll need:
 
-- **Python 3.8+** ([Download here](https://www.python.org/downloads/))
-- **Docker** ([Installation guide](https://docs.docker.com/engine/install/))
+- **Python 3.8+** and **Docker** installed
+- Your user in the `docker` group so you don't need `sudo` — `sudo usermod -aG docker $USER`, then log out and back in
+- A **Hugging Face token** for any gated models you want to run (Llama, etc.)
+- First time on Tenstorrent hardware? Do the [Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html) first.
 
-> **⚠️ IMPORTANT - Docker Group Setup:**
->
-> After installing Docker, you must add your user to the `docker` group to run Docker commands without `sudo`:
->
-> ```bash
-> sudo usermod -aG docker $USER
-> ```
->
-> **Then log out and log back in** (or restart your system) for the group change to take effect.
->
-> To verify your user is in the docker group:
-> ```bash
-> groups | grep docker
-> ```
->
-> If you see "docker" in the output, you're ready to go! If not, make sure you've logged out and back in after running the `usermod` command.
+Full prerequisites are in the [detailed setup guide](docs/detailed-setup.md#prerequisites).
 
-## 📚 Choose Your Path
+---
 
-### 👤 I'm a Normal User
-
-> **Want to start using AI models right away on your Tenstorrent hardware? This is for you!**
-
-**Quick Setup:**
-
-```bash
-git clone https://github.com/tenstorrent/tt-studio.git && cd tt-studio && python3 run.py --easy
-```
-
-**What happens step by step:**
-
-1. **Downloads TT-Studio** - Gets the code from GitHub
-2. **Enters the directory** - Changes to the tt-studio folder
-3. **Runs the setup script** - Automatically configures everything (easy mode: only prompts for your Hugging Face token; uses defaults for the rest)
-4. **Initializes submodules** - Downloads TT Inference Server and dependencies
-5. **Builds containers** - Sets up Docker environments for frontend and backend
-6. **Starts all services** - Launches the web interface and backend server
-
-> **⚠️ Security Note:** Easy mode uses default values that are **NOT secure for production**. Use this mode only for development, testing, and quick evaluation. For production deployments, use the standard setup (`python3 run.py`) or development mode (`python3 run.py --dev`).
-
-📖 **More Details:** See the [Complete run.py Guide](docs/run-py-guide.md#easy-mode-setup) for a full comparison of setup modes.
-
-**After Setup:**
-
-- Go to **[http://localhost:3000](http://localhost:3000)** to use TT-Studio
-- The backend runs at [http://localhost:8001](http://localhost:8001)
-- Individual AI models run on ports 7000+ (e.g., 7001, 7002, etc.)
-
-**To Stop TT-Studio:**
-
-```bash
-python3 run.py --cleanup
-```
-
-> **Note:** This command will stop and remove all running Docker containers, including any currently deployed models. It cleans up containers and networks but preserves your data and configuration files.
-
-**🎯 What Can You Do Next?**
-
-Once TT-Studio is running:
-
-1. **Deploy a Model** - Go to the Model Deployment page and deploy a model to start using AI features
-2. **Use AI Features**:
-   - **💬 Chat with AI models** - Upload documents and ask questions
-   - **🖼️ Generate images** - Create art with Stable Diffusion
-   - **🎤 Process speech** - Convert speech to text with Whisper
-   - **👁️ Analyze images** - Detect objects with YOLO models
-   - **📚 RAG (Retrieval-Augmented Generation)** - Query your documents with AI-powered search
-   - **🤖 AI Agent** - Autonomous AI assistant for complex tasks
-
-📖 **Learn More**: Check out our [Model Interface Guide](docs/model-interface.md) for detailed tutorials.
-
-**🆘 Need Help?**
-
-- **No Tenstorrent hardware?** → [Remote Endpoint Setup](docs/remote-endpoint-setup.md) - Connect to remote Tenstorrent cards
-- **Issues during setup?** → [Troubleshooting Guide](docs/model-interface.md#troubleshooting)
-- **Questions?** → [FAQ](docs/FAQ.md)
-- **Remote server setup?** → See [Remote Access Guide](#remote-access) below
-- **Technical support?** → [Submit issues on GitHub](https://github.com/tenstorrent/tt-studio/issues)
-
-### 🛠️ I'm a Developer
-
-> **Want to contribute to TT-Studio or modify it?**
-
-**Development Mode Setup:**
+## Quickstart
 
 ```bash
 git clone https://github.com/tenstorrent/tt-studio.git
 cd tt-studio
-python3 run.py --dev
+python3 run.py
 ```
 
-**Development Features:**
+`run.py` handles the rest — the submodule, your `.env`, the right Docker overlays for your hardware, and all the containers. It asks for your Hugging Face token along the way. When it finishes, open **[http://localhost:3000](http://localhost:3000)**.
 
-- **Hot Reload**: Code changes automatically trigger rebuilds
-- **Container Mounting**: Local files mounted for real-time development
-- **Automatic Setup**: All submodules and dependencies handled automatically
+Two flags are worth knowing:
 
-**Get Started:**
+- **`python3 run.py --dev`** — development mode: mounts your local source so the backend and frontend hot-reload as you edit.
+- **`python3 run.py --cleanup-all`** — tear everything down and wipe the persistent volume and `.env` for a clean slate. (Use `--cleanup` instead to stop the containers but keep your data.)
 
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute code
-- [Development Setup](docs/development.md) - Set up your dev environment
-- [Frontend Development](app/frontend/README.md) - React frontend
-- [Backend API](app/backend/README.md) - Django backend
-
-**Resources:**
-
-- [Development Tools](dev-tools/README.md)
-- [Complete run.py Guide](docs/run-py-guide.md)
-- [vLLM Models Guide](docs/HowToRun_vLLM_Models.md)
+That's all most people need. Everything else — hardware modes, environment variables, the dev workflow, remote access, and troubleshooting — lives in the **[detailed setup guide](docs/detailed-setup.md)**.
 
 ---
 
-## Remote Access
+## Documentation
 
-Running TT-Studio on a remote server? Use SSH port forwarding to access it from your local browser:
-
-```bash
-ssh -L 3000:localhost:3000 -L 8001:localhost:8001 -L 7000-7010:localhost:7000-7010 username@your-server
-```
-
-> **Note**: Port range 7000-7010 forwards the model inference ports where individual AI models run.
-
-Then open [http://localhost:3000](http://localhost:3000) in your local browser.
+- **[Detailed setup & usage](docs/detailed-setup.md)** — hardware modes, env vars, dev workflow, remote access, troubleshooting
+- [run.py reference](docs/run-py-guide.md) — every flag and environment variable, explained
+- [Troubleshooting](docs/troubleshooting.md) and [FAQ](docs/FAQ.md)
+- [Remote endpoints](docs/remote-endpoint-setup.md) — use TT-Studio without local hardware
+- [Contributing](CONTRIBUTING.md) — branching strategy and PR standards
 
 ---
 
-## About TT-Studio
+## Community & License
 
-> **Hardware Requirements**: Tenstorrent AI accelerator hardware is automatically detected when available. You can also connect to remote endpoints if you don't have direct hardware access.
-
-TT-Studio combines [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) and [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) to provide:
-
-- **Modern Web Interface**: React-based UI for easy model interaction
-- **Django Backend**: Robust backend service for model management and deployment
-- **Vector Database**: ChromaDB for document storage and semantic search
-- **Multiple AI Models**: Chat, vision, speech, and image generation
-- **Model Isolation**: Each AI model runs on separate ports (7000+) for better resource management
-- **Hardware Optimization**: Specifically optimized for Tenstorrent devices
-- **Docker Containers**: Isolated environments for frontend, backend, and inference services
-
-### Supported AI Models
-
-- **Language Models (LLMs)**: Chat, Q&A, text completion
-- **Computer Vision**: Object detection with YOLO
-- **Speech Processing**: Speech-to-text with Whisper
-- **Image Generation**: Create images with Stable Diffusion
-
----
-
-## 🛠️ For Developers
-
-Want to contribute or customize TT-Studio?
-
-**Get Started:**
-
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute code
-- [Development Setup](docs/development.md) - Set up your dev environment
-- [Frontend Development](app/frontend/README.md) - React frontend
-- [Backend API](app/backend/README.md) - Django backend
-
-**Development Mode:**
-
-```bash
-python3 run.py --dev  # Enables hot reload for development
-```
-
-**Development Features:**
-
-- **Hot Reload**: Code changes automatically trigger rebuilds
-- **Container Mounting**: Local files mounted for real-time development
-- **Automatic Setup**: All submodules and dependencies handled automatically
-
-**Resources:**
-
-- [Development Tools](dev-tools/README.md)
-- [Complete run.py Guide](docs/run-py-guide.md)
-- [vLLM Models Guide](docs/HowToRun_vLLM_Models.md)
-
----
-
-## 📋 Additional Resources
-
-### Documentation
-
-- **[FAQ](docs/FAQ.md)** - Quick answers to common questions
-- **[Troubleshooting Guide](docs/troubleshooting.md)** - Fix common setup issues
-- **[Model Interface Guide](docs/model-interface.md)** - Detailed tutorials for using AI models
-- **[Complete run.py Guide](docs/run-py-guide.md)** - Advanced usage and command-line options
-
-### Community & Support
-
-- **Having issues?** Check our [Troubleshooting Guide](docs/troubleshooting.md)
-- **Want to contribute?** See our [Contributing Guide](CONTRIBUTING.md)
-- **Need specific models?** Follow our [vLLM Models Guide](docs/HowToRun_vLLM_Models.md)
-
-> ⚠️ **Note**: The `startup.sh` script is deprecated. Always use `python3 run.py` for setup and management.
+- **Issues / feature requests** — [GitHub Issues](https://github.com/tenstorrent/tt-studio/issues)
+- **Contributing** — [CONTRIBUTING.md](CONTRIBUTING.md)
+- **License** — Apache-2.0 (© Tenstorrent AI ULC)
