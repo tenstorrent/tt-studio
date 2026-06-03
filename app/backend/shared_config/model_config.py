@@ -247,6 +247,7 @@ _CATALOG_DEVICE_MAP = {
     # Blackhole P300 family
     "P300": "P300",
     "P300x2": "P300x2",
+    "P300c": "P300",       # stale name from older catalog syncs
     "P300Cx2": "P300x2",   # stale name from older catalog syncs
 }
 
