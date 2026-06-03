@@ -135,7 +135,10 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         # Speech recognition models use OpenAI-compatible /v1/audio/transcriptions endpoint
         if raw_model_type in ("AUDIO", "SPEECH_RECOGNITION"):
             return "/v1/audio/transcriptions"
-        # Other media models (image gen, video, embedding, etc.) use enqueue
+        # Image generation models use the OpenAI-compatible synchronous endpoint
+        if raw_model_type in ("IMAGE", "IMAGE_GENERATION"):
+            return "/v1/images/generations"
+        # Other media models (video, embedding, etc.) use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         return "/v1/chat/completions"
