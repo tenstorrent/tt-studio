@@ -13,7 +13,6 @@ import {
   Cpu,
   Thermometer,
   Gauge,
-  Leaf,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -31,9 +30,6 @@ import {
 } from "../ui/tooltip";
 import { useTheme } from "../../hooks/useTheme"; // Import the existing theme provider
 import type { InferenceStatsProps, TokenTimestamp } from "./types";
-import { getModelBenchmarks } from "./benchmarkData";
-import { computeEfficiencyComparisons } from "./metricsTracker";
-import type { EfficiencyComparison } from "./metricsTracker";
 
 interface InferenceStatsComponentProps extends InferenceStatsProps {
   inline?: boolean;
@@ -289,19 +285,6 @@ export default function Component({
 
   // --- Hardware & efficiency data ---
   const hw = stats.hardware;
-  const gpuBaselines = getModelBenchmarks(modelName);
-  const efficiencyComparisons: EfficiencyComparison[] =
-    gpuBaselines ? computeEfficiencyComparisons(stats, gpuBaselines) : [];
-  const bestEfficiencyRatio =
-    efficiencyComparisons.length > 0
-      ? Math.max(...efficiencyComparisons.map((c) => c.efficiency_ratio))
-      : null;
-
-  const ttTps =
-    stats.tps ??
-    (typeof stats.user_tpot === "number" && stats.user_tpot > 0
-      ? 1 / stats.user_tpot
-      : undefined);
 
   // Reusable stats display component
   const StatsDisplay = ({ className = "" }: { className?: string }) => (
@@ -815,13 +798,6 @@ export default function Component({
         ? `${(stats.thinking_duration_ms / 1000).toFixed(1)}s`
         : `${Math.round(stats.thinking_duration_ms)}ms`
       : null;
-    const effDisplay = stats.tps_per_watt != null
-      ? stats.tps_per_watt.toFixed(2)
-      : null;
-    const effRatioDisplay = bestEfficiencyRatio != null && bestEfficiencyRatio > 1
-      ? `${bestEfficiencyRatio.toFixed(1)}x`
-      : null;
-
     type Segment = { label: string | null; value: string; unit?: string; accent?: boolean };
     const segments: (Segment | null)[] = isAgentMode
       ? [

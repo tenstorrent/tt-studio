@@ -15,7 +15,7 @@
  * - Network latency: client_ttft - backend_ttft
  */
 
-import type { TokenTimestamp, InferenceStats, ProgressiveStats, HardwareMetrics } from "./types";
+import type { TokenTimestamp, InferenceStats, ProgressiveStats } from "./types";
 import type { GpuBenchmark } from "./benchmarkData";
 
 export class InferenceMetricsTracker {

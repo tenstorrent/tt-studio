@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, type DragEventHandler } from "react";
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
   type NodeMouseHandler,
-  type OnDragOver,
-  type OnDrop,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./canvas-overrides.css";
@@ -74,12 +72,12 @@ export default function WorkflowCanvas() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedNodeId, deleteSelected]);
 
-  const onDragOver: OnDragOver = useCallback((event) => {
+  const onDragOver: DragEventHandler<HTMLDivElement> = useCallback((event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
   }, []);
 
-  const onDrop: OnDrop = useCallback(
+  const onDrop: DragEventHandler<HTMLDivElement> = useCallback(
     (event) => {
       event.preventDefault();
       const type = event.dataTransfer.getData(
