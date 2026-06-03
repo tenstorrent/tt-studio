@@ -67,8 +67,10 @@ app/frontend/public/.cleanup-pending
 inference-api/.venv/
 inference-api/__pycache__/
 
-# Agent working directory (temporary files only)
+# Agent working directory (temporary files only), except committed skills
 .claude/**/*
+!.claude/skills/
+!.claude/skills/**
 .cursor/agent/**/*
 CLAUDE.md
 docs/RAG_PRODUCTIONIZATION_PLAN.md
