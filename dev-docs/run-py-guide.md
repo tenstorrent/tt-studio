@@ -45,7 +45,7 @@ The script will guide you through all configuration options and set up everythin
 
 > **Important**: The `--skip-fastapi` option disables chat-based language models (LLMs) functionality. Only computer vision models (YOLO), image generation models (Stable Diffusion), and speech recognition models (Whisper) will be available for deployment and inference.
 
-> **AI Playground Mode**: To use TT-Studio as a frontend for all model types (LLMs, YOLO, Whisper, Stable Diffusion), set `VITE_ENABLE_DEPLOYED=true` in your `.env` file and configure the corresponding model endpoints. See the [Model Interface Guide](../docs/model-interface.md) for details.
+> **AI Playground Mode**: To use TT-Studio as a frontend for all model types (LLMs, YOLO, Whisper, Stable Diffusion), set `VITE_ENABLE_DEPLOYED=true` in your `.env` file and configure the corresponding model endpoints. See the [Model Interface Guide](../dev-docs/model-interface.md) for details.
 
 To display the same help section in the terminal, run:
 
