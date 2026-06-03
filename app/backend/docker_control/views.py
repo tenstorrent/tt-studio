@@ -72,6 +72,22 @@ try:
 except Exception:
     _compatibility_override_names = set()
 
+# Pin these Llama variants to the v0.14.0 release image for P300x2 compatibility (PR #815).
+# Sent as override_docker_image so the inference server uses the published -release- tag
+# even when dev_mode is on (e.g. tool calling), avoiding the -dev- variant which is not
+# published for this build.
+_LLAMA_V014_IMAGE = (
+    "ghcr.io/tenstorrent/tt-inference-server/"
+    "vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
+)
+_LLAMA_V014_MODELS = {
+    "Llama-3.1-8B",
+    "Llama-3.1-8B-Instruct",
+    "Llama-3.1-70B",
+    "Llama-3.1-70B-Instruct",
+    "Llama-3.3-70B-Instruct",
+}
+
 # Track when deployment started
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
@@ -582,6 +598,9 @@ class DeployView(APIView):
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
                 needs_dev_mode = bool(vllm_override_args)
+                override_docker_image = (
+                    _LLAMA_V014_IMAGE if impl.model_name in _LLAMA_V014_MODELS else None
+                )
                 result = start_chat_deployment(
                     model_name=impl.model_name,
                     device=device,
@@ -592,6 +611,7 @@ class DeployView(APIView):
                     vllm_override_args=vllm_override_args,
                     override_tt_config=override_tt_config,
                     dev_mode=needs_dev_mode,
+                    override_docker_image=override_docker_image,
                 )
                 if result.status != "success":
                     return Response(
