@@ -6,7 +6,7 @@ Django REST API for TT-Studio. Handles model deployment, RAG, and metadata.
 
 The backend **does not mount `/var/run/docker.sock`** and **does not run as root**. All Docker operations go through the [`docker-control-service`](../../docker-control-service/README.md) over HTTP with JWT auth (`DOCKER_CONTROL_SERVICE_URL`, `DOCKER_CONTROL_JWT_SECRET`).
 
-See [docs/DOCKER_SOCKET_MIGRATION.md](../../docs/DOCKER_SOCKET_MIGRATION.md) for the architecture and rationale. Older code paths in this directory that import the Docker SDK directly are being migrated — new code should call the control service.
+See [dev-docs/DOCKER_SOCKET_MIGRATION.md](../../dev-docs/DOCKER_SOCKET_MIGRATION.md) for the architecture and rationale. Older code paths in this directory that import the Docker SDK directly are being migrated — new code should call the control service.
 
 ## API reference
 

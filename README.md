@@ -8,7 +8,7 @@
 
 > A web UI for deploying and chatting with AI models on Tenstorrent hardware. It wraps [TT Inference Server](https://github.com/tenstorrent/tt-inference-server) packaging and [TT-Metal](https://github.com/tenstorrent-metal/tt-metal) execution behind a Django + React + agent stack.
 
-> **No Tenstorrent hardware?** You can still use it — point it at [remote endpoints](docs/remote-endpoint-setup.md) running on cards elsewhere.
+> **No Tenstorrent hardware?** You can still use it — point it at [remote endpoints](dev-docs/remote-endpoint-setup.md) running on cards elsewhere.
 
 
 ---
@@ -31,7 +31,7 @@ You'll need:
 - A **Hugging Face token** for any gated models you want to run (Llama, etc.)
 - First time on Tenstorrent hardware? Do the [Getting Started Guide](https://docs.tenstorrent.com/getting-started/README.html) first.
 
-Full prerequisites are in the [detailed setup guide](docs/detailed-setup.md#prerequisites).
+Full prerequisites are in the [detailed setup guide](dev-docs/detailed-setup.md#prerequisites).
 
 ---
 
@@ -50,16 +50,16 @@ Two flags are worth knowing:
 - **`python3 run.py --dev`** — development mode: mounts your local source so the backend and frontend hot-reload as you edit.
 - **`python3 run.py --cleanup-all`** — tear everything down and wipe the persistent volume and `.env` for a clean slate. (Use `--cleanup` instead to stop the containers but keep your data.)
 
-That's all most people need. Everything else — hardware modes, environment variables, the dev workflow, remote access, and troubleshooting — lives in the **[detailed setup guide](docs/detailed-setup.md)**.
+That's all most people need. Everything else — hardware modes, environment variables, the dev workflow, remote access, and troubleshooting — lives in the **[detailed setup guide](dev-docs/detailed-setup.md)**.
 
 ---
 
 ## Documentation
 
-- **[Detailed setup & usage](docs/detailed-setup.md)** — hardware modes, env vars, dev workflow, remote access, troubleshooting
-- [run.py reference](docs/run-py-guide.md) — every flag and environment variable, explained
-- [Troubleshooting](docs/troubleshooting.md) and [FAQ](docs/FAQ.md)
-- [Remote endpoints](docs/remote-endpoint-setup.md) — use TT-Studio without local hardware
+- **[Detailed setup & usage](dev-docs/detailed-setup.md)** — hardware modes, env vars, dev workflow, remote access, troubleshooting
+- [run.py reference](dev-docs/run-py-guide.md) — every flag and environment variable, explained
+- [Troubleshooting](dev-docs/troubleshooting.md) and [FAQ](dev-docs/FAQ.md)
+- [Remote endpoints](dev-docs/remote-endpoint-setup.md) — use TT-Studio without local hardware
 - [Contributing](CONTRIBUTING.md) — branching strategy and PR standards
 
 ---

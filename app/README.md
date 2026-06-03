@@ -4,7 +4,7 @@ The `app/` directory holds the user-facing stack: Django backend, React frontend
 
 > For one-command setup, use **`python3 run.py`** from the repo root — it handles env, overlays, hardware detection, and the host-side `docker-control-service`. The instructions below are for running the compose stack directly when you need finer control.
 >
-> Full `run.py` reference: [docs/run-py-guide.md](../docs/run-py-guide.md)
+> Full `run.py` reference: [dev-docs/run-py-guide.md](../dev-docs/run-py-guide.md)
 
 ## Services (from `docker-compose.yml`)
 
@@ -15,7 +15,7 @@ The `app/` directory holds the user-facing stack: Django backend, React frontend
 | `tt_studio_agent` | FastAPI agent — voice / canvas / pipelines / search | [agent/README.md](agent/README.md) |
 | `tt_studio_chroma` | ChromaDB vector store for RAG | — |
 
-The **`docker-control-service`** ([root-level README](../docker-control-service/README.md)) runs on the **host** (not in compose) on port 8002. The backend talks to it for all Docker operations — see [docs/DOCKER_SOCKET_MIGRATION.md](../docs/DOCKER_SOCKET_MIGRATION.md).
+The **`docker-control-service`** ([root-level README](../docker-control-service/README.md)) runs on the **host** (not in compose) on port 8002. The backend talks to it for all Docker operations — see [dev-docs/DOCKER_SOCKET_MIGRATION.md](../dev-docs/DOCKER_SOCKET_MIGRATION.md).
 
 ## Compose overlays
 
@@ -92,4 +92,4 @@ docker compose exec tt_studio_backend ./manage.py runserver 0.0.0.0:8000
 
 ## Models
 
-For Llama and other model-specific setup, see [docs/HowToRun_vLLM_Models.md](../docs/HowToRun_vLLM_Models.md).
+For Llama and other model-specific setup, see [dev-docs/HowToRun_vLLM_Models.md](../dev-docs/HowToRun_vLLM_Models.md).
