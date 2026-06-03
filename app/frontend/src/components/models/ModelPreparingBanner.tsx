@@ -20,17 +20,17 @@ interface ModelPreparingBannerProps {
 // the rendered list except in the first poll cycle before any phase data
 // arrives. Keep it sync'd with LLM_PHASES in log_classifier.py for that case.
 const FALLBACK_PHASE_ORDER: { key: string; label: string }[] = [
-  { key: "container_starting",  label: "Starting container" },
-  { key: "vllm_importing",      label: "Loading vLLM runtime" },
+  { key: "container_starting", label: "Starting container" },
+  { key: "vllm_importing", label: "Loading vLLM runtime" },
   { key: "downloading_weights", label: "Downloading model weights" },
   { key: "engine_initializing", label: "Initializing inference engine" },
-  { key: "device_init",         label: "Opening Tenstorrent device" },
-  { key: "model_config",        label: "Loading model configuration" },
-  { key: "loading_weights",     label: "Loading model weights" },
-  { key: "compiling_model",     label: "Compiling inference graph" },
-  { key: "engine_ready",        label: "Allocating KV cache" },
-  { key: "server_starting",     label: "Starting API server" },
-  { key: "ready",               label: "Ready" },
+  { key: "device_init", label: "Opening Tenstorrent device" },
+  { key: "model_config", label: "Loading model configuration" },
+  { key: "loading_weights", label: "Loading model weights" },
+  { key: "compiling_model", label: "Compiling inference graph" },
+  { key: "engine_ready", label: "Allocating KV cache" },
+  { key: "server_starting", label: "Starting API server" },
+  { key: "ready", label: "Ready" },
 ];
 
 function resolvePhaseOrder(
@@ -172,13 +172,9 @@ function PhaseTrack({
   phaseKey: string;
   hideDownload: boolean;
 }) {
-  // Horizontal sequential strip. Each phase is a pill — completed are amber-dim,
-  // active is bright amber with the label always visible, upcoming are muted.
-  // Phase list is dynamic per-model: LLMs get the vLLM-flavored sequence
-  // (compile + KV alloc); media models get the FastAPI worker-pool sequence.
-  // Source of truth is the backend's `phase.phases` array — see log_classifier.py.
-  // When weights were cached we drop downloading_weights from the list entirely,
-  // so the user doesn't see a step they're skipping.
+  // Horizontal sequential strip
+  // Phase list is dynamic per-model: LLMs get the vLLM-flavored sequence (compile + KV alloc); media models get the FastAPI worker-pool sequence.
+  // Source of truth is the backend's `phase.phases` array.
   const allPhases = resolvePhaseOrder(phase);
   const visiblePhases = hideDownload
     ? allPhases.filter((p) => p.key !== "downloading_weights")
@@ -198,21 +194,21 @@ function PhaseTrack({
               active
                 ? "bg-amber-500/20 border border-amber-400/60 text-amber-200"
                 : done
-                  ? "bg-amber-900/30 border border-amber-700/30 text-amber-700/80"
-                  : "bg-stone-900/40 border border-stone-800/60 text-stone-600",
+                  ? "bg-stone-900/40 border border-stone-800/60 text-stone-500"
+                  : "bg-stone-900/40 border border-stone-800/60 text-stone-100",
             ].join(" ")}
           >
-            <div
-              className={[
-                "h-1.5 w-1.5 rounded-full shrink-0",
-                active
-                  ? "bg-amber-400 animate-pulse"
-                  : done
-                    ? "bg-amber-700/70"
-                    : "bg-stone-700",
-              ].join(" ")}
-              aria-hidden="true"
-            />
+            {done ? (
+              <Check className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+            ) : (
+              <div
+                className={[
+                  "h-1.5 w-1.5 rounded-full shrink-0",
+                  active ? "bg-amber-400 animate-pulse" : "bg-stone-400",
+                ].join(" ")}
+                aria-hidden="true"
+              />
+            )}
             <span>{p.label}</span>
           </div>
         );
@@ -298,9 +294,8 @@ function PreparingRow({
       {/* Progress bar — taller during the download phase so the long-running
           phase reads as the main signal. */}
       <div
-        className={`relative w-full overflow-hidden rounded-full bg-stone-800/80 mb-3 ${
-          isDownloading ? "h-2.5" : "h-1.5"
-        }`}
+        className={`relative w-full overflow-hidden rounded-full bg-stone-800/80 mb-3 ${isDownloading ? "h-2.5" : "h-1.5"
+          }`}
         role="progressbar"
         aria-valuenow={progress}
         aria-valuemin={0}
