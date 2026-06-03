@@ -1019,6 +1019,7 @@ def display_first_time_welcome():
             sys.exit(0)
         elif response in ['y', 'yes']:
             print(f"{C_GREEN}Terms accepted. Continuing with setup...{C_RESET}")
+            save_preference("terms_accepted", True)
             break
         else:
             print(f"{C_YELLOW}Please enter 'yes' (or 'y') or 'no' (or 'n').{C_RESET}")
