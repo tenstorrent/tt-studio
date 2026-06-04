@@ -2757,8 +2757,43 @@ def get_inference_server_version():
     env_version = get_env_var("TT_INFERENCE_ARTIFACT_VERSION") or os.getenv("TT_INFERENCE_ARTIFACT_VERSION")
     if env_version and env_version != "latest":
         return env_version
-    
+
     return None
+
+
+# ─── TEMP (QB2 workaround) — remove this block + its call in main() when done ──
+def stage_qb2_preloaded_volume_symlinks():
+    """Symlink the release-versioned host-volume dir to the QB2-preloaded one.
+
+    Fleet machines ship weights/cache preloaded at
+    ~/data/tt-cache/volume_id_<impl>-<model>-vqb2_launch/, but a pinned-release
+    tt-inference-server derives ...-v<VERSION>/ from its own VERSION file, so
+    --host-volume reuse misses the preloaded data and re-downloads. impl_id and
+    model_name are stable across the version change, so swapping only the
+    -vqb2_launch suffix for -v<VERSION> is the complete remap for all models
+    (mapping mirrors inference-api/api.py:246-249). Symlink, not copy — Qwen3-32B
+    weights are tens of GB. Excise this function + its call in main() when the
+    preloaded data is re-staged under the release name.
+    """
+    QB2_SUFFIX = "-vqb2_launch"
+    cache_root = Path(
+        os.getenv("TT_PRELOADED_HOST_VOLUME_ROOT", "~/data/tt-cache")
+    ).expanduser()
+    version = get_inference_server_version()  # None on branch artifacts
+    if not cache_root.is_dir() or not version or version == "qb2_launch":
+        return
+    for src in sorted(cache_root.glob(f"volume_id_*{QB2_SUFFIX}")):
+        if not src.is_dir():
+            continue
+        target = cache_root / (src.name[: -len(QB2_SUFFIX)] + f"-v{version}")
+        if target.exists() or target.is_symlink():  # never clobber; idempotent
+            continue
+        try:
+            os.symlink(src.resolve(), target)  # resolve() avoids symlink-to-symlink
+            print(f"{C_GREEN}✅ QB2: linked {target.name} → {src.name}{C_RESET}")
+        except OSError as exc:
+            print(f"{C_YELLOW}⚠️  QB2: could not link {target.name}: {exc}{C_RESET}")
+# ─── end TEMP (QB2 workaround) ────────────────────────────────────────────────
 
 
 def validate_artifact_structure(artifact_dir):
@@ -4953,6 +4988,10 @@ def main():
                     startup_log.summary(exit_code=1)
                     startup_log.close()
                     sys.exit(1)
+
+                # ─── TEMP (QB2 workaround) — remove with stage_qb2_... helper ──
+                stage_qb2_preloaded_volume_symlinks()
+                # ─── end TEMP (QB2 workaround) ────────────────────────────────
 
                 # Sync model catalog from artifact
                 models_json_path = os.path.join(TT_STUDIO_ROOT, "app", "backend", "shared_config", "models_from_inference_server.json")
