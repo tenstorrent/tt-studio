@@ -666,10 +666,9 @@ def setup_tt_inference_server(pull_branch=False):
             # Download (overwrites existing tarball if present; always gets current HEAD of branch)
             github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/{artifact_branch}.tar.gz"
             try:
-                import urllib.request
+                from tt_setup.console import download_with_progress
                 print(f"   Downloading from: {github_url}")
-                print(f"   This may take a few minutes...")
-                urllib.request.urlretrieve(github_url, artifact_file)
+                download_with_progress(github_url, artifact_file, "Downloading TT Inference Server")
             except Exception as e:
                 error_str = str(e)
                 if "404" in error_str or "Not Found" in error_str:
@@ -796,10 +795,9 @@ def setup_tt_inference_server(pull_branch=False):
             else:
                 github_url = f"https://github.com/tenstorrent/tt-inference-server/archive/refs/heads/main.tar.gz"
                 try:
-                    import urllib.request
+                    from tt_setup.console import download_with_progress
                     print(f"   Downloading from: {github_url}")
-                    print(f"   This may take a few minutes...")
-                    urllib.request.urlretrieve(github_url, artifact_file)
+                    download_with_progress(github_url, artifact_file, "Downloading TT Inference Server")
                     file_size = os.path.getsize(artifact_file)
                     if file_size == 0:
                         print(f"{C_RED}⛔ Download failed: file is empty{C_RESET}")

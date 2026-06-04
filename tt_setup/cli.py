@@ -11,7 +11,7 @@ import typer
 from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
-from tt_setup.console import console
+from tt_setup.console import console, set_verbose, step
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import clear_lines, display_welcome_banner, run_preflight_checks
@@ -55,8 +55,10 @@ def _entry(
     device_id: int = typer.Option(0, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for --auto-deploy."),
     fix_docker: bool = typer.Option(False, "--fix-docker", help="Automatically fix Docker service/permission issues."),
     configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show full per-phase output instead of the calm summary."),
 ):
     """Set up and launch TT Studio. With no flags, runs the default minimal setup."""
+    set_verbose(verbose)
     args = SimpleNamespace(
         dev=dev, cleanup=cleanup, cleanup_all=cleanup_all, yes=yes, help_env=help_env,
         reconfigure=reconfigure, reconfigure_inference_server=reconfigure_inference_server,
@@ -177,11 +179,13 @@ def _run(args):
 
         # Pre-flight system checks
         startup_log.step("preflight_checks", "START")
-        run_preflight_checks()
+        with step("Running preflight checks"):
+            run_preflight_checks()
         startup_log.step("preflight_checks", "OK")
 
         startup_log.step("docker_install_check", "START")
-        check_docker_installation()
+        with step("Checking Docker"):
+            check_docker_installation()
         startup_log.step("docker_install_check", "OK")
 
         startup_log.step("configure_environment", "START")
@@ -206,17 +210,17 @@ def _run(args):
 
         # Create persistent storage directory
         host_persistent_volume = get_env_var("HOST_PERSISTENT_STORAGE_VOLUME") or os.path.join(TT_STUDIO_ROOT, "tt_studio_persistent_volume")
-        if host_persistent_volume:
-            if not os.path.isdir(host_persistent_volume):
-                print(f"\n{C_BLUE}📁 Creating persistent storage directory at: {host_persistent_volume}{C_RESET}")
+        with step("Preparing persistent storage"):
+            if host_persistent_volume and not os.path.isdir(host_persistent_volume):
+                print(f"📁 Creating persistent storage directory at: {host_persistent_volume}")
                 os.makedirs(host_persistent_volume, exist_ok=True)
-                # Only set permissions on newly created directory (we own it)
-                # Existing subdirectories will be handled by Docker containers via docker-entrypoint.sh
+                # Only set permissions on newly created directory (we own it).
+                # Existing subdirectories are handled by Docker via docker-entrypoint.sh.
                 try:
                     os.chmod(host_persistent_volume, 0o777)
                 except (OSError, PermissionError) as e:
-                    print(f"{C_YELLOW}⚠️  Could not set permissions on persistent volume: {e}{C_RESET}")
-                    print(f"{C_YELLOW}   Docker containers will handle permissions via docker-entrypoint.sh{C_RESET}")
+                    print(f"⚠️  Could not set permissions on persistent volume: {e}")
+                    print("   Docker containers will handle permissions via docker-entrypoint.sh")
 
         # Create Docker network
         has_docker_access = check_docker_access()
@@ -392,9 +396,11 @@ def _run(args):
         # This ensures the backend can connect to it when it starts
         startup_log.step("docker_control_service", "START")
         if not args.skip_docker_control:
-            if not start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev):
+            with step("Starting Docker Control Service", spinner=False) as s:
+                if not start_docker_control_service(no_sudo=args.no_sudo, dev_mode=args.dev):
+                    s.fail()
+            if s.failed:
                 startup_log.step("docker_control_service", "WARN", "failed, continuing without it")
-                print(f"{C_RED}⛔ Failed to start Docker Control Service. Continuing without it.{C_RESET}")
                 print(f"{C_YELLOW}Note: Backend will not be able to manage Docker containers.{C_RESET}")
             else:
                 startup_log.step("docker_control_service", "OK")
@@ -409,10 +415,12 @@ def _run(args):
         # so any version/branch changes are visible to the user early and failures stop startup immediately
         if not args.skip_fastapi and not is_deployed_mode:
             startup_log.step("fastapi_server", "START")
-            print(f"\n{C_CYAN}🔍 Checking TT Inference Server artifact...{C_RESET}")
             original_dir = os.getcwd()
             try:
-                if not setup_tt_inference_server(pull_branch=args.pull_branch):
+                with step("Setting up TT Inference Server", spinner=False) as s:
+                    if not setup_tt_inference_server(pull_branch=args.pull_branch):
+                        s.fail()
+                if s.failed:
                     startup_log.step("fastapi_server", "FAIL", "inference server setup failed")
                     print(f"{C_RED}⛔ Cannot start TT Studio: TT Inference Server setup failed. Exiting.{C_RESET}")
                     startup_log.summary(exit_code=1)
@@ -428,10 +436,10 @@ def _run(args):
                     not os.path.exists(models_json_path)
                 )
                 if should_sync:
-                    print(f"\n{C_CYAN}🔄 Syncing model catalog from artifact...{C_RESET}")
-                    _sync_model_catalog()
+                    with step("Syncing model catalog"):
+                        _sync_model_catalog()
                 else:
-                    print(f"\n{C_YELLOW}ℹ️  Skipping model catalog sync (use --resync to force){C_RESET}")
+                    console.print("[muted]Skipping model catalog sync (use --resync to force)[/muted]")
             finally:
                 os.chdir(original_dir)
         elif args.skip_fastapi:
@@ -490,7 +498,10 @@ def _run(args):
         if not args.skip_fastapi and not is_deployed_mode:
             original_dir = os.getcwd()
             try:
-                if not setup_fastapi_environment():
+                with step("Preparing inference server environment") as s:
+                    if not setup_fastapi_environment():
+                        s.fail()
+                if s.failed:
                     startup_log.step("fastapi_server", "FAIL", "environment setup failed")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI environment setup failed. Exiting.{C_RESET}")
                     suggest_pip_fixes()
@@ -498,7 +509,10 @@ def _run(args):
                     startup_log.close()
                     sys.exit(1)
 
-                if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
+                with step("Starting inference server", spinner=False) as s:
+                    if not start_fastapi_server(no_sudo=args.no_sudo, dev_mode=args.dev):
+                        s.fail()
+                if s.failed:
                     startup_log.step("fastapi_server", "FAIL", f"see {FASTAPI_LOG_FILE}")
                     print(f"{C_RED}⛔ Cannot start TT Studio: FastAPI server failed to start. Exiting.{C_RESET}")
                     print(f"   Check logs: tail -50 {FASTAPI_LOG_FILE}")
@@ -552,12 +566,14 @@ def _run(args):
 
         # Wait for services if requested
         if args.wait_for_services:
-            all_services_healthy = wait_for_all_services(
-                skip_fastapi=args.skip_fastapi,
-                is_deployed_mode=is_deployed_mode,
-                skip_docker_control=args.skip_docker_control,
-            )
-            if not all_services_healthy:
+            with step("Waiting for services") as s:
+                if not wait_for_all_services(
+                    skip_fastapi=args.skip_fastapi,
+                    is_deployed_mode=is_deployed_mode,
+                    skip_docker_control=args.skip_docker_control,
+                ):
+                    s.fail()
+            if s.failed:
                 print(f"\n{C_RED}⛔ Not all services became healthy{C_RESET}")
                 print(f"{C_CYAN}   Review logs above. Try: python run.py --cleanup && python run.py{C_RESET}")
                 sys.exit(1)

@@ -21,8 +21,10 @@ class TestReadDeps(unittest.TestCase):
                 )
             self.assertEqual(B._read_deps(p), ["rich>=13", "typer>=0.12"])
 
-    def test_missing_file_returns_empty(self):
-        self.assertEqual(B._read_deps("/nope/pyproject.toml"), [])
+    def test_missing_file_raises(self):
+        # Hardened bootstrap fails loudly rather than silently returning [].
+        with self.assertRaises(OSError):
+            B._read_deps("/nope/pyproject.toml")
 
     def test_deps_hash_is_order_independent(self):
         self.assertEqual(B._deps_hash(["a", "b"]), B._deps_hash(["b", "a"]))
@@ -47,13 +49,15 @@ class TestEnsureEnvironment(unittest.TestCase):
             execve.assert_not_called()
             ensure.assert_not_called()
 
-    def test_noop_when_no_deps(self):
+    def test_empty_deps_exits_without_reexec(self):
+        # No declared deps -> refuse to bootstrap an empty venv (clean exit, no re-exec).
         with patch.dict(os.environ, {}, clear=False), \
              patch.object(B, "_in_target_venv", return_value=False), \
              patch.object(B, "_read_deps", return_value=[]), \
              patch("os.execve") as execve:
             os.environ.pop(B._FLAG, None)
-            B.ensure_environment()
+            with self.assertRaises(SystemExit):
+                B.ensure_environment()
             execve.assert_not_called()
 
     def test_reexecs_when_outside_venv_with_deps(self):
