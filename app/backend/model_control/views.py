@@ -1607,9 +1607,13 @@ _CODING_AGENT_MODEL_TYPES = (ModelTypes.CHAT, ModelTypes.VLM)
 
 # Models eligible for the coding-agent gateway. Native tool calling (required by
 # Claude Code / Cursor) only works on models deployed with vLLM tool-calling
-# enabled — for now that's limited to Qwen3-32B (deployed in dev_mode). Expand
-# this set once the tt-inference-server tool-calling fix lands for other models.
-_CODING_AGENT_ELIGIBLE_MODELS = {"Qwen3-32B"}
+# enabled. Expand this set as the tt-inference-server tool-calling fix is
+# validated for more models.
+_CODING_AGENT_ELIGIBLE_MODELS = {
+    "Qwen3-32B",
+    "Llama-3.1-8B-Instruct",
+    "Llama-3.1-8B",
+}
 
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
