@@ -9,7 +9,7 @@ This directory holds reference model implementations bundled with TT-Studio. **P
 | [`dummy_echo_model/`](dummy_echo_model/README.md) | Minimal echo model used as a smoke-test fixture for the deployment flow |
 | [`licenses/`](licenses/README.md) | Pointers to upstream Tenstorrent model license terms |
 
-For end-to-end model deployment from the UI, see [docs/model-interface.md](../docs/model-interface.md). For vLLM-backed LLMs specifically, see [docs/HowToRun_vLLM_Models.md](../docs/HowToRun_vLLM_Models.md). For custom weights, see [`app/backend/README.md`](../app/backend/README.md#support-for-custom-weights).
+For end-to-end model deployment from the UI, see [dev-docs/model-interface.md](../dev-docs/model-interface.md). For vLLM-backed LLMs specifically, see [dev-docs/HowToRun_vLLM_Models.md](../dev-docs/HowToRun_vLLM_Models.md). For custom weights, see [`app/backend/README.md`](../app/backend/README.md#support-for-custom-weights).
 
 ---
 
