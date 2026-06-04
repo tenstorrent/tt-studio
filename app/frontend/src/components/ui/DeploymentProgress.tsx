@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Progress } from './progress';
 
 /** Log / TT_PROGRESS lines when host setup finished or weights were already present (no long download). */
@@ -37,8 +37,8 @@ interface DeploymentProgressProps {
   onCancel?: () => void;
   onViewLogs?: () => void;
   startTime?: number;
-  /** True once the image has been pulled in this deploy — surfaces a "✓ Image ready"
-   *  confirmation during the subsequent (indeterminate) container-start phase. */
+  /** True once the image has been pulled in this deploy. Drives the unified
+   *  0–50% (pull) / 50–100% (container start) bar and a "✓ Image ready" confirmation. */
   imagePulled?: boolean;
 }
 
@@ -193,22 +193,36 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       ? Math.min(1, Math.max(0, downloadedBytes / totalBytes))
       : null;
 
-  const displayPercent = (() => {
-    if (isError) return 100;
-    if (isComplete) return 100;
+  const isContainerStarting =
+    !isError && !isComplete && !isStalled && !isCancelled && !isImagePull;
+
+  // Unified, forward-only percent for a pre-pull deploy: the image pull fills the
+  // first half (0–50%, smooth from real bytes) and the container-start milestones
+  // fill the second half (50–100%, from the backend's real stage progress). For any
+  // non-pull use of this component we keep the original per-stage behavior.
+  const unifiedPullContext = isImagePull || imagePulled;
+  const rawPercent = (() => {
+    if (isError || isComplete) return 100;
+    if (unifiedPullContext) {
+      if (isImagePull) return (downloadFraction ?? 0) * 50;
+      return 50 + Math.min(100, Math.max(0, progressPercent ?? 0)) * 0.5;
+    }
     if (stage === 'model_preparation' && downloadFraction !== null) {
       return 15 + downloadFraction * 25;
     }
     return Math.min(100, Math.max(0, progressPercent ?? 0));
   })();
 
-  // Container-start phase: running, past the image pull, with no byte-level detail
-  // to show. We render an animated indeterminate sweep instead of a number that
-  // would otherwise jump backwards from the pull's ~100%.
-  const isContainerStarting =
-    !isError && !isComplete && !isStalled && !isCancelled && !isImagePull;
-  const indeterminate = isContainerStarting && downloadFraction === null;
-  const displayMessage = indeterminate
+  // Clamp monotonic so a noisy/coarse backend value can never make the bar jump
+  // backwards. The ref resets naturally — the panel unmounts at completion and
+  // remounts per deploy, so each deploy starts fresh at 0.
+  const maxPctRef = useRef(0);
+  const displayPercent = Math.max(rawPercent, maxPctRef.current);
+  maxPctRef.current = displayPercent;
+
+  // Container-start stages carry noisy backend messages (e.g. the raw `docker run`
+  // command), so describe the phase instead — the stage name is the headline.
+  const displayMessage = isContainerStarting
     ? (containerStartMessages[stage] ?? message)
     : message;
 
@@ -247,7 +261,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
             </span>
           )}
           <span className="text-sm text-muted-foreground font-mono">
-            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : indeterminate ? '' : `${Math.round(displayPercent)}%`}
+            {isError ? 'Failed' : isComplete || message.includes('completed') ? '100%' : `${Math.round(displayPercent)}%`}
           </span>
         </div>
       </div>
@@ -269,21 +283,15 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         </p>
       )}
 
-      {/* Progress bar — determinate (with a real %) for the image pull and known
-          stages, indeterminate sweep for the container-start phase where no precise
-          percentage exists (so it never appears to "reset" backwards). */}
+      {/* Single forward-only bar: image pull fills 0–50% (smooth, real bytes),
+          container-start milestones fill 50–100% (real backend stage progress,
+          clamped monotonic so it never resets backwards). */}
       <div className="mb-3">
-        {indeterminate ? (
-          <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
-            <div className="absolute inset-y-0 left-0 w-2/5 rounded-full bg-primary animate-indeterminate-bar" />
-          </div>
-        ) : (
-          <Progress
-            value={displayPercent}
-            className="h-2"
-            indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
-          />
-        )}
+        <Progress
+          value={displayPercent}
+          className="h-2"
+          indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
+        />
       </div>
 
       {/* Confirm the pull finished while the container spins up. */}

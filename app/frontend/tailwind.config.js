@@ -182,10 +182,6 @@ export default {
           "0%, 100%": { height: "20%" },
           "50%": { height: "100%" },
         },
-        "indeterminate-bar": {
-          "0%": { transform: "translateX(-100%)" },
-          "100%": { transform: "translateX(250%)" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -199,7 +195,6 @@ export default {
         "gradient-flow":
           "gradientFlow 10s ease 0s infinite normal none running",
         waveform: "waveform 0.8s ease-in-out infinite",
-        "indeterminate-bar": "indeterminate-bar 1.4s ease-in-out infinite",
       },
     },
   },

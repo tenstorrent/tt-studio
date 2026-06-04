@@ -32,9 +32,9 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
   const [deploymentFailed, setDeploymentFailed] = useState<boolean>(false);
   // Drives the elapsed-time readout on the in-flight progress panel.
   const [deployStartTime, setDeployStartTime] = useState<number | undefined>(undefined);
-  // Sticky once the deploy reports a 'pulling_image' stage. Keeps the progress panel
-  // visible through the post-pull container-start phase (rendered as an indeterminate
-  // bar) instead of collapsing to a blind spinner. Cached deploys never set it.
+  // Sticky once the deploy reports a 'pulling_image' stage. Keeps the unified progress
+  // panel visible through the post-pull container-start phase instead of collapsing to
+  // a blind spinner. Cached deploys never set it, so they show no panel.
   const [hadImagePull, setHadImagePull] = useState<boolean>(false);
   const [displayText, setDisplayText] = useState<React.ReactElement | string>(
     initialText
@@ -253,10 +253,10 @@ export const AnimatedDeployButton: React.FC<AnimatedDeployButtonProps> = ({
         </motion.button>
       </AnimatePresence>
 
-      {/* Live progress panel for uncached deploys (those that pull an image). Shows
-          the real byte-level pull bar, then an indeterminate "Starting container"
-          phase, then disappears on completion → redirect. Cached deploys never report
-          'pulling_image', so the panel never appears for them — just the spinner. */}
+      {/* Live progress panel for uncached deploys (those that pull an image). One
+          unified bar: real byte-level pull (0–50%) then container-start milestones
+          (50–100%), then it disappears on completion → redirect. Cached deploys never
+          report 'pulling_image', so the panel never appears for them — just the spinner. */}
       {isDeploying && progress && (progress.stage === 'pulling_image' || hadImagePull) && (
         <DeploymentProgress
           progress={progress}
