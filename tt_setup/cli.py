@@ -7,7 +7,8 @@ import os
 import sys
 import subprocess
 import time
-import argparse
+import typer
+from types import SimpleNamespace
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
 from tt_setup.console import console
@@ -23,89 +24,54 @@ from tt_setup.inference_server import _sync_model_catalog, setup_tt_inference_se
 from tt_setup.spdx import add_spdx_headers, check_spdx_headers
 
 
-def main():
-    """Main function to orchestrate the script."""
+app = typer.Typer(
+    add_completion=True,
+    rich_markup_mode="rich",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    help="🚀 TT Studio Setup Script — environment, Docker services, and TT Inference Server.",
+)
+
+
+@app.callback(invoke_without_command=True)
+def _entry(
+    dev: bool = typer.Option(False, "--dev", help="Development mode (hot-reload, suggested defaults)."),
+    cleanup: bool = typer.Option(False, "--cleanup", help="Clean up Docker containers and networks."),
+    cleanup_all: bool = typer.Option(False, "--cleanup-all", help="Clean up everything incl. persistent data and .env."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the --cleanup-all confirmation prompt."),
+    help_env: bool = typer.Option(False, "--help-env", help="Show detailed environment-variables help."),
+    reconfigure: bool = typer.Option(False, "--reconfigure", help="Reset preferences and reconfigure all options."),
+    reconfigure_inference_server: bool = typer.Option(False, "--reconfigure-inference-server", help="Reconfigure the TT Inference Server artifact."),
+    resync: bool = typer.Option(False, "--resync", help="Force resync of the model catalog."),
+    pull_branch: bool = typer.Option(False, "--pull-branch", help="Re-download the inference artifact from its branch."),
+    skip_fastapi: bool = typer.Option(False, "--skip-fastapi", help="Skip TT Inference Server FastAPI setup."),
+    skip_docker_control: bool = typer.Option(False, "--skip-docker-control", help="Skip the Docker Control Service."),
+    no_sudo: bool = typer.Option(False, "--no-sudo", help="Skip sudo usage (may limit functionality)."),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Skip automatic browser opening."),
+    wait_for_services: bool = typer.Option(False, "--wait-for-services", help="Wait for all services to be healthy."),
+    browser_timeout: int = typer.Option(60, "--browser-timeout", help="Seconds to wait for frontend before opening browser."),
+    add_headers: bool = typer.Option(False, "--add-headers", help="Add missing SPDX license headers (excludes frontend)."),
+    check_headers: bool = typer.Option(False, "--check-headers", help="Check for missing SPDX license headers."),
+    auto_deploy: str = typer.Option(None, "--auto-deploy", metavar="MODEL_NAME", help="Auto-deploy the given model after startup."),
+    device_id: int = typer.Option(0, "--device-id", metavar="CHIP_ID", help="Chip slot index (0-7) for --auto-deploy."),
+    fix_docker: bool = typer.Option(False, "--fix-docker", help="Automatically fix Docker service/permission issues."),
+    configure_env: bool = typer.Option(False, "--configure-env", help="Interactively configure all environment variables."),
+):
+    """Set up and launch TT Studio. With no flags, runs the default minimal setup."""
+    args = SimpleNamespace(
+        dev=dev, cleanup=cleanup, cleanup_all=cleanup_all, yes=yes, help_env=help_env,
+        reconfigure=reconfigure, reconfigure_inference_server=reconfigure_inference_server,
+        resync=resync, pull_branch=pull_branch, skip_fastapi=skip_fastapi,
+        skip_docker_control=skip_docker_control, no_sudo=no_sudo, no_browser=no_browser,
+        wait_for_services=wait_for_services, browser_timeout=browser_timeout,
+        add_headers=add_headers, check_headers=check_headers, auto_deploy=auto_deploy,
+        device_id=device_id, fix_docker=fix_docker, configure_env=configure_env,
+    )
+    _run(args)
+
+
+def _run(args):
+    """Orchestrate setup for the parsed arguments."""
     try:
-        parser = argparse.ArgumentParser(
-            description=f"""
-{C_TT_PURPLE}{C_BOLD}🚀 TT Studio Setup Script{C_RESET}
-
-{C_CYAN}A comprehensive setup tool for Tenstorrent TT Studio that handles:{C_RESET}
-• Environment configuration with interactive prompts
-• Frontend dependencies installation (node_modules)
-• Docker services orchestration  
-• TT Inference Server FastAPI setup
-• Hardware detection and optimization
-
-{C_YELLOW}For detailed environment variable help, use: {C_CYAN}--help-env{C_RESET}
-        """,
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog=f"""
-{C_GREEN}{C_BOLD}Examples:{C_RESET}
-  {C_CYAN}python run.py{C_RESET}                        🚀 Default: minimal setup, only prompts for HF_TOKEN
-  {C_CYAN}python run.py --dev{C_RESET}                  🛠️  Dev mode with minimal setup (same defaults)
-  {C_CYAN}python run.py --configure-env{C_RESET}        ⚙️  Full interactive setup for secrets/modes
-  {C_CYAN}python run.py --dev --configure-env{C_RESET}  ⚙️  Full interactive setup in dev mode
-  {C_CYAN}python run.py --reconfigure{C_RESET}          🔄 Reset preferences + full interactive setup
-  {C_CYAN}python run.py --reconfigure-inference-server{C_RESET} 🔄 Change TT Inference Server artifact (branch/version)
-  {C_CYAN}python run.py --resync{C_RESET}         🔄 Force model catalog resync
-  {C_CYAN}python run.py --cleanup{C_RESET}              🧹 Clean up containers and networks only
-  {C_CYAN}python run.py --cleanup-all{C_RESET}          🗑️  Complete cleanup including data and config
-  {C_CYAN}python run.py --skip-fastapi{C_RESET}         ⏭️  Skip FastAPI server setup (auto-skipped in AI Playground mode)
-  {C_CYAN}python run.py --no-browser{C_RESET}           🚫 Skip automatic browser opening
-  {C_CYAN}python run.py --wait-for-services{C_RESET}    ⏳ Wait for all services to be healthy before completing
-  {C_CYAN}python run.py --check-headers{C_RESET}        🔍 Check for missing SPDX license headers
-  {C_CYAN}python run.py --add-headers{C_RESET}          📝 Add missing SPDX license headers (excludes frontend)
-  {C_CYAN}python run.py --fix-docker{C_RESET}           🔧 Automatically fix Docker service and permission issues
-  {C_CYAN}python run.py --help-env{C_RESET}             📚 Show detailed environment variables help
-
-{C_MAGENTA}For more information, visit: https://github.com/tenstorrent/tt-studio{C_RESET}
-        """
-        )
-        parser.add_argument("--dev", action="store_true", 
-                           help="🛠️  Development mode - show suggested defaults but still prompt for all values")
-        parser.add_argument("--cleanup", action="store_true", 
-                           help="🧹 Clean up Docker containers and networks")
-        parser.add_argument("--cleanup-all", action="store_true", 
-                           help="🗑️  Clean up everything including persistent data and .env file")
-        parser.add_argument("--yes", "-y", action="store_true",
-                           help="✅ Skip the confirmation prompt for --cleanup-all (non-interactive)")
-        parser.add_argument("--help-env", action="store_true", 
-                           help="📚 Show detailed help for environment variables")
-        parser.add_argument("--reconfigure", action="store_true",
-                           help="🔄 Reset preferences and reconfigure all options")
-        parser.add_argument("--reconfigure-inference-server", action="store_true",
-                           help="🔄 Reconfigure TT Inference Server artifact (branch/version)")
-        parser.add_argument("--resync", action="store_true",
-                           help="🔄 Force resync of model catalog from TT Inference Server artifact")
-        parser.add_argument("--pull-branch", action="store_true",
-                           help="🔄 Re-download the inference server artifact from the configured branch to pick up new commits")
-        parser.add_argument("--skip-fastapi", action="store_true",
-                           help="⏭️  Skip TT Inference Server FastAPI setup (auto-skipped in AI Playground mode)")
-        parser.add_argument("--skip-docker-control", action="store_true",
-                           help="⏭️  Skip Docker Control Service setup")
-        parser.add_argument("--no-sudo", action="store_true",
-                           help="🚫 Skip sudo usage for FastAPI setup (may limit functionality)")
-        parser.add_argument("--no-browser", action="store_true", 
-                           help="🚫 Skip automatic browser opening")
-        parser.add_argument("--wait-for-services", action="store_true", 
-                           help="⏳ Wait for all services to be healthy before completing")
-        parser.add_argument("--browser-timeout", type=int, default=60,
-                   help="⏳ Timeout in seconds for waiting for frontend before opening browser")
-        parser.add_argument("--add-headers", action="store_true",
-                   help="📝 Add missing SPDX license headers to all source files (excludes frontend)")
-        parser.add_argument("--check-headers", action="store_true",
-                   help="🔍 Check for missing SPDX license headers without adding them")
-        parser.add_argument("--auto-deploy", type=str, metavar="MODEL_NAME",
-                   help="🤖 Automatically deploy the specified model after startup (e.g., 'Llama-3.2-1B-Instruct')")
-        parser.add_argument("--device-id", type=int, default=0, metavar="CHIP_ID",
-                   help="🔌 Chip slot index (0-7) to use when auto-deploying a model (default: 0)")
-        parser.add_argument("--fix-docker", action="store_true",
-                   help="🔧 Automatically fix Docker service and permission issues")
-        parser.add_argument("--configure-env", action="store_true",
-                   help="⚙️  Interactively configure all environment variables (secrets, modes, cloud endpoints)")
-        
-        args = parser.parse_args()
         
         if args.help_env:
             print(f"""
@@ -688,3 +654,8 @@ def main():
         print(f"  • To clean up: python run.py --cleanup")
         print(f"  • Report bugs: https://github.com/tenstorrent/tt-studio/issues")
         sys.exit(1)
+
+
+def main():
+    """Entry point: run the Typer app."""
+    app()

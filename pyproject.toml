@@ -15,8 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# NOTE: switches to "tt_setup.cli:app" once the CLI is migrated to Typer (Phase 2).
-tt-studio = "tt_setup.cli:main"
+tt-studio = "tt_setup.cli:app"
 
 [build-system]
 requires = ["setuptools>=61"]
