@@ -3,10 +3,12 @@
 
 """Docker/compose failure parsing and diagnostics."""
 
+import os
 import sys
 import subprocess
 import time
 import re
+import shutil
 from datetime import datetime
 from tt_setup.constants import *
 from tt_setup.shell import clear_lines, copy_to_clipboard
@@ -108,13 +110,48 @@ def parse_docker_build_failure(output):
     return None, None, None
 
 
+# BuildKit step header, e.g. "#22 [tt_studio_backend 2/8] RUN apt-get update..."
+_BUILD_STEP_RE = re.compile(r'^#\d+\s+\[(?P<svc>\S+)\s+(?P<x>\d+)/(?P<y>\d+)\]\s+(?P<desc>.*)$')
+# Compose completion, e.g. " ✔ tt_studio_backend  Built" / "... tt_studio_frontend  Started"
+_BUILT_RE = re.compile(r'(?P<svc>tt_studio_\w+).*\b(?:Built|Started)\b')
+
+
+def parse_build_line(line):
+    """Classify a single line of `docker compose up --build` output.
+
+    Returns one of:
+      ('step', svc, x, y, desc) -- a BuildKit step header
+      ('built', svc)            -- a service finished building/starting
+      None                      -- not a line we render
+    """
+    stripped = line.strip()
+    m = _BUILD_STEP_RE.match(stripped)
+    if m:
+        return ('step', m.group('svc'), int(m.group('x')), int(m.group('y')), m.group('desc'))
+    m = _BUILT_RE.search(stripped)
+    if m:
+        return ('built', m.group('svc'))
+    return None
+
+
+def _short_service(svc):
+    """tt_studio_backend -> backend; leave other names untouched."""
+    return svc[len("tt_studio_"):] if svc.startswith("tt_studio_") else svc
+
+
 def run_docker_compose_with_progress(cmd, cwd):
     """
-    Run docker compose, capturing output silently. Shows a progress indicator.
-    On success, clears the transient progress lines and leaves a 1-line summary.
-    On failure, the full output is returned for diagnostics.
-    Returns (returncode, full_output_string).
+    Run docker compose, streaming real per-container build progress.
+
+    Shows one transient line per BuildKit step (container + step number + action).
+    On success, clears the transient step lines and leaves a per-container
+    "✓ <svc> built" summary. On failure, the full captured output is returned
+    for diagnostics (the BUILD FAILED box). Returns (returncode, full_output_string).
     """
+    # Force plain BuildKit progress so the piped stream is parseable.
+    env = dict(os.environ)
+    env["BUILDKIT_PROGRESS"] = "plain"
+
     process = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -123,37 +160,49 @@ def run_docker_compose_with_progress(cmd, cwd):
         text=True,
         bufsize=1,
         universal_newlines=True,
+        env=env,
     )
 
+    width = max(20, shutil.get_terminal_size((80, 24)).columns)
     output_lines = []
-    printed_lines = 0  # track lines we printed for clearing
-    has_dots = False
+    printed_lines = 0          # transient lines we may clear on success
+    summary = []               # "✓ <svc> built" lines to keep on success
+    last_step = {}             # svc -> last step index printed (dedupe repeats)
+
     for line in process.stdout:
         output_lines.append(line)
-        stripped = line.strip()
-        if "Built" in stripped or "Healthy" in stripped or "Running" in stripped:
-            if has_dots:
-                sys.stdout.write("\n")
-                printed_lines += 1
-                has_dots = False
-            print(f"  {C_GREEN}{stripped}{C_RESET}")
+        parsed = parse_build_line(line)
+        if parsed is None:
+            continue
+        if parsed[0] == 'step':
+            _, svc, x, y, desc = parsed
+            if last_step.get(svc) == x:
+                continue  # same step repeated (progress sublines) — skip
+            last_step[svc] = x
+            short = _short_service(svc)
+            text = f"  {C_CYAN}{short}{C_RESET}  {x}/{y}  {desc}"
+            # Truncate to terminal width so clear_lines stays accurate (no wrap).
+            visible = f"  {short}  {x}/{y}  {desc}"
+            if len(visible) > width:
+                text = f"  {C_CYAN}{short}{C_RESET}  {x}/{y}  {desc[:max(0, width - len(short) - 9)]}…"
+            print(text)
             printed_lines += 1
-        elif stripped.startswith("#") and "DONE" in stripped:
-            sys.stdout.write(".")
-            sys.stdout.flush()
-            has_dots = True
+        elif parsed[0] == 'built':
+            short = _short_service(parsed[1])
+            line_out = f"  {C_GREEN}✓ {short} built{C_RESET}"
+            if line_out not in summary:
+                summary.append(line_out)
+                print(line_out)
+                printed_lines += 1
 
     process.wait()
-
-    if has_dots:
-        sys.stdout.write("\n")
-        printed_lines += 1
-
     full_output = ''.join(output_lines)
 
-    # On success, clear the transient build output and replace with a single line
+    # On success, clear the transient progress and reprint just the summary.
     if process.returncode == 0 and printed_lines > 0:
         clear_lines(printed_lines)
+        for line_out in summary:
+            print(line_out)
 
     return process.returncode, full_output
 

@@ -9,7 +9,7 @@ import subprocess
 import time
 import argparse
 from datetime import datetime
-from startup_checks import check_startup_freshness
+from tt_setup.startup_checks import check_startup_freshness
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import clear_lines, display_welcome_banner, run_preflight_checks

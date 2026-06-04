@@ -26,6 +26,49 @@ class TestParseDockerBuildFailure(unittest.TestCase):
         self.assertIsNone(name)
 
 
+class TestParseBuildLine(unittest.TestCase):
+    def test_step_header(self):
+        line = "#22 [tt_studio_backend 2/8] RUN apt-get update && apt-get install -y curl"
+        self.assertEqual(
+            M.parse_build_line(line),
+            ("step", "tt_studio_backend", 2, 8, "RUN apt-get update && apt-get install -y curl"),
+        )
+
+    def test_step_header_with_leading_spaces(self):
+        line = "   #5 [tt_studio_frontend 3/9] COPY package.json ."
+        self.assertEqual(
+            M.parse_build_line(line),
+            ("step", "tt_studio_frontend", 3, 9, "COPY package.json ."),
+        )
+
+    def test_cached_step_is_a_step(self):
+        # CACHED steps still surface a header line and should render.
+        line = "#7 [tt_studio_agent 4/6] COPY requirements.txt ."
+        kind, svc, x, y, _ = M.parse_build_line(line)
+        self.assertEqual((kind, svc, x, y), ("step", "tt_studio_agent", 4, 6))
+
+    def test_built_line(self):
+        self.assertEqual(
+            M.parse_build_line(" ✔ tt_studio_backend  Built"),
+            ("built", "tt_studio_backend"),
+        )
+
+    def test_started_line_counts_as_built(self):
+        self.assertEqual(
+            M.parse_build_line(" ✔ Container tt_studio_chroma  Started"),
+            ("built", "tt_studio_chroma"),
+        )
+
+    def test_internal_stage_is_ignored(self):
+        # "[svc internal]" has no X/Y -> not a step we render.
+        self.assertIsNone(M.parse_build_line("#3 [tt_studio_backend internal] load build definition"))
+
+    def test_noise_returns_none(self):
+        self.assertIsNone(M.parse_build_line("#22 DONE 5.3s"))
+        self.assertIsNone(M.parse_build_line("some random log output"))
+        self.assertIsNone(M.parse_build_line(""))
+
+
 class TestDiagnoseContainerFailure(unittest.TestCase):
     def test_oom_exit_137(self):
         d = M.diagnose_container_failure("c", 137, "")

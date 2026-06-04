@@ -19,7 +19,7 @@ try:
 except ImportError:
     import urllib.request
     HAS_REQUESTS = False
-from venv_utils import recreate_venv_if_stale, print_manual_fix_steps
+from tt_setup.venv_utils import recreate_venv_if_stale, print_manual_fix_steps
 from tt_setup.constants import *
 from tt_setup.shell import clear_lines, run_command
 from tt_setup.docker_diag import _resolve_container_name
