@@ -481,6 +481,32 @@ def _model_uses_preferred_host_volume(model_name: str) -> bool:
     return (model_name or "").strip().lower() in _HOST_VOLUME_MODEL_ALLOWLIST
 
 
+# ─── TEMP (QB2 workaround) — remove this fn + its call in the deploy path ──────
+def _stage_preloaded_version_symlink(model, device, impl, override_dir, root, job_id):
+    """Link volume_id_<impl>-<model>-v{model_spec.version} -> the preloaded
+    -vqb2_launch override dir, so `--host-volume <root>` reuse lands on the
+    preloaded data instead of re-downloading.
+
+    The version is resolved with the SAME get_runtime_model_spec(model, device,
+    impl) that run.py/setup_host use, so the symlink name matches what setup_host
+    requests for any model/impl/device (the dir version is the per-model
+    catalog-pinned model_spec.version, not the repo VERSION). Excise this fn +
+    its call when the preloaded data is re-staged under the release name.
+    """
+    if not override_dir:
+        return
+    try:
+        ms, _, _ = get_runtime_model_spec(model, device, impl=impl)
+        target = Path(root) / f"volume_id_{ms.impl.impl_id}-{ms.model_name}-v{ms.version}"
+        if target.exists() or target.is_symlink():  # never clobber; idempotent
+            return
+        os.symlink(Path(override_dir).resolve(), target)  # resolve() avoids symlink-to-symlink
+        logger.info("Job %s: linked %s -> %s", job_id, target.name, Path(override_dir).name)
+    except Exception as exc:
+        logger.warning("Job %s: could not stage preloaded host-volume symlink: %s", job_id, exc)
+# ─── end TEMP (QB2 workaround) ────────────────────────────────────────────────
+
+
 def _strip_cli_option(argv: list[str], option: str) -> list[str]:
     """Return argv without a single `--option value` pair."""
     stripped_argv: list[str] = []
@@ -1712,6 +1738,16 @@ async def run_inference(request: RunRequest):
             )
         if preferred_host_volume:
             initial_argv.extend(["--host-volume", preferred_host_volume])
+            # ─── TEMP (QB2 workaround) — remove with _stage_preloaded_version_symlink ──
+            _stage_preloaded_version_symlink(
+                request.model,
+                normalized_device,
+                request.impl,
+                expected_host_volume_dir,
+                preferred_host_volume,
+                job_id,
+            )
+            # ─── end TEMP (QB2 workaround) ────────────────────────────────────────────
             logger.info(
                 "Job %s: Qwen preloaded host-volume directory accepted: %s; using --host-volume %s (%s)",
                 job_id,
