@@ -68,6 +68,53 @@ class TestEnvFileRoundTrip(unittest.TestCase):
         self.assertEqual(existing.get("B"), "2")
 
 
+class TestConsistentQuoting(unittest.TestCase):
+    """write_env_var must produce ONE consistent (unquoted) format."""
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
+        self.tmp.close()
+        self.p = patch.object(M, "ENV_FILE_PATH", self.tmp.name)
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+        os.unlink(self.tmp.name)
+
+    def _raw(self):
+        with open(self.tmp.name) as f:
+            return f.read()
+
+    def test_value_written_unquoted(self):
+        M.write_env_var("TOKEN", "hf_abc123")
+        self.assertIn("TOKEN=hf_abc123", self._raw())
+        self.assertNotIn('TOKEN="', self._raw())
+
+    def test_value_with_space_stays_unquoted(self):
+        M.write_env_var("VITE_APP_TITLE", "TT Studio")
+        self.assertIn("VITE_APP_TITLE=TT Studio", self._raw())
+        self.assertNotIn('"TT Studio"', self._raw())
+
+    def test_quote_value_flag_is_ignored(self):
+        # Even if a caller passes the legacy quote_value=True, output stays unquoted.
+        M.write_env_var("K", "v", quote_value=True)
+        self.assertIn("K=v", self._raw())
+        self.assertNotIn('K="v"', self._raw())
+
+    def test_no_mixed_styles_after_multiple_writes(self):
+        M.write_env_var("A", "1")
+        M.write_env_var("B", "two words")
+        M.write_env_var("C", "http://host:8002")
+        raw = self._raw()
+        self.assertNotIn('"', raw)  # nothing is quoted anywhere
+
+    def test_reads_legacy_quoted_value(self):
+        # A pre-existing quoted line must still read back without the quotes.
+        with open(self.tmp.name, "w") as f:
+            f.write('LEGACY="quoted value"\n')
+        self.assertEqual(M.get_env_var("LEGACY"), "quoted value")
+
+
 class TestShouldConfigureVar(unittest.TestCase):
     def test_force_overwrite_forces_true(self):
         with patch.object(M, "FORCE_OVERWRITE", True):

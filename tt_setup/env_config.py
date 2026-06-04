@@ -15,6 +15,7 @@ try:
 except ImportError:
     import urllib.request
     HAS_REQUESTS = False
+from dotenv import set_key, dotenv_values
 from tt_setup.constants import *
 
 
@@ -44,38 +45,20 @@ def is_placeholder(value):
     return value_str in placeholder_patterns
 
 
-def write_env_var(var_name, var_value, quote_value=True):
+def write_env_var(var_name, var_value, quote_value=None):
     """
-    Update or add an environment variable to the app/.env file.
+    Update or add a variable in app/.env using ONE consistent format.
+
+    Uses python-dotenv (the standard .env library) and writes values unquoted
+    (quote_mode="never"), so the file never mixes `KEY="value"` and `KEY=value`
+    styles. This matches app/.env.default and avoids docker-compose treating
+    surrounding quotes as literal characters. `quote_value` is accepted for
+    backwards compatibility but intentionally ignored.
     """
     if not os.path.exists(ENV_FILE_PATH):
         open(ENV_FILE_PATH, 'w').close()
-
-    with open(ENV_FILE_PATH, 'r') as f:
-        lines = f.readlines()
-
-    var_found = False
-    
-    if quote_value and var_value and str(var_value).strip():
-        # Escape quotes in the value
-        escaped_value = str(var_value).replace('"', '\\"')
-        formatted_value = f'"{escaped_value}"'
-    else:
-        formatted_value = str(var_value) if var_value else ""
-    
-    new_line = f"{var_name}={formatted_value}\n"
-    
-    for i, line in enumerate(lines):
-        if re.match(f"^{re.escape(var_name)}=", line):
-            lines[i] = new_line
-            var_found = True
-            break
-            
-    if not var_found:
-        lines.append(new_line)
-
-    with open(ENV_FILE_PATH, 'w') as f:
-        f.writelines(lines)
+    value = "" if var_value is None else str(var_value)
+    set_key(ENV_FILE_PATH, var_name, value, quote_mode="never")
 
 
 def comment_out_env_var(var_name):
@@ -93,16 +76,11 @@ def comment_out_env_var(var_name):
 
 
 def get_env_var(var_name, default=""):
-    """Safely get a variable from the .env file."""
+    """Safely get a variable from app/.env (quotes handled by python-dotenv)."""
     if not os.path.exists(ENV_FILE_PATH):
         return default
-    with open(ENV_FILE_PATH, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith(f"{var_name}="):
-                value = line.split('=', 1)[1]
-                return value.strip('"\'')
-    return default
+    value = dotenv_values(ENV_FILE_PATH, interpolate=False).get(var_name)
+    return default if value is None else value
 
 
 def parse_boolean_env(raw_value):
@@ -111,16 +89,14 @@ def parse_boolean_env(raw_value):
 
 
 def get_existing_env_vars():
-    """Read all existing environment variables from .env file"""
-    env_vars = {}
-    if os.path.exists(ENV_FILE_PATH):
-        with open(ENV_FILE_PATH, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    env_vars[key] = value.strip('"\'')
-    return env_vars
+    """Read all existing environment variables from app/.env (via python-dotenv)."""
+    if not os.path.exists(ENV_FILE_PATH):
+        return {}
+    return {
+        key: value
+        for key, value in dotenv_values(ENV_FILE_PATH, interpolate=False).items()
+        if value is not None
+    }
 
 
 def save_easy_config(config_dict):
