@@ -9,7 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import run
+# After the refactor the cleanup helpers live in tt_setup.cleanup. Patch targets
+# must point at that module so intra-module calls (e.g. cleanup_resources ->
+# _cleanup_runtime) are intercepted; patching the run shim would not reach them.
+# Pre-refactor (no tt_setup package) this falls back to the monolithic run module.
+try:
+    import tt_setup.cleanup as run
+except ImportError:
+    import run
 
 
 class CleanupAllTests(unittest.TestCase):
