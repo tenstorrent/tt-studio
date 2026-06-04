@@ -34,6 +34,21 @@ class TestBuildDockerComposeCommand(unittest.TestCase):
             cmd = M.build_docker_compose_command(dev_mode=False, quiet=True)
         self.assertIn(M.DOCKER_COMPOSE_TT_HARDWARE_FILE, cmd)
 
+    def test_env_file_passed_when_present(self):
+        with patch.object(M, "detect_tt_hardware", return_value=False), patch(
+            "os.path.exists", return_value=True
+        ):
+            cmd = M.build_docker_compose_command(dev_mode=False, quiet=True)
+        self.assertIn("--env-file", cmd)
+        self.assertEqual(cmd[cmd.index("--env-file") + 1], M.ENV_FILE_PATH)
+
+    def test_no_env_file_when_absent(self):
+        with patch.object(M, "detect_tt_hardware", return_value=False), patch(
+            "os.path.exists", return_value=False
+        ):
+            cmd = M.build_docker_compose_command(dev_mode=False, quiet=True)
+        self.assertNotIn("--env-file", cmd)
+
 
 class TestCheckDockerAccess(unittest.TestCase):
     def test_true_when_docker_info_succeeds(self):

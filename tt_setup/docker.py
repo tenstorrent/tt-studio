@@ -187,7 +187,12 @@ def build_docker_compose_command(dev_mode=False, show_hardware_info=True, quiet=
     Returns:
         list: Docker Compose command with appropriate files
     """
-    compose_files = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE]
+    compose_files = ["docker", "compose"]
+    # Explicitly pass app/.env so the environment is loaded regardless of the
+    # working directory (rather than relying on compose's implicit cwd auto-load).
+    if os.path.exists(ENV_FILE_PATH):
+        compose_files += ["--env-file", ENV_FILE_PATH]
+    compose_files += ["-f", DOCKER_COMPOSE_FILE]
 
     if dev_mode:
         if os.path.exists(DOCKER_COMPOSE_DEV_FILE):
