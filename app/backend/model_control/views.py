@@ -124,6 +124,7 @@ from model_control.model_utils import (
     get_max_tokens_limit,
     messages_to_prompt,
     stream_response_from_external_api,
+    stream_openai_passthrough,
     stream_response_from_agent_api,
     health_check,
     stream_to_cloud_model,
@@ -1739,7 +1740,9 @@ class OpenAIChatCompletionsView(View):
         if stream:
             async def generate():
                 try:
-                    async for chunk in stream_response_from_external_api(internal_url, data):
+                    # Clean OpenAI SSE passthrough (no injected stream_options /
+                    # stats trailer) so the gateway emits spec-compliant chunks.
+                    async for chunk in stream_openai_passthrough(internal_url, data):
                         yield chunk
                 except Exception as e:
                     logger.error(f"OpenAIChatCompletionsView stream error: {e}")
