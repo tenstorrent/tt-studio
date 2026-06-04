@@ -113,82 +113,182 @@ _DOWNLOAD_CACHED_RE = re.compile(
     r"Weights already exist at\s+(?P<path>\S+)"
 )
 
+# MEDIA template — trimmed and verified against real distil-large-v3 and
+# speecht5_tts logs at .artifacts/tt-inference-server/workflow_logs/docker_server/.
+#
+# We deliberately collapse the early bookkeeping events (Settings init,
+# Prometheus, service instance, worker spawn) into `container_starting`
+# because they ALL fire within the first ~7 seconds of container life — before
+# the frontend has even mounted HealthBadge after the deploy-page redirect.
+# The user never sees them as distinct phases, so giving them dedicated pills
+# is just visual noise.
+#
+# Real visible order: container → (download) → device init → model load → warmup → ready.
+# No `server_starting` (media goes straight from warmup to /health 200).
+# Real media-server chronology (verified from logs):
+#   container start → UMD opens device → HF model fetched into device memory →
+#   TTNN model construction → warmup → ready.
+# This differs from LLMs where the download happens BEFORE the device opens.
 MEDIA_PHASES = [
     "container_starting",
-    "model_config",
-    "downloading_weights",
-    "engine_initializing",
-    "starting_workers",
-    "loading_weights",
     "device_init",
+    "downloading_weights",
+    "loading_weights",
     "warming_up",
-    "server_starting",
     "ready",
 ]
 
 MEDIA_PHASE_LABELS = {
     "container_starting":  "Starting container",
-    "model_config":        "Resolving model configuration",
-    "downloading_weights": "Downloading model weights",
-    "engine_initializing": "Initializing inference service",
-    "starting_workers":    "Starting worker pool",
-    "loading_weights":     "Loading model weights",
     "device_init":         "Opening Tenstorrent device",
+    "downloading_weights": "Downloading model weights",
+    "loading_weights":     "Loading model weights",
     "warming_up":          "Warming up runner",
-    "server_starting":     "Starting API server",
     "ready":               "Ready",
 }
 
-# Media warmup is dominated by download (when not cached) and worker init.
-# Download band is wider (10 → 50) since it's typically the slowest step
-# even though the absolute sizes are smaller than LLMs.
+# loading_weights dominates real wall-clock (~70% on speecht5_tts), so its band
+# is the widest. Sub-step counting inside the band (see MEDIA_LOAD_TOTAL) lets
+# the bar advance smoothly during the otherwise-silent HF model load.
 MEDIA_PHASE_BASE_PCT = {
     "container_starting":  2,
-    "model_config":        5,
-    "downloading_weights": 10,
-    "engine_initializing": 55,
-    "starting_workers":    65,
-    "loading_weights":     75,
-    "device_init":         82,
-    "warming_up":          88,
-    "server_starting":     94,
+    "device_init":         8,
+    "downloading_weights": 14,
+    "loading_weights":     24,
+    "warming_up":          80,
     "ready":               100,
 }
 
+# Substring markers for tt-media-inference-server containers. Strings here are
+# verified against real warmup logs of distil-large-v3 (whisper) and
+# speecht5_tts at .artifacts/tt-inference-server/workflow_logs/docker_server/.
+# Matched case-insensitively as a substring of the line — so timestamp/PID
+# prefixes don't interfere and "Started X worker" / "X worker started" both fire.
+# Order doesn't matter; latest match per line scan wins.
 _MEDIA_SUBSTRING_MARKERS: list[tuple[str, str]] = [
+    # ── container_starting: ALL early bookkeeping (~first 7 seconds) ────────
+    # Container boot, model config resolution, Prometheus init, FastAPI/uvicorn
+    # startup, and worker pool spawn — all collapsed into one phase. These
+    # fire before the frontend has even started polling, so the user only ever
+    # sees the *result* of these events (the pill is "done" by the time they
+    # see it). No point in giving them dedicated phases.
     ("USING CACHE_ROOT",                       "container_starting"),
     ("MOUNTED VOLUME PERMISSIONS",             "container_starting"),
-    ("SETTINGS INIT: MODEL=",                  "model_config"),
-    ("CONFIG LOOKUP: RUNNER=",                 "model_config"),
+    ("SETTINGS INIT: MODEL=",                  "container_starting"),
+    ("CONFIG LOOKUP: RUNNER=",                 "container_starting"),
+    ("SETTINGS RESOLVED:",                     "container_starting"),
+    ("SETTING UP PROMETHEUS METRICS",          "container_starting"),
+    ("PROMETHEUS METRICS AVAILABLE",           "container_starting"),
+    ("CREATING NEW AUDIO SERVICE",             "container_starting"),
+    ("CREATING NEW VIDEO SERVICE",             "container_starting"),
+    ("CREATING NEW IMAGE SERVICE",             "container_starting"),
+    ("CREATING NEW TEXT_TO_SPEECH SERVICE",    "container_starting"),
+    ("CREATING NEW TTS SERVICE",               "container_starting"),
+    ("STARTED SERVER PROCESS",                 "container_starting"),
+    ("WAITING FOR APPLICATION STARTUP",        "container_starting"),
+    ("AUDIOPREPROCESSING WORKER",              "container_starting"),
+    ("VIDEOPREPROCESSING WORKER",              "container_starting"),
+    ("VIDEOPOSTPROCESSING WORKER",             "container_starting"),
+    ("TTSPOSTPROCESSING WORKER",               "container_starting"),
+    ("IMAGE POSTPROCESSING WORKER",            "container_starting"),
+    ("STARTING WORKER ",                       "container_starting"),
+    ("STARTED WORKER ",                        "container_starting"),
+    ("ALL WORKERS STARTED IN SEQUENCE",        "container_starting"),
+    ("APPLICATION STARTUP COMPLETE",           "container_starting"),
+    ("UVICORN RUNNING ON",                     "container_starting"),
+
+    # ── downloading_weights ─────────────────────────────────────────────────
+    # Two trigger families:
+    # 1. The wrapper at tt-media-server/utils/hugging_face_utils.py emits the
+    #    "Downloading weights for model:" / "Model X already cached" lines —
+    #    only fires for media services that go through that wrapper.
+    # 2. The runner's transformers.from_pretrained() call emits
+    #    "Device 0: Loading HuggingFace model: <repo>" — this fires for
+    #    Whisper and SpeechT5. We treat it as a download trigger because:
+    #    (a) it's the closest thing to a download event in those logs, and
+    #    (b) byte tracking via du -sb tells us if it's already cached or not.
     ("DOWNLOADING WEIGHTS FOR MODEL:",         "downloading_weights"),
     ("ALREADY CACHED, SKIPPING DOWNLOAD",      "downloading_weights"),
     ("USING CACHED MODEL AT:",                 "downloading_weights"),
-    ("SUCCESSFULLY DOWNLOADED MODEL WEIGHTS",  "engine_initializing"),
-    ("SETTING UP PROMETHEUS METRICS",          "engine_initializing"),
-    ("CREATING NEW AUDIO SERVICE INSTANCE",    "engine_initializing"),
-    ("CREATING NEW VIDEO SERVICE INSTANCE",    "engine_initializing"),
-    ("STARTED AUDIOPREPROCESSING WORKER",      "starting_workers"),
-    ("STARTED VIDEOPREPROCESSING WORKER",      "starting_workers"),
-    ("STARTED VIDEOPOSTPROCESSING WORKER",     "starting_workers"),
-    ("STARTED TTSPOSTPROCESSING WORKER",       "starting_workers"),
-    ("LOADING SPEAKER DIARIZATION",            "loading_weights"),
-    ("CREATED TTWHISPERRUNNER",                "loading_weights"),
-    ("CREATED TTSPEECHTTS RUNNER",             "loading_weights"),
-    ("OPENING USER MODE DEVICE DRIVER",        "device_init"),
+    ("MODEL ALREADY EXISTS LOCALLY AT:",       "downloading_weights"),
+    ("LOADING HUGGINGFACE MODEL:",             "downloading_weights"),
+
+    # ── device_init: UMD opens + device runner created ──────────────────────
+    ("SETUP_RUNNER_ENVIRONMENT",               "device_init"),
+    ("TT_VISIBLE_DEVICES",                     "device_init"),
     ("CREATING TOPOLOGYDISCOVERY",             "device_init"),
     ("ESTABLISHED FIRMWARE BUNDLE VERSION",    "device_init"),
-    ("SUBMITTED WARMUP TASK",                  "warming_up"),
-    ("ALL WORKERS STARTED IN SEQUENCE",        "warming_up"),
-    ("APPLICATION STARTUP COMPLETE",           "server_starting"),
-    ("UVICORN RUNNING ON",                     "server_starting"),
+    ("OPENING USER MODE DEVICE DRIVER",        "device_init"),
+    ("TTWHISPERRUNNER",                        "device_init"),       # "created TTWhisperRunner for worker 0"
+    ("TTSPEECHT5RUNNER",                       "device_init"),       # "created TTSpeechT5Runner for worker 0"
+
+    # ── loading_weights: the dominant phase (~70% of total time for TTS) ────
+    # Whisper-specific (audio preprocessing)
+    ("LOADING SPEAKER DIARIZATION",            "loading_weights"),
+    ("LOADING VAD MODEL",                      "loading_weights"),
+    ("VAD MODEL LOADED",                       "loading_weights"),
+    # Mesh device + HF model load completion (both whisper and TTS)
+    ("CREATED MESH DEVICE",                    "loading_weights"),
+    ("CREATING INFERENCE PIPELINE",            "loading_weights"),
+    ("LOADING WHISPER MODEL",                  "loading_weights"),
+    ("LOADING SPEECHT5 MODEL",                 "loading_weights"),
+    ("SUCCESSFULLY LOADED HUGGINGFACE MODEL",  "loading_weights"),
+    ("INITIALIZING TTNN MODEL COMPONENTS",     "loading_weights"),
+    ("MODEL PARAMETERS PREPROCESSED",          "loading_weights"),
+    ("INITIALIZING KV CACHE",                  "loading_weights"),
+    ("SUCCESSFULLY INITIALIZED TTNN",          "loading_weights"),
+    ("SUCCESSFULLY CREATED INFERENCE PIPELINE","loading_weights"),
+    ("MODEL PIPELINE CREATED",                 "loading_weights"),
+    ("MODEL LOADED AND PIPELINE READY",        "loading_weights"),
+    # TTS-specific: speaker embeddings + TTNN model construction
+    ("LOADING DEFAULT SPEAKER EMBEDDINGS",     "loading_weights"),
+    ("DEFAULT SPEAKER EMBEDDINGS",             "loading_weights"),
+    ("CREATING TTNN ENCODER",                  "loading_weights"),
+    ("CREATING TTNN DECODER",                  "loading_weights"),
+    ("CREATING TTNN POSTNET",                  "loading_weights"),
+    ("SPEECHT5GENERATOR INITIALIZED",          "loading_weights"),
+    ("TRACE GENERATOR INITIALIZED",            "loading_weights"),
+    ("ALL SPEECHT5 MODELS INITIALIZED",        "loading_weights"),
+    ("MODEL INITIALIZATION COMPLETED",         "loading_weights"),
+    # Speculative — not seen in our logs but documented in diffusers/transformers
+    ("LOADING VAE",                            "loading_weights"),
+    ("LOADING UNET",                           "loading_weights"),
+    ("LOADING TEXT ENCODER",                   "loading_weights"),
+    ("LOADING TRANSFORMER",                    "loading_weights"),
+    ("PIPELINE LOADED",                        "loading_weights"),
+
+    # ── warming_up: model warmup loop (encoder sizes for TTS, decode for whisper)
+    ("ENCODER WARM-UP DONE",                   "warming_up"),
+    ("POSTNET WARM-UP DONE",                   "warming_up"),
+    ("WARM-UP DONE FOR ENCODER_SIZE",          "warming_up"),
+    ("MODEL WARMUP COMPLETED",                 "warming_up"),
+    ("[WARMUP] ASYNC EXECUTED",                "warming_up"),
+    ("STARTED WITH DEVICE RUNNER",             "warming_up"),
+    ("FIRST DEVICE WARMED UP",                 "warming_up"),
+    ("IS WARMED UP",                           "warming_up"),
+    ("ALL DEVICES ARE WARMED UP AND READY",    "warming_up"),
+    ("STARTING MODEL WARMUP",                  "warming_up"),
+    ("RUNNING MODEL ON BATCH",                 "warming_up"),
+    ("TIME TO ENCODER STATES",                 "warming_up"),
+    ("ON-DEVICE SAMPLING TRACE",               "warming_up"),
+    ("GENERATION SUCCESSFUL WITH TEMPERATURE", "warming_up"),
 ]
 
-# Media-server-emitted download log lines
+# Media-server-emitted download log lines.
+#
+# The "wrapper" path (tt-media-server/utils/hugging_face_utils.py) only fires
+# for media services that explicitly route through that wrapper. The whisper
+# and speecht5 runners DON'T — they call transformers.from_pretrained() which
+# emits `Device 0: Loading HuggingFace model: <repo>` instead. We treat that
+# as a download trigger too; byte tracking decides cached vs in-progress.
 _DOWNLOAD_MEDIA_RE = re.compile(
     r"Downloading weights for model:\s+(?P<repo>\S+)"
 )
 _DOWNLOAD_MEDIA_CACHED_RE = re.compile(
     r"Model\s+(?P<repo>\S+)\s+already cached"
+)
+_DOWNLOAD_MEDIA_HF_LOAD_RE = re.compile(
+    r"Loading HuggingFace model:\s+(?P<repo>\S+)"
 )
 
 # ---------------------------------------------------------------------------
@@ -233,6 +333,36 @@ _DONE_CAPTURE_RE = re.compile(
 )
 COMPILE_TRACE_TOTAL = 5  # 4 prefill seq_lens + 1 decode capture.
 
+# MEDIA sub-step counters for the long phases (loading_weights, warming_up). Verified against real distil-large-v3 / speecht5_tts logs.
+_MEDIA_LOAD_STEP_RE = re.compile(
+    r"Loading Whisper model|"
+    r"Loading SpeechT5 model|"
+    r"Loading HuggingFace model:|"
+    r"Successfully loaded HuggingFace model components|"
+    r"Created mesh device with|"
+    r"Loading default speaker embeddings|"
+    r"Loaded \d+ default speaker embeddings|"
+    r"Creating TTNN (?:encoder|decoder|postnet)|"
+    r"SpeechT5Generator initialized|"
+    r"Trace generator initialized|"
+    r"All SpeechT5 models initialized|"
+    r"Model initialization completed",
+    re.IGNORECASE,
+)
+MEDIA_LOAD_TOTAL = 8
+
+_MEDIA_WARMUP_STEP_RE = re.compile(
+    r"Encoder warm-up done for size|"
+    r"Postnet warm-up done|"
+    r"Warm-up done for encoder_size|"
+    r"Model warmup completed|"
+    r"\[warmup\] async executed|"
+    r"is warmed up|"
+    r"All devices are warmed up",
+    re.IGNORECASE,
+)
+MEDIA_WARMUP_TOTAL = 8
+
 # tt-studio ModelTypes (mirror of shared_config.model_type_config.ModelTypes)
 # that should be classified as MEDIA. Everything else → LLM.
 _MEDIA_MODEL_TYPES = frozenset({
@@ -246,8 +376,7 @@ _MEDIA_MODEL_TYPES = frozenset({
 })
 
 # Backstop name patterns — used when the caller doesn't pass a model_type
-# hint and we have to guess from the model name. Tries to match the names
-# from models_from_inference_server.json that live on the media server.
+# hint and we have to guess from the model name.
 _MEDIA_NAME_PATTERNS = [
     re.compile(r"whisper",                 re.IGNORECASE),
     re.compile(r"distil-large",            re.IGNORECASE),
@@ -332,6 +461,8 @@ def classify_startup_phase(
     last_heartbeat_seconds: Optional[float] = None
     warmup_seq_len: Optional[int] = None
     trace_count = 0
+    media_load_count = 0
+    media_warmup_count = 0
     saw_health_ok = False
     weights_repo: Optional[str] = None
     weights_target_path: Optional[str] = None
@@ -375,6 +506,14 @@ def classify_startup_phase(
                 if m:
                     weights_repo = m.group("repo")
                     weights_cached = True
+                else:
+                    # The runner's transformers.from_pretrained path — fires
+                    # whether cached or not. compute_download_progress will set
+                    # weights_cached=True later if du(1) shows the cache dir
+                    # already has the full payload.
+                    m = _DOWNLOAD_MEDIA_HF_LOAD_RE.search(line)
+                    if m:
+                        weights_repo = m.group("repo")
         else:
             m = _DOWNLOAD_START_RE.search(line)
             if m:
@@ -399,6 +538,14 @@ def classify_startup_phase(
                     warmup_seq_len = int(m.group(1))
                 except ValueError:
                     pass
+
+        # MEDIA-only: count milestones inside the long phases so the bar
+        # advances during the otherwise-silent HF model load + warmup loop.
+        if category == "media":
+            if _MEDIA_LOAD_STEP_RE.search(line):
+                media_load_count += 1
+            if _MEDIA_WARMUP_STEP_RE.search(line):
+                media_warmup_count += 1
 
         # Heartbeat (LLM-only marker, but cheap to check regardless).
         m = _HEARTBEAT_RE.search(line)
@@ -426,6 +573,22 @@ def classify_startup_phase(
         progress = phase_base_pct["compiling_model"] + int(
             (capped / COMPILE_TRACE_TOTAL)
             * (phase_base_pct["engine_ready"] - phase_base_pct["compiling_model"] - 2)
+        )
+
+    # MEDIA-only: equivalent refinement for the two long phases. Without this
+    # the bar would sit at the phase base for minutes during the HF model
+    # load and the encoder-size warmup loop.
+    if category == "media" and phase == "loading_weights" and media_load_count > 0:
+        capped = min(media_load_count, MEDIA_LOAD_TOTAL)
+        progress = phase_base_pct["loading_weights"] + int(
+            (capped / MEDIA_LOAD_TOTAL)
+            * (phase_base_pct["warming_up"] - phase_base_pct["loading_weights"] - 2)
+        )
+    elif category == "media" and phase == "warming_up" and media_warmup_count > 0:
+        capped = min(media_warmup_count, MEDIA_WARMUP_TOTAL)
+        progress = phase_base_pct["warming_up"] + int(
+            (capped / MEDIA_WARMUP_TOTAL)
+            * (phase_base_pct["ready"] - phase_base_pct["warming_up"] - 2)
         )
 
     # Human-readable message line.

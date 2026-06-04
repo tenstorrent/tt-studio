@@ -48,6 +48,7 @@ except ImportError:
     HAS_REQUESTS = False
 
 from venv_utils import recreate_venv_if_stale, print_manual_fix_steps
+from startup_checks import check_startup_freshness
 
 # --- Color Definitions ---
 C_RESET = '\033[0m'
@@ -1842,6 +1843,16 @@ def _remove_tt_studio_network_containers(has_docker_access):
             capture_output=True, text=True, check=False,
         )
         ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        # Media (TTS/STT) containers don't always join tt_studio_network reliably —
+        # the post-deploy network-connect hook in inference-api/api.py is best-effort.
+        # Fall back to image-ancestor so cleanup catches them anyway. See issue #825.
+        for ref in _CLEANUP_IMAGE_REFS:
+            anc = subprocess.run(
+                sudo_prefix + ["docker", "ps", "-aq", "--filter", f"ancestor={ref}"],
+                capture_output=True, text=True, check=False,
+            )
+            ids.extend(line.strip() for line in anc.stdout.splitlines() if line.strip())
+        ids = list(dict.fromkeys(ids))
         if not ids:
             return 0
         subprocess.run(
@@ -2068,14 +2079,24 @@ def cleanup_resources(args):
 
 
 def _cleanup_runtime(args, has_docker_access):
-    """Tear down containers, the docker network, FastAPI and Docker Control Service."""
-    # Deployment containers (vLLM, etc.) live outside compose — kill them first
-    # so the subsequent network removal and weight-directory deletion aren't
-    # blocked by running processes holding bind mounts open.
-    sys.stdout.write(f"  Stopping deployments...    ")
-    sys.stdout.flush()
-    deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
-    print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+    """Tear down host services and compose containers. Deployment containers
+    (vLLM, TTS, STT, …) survive a plain ``--cleanup`` so loaded models keep
+    serving across a TT Studio restart; ``--cleanup-all`` still removes them
+    as part of the full reset."""
+    full_cleanup = bool(getattr(args, "cleanup_all", False))
+
+    if full_cleanup:
+        # Deployment containers (vLLM, etc.) live outside compose — kill them first
+        # so the subsequent network removal and weight-directory deletion aren't
+        # blocked by running processes holding bind mounts open.
+        sys.stdout.write(f"  Stopping deployments...    ")
+        sys.stdout.flush()
+        deploys_removed = _remove_tt_studio_network_containers(has_docker_access)
+        print(f"{C_GREEN}done{C_RESET}  ({deploys_removed} container(s))")
+    else:
+        sys.stdout.write(f"  Preserving deployments...  ")
+        sys.stdout.flush()
+        print(f"{C_GREEN}done{C_RESET}  (use --cleanup-all to remove)")
 
     docker_compose_cmd = build_docker_compose_command(dev_mode=args.dev, show_hardware_info=False)
     docker_compose_cmd.extend(["down", "-v"])
@@ -2087,14 +2108,19 @@ def _cleanup_runtime(args, has_docker_access):
     except Exception:
         print(f"{C_YELLOW}skipped{C_RESET}")
 
-    try:
-        sys.stdout.write(f"  Removing network...        ")
-        sys.stdout.flush()
-        run_docker_command(["docker", "network", "rm", "tt_studio_network"],
-                            use_sudo=not has_docker_access, capture_output=True)
-        print(f"{C_GREEN}done{C_RESET}")
-    except Exception:
-        print(f"{C_YELLOW}skipped{C_RESET}")
+    # Skip explicit network removal when deployments are preserved — they stay
+    # attached to ``tt_studio_network`` and need it for DNS resolution so the
+    # backend can reconnect after restart. ``compose down`` also tries to
+    # remove the network and fails silently when external containers hold it.
+    if full_cleanup:
+        try:
+            sys.stdout.write(f"  Removing network...        ")
+            sys.stdout.flush()
+            run_docker_command(["docker", "network", "rm", "tt_studio_network"],
+                                use_sudo=not has_docker_access, capture_output=True)
+            print(f"{C_GREEN}done{C_RESET}")
+        except Exception:
+            print(f"{C_YELLOW}skipped{C_RESET}")
 
     sys.stdout.write(f"  Stopping FastAPI server... ")
     sys.stdout.flush()
@@ -2936,8 +2962,13 @@ def setup_tt_inference_server(pull_branch=False):
                             branch_mismatch = True
                         elif current_sha and stored_sha:
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) up-to-date (commit: {current_sha[:7]}){C_RESET}")
+                        elif current_sha and not stored_sha:
+                            # Artifact was downloaded without recording a commit SHA — re-fetch
+                            # so we can record the SHA for future freshness checks.
+                            print(f"{C_YELLOW}⚠️  No stored commit SHA for '{artifact_branch}' — re-fetching to record current commit ({current_sha[:7]}){C_RESET}")
+                            branch_mismatch = True
                         else:
-                            # API unreachable or no stored SHA — fall back gracefully
+                            # GitHub unreachable and no stored SHA — fall back gracefully
                             print(f"{C_GREEN}✅ TT Inference Server (branch: {artifact_branch}) (cached){C_RESET}")
             elif artifact_version and artifact_version != "latest" and version:
                 req = artifact_version.lstrip("v").strip()
@@ -3077,7 +3108,8 @@ def setup_tt_inference_server(pull_branch=False):
                 info_file = os.path.join(artifacts_dir, "artifact-info.txt")
                 if not os.path.exists(info_file):
                     if artifact_branch:
-                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup)
+                        _sha = fetch_branch_commit_sha(artifact_branch)
+                        _write_artifact_info(artifacts_dir, "branch", artifact_branch, sudo_used=sudo_used_for_cleanup, commit_sha=_sha)
                     elif artifact_version:
                         _write_artifact_info(artifacts_dir, "version", artifact_version, sudo_used=sudo_used_for_cleanup)
                 return True
@@ -4650,6 +4682,23 @@ def main():
             return
         
         display_welcome_banner()
+        freshness = check_startup_freshness(TT_STUDIO_ROOT, get_env_var)
+
+        # Block startup only on release branches (main/dev/tt_qb2_launch_branch/
+        # rc-*/release-*). Feature branches just warn and continue so dev work
+        # isn't interrupted by stale remote tracking.
+        # Hard-stop on release branches that are behind origin. The warning
+        # itself (with the git pull hint) is already printed by startup_checks.
+        if freshness.get("tt_studio_behind") and freshness.get("tt_studio_branch_is_release"):
+            print(f"\n{C_RED}⛔ Stopping: release branch must be in sync with origin.{C_RESET}")
+            startup_log.summary(exit_code=1)
+            startup_log.close()
+            sys.exit(1)
+
+        # Outdated artifact: warning + "auto-fetching" hint are already in
+        # startup_checks; just flip the flag so the download runs.
+        if freshness.get("artifact_behind") and not args.pull_branch:
+            args.pull_branch = True
 
         # Get git hash for startup log
         try:

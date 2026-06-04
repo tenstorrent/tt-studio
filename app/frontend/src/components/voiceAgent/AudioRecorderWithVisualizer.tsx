@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import { useTheme } from "../../hooks/useTheme";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, useCallback } from "react";
 import { Mic, Square } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { PipelineStage } from "./types";
+import { useSilenceDetection } from "./hooks/useSilenceDetection";
 
 type Props = {
   className?: string;
@@ -15,6 +16,10 @@ type Props = {
   disabled?: boolean;
   stage?: PipelineStage;
   isTTSGenerating?: boolean;
+};
+
+export type AudioRecorderHandle = {
+  startRecording: () => void;
 };
 
 const LEVEL_BARS = 24;
@@ -29,14 +34,14 @@ const STAGE_BAR_COLORS: Record<string, string> = {
   tts: "bg-TT-green",
 };
 
-export const AudioRecorderWithVisualizer = ({
+export const AudioRecorderWithVisualizer = forwardRef<AudioRecorderHandle, Props>(({
   className,
   onRecordingComplete,
   onRecordingStart,
   disabled = false,
   stage = "idle",
   isTTSGenerating = false,
-}: Props) => {
+}, ref) => {
   const { theme } = useTheme();
 
   const [isRecording, setIsRecording] = useState(false);
@@ -55,7 +60,7 @@ export const AudioRecorderWithVisualizer = ({
       animFrameRef.current = null;
     }
     if (analyserRef.current) {
-      try { analyserRef.current.disconnect(); } catch {}
+      try { analyserRef.current.disconnect(); } catch { /* ignore */ }
       analyserRef.current = null;
     }
     if (streamRef.current) {
@@ -71,9 +76,37 @@ export const AudioRecorderWithVisualizer = ({
 
   useEffect(() => cleanup, [cleanup]);
 
+  const playChime = (startHz: number, endHz: number) => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(startHz, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(endHz, ctx.currentTime + 0.11);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.2);
+      osc.onended = () => ctx.close().catch(() => {});
+    } catch {
+      /* audio unavailable — chime is non-essential */
+    }
+  };
+  const playStartChime = () => playChime(880, 1320);
+  const playEndChime = () => playChime(880, 660);
+
   const startRecording = async () => {
     if (disabled) return;
     cleanup();
+    // Play before opening the mic so the chime isn't captured into the recording.
+    playStartChime();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -81,7 +114,10 @@ export const AudioRecorderWithVisualizer = ({
       });
       streamRef.current = stream;
 
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
       const ctx = new AudioCtx();
       audioContextRef.current = ctx;
 
@@ -119,10 +155,14 @@ export const AudioRecorderWithVisualizer = ({
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+      playEndChime();
     }
     setIsRecording(false);
     setLevels(new Array(LEVEL_BARS).fill(0));
   };
+
+  // Auto-stop on end-of-speech via Silero VAD; manual stop button still works.
+  useSilenceDetection({ enabled: isRecording, onSilence: stopRecording });
 
   const toggleRecording = () => {
     if (isRecording) {
@@ -131,6 +171,12 @@ export const AudioRecorderWithVisualizer = ({
       startRecording();
     }
   };
+
+  useImperativeHandle(ref, () => ({
+    startRecording: () => {
+      if (!isRecording) startRecording();
+    },
+  }));
 
   const startVisualization = (analyser: AnalyserNode) => {
     const bufLen = analyser.frequencyBinCount;
@@ -275,4 +321,4 @@ export const AudioRecorderWithVisualizer = ({
       </motion.p>
     </div>
   );
-};
+});

@@ -9,6 +9,7 @@ import docker
 import logging
 import json
 import datetime
+import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -24,6 +25,15 @@ from services.container_service import ContainerService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Drop uvicorn per-request access logs from the streamed view. tt-studio's own
+# health pollers and the agent's discovery loop generate thousands of these
+# `INFO:     <ip>:<port> - "GET /path HTTP/1.1" <code>` lines per warmup window,
+# burying real lifecycle events. Matches the same shape the backend classifier
+# uses (app/backend/model_control/log_classifier.py).
+_UVICORN_ACCESS_LOG_RE = re.compile(
+    r'^\s*INFO:\s+\S+:\d+\s+-\s+"\S+\s+/\S*\s+HTTP/[\d.]+"\s+\d+'
+)
 
 
 def get_service():
@@ -269,27 +279,36 @@ async def get_container_logs(container_id: str, follow: bool = True, tail: int =
                         # Split into individual lines and process each
                         for line in log_text.split('\n'):
                             line = line.rstrip('\r')  # Remove carriage returns
-                            if line:  # Only send non-empty lines
-                                # Create log data with timestamp
-                                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            if not line:
+                                continue
+                            # Only filter access-log noise when the caller is
+                            # streaming for the UI Logs tab (follow=True). One-shot
+                            # callers (e.g. the backend classifier via tail_logs)
+                            # need the full tail — they apply their own filter and
+                            # would otherwise see an empty list when the tail is
+                            # dominated by /health / /v1/models access lines.
+                            if follow and _UVICORN_ACCESS_LOG_RE.match(line):
+                                continue
+                            # Create log data with timestamp
+                            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-                                # Determine message type (simple heuristic)
-                                message_type = "log"
-                                line_upper = line.upper()
-                                if any(keyword in line_upper for keyword in ["ERROR", "EXCEPTION", "FAILED", "FATAL"]):
-                                    message_type = "error"
-                                elif any(keyword in line_upper for keyword in ["WARNING", "WARN"]):
-                                    message_type = "warning"
-                                elif any(keyword in line_upper for keyword in ["INFO", "STARTED", "LISTENING", "READY"]):
-                                    message_type = "event"
+                            # Determine message type (simple heuristic)
+                            message_type = "log"
+                            line_upper = line.upper()
+                            if any(keyword in line_upper for keyword in ["ERROR", "EXCEPTION", "FAILED", "FATAL"]):
+                                message_type = "error"
+                            elif any(keyword in line_upper for keyword in ["WARNING", "WARN"]):
+                                message_type = "warning"
+                            elif any(keyword in line_upper for keyword in ["INFO", "STARTED", "LISTENING", "READY"]):
+                                message_type = "event"
 
-                                log_data = {
-                                    "type": message_type,
-                                    "message": line,
-                                    "timestamp": timestamp,
-                                    "raw": True
-                                }
-                                yield f"data: {json.dumps(log_data)}\n\n"
+                            log_data = {
+                                "type": message_type,
+                                "message": line,
+                                "timestamp": timestamp,
+                                "raw": True
+                            }
+                            yield f"data: {json.dumps(log_data)}\n\n"
 
                     except Exception as decode_error:
                         # Fallback for problematic log lines

@@ -28,6 +28,8 @@ from .docker_utils import (
     run_container,
     stop_container,
     get_container_status,
+    get_canonical_deployments,
+    serialize_canonical_entry_for_http,
     perform_reset,
     perform_device_reset,
     perform_devices_reset,
@@ -61,7 +63,7 @@ except Exception:
     _status_lookup = {}
 
 # Manual compatibility overrides: model names always shown as compatible regardless of board.
-# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for qb2 (P300Cx2)
+# HARDCODED: whisper-large-v3 and speecht5_tts are intentionally NOT listed here for P300x2
 # until proper board support is confirmed. Edit model_compatibility_overrides.json to re-enable.
 _OVERRIDE_PATH = Path(__file__).parent.parent / "shared_config/model_compatibility_overrides.json"
 try:
@@ -223,14 +225,14 @@ class ContainersView(APIView):
             # Blackhole single devices
             'P100': [DeviceConfigurations.P100],
             'P150': [DeviceConfigurations.P150],
-            'P300c': [DeviceConfigurations.P300c],
-            
+            'P300': [DeviceConfigurations.P300],
+
             # Blackhole multi-device
             'P150X4': [DeviceConfigurations.P150X4, DeviceConfigurations.P150],
             'P150X8': [DeviceConfigurations.P150X8, DeviceConfigurations.P150],
-            # P300Cx2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
-            'P300Cx2': [DeviceConfigurations.P300Cx2, DeviceConfigurations.P150, DeviceConfigurations.P300c],
-            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300c],
+            # P300x2/P300Cx4: include P150 so single-chip models (--tt-device p150) show as compatible
+            'P300x2': [DeviceConfigurations.P300x2, DeviceConfigurations.P150, DeviceConfigurations.P300],
+            'P300Cx4': [DeviceConfigurations.P300Cx4, DeviceConfigurations.P150, DeviceConfigurations.P300],
             
             # Galaxy systems
             'GALAXY': [DeviceConfigurations.GALAXY, DeviceConfigurations.N300, DeviceConfigurations.N300_WH_ARCH_YAML],
@@ -290,28 +292,65 @@ class ContainersView(APIView):
 
 
 class StatusView(APIView):
-    def get(self, request, *args, **kwargs):
-        data = get_container_status()
-        # Enrich with model_type from deploy cache so frontend navbar can route correctly (e.g. Speech -> /speech-to-text).
-        try:
-            from model_control.model_utils import get_deploy_cache
+    """Thin shim over get_canonical_deployments() preserving the historical
+    /docker-api/status/ response shape: dict keyed by container_id with Docker fields (name, status, health, image, port_bindings, networks, device_id, device_ids) plus a model_type echo for navbar routing.
+    """
 
-            deploy_cache = get_deploy_cache()
-            for con_id, con_data in data.items():
-                if con_id in deploy_cache:
-                    model_impl = deploy_cache[con_id].get("model_impl")
-                    if model_impl is not None:
-                        mt = getattr(model_impl, "model_type", None)
-                        if mt is not None:
-                            con_data["model_type"] = getattr(
-                                mt, "value", str(mt)
-                            )
+    def get(self, request, *args, **kwargs):
+        try:
+            canonical = get_canonical_deployments()
         except Exception as e:
-            logger.warning(
-                "Could not enrich status with model_type from deploy cache: %s",
-                e,
-            )
+            logger.warning(f"StatusView: get_canonical_deployments failed: {e}")
+            return Response({}, status=status.HTTP_200_OK)
+
+        data = {}
+        for con_id, entry in canonical.items():
+            # Drop internal-only fields and the Python model_impl object;
+            # echo model_type at the top level for navbar routing.
+            model_impl = entry.get("model_impl")
+            model_type = None
+            if model_impl is not None:
+                mt = getattr(model_impl, "model_type", None)
+                if mt is not None:
+                    model_type = getattr(mt, "value", str(mt))
+            data[con_id] = {
+                "name": entry.get("name"),
+                "status": entry.get("status"),
+                "health": entry.get("health"),
+                "create": entry.get("create"),
+                "image_id": entry.get("image_id"),
+                "image_name": entry.get("image_name"),
+                "port_bindings": entry.get("port_bindings") or {},
+                "networks": entry.get("networks") or {},
+                "device_id": entry.get("device_id"),
+                "device_ids": entry.get("device_ids"),
+                "model_type": model_type,
+            }
         return Response(data, status=status.HTTP_200_OK)
+
+
+class DeploymentsView(APIView):
+    """Canonical endpoint — the single source of truth. 
+    Returns a dict keyed by Docker container_id (or a pending-<id> key for placeholder records during the CHAT-model job_id window). 
+    Each entry includes Docker container fields, deployment_store fields, a serialized model_impl, plus is_pending and source markers so callers can distinguish fully-deployed models from in-flight starts and from discovered-but-unregistered containers.
+
+    Other endpoints (/docker-api/status/, /models-api/deployed/, /docker-api/chip-status/) are now thin shims over this view. Their response shapes are preserved for backwards compatibility.
+    """
+
+    def get(self, request, *args, **kwargs):
+        try:
+            canonical = get_canonical_deployments()
+        except Exception as e:
+            logger.exception("DeploymentsView: get_canonical_deployments failed")
+            return Response(
+                {"error": "Failed to compute deployments", "message": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {con_id: serialize_canonical_entry_for_http(entry) for con_id, entry in canonical.items()},
+            status=status.HTTP_200_OK,
+        )
 
 
 class ChipStatusView(APIView):
@@ -379,7 +418,7 @@ class DeployView(APIView):
             should_force_full_board_llama = (
                 impl.model_type == ModelTypes.CHAT
                 and force_full_board_requested
-                and board_type == "P300Cx2"
+                and board_type == "P300x2"
                 and _is_llama31_8b_model(impl.model_name)
             )
             if force_full_board_requested and not should_force_full_board_llama:
@@ -474,7 +513,22 @@ class DeployView(APIView):
                     else:
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
-                logger.info(f"Allocated device_id={device_id} (request={device_ids_str}) for {impl.model_name}")
+                # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
+                if should_force_full_board_llama:
+                    # Forced full-board Llama takes over every slot on the board.
+                    occupied_device_ids = list(range(allocator.total_slots))
+                elif chips_required > 1:
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id), clamped to the board size
+                    occupied_device_ids = list(
+                        range(device_id, min(device_id + chips_required, allocator.total_slots))
+                    )
+                else:
+                    # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
+                    occupied_device_ids = device_ids
+                logger.info(
+                    f"Allocated device_id={device_id} (request={device_ids_str}, "
+                    f"occupies={occupied_device_ids}) for {impl.model_name}"
+                )
 
             except MultiChipConflictError as e:
                 logger.warning(f"Multi-chip conflict for {impl.model_name}: {str(e)}")
@@ -514,16 +568,16 @@ class DeployView(APIView):
                     # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
                     # should run with --tt-device p300 (not p150).
                     if (
-                        board_type == "P300Cx2"
+                        board_type == "P300x2"
                         and _is_llama31_8b_model(impl.model_name)
                         and sorted(device_ids) == [0, 1]
                     ):
                         device = "p300"
-                    # For QB2 (P300Cx2) with the whole-board p300x2 device, the inference
+                    # For P300x2 with the whole-board p300x2 device, the inference
                     # server selects the physical chip itself — omit device_id entirely.
-                    # For slot-pinned p150/p300 mode on QB2, pass device_id so each model
+                    # For slot-pinned p150/p300 mode on P300x2, pass device_id so each model
                     # lands on its allocated slot(s).
-                    if board_type == "P300Cx2" and device == "p300x2":
+                    if board_type == "P300x2" and device == "p300x2":
                         inference_device_id = None
                     else:
                         inference_device_id = device_ids_str
@@ -540,7 +594,7 @@ class DeployView(APIView):
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
                     override_tt_config=override_tt_config,
-                    dev_mode=qwen32b_p300x2,
+                    dev_mode=False,
                 )
                 if result.status != "success":
                     return Response(
@@ -571,7 +625,7 @@ class DeployView(APIView):
                         model_name=impl.model_name,
                         device=device,
                         device_id=device_id,
-                        device_ids=device_ids,
+                        device_ids=occupied_device_ids,
                         status="starting",
                         port=service_port,
                     )
@@ -1462,12 +1516,12 @@ class BoardInfoView(APIView):
                 # Blackhole devices
                 'P100': 'Tenstorrent P100',
                 'P150': 'Tenstorrent P150',
-                'P300c': 'Tenstorrent P300c',
-                
+                'P300': 'Tenstorrent P300',
+
                 # Blackhole multi-device
                 'P150X4': 'Tenstorrent P150x4',
                 'P150X8': 'Tenstorrent P150x8',
-                'P300Cx2': 'Tenstorrent P300Cx2',  # 2 cards (4 chips)
+                'P300x2': 'Tenstorrent P300x2',    # 2 cards (4 chips)
                 'P300Cx4': 'Tenstorrent P300Cx4',  # 4 cards (8 chips)
                 
                 # Galaxy systems
@@ -2213,10 +2267,11 @@ class WorkflowLogStreamView(View):
 class StopStreamView(View):
     """Stream model deletion progress as Server-Sent Events.
 
-    Performs stop → remove → board-reset sequentially, emitting real-time
-    log lines so the frontend dialog can mirror what the backend is doing.
-    Each ``log`` event carries a ``step`` field so the UI can slot it under
-    the correct progress row.
+    Performs stop → remove → device-reset, emitting real-time log lines so the
+    frontend dialog can mirror what the backend is doing. The reset issues a
+    single batched ``tt-smi -r <id1> <id2> ...`` across all of the model's
+    chips rather than one invocation per chip. Each ``log`` event carries a
+    ``step`` field so the UI can slot it under the correct progress row.
 
     Uses an async generator so that yields flush immediately through
     uvicorn's event loop instead of being batched by the sync threadpool.
@@ -2314,76 +2369,71 @@ class StopStreamView(View):
             await asyncio.to_thread(SystemResourceService.set_resetting_state)
 
             MAX_ATTEMPTS = 2
-            success_devices = []
-            failed_devices = []
+            id_args = [str(d) for d in device_ids]
+            # Batched reset: a single `tt-smi -r <id1> <id2> ...` coordinates the
+            # PCIe secondary-bus reset and ethernet bring-up across all of the
+            # model's chips at once. This is both faster and safer than resetting
+            # each chip in a loop, which disturbs neighbouring chips' links on
+            # every invocation (see perform_devices_reset in docker_utils.py).
+            reset_ok = False
+            # Allow gaps between output lines to grow with board size.
+            line_timeout = max(90, 30 * len(device_ids))
 
-            for device_id in device_ids:
-                device_ok = False
-                for attempt in range(1, MAX_ATTEMPTS + 1):
-                    yield sse({"type": "log", "step": current_step, "message": f"Running tt-smi -r {device_id} (attempt {attempt}/{MAX_ATTEMPTS})…"})
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                yield sse({"type": "log", "step": current_step, "message": f"Running tt-smi -r {device_label} (attempt {attempt}/{MAX_ATTEMPTS})…"})
+
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "tt-smi", "-r", *id_args,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.STDOUT,
+                        stdin=asyncio.subprocess.DEVNULL,
+                    )
 
                     try:
-                        proc = await asyncio.create_subprocess_exec(
-                            "tt-smi", "-r", str(device_id),
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.STDOUT,
-                            stdin=asyncio.subprocess.DEVNULL,
-                        )
+                        async def _read_with_timeout():
+                            while True:
+                                raw_line = await asyncio.wait_for(
+                                    proc.stdout.readline(), timeout=line_timeout
+                                )
+                                if not raw_line:
+                                    break
+                                cleaned = ansi_re.sub("", raw_line.decode("utf-8", errors="replace")).strip()
+                                if cleaned:
+                                    yield cleaned
 
+                        async for line in _read_with_timeout():
+                            yield sse({"type": "log", "step": current_step, "message": line})
+
+                        await asyncio.wait_for(proc.wait(), timeout=10)
+
+                    except asyncio.TimeoutError:
+                        yield sse({"type": "log", "step": current_step, "message": f"Reset of device(s) {device_label} timed out after {line_timeout}s"})
                         try:
-                            async def _read_with_timeout():
-                                while True:
-                                    raw_line = await asyncio.wait_for(
-                                        proc.stdout.readline(), timeout=90
-                                    )
-                                    if not raw_line:
-                                        break
-                                    cleaned = ansi_re.sub("", raw_line.decode("utf-8", errors="replace")).strip()
-                                    if cleaned:
-                                        yield cleaned
+                            proc.terminate()
+                            await asyncio.sleep(2)
+                            proc.kill()
+                        except Exception:
+                            pass
 
-                            async for line in _read_with_timeout():
-                                yield sse({"type": "log", "step": current_step, "message": line})
+                    returncode = proc.returncode if proc.returncode is not None else -1
 
-                            await asyncio.wait_for(proc.wait(), timeout=10)
+                except Exception as exc:
+                    yield sse({"type": "log", "step": current_step, "message": str(exc)})
+                    returncode = -1
 
-                        except asyncio.TimeoutError:
-                            yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} reset timed out after 90s"})
-                            try:
-                                proc.terminate()
-                                await asyncio.sleep(2)
-                                proc.kill()
-                            except Exception:
-                                pass
-
-                        returncode = proc.returncode if proc.returncode is not None else -1
-
-                    except Exception as exc:
-                        yield sse({"type": "log", "step": current_step, "message": str(exc)})
-                        returncode = -1
-
-                    if returncode == 0:
-                        device_ok = True
-                        yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} reset succeeded on attempt {attempt}"})
-                        break
-                    else:
-                        yield sse({"type": "log", "step": current_step, "message": f"Device {device_id} attempt {attempt} failed (exit code {returncode})"})
-
-                if device_ok:
-                    success_devices.append(device_id)
+                if returncode == 0:
+                    reset_ok = True
+                    yield sse({"type": "log", "step": current_step, "message": f"Device(s) {device_label} reset succeeded on attempt {attempt}"})
+                    break
                 else:
-                    failed_devices.append(device_id)
+                    yield sse({"type": "log", "step": current_step, "message": f"Reset of device(s) {device_label} attempt {attempt} failed (exit code {returncode})"})
 
             await asyncio.to_thread(SystemResourceService.clear_device_state_cache)
 
-            if success_devices and not failed_devices:
-                final_status = "success"
-            elif success_devices and failed_devices:
-                final_status = "partial"
-            else:
-                final_status = "partial"
+            final_status = "success" if reset_ok else "partial"
 
-            if success_devices:
+            if reset_ok:
                 try:
                     await asyncio.to_thread(SystemResourceService.force_refresh_tt_smi_cache)
                     yield sse({"type": "log", "step": current_step, "message": "tt-smi cache refreshed"})
@@ -2394,8 +2444,8 @@ class StopStreamView(View):
                 final_msg = f"Model deleted and device(s) {device_label} reset successfully"
             else:
                 final_msg = (
-                    f"Model deleted; reset succeeded for {success_devices or 'none'}, "
-                    f"failed for {failed_devices}"
+                    f"Model deleted, but reset of device(s) {device_label} did not complete "
+                    "successfully. Manual intervention may be required."
                 )
             yield sse({"type": "complete", "status": final_status, "message": final_msg})
 

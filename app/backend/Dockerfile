@@ -34,7 +34,7 @@ RUN if [ "$VITE_ENABLE_DEPLOYED" != "true" ]; then \
     . "$HOME/.cargo/env" && \
     # Clone and install tt-smi
     mkdir -p /opt/tenstorrent-tools && \
-    git clone --branch v4.0.0 --depth 1 https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
+    git clone --branch v4.1.2 --depth 1 https://github.com/tenstorrent/tt-smi.git /opt/tenstorrent-tools/tt-smi && \
     cd /opt/tenstorrent-tools/tt-smi && \
     pip3 install --upgrade pip && \
     pip3 install . && \
@@ -52,6 +52,10 @@ COPY ./requirements.txt /backend/
 # Install Python dependencies
 RUN pip3 install --upgrade pip && \
     pip3 install -r requirements.txt --no-cache-dir
+
+# openwakeword pins tflite-runtime as a hard Linux dep, which has no Python 3.12 wheel.
+# We use inference_framework="onnx", so install without deps (onnxruntime is in requirements.txt).
+RUN pip3 install --no-cache-dir --no-deps openwakeword==0.6.0
 
 # Copy application code
 COPY . /backend/

@@ -40,7 +40,7 @@ import {
 // Board types that have multiple individually-resettable chips
 const MULTI_CHIP_BOARDS = new Set([
   "T3K", "T3000", "N150X4", "N300x4",
-  "P150X4", "P150X8", "P300Cx2", "P300Cx4",
+  "P150X4", "P150X8", "P300x2", "P300Cx4",
   "GALAXY", "GALAXY_T3K",
 ]);
 
@@ -68,23 +68,23 @@ function StepRow({
   return (
     <div
       className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${state === "active"
-          ? "bg-blue-900/30 border-blue-500/40"
-          : state === "done"
-            ? "bg-green-900/20 border-green-600/30"
-            : state === "skipped"
-              ? "bg-stone-800/30 border-stone-700/30"
-              : "bg-stone-800/50 border-stone-700/40"
+        ? "bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-500/40"
+        : state === "done"
+          ? "bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-600/30"
+          : state === "skipped"
+            ? "bg-stone-50 border-stone-200 dark:bg-stone-800/30 dark:border-stone-700/30"
+            : "bg-stone-50 border-stone-200 dark:bg-stone-800/50 dark:border-stone-700/40"
         }`}
     >
       <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
         {state === "active" ? (
-          <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+          <Loader2 className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
         ) : state === "done" ? (
-          <CheckCircle className="w-5 h-5 text-green-400" />
+          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
         ) : state === "skipped" ? (
           <CheckCircle className="w-5 h-5 text-stone-500" />
         ) : (
-          <div className="w-6 h-6 rounded-full bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-300">
+          <div className="w-6 h-6 rounded-full bg-stone-200 dark:bg-stone-600 flex items-center justify-center text-xs font-bold text-stone-700 dark:text-stone-300">
             {number}
           </div>
         )}
@@ -92,21 +92,21 @@ function StepRow({
       <div className="flex-1 min-w-0">
         <div
           className={`font-medium text-sm inline-flex items-center gap-1.5 ${state === "pending" || state === "skipped"
-              ? "text-stone-400"
-              : "text-white"
+            ? "text-stone-600 dark:text-stone-400"
+            : "text-stone-950 dark:text-white"
             }`}
         >
           {icon}
           {label}
         </div>
         {sublabel && state === "active" && (
-          <div className="text-xs text-blue-300 mt-1">{sublabel}</div>
+          <div className="text-xs text-blue-700 dark:text-blue-300 mt-1">{sublabel}</div>
         )}
         {state === "done" && (
-          <div className="text-xs text-green-400 mt-0.5">Completed</div>
+          <div className="text-xs text-green-700 dark:text-green-400 mt-0.5">Completed</div>
         )}
         {state === "skipped" && (
-          <div className="text-xs text-stone-500 mt-0.5">
+          <div className="text-xs text-stone-500 dark:text-stone-500 mt-0.5">
             No models deployed — skipped
           </div>
         )}
@@ -125,11 +125,11 @@ function BoardStatusBanner({
 }) {
   if (state === "BAD_STATE") {
     return (
-      <div className="flex items-start gap-3 p-3 bg-orange-900/30 border border-orange-500/40 rounded-lg text-orange-200 text-sm">
-        <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
+      <div className="flex items-start gap-3 p-3 bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-500/40 rounded-lg text-orange-900 dark:text-orange-200 text-sm">
+        <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400 mt-0.5 shrink-0" />
         <div>
-          <strong className="text-orange-300">Board unresponsive</strong>
-          <p className="mt-0.5 text-orange-200/80">
+          <strong className="text-orange-700 dark:text-orange-300">Board unresponsive</strong>
+          <p className="mt-0.5 text-orange-800/80 dark:text-orange-200/80">
             The board is present but not responding. A reset is strongly
             recommended.
           </p>
@@ -139,12 +139,12 @@ function BoardStatusBanner({
   }
   if (state === "NOT_PRESENT") {
     return (
-      <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg text-red-200 text-sm">
-        <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+      <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-500/40 rounded-lg text-red-900 dark:text-red-200 text-sm">
+        <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
         <div>
-          <strong className="text-red-300">No device detected</strong>
-          <p className="mt-0.5 text-red-200/80">
-            <code className="bg-red-900/50 px-1 rounded">/dev/tenstorrent</code>{" "}
+          <strong className="text-red-700 dark:text-red-300">No device detected</strong>
+          <p className="mt-0.5 text-red-800/80 dark:text-red-200/80">
+            <code className="bg-red-100 dark:bg-red-900/50 px-1 rounded">/dev/tenstorrent</code>{" "}
             not found. Check your hardware connection.
           </p>
         </div>
@@ -153,10 +153,10 @@ function BoardStatusBanner({
   }
   if (state === "HEALTHY" && boardType !== "unknown") {
     return (
-      <div className="flex items-center gap-2 p-3 bg-green-900/20 border border-green-600/30 rounded-lg text-green-200 text-sm">
-        <CheckCircle className="h-4 w-4 text-green-400 shrink-0" />
+      <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-600/30 rounded-lg text-green-900 dark:text-green-200 text-sm">
+        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
         <span>
-          Board is <strong className="text-green-300">healthy</strong> — reset
+          Board is <strong className="text-green-700 dark:text-green-300">healthy</strong> — reset
           is available if needed.
         </span>
       </div>
@@ -378,31 +378,31 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
         </DialogTrigger>
 
         <DialogContent
-          className="sm:max-w-md p-6 rounded-xl shadow-2xl bg-stone-900 text-white border border-stone-700 backdrop-blur-md"
+          className="sm:max-w-md p-6 rounded-xl shadow-2xl bg-white text-stone-950 border border-stone-200 backdrop-blur-md dark:bg-stone-900 dark:text-white dark:border-stone-700"
         >
           {/* ── HEADER ── */}
           <DialogHeader>
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-3">
                 {isLoading ? (
-                  <div className="w-9 h-9 rounded-full bg-blue-900/50 flex items-center justify-center">
-                    <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+                  <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
                   </div>
                 ) : isCompleted ? (
-                  <div className="w-9 h-9 rounded-full bg-green-900/50 flex items-center justify-center">
-                    <CheckCircle className="h-5 w-5 text-green-400" />
+                  <div className="w-9 h-9 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center">
+                    <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
                   </div>
                 ) : isFailed ? (
-                  <div className="w-9 h-9 rounded-full bg-red-900/50 flex items-center justify-center">
-                    <XCircle className="h-5 w-5 text-red-400" />
+                  <div className="w-9 h-9 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center">
+                    <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
                   </div>
                 ) : (
-                  <div className="w-9 h-9 rounded-full bg-yellow-900/50 flex items-center justify-center">
-                    <RotateCcw className="h-5 w-5 text-yellow-400" />
+                  <div className="w-9 h-9 rounded-full bg-yellow-100 dark:bg-yellow-900/50 flex items-center justify-center">
+                    <RotateCcw className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
                   </div>
                 )}
                 <div>
-                  <DialogTitle className="text-base font-semibold text-white leading-tight">
+                  <DialogTitle className="text-base font-semibold text-stone-950 dark:text-white leading-tight">
                     {isLoading
                       ? resetStep === "deleting"
                         ? "Removing deployed models…"
@@ -414,7 +414,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                           : "Reset Card"}
                   </DialogTitle>
                   {isLoading && (
-                    <p className="text-xs text-stone-400 mt-0.5">
+                    <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
                       Step {resetStep === "deleting" ? "1" : "2"} of 2 — do not
                       close this window
                     </p>
@@ -438,8 +438,8 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                 />
 
                 {isResettingContext && (
-                  <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
-                    <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-500/40 rounded-lg text-blue-900 dark:text-blue-200 text-sm">
+                    <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
                     <span>Board is already resetting…</span>
                   </div>
                 )}
@@ -463,13 +463,13 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                 />
 
                 {/* Warning */}
-                <div className="flex items-start gap-2 p-3 bg-red-950/40 border border-red-500/25 rounded-lg text-red-200 text-sm">
-                  <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+                <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/25 rounded-lg text-red-900 dark:text-red-200 text-sm">
+                  <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
                   <span>
-                    <strong className="text-red-300">Warning:</strong> This will
+                    <strong className="text-red-700 dark:text-red-300">Warning:</strong> This will
                     interrupt any ongoing processes on the card.
                     {resetHistory.length > 0 && (
-                      <span className="block mt-1 text-red-300/70">
+                      <span className="block mt-1 text-red-700/70 dark:text-red-300/70">
                         Last reset:{" "}
                         {resetHistory[resetHistory.length - 1].toLocaleTimeString()}
                       </span>
@@ -522,7 +522,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                   <button
                     type="button"
                     onClick={() => setShowOutput((v) => !v)}
-                    className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 transition-colors"
+                    className="flex items-center gap-1 text-xs text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 transition-colors"
                   >
                     <ChevronDown
                       className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
@@ -531,8 +531,8 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                   </button>
                 )}
                 {showOutput && cmdOutput && (
-                  <ScrollArea className="h-36 rounded-lg border border-stone-700">
-                    <pre className="p-3 text-xs text-green-400 whitespace-pre-wrap font-mono bg-stone-950">
+                  <ScrollArea className="h-36 rounded-lg border border-stone-200 dark:border-stone-700">
+                    <pre className="p-3 text-xs text-green-700 dark:text-green-400 whitespace-pre-wrap font-mono bg-stone-50 dark:bg-stone-950">
                       {cmdOutput}
                     </pre>
                   </ScrollArea>
@@ -543,17 +543,17 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
             {/* ── FAILED ── */}
             {isFailed && (
               <>
-                <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg">
-                  <XCircle className="h-5 w-5 text-red-400 mt-0.5 shrink-0" />
+                <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-500/40 rounded-lg">
+                  <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-red-200">
+                    <p className="text-sm font-medium text-red-800 dark:text-red-200">
                       {errorMessage}
                     </p>
                     {cmdOutput && (
                       <button
                         type="button"
                         onClick={() => setShowOutput((v) => !v)}
-                        className="flex items-center gap-1 text-xs text-stone-400 hover:text-stone-200 mt-2 transition-colors"
+                        className="flex items-center gap-1 text-xs text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 mt-2 transition-colors"
                       >
                         <ChevronDown
                           className={`w-3.5 h-3.5 transition-transform ${showOutput ? "rotate-180" : ""}`}
@@ -564,8 +564,8 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                   </div>
                 </div>
                 {showOutput && cmdOutput && (
-                  <ScrollArea className="h-36 rounded-lg border border-stone-700">
-                    <pre className="p-3 text-xs text-red-300 whitespace-pre-wrap font-mono bg-stone-950">
+                  <ScrollArea className="h-36 rounded-lg border border-stone-200 dark:border-stone-700">
+                    <pre className="p-3 text-xs text-red-700 dark:text-red-300 whitespace-pre-wrap font-mono bg-stone-50 dark:bg-stone-950">
                       {cmdOutput}
                     </pre>
                   </ScrollArea>
@@ -580,7 +580,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
               <Button
                 variant="outline"
                 onClick={handleClose}
-                className="border-stone-600 text-stone-300 hover:bg-stone-800"
+                className="border-stone-300 text-stone-700 hover:bg-stone-100 dark:border-stone-600 dark:text-stone-300 dark:hover:bg-stone-800"
               >
                 Close
               </Button>
@@ -589,7 +589,7 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                 <Button
                   variant="outline"
                   onClick={handleClose}
-                  className="border-stone-600 text-stone-300 hover:bg-stone-800"
+                  className="border-stone-300 text-stone-700 hover:bg-stone-100 dark:border-stone-600 dark:text-stone-300 dark:hover:bg-stone-800"
                 >
                   {isLoading ? "Minimize" : "Cancel"}
                 </Button>
@@ -597,8 +597,8 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
                   onClick={executeReset}
                   disabled={isLoading || isResettingContext || isNotPresent}
                   className={`min-w-[120px] border ${isBadState
-                      ? "bg-orange-600 hover:bg-orange-700 border-orange-500/40 text-white"
-                      : "bg-red-600 hover:bg-red-700 border-red-500/30 text-white"
+                    ? "bg-orange-600 hover:bg-orange-700 border-orange-500/40 text-white"
+                    : "bg-red-600 hover:bg-red-700 border-red-500/30 text-white"
                     }`}
                 >
                   {isLoading ? (

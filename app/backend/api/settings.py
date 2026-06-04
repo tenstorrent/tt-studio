@@ -71,6 +71,8 @@ INSTALLED_APPS = [
     "corsheaders",
     "logs_control",
     "board_control",
+    "channels",
+    "wakeword_control",
 ]
 
 MIDDLEWARE = [
@@ -98,6 +100,11 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "api.wsgi.application"
+ASGI_APPLICATION = "api.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+}
 
 # local memory thread-safe default
 # the LOCATION for locmem.LocMemCache cache backend is just a name for tracking
