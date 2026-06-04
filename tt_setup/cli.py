@@ -10,6 +10,7 @@ import time
 import argparse
 from datetime import datetime
 from tt_setup.startup_checks import check_startup_freshness
+from tt_setup.console import console
 from tt_setup.constants import *
 from tt_setup.logging import startup_log
 from tt_setup.shell import clear_lines, display_welcome_banner, run_preflight_checks
@@ -672,9 +673,9 @@ def main():
         print(f"\n{C_RED}❌ An unexpected error occurred: {type(e).__name__}{C_RESET}")
         print(f"{C_RED}   {e}{C_RESET}")
 
-        import traceback
         print(f"\n{C_YELLOW}Full error details:{C_RESET}")
-        traceback.print_exc()
+        # Rich-rendered traceback (syntax-highlighted, locals on the failing frame).
+        console.print_exception(show_locals=False)
 
         startup_log.step("unhandled_exception", "FAIL", f"{type(e).__name__}: {e}")
         startup_log.summary(exit_code=1)

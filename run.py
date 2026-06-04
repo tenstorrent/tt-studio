@@ -25,6 +25,15 @@ Options:
 # Thin entrypoint. Implementation lives in the tt_setup/ package.
 # Names below are re-exported for backwards compatibility (e.g. `import run`).
 
+# Ensure third-party deps exist in a managed venv (re-execs into it on first run).
+# Only when run as a script, and BEFORE importing modules that use
+# rich/typer/pydantic/requests — so the heavy imports below run inside the venv.
+# Guarded by __main__ so `import run` (tests, other tools) never re-execs.
+from tt_setup.bootstrap import ensure_environment
+
+if __name__ == "__main__":
+    ensure_environment()
+
 from tt_setup.cli import main
 from tt_setup.constants import (  # noqa: F401
     _CLEANUP_IMAGE_REFS,

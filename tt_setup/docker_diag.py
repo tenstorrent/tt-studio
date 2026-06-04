@@ -8,10 +8,11 @@ import sys
 import subprocess
 import time
 import re
-import shutil
 from datetime import datetime
+from rich.progress import Progress, BarColumn, TextColumn, MofNCompleteColumn
 from tt_setup.constants import *
-from tt_setup.shell import clear_lines, copy_to_clipboard
+from tt_setup.shell import copy_to_clipboard
+from tt_setup.console import console
 
 
 def _resolve_container_name(prefix):
@@ -141,12 +142,12 @@ def _short_service(svc):
 
 def run_docker_compose_with_progress(cmd, cwd):
     """
-    Run docker compose, streaming real per-container build progress.
+    Run docker compose, streaming real per-container build progress via Rich.
 
-    Shows one transient line per BuildKit step (container + step number + action).
-    On success, clears the transient step lines and leaves a per-container
-    "✓ <svc> built" summary. On failure, the full captured output is returned
-    for diagnostics (the BUILD FAILED box). Returns (returncode, full_output_string).
+    Shows one live progress bar per container (BuildKit step X/Y + current action).
+    On success the bars clear and a per-container "✓ <svc> built" summary remains.
+    On failure the full captured output is returned for diagnostics (the BUILD
+    FAILED box). Returns (returncode, full_output_string).
     """
     # Force plain BuildKit progress so the piped stream is parseable.
     env = dict(os.environ)
@@ -163,46 +164,48 @@ def run_docker_compose_with_progress(cmd, cwd):
         env=env,
     )
 
-    width = max(20, shutil.get_terminal_size((80, 24)).columns)
     output_lines = []
-    printed_lines = 0          # transient lines we may clear on success
-    summary = []               # "✓ <svc> built" lines to keep on success
-    last_step = {}             # svc -> last step index printed (dedupe repeats)
+    tasks = {}        # svc -> rich task id
+    totals = {}       # svc -> total steps
+    built = []        # short names that finished, in order
 
-    for line in process.stdout:
-        output_lines.append(line)
-        parsed = parse_build_line(line)
-        if parsed is None:
-            continue
-        if parsed[0] == 'step':
-            _, svc, x, y, desc = parsed
-            if last_step.get(svc) == x:
-                continue  # same step repeated (progress sublines) — skip
-            last_step[svc] = x
-            short = _short_service(svc)
-            text = f"  {C_CYAN}{short}{C_RESET}  {x}/{y}  {desc}"
-            # Truncate to terminal width so clear_lines stays accurate (no wrap).
-            visible = f"  {short}  {x}/{y}  {desc}"
-            if len(visible) > width:
-                text = f"  {C_CYAN}{short}{C_RESET}  {x}/{y}  {desc[:max(0, width - len(short) - 9)]}…"
-            print(text)
-            printed_lines += 1
-        elif parsed[0] == 'built':
-            short = _short_service(parsed[1])
-            line_out = f"  {C_GREEN}✓ {short} built{C_RESET}"
-            if line_out not in summary:
-                summary.append(line_out)
-                print(line_out)
-                printed_lines += 1
+    progress = Progress(
+        TextColumn("  [info]{task.fields[svc]:<10}[/info]"),
+        BarColumn(bar_width=24),
+        MofNCompleteColumn(),
+        TextColumn("[muted]{task.description}[/muted]"),
+        console=console,
+        transient=True,   # bars disappear on completion, leaving the summary
+    )
+
+    with progress:
+        for line in process.stdout:
+            output_lines.append(line)
+            parsed = parse_build_line(line)
+            if parsed is None:
+                continue
+            if parsed[0] == 'step':
+                _, svc, x, y, desc = parsed
+                short = _short_service(svc)
+                if svc not in tasks:
+                    tasks[svc] = progress.add_task("", total=y, svc=short)
+                    totals[svc] = y
+                progress.update(tasks[svc], completed=x, total=y, description=desc[:60])
+            elif parsed[0] == 'built':
+                svc = parsed[1]
+                short = _short_service(svc)
+                if svc in tasks:
+                    progress.update(tasks[svc], completed=totals.get(svc, 1))
+                if short not in built:
+                    built.append(short)
 
     process.wait()
     full_output = ''.join(output_lines)
 
-    # On success, clear the transient progress and reprint just the summary.
-    if process.returncode == 0 and printed_lines > 0:
-        clear_lines(printed_lines)
-        for line_out in summary:
-            print(line_out)
+    # On success, leave a per-container summary (bars were transient and cleared).
+    if process.returncode == 0:
+        for short in built:
+            console.print(f"  [success]✓ {short} built[/success]")
 
     return process.returncode, full_output
 
