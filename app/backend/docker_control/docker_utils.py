@@ -344,9 +344,17 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         payload["service_port"] = str(BASE_SERVICE_PORT + primary_device_id)
         service_port = BASE_SERVICE_PORT + primary_device_id
 
-        # Pin to specific chip slot(s). For multi-chip single-card mode this is a
-        # comma-separated string that the inference server passes as --device-id 0,1.
-        payload["device_id"] = str(device_id)
+        # Pin to a specific chip slot only for single-chip models. For multi-chip
+        # single-card mode (chips_required == 1 with an explicit slot list) this is a
+        # comma-separated string the inference server passes as --device-id 0,1.
+        #
+        # Whole-board multi-chip models (chips_required > 1) resolve `device` to the
+        # board device name (e.g. p300x2/p150x4/p150x8/t3k/galaxy); the inference
+        # server claims the full mesh itself. Passing a single device_id would wrongly
+        # pin the whole-board mesh to one chip and crash on mesh init. Mirror the CHAT
+        # path, which omits device_id for whole-board p300x2 deployments.
+        if chips_required == 1:
+            payload["device_id"] = str(device_id)
 
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
         if impl.model_name == "Qwen3-32B" and device == "p300x2":
