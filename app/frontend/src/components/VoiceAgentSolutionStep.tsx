@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -97,7 +97,7 @@ async function pollDeployProgress(
         if (data.status === "completed") return "done";
         if (TERMINAL_ERRORS.includes(data.status)) return "error";
       }
-    } catch (_) {
+    } catch {
       // network hiccup — keep polling
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -634,7 +634,7 @@ const ACCENT_IDLE: Record<CardAccent, { border: string; badge: string; icon: str
   green:  { border: "border-green-400/30 dark:border-green-500/30", badge: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", icon: "text-green-600 dark:text-green-400" },
 };
 
-function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapper: string; extra?: React.CSSProperties } {
+function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapper: string; extra?: CSSProperties } {
   switch (state) {
     case "deploying":
       return { wrapper: "border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/30 ring-offset-0 animate-pulse" };
