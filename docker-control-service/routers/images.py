@@ -19,15 +19,7 @@ from models.responses import ImageListResponse, OperationResponse
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Streamed (progress-tracked) image pulls
-#
-# Docker's daemon emits a per-layer JSON event stream for every pull. We run the
-# pull in a background thread, aggregate those events into overall byte counts,
-# and expose a snapshot the backend polls. Registry auth resolves automatically
-# from the host user's ~/.docker/config.json (docker.from_env loads it), the same
-# mechanism the blocking /images/pull above relies on.
-# ---------------------------------------------------------------------------
+# Streamed (progress-tracked) image pulls. Docker's daemon emits a per-layer JSON event stream for every pull.
 _PULLS: Dict[str, dict] = {}
 _PULLS_LOCK = threading.Lock()
 _PULL_ENTRY_TTL_SECONDS = 3600  # drop finished entries after an hour to bound memory
