@@ -36,6 +36,7 @@ from .docker_utils import (
     check_image_exists,
     detect_board_type,
     map_board_type_to_device_name,
+    infer_inference_server_device,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
@@ -632,6 +633,7 @@ class DeployView(APIView):
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
                     # Create temporary ModelDeployment record now (placeholder container_id = pull_id) so the chip slot reads IN USE during the pull.
+                    try:
                         from docker_control.models import ModelDeployment
                         ModelDeployment.objects.create(
                             container_id=pull_id,
@@ -762,6 +764,46 @@ class DeployView(APIView):
             else:
                 # Continue with deployment using allocated device_id(s) and optional host_port
                 host_port = serializer.validated_data.get("host_port")
+
+                # Pre-pull the media image first so the UI shows real progress.
+                media_device = infer_inference_server_device(impl)
+                deploy_image = resolve_deploy_image(impl.model_name, media_device) or impl.image_version
+                image_name, image_tag = _split_image_version(deploy_image)
+                need_pull = False
+                if image_name:
+                    try:
+                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                    except Exception as e:
+                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        need_pull = False
+
+                if need_pull:
+                    pull_id = f"imgpull_{uuid4().hex}"
+
+                    def deploy_fn(_host_port=host_port):
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
+                        if resp.get("status") == "error" or not job_id:
+                            return None, resp.get("message", "Deployment failed")
+                        try:
+                            SystemResourceService.force_refresh_tt_smi_cache()
+                        except Exception:
+                            pass
+                        return job_id, None
+
+                    start_prepull_and_deploy(
+                        pull_id=pull_id,
+                        image_name=image_name,
+                        image_tag=image_tag,
+                        image_ref=deploy_image,
+                        deploy_fn=deploy_fn,
+                    )
+                    return Response(
+                        {"status": "success", "job_id": pull_id, "message": "Pulling model image…", "allocated_device_id": device_id},
+                        status=status.HTTP_201_CREATED,
+                    )
+
+                # Image already cached → deploy inline (existing path, unchanged).
                 response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
 
                 # Add allocated_device_id to response

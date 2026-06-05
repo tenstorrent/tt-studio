@@ -23,22 +23,26 @@ class TTInferenceRunResult:
 
 def resolve_deploy_image(
     model_name: str,
-    device: str,
+    device: Optional[str] = None,
     *,
     fastapi_base_url: str = "http://172.18.0.1:8001",
     timeout_seconds: int = 5,
 ) -> Optional[str]:
     """Ask the TT Inference Server which Docker image it will actually deploy for
-    (model, device). Returns the image ref, or None if it can't be resolved.
+    a model. Returns the image ref, or None if it can't be resolved. `device` is an
+    optional hint; the server falls back to a per-model lookup when it's omitted.
 
     The deployed image is chosen by the server's own model_spec, which can differ
     from tt-studio's static catalog (impl.image_version). Pre-pulling must use this
     ref to produce a real cache hit; callers fall back to impl.image_version on None.
     """
     try:
+        params = {"model": model_name}
+        if device:
+            params["device"] = device
         r = requests.get(
             f"{fastapi_base_url}/resolve-image",
-            params={"model": model_name, "device": device},
+            params=params,
             timeout=timeout_seconds,
         )
         if r.status_code != 200:

@@ -2176,8 +2176,7 @@ async def resolve_image(model: str, device: str, impl: Optional[str] = None):
 
     The deployed image comes from the server's own model_spec (and may differ from
     any image ref a client has cached), so callers that want to pre-pull the image
-    must resolve it here rather than guessing. Mirrors the CHAT /run path, which
-    passes no override and runs in release mode.
+    must resolve it here with the same device /run uses.
     """
     try:
         model_spec, _, _ = get_runtime_model_spec(model, device, impl=impl)
