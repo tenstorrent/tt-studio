@@ -60,8 +60,7 @@ def _evict_stale_locked() -> None:
 def _run_pull(pull_id: str, image_name: str, image_tag: str) -> None:
     """Background worker: stream a docker pull and aggregate byte progress."""
     image_ref = f"{image_name}:{image_tag}"
-    # Per-layer download accounting. We track only the network-bound "Downloading"
-    # phase (not "Extracting", which is disk-bound) so bytes reflect the download.
+    # Per-layer download accounting
     layers: Dict[str, dict] = {}
 
     def publish(**changes):

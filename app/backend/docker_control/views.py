@@ -612,15 +612,8 @@ class DeployView(APIView):
                     dev_mode=False,
                 )
 
-                # If the image isn't cached yet, pull it ourselves first so the UI can
-                # show real byte-level progress, then trigger the deployment. The
-                # inference server's own pull during /run then becomes a cache hit.
-                # Best-effort: any failure here must never block a deploy (see image_pull.py).
-                #
-                # The image the inference server actually deploys comes from its own
-                # model_spec, which can differ from our static catalog (impl.image_version).
-                # Resolve the real ref so the pre-pull produces a genuine cache hit;
-                # fall back to impl.image_version if the server can't be reached.
+                # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
+                # Resolve the real ref from inference-api so the pre-pull produces a genuine cache hit.
                 deploy_image = resolve_deploy_image(impl.model_name, device) or impl.image_version
                 if deploy_image != impl.image_version:
                     logger.info(
@@ -638,10 +631,7 @@ class DeployView(APIView):
 
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
-                    # Create the ModelDeployment record now (placeholder container_id =
-                    # pull_id) so the chip slot reads IN USE during the pull. deploy_fn
-                    # repoints it at the real inference job_id once /run is dispatched.
-                    try:
+                    # Create temporary ModelDeployment record now (placeholder container_id = pull_id) so the chip slot reads IN USE during the pull.
                         from docker_control.models import ModelDeployment
                         ModelDeployment.objects.create(
                             container_id=pull_id,
@@ -657,9 +647,7 @@ class DeployView(APIView):
                         logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
                     def _refresh_placeholder(_pull_id=pull_id):
-                        # Keep the placeholder record's grace window fresh during the
-                        # (possibly long) pull so get_canonical_deployments doesn't
-                        # reconcile it to 'stopped' and free its chip slot.
+                        # Keep the placeholder record's grace window fresh during the pull so get_canonical_deployments doesn't reconcile it to 'stopped' and free its chip slot.
                         from datetime import datetime, timezone
                         from docker_control.models import ModelDeployment
                         dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
@@ -682,10 +670,7 @@ class DeployView(APIView):
                             except Exception:
                                 pass
                             return None, (result.message or "TT Inference Server did not return a job_id")
-                        # Repoint the placeholder record at the real inference job_id so
-                        # deployment_sync can find it, and reset status/deployed_at so the
-                        # record is equivalent to a fresh non-pre-pull deploy from here on.
-                        # (This store uses instance.save(), not QuerySet.update().)
+                        # Repoint the placeholder record at the real inference job_id so the record is equivalent to a fresh non-pre-pull deploy from here on.
                         try:
                             dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
                             if dep:
@@ -719,7 +704,7 @@ class DeployView(APIView):
                         status=status.HTTP_201_CREATED,
                     )
 
-                # Image already cached → deploy inline (fast path, unchanged behavior).
+                # Image already cached - deploy inline (fast path).
                 result = start_chat_deployment(**chat_deploy_kwargs)
                 if result.status != "success":
                     return Response(

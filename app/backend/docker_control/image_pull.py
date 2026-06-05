@@ -151,8 +151,7 @@ def _worker(
     try:
         client = get_docker_client()
 
-        # 1. Kick off the streamed pull. If this fails, skip straight to deploy
-        #    (never block a deploy on the progress feature).
+        # Kick off the streamed pull. If this fails, skip straight to deploy
         pull_started = False
         try:
             client.start_image_pull(image_name, image_tag, pull_id)
@@ -160,14 +159,14 @@ def _worker(
         except Exception as e:
             logger.warning(f"[image_pull] could not start streamed pull for {pull_id}: {e}")
 
-        # 2. Mirror progress until the pull reaches a terminal state.
+        # Mirror progress until the pull reaches a terminal state.
         if pull_started:
             deadline = time.time() + _PULL_TIMEOUT_SECONDS
             last_t: Optional[float] = None
             last_bytes: Optional[int] = None
             last_heartbeat = 0.0
             while time.time() < deadline:
-                # Keep the placeholder deployment record alive during long pulls.
+                # Keep the placeholder deployment record alive during pulls.
                 if time.time() - last_heartbeat >= _HEARTBEAT_INTERVAL_SECONDS:
                     last_heartbeat = time.time()
                     beat()
@@ -213,9 +212,7 @@ def _worker(
                     break
                 time.sleep(_POLL_INTERVAL_SECONDS)
 
-        # 3. Trigger the real deployment (image is now cached, or we fall back to
-        #    letting the inference server pull). Mark image ready so the UI shows a
-        #    clean finish while /run is dispatched.
+        # Trigger the real deployment (image is now cached, or we fall back to letting the inference server pull
         _update(pull_id, message="Image ready — starting container…")
         real_job_id, err = deploy_fn()
         if err or not real_job_id:
@@ -235,7 +232,7 @@ def _worker(
         logger.error(f"[image_pull] worker crashed for {pull_id}: {e}", exc_info=True)
         _update(pull_id, status="error", error=str(e), message=f"Deployment failed: {e}")
     finally:
-        # Long-lived worker thread: release this thread's DB connection.
+        # Release this thread's DB connection.
         try:
             from django.db import connection
             connection.close()
