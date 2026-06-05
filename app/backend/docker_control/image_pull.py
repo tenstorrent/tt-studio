@@ -63,6 +63,7 @@ def _new_entry(image_ref: str) -> dict:
         "eta_seconds": None,
         "layers_done": 0,
         "layers_total": 0,
+        "peak_progress": 0,           # running max of reported %, to keep progress monotonic
         "message": "Preparing to pull image…",
         "image_ref": image_ref,
         "real_job_id": None,
@@ -86,6 +87,26 @@ def _update(pull_id: str, **changes) -> None:
             return
         entry.update(changes)
         entry["updated_at"] = time.time()
+
+
+def clamp_progress_pct(pull_id: str, pct: int) -> int:
+    """Return a non-decreasing progress percent for this pull.
+
+    The raw percent is downloaded/total, but Docker reveals layers incrementally so
+    ``total`` (the denominator) grows mid-pull — a big layer's size enters the sum
+    once it starts downloading, before its bytes arrive. ``downloaded`` only ever
+    increases, so this denominator growth is the sole reason the raw ratio can dip.
+    We clamp to the running peak so the reported percent never goes backwards
+    (mirroring the single-deploy bar's client-side ``maxPctRef`` clamp). Scoped per
+    pull_id, so each deploy starts fresh.
+    """
+    with _lock:
+        entry = _image_pull_jobs.get(pull_id)
+        if entry is None:
+            return pct
+        peak = max(int(entry.get("peak_progress") or 0), pct)
+        entry["peak_progress"] = peak
+        return peak
 
 
 def _evict_stale_locked() -> None:

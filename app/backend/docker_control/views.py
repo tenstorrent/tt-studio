@@ -43,7 +43,7 @@ from .docker_utils import (
 )
 from .tt_inference_client import start_chat_deployment, resolve_deploy_image
 from .docker_control_client import get_docker_client
-from .image_pull import start_prepull_and_deploy, get_pull_job
+from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
 from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
@@ -1010,6 +1010,9 @@ class DeploymentProgressView(APIView):
                     total = pull_job.get("total_bytes") or 0
                     pct = int(round(downloaded / total * 100)) if total > 0 else 0
                     pct = max(0, min(99, pct))  # reserve 100% for the actual deploy handoff
+                    # Docker reveals layers incrementally, so `total` grows mid-pull and the
+                    # raw ratio can dip. Clamp to the running peak so the % never regresses.
+                    pct = clamp_progress_pct(job_id, pct)
                     if pull_job.get("status") == "success":
                         msg = "Image ready — starting container…"
                     else:
