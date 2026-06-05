@@ -40,7 +40,7 @@ from .docker_utils import (
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment
+from .tt_inference_client import start_chat_deployment, resolve_deploy_image
 from .docker_control_client import get_docker_client
 from .image_pull import start_prepull_and_deploy, get_pull_job
 from uuid import uuid4
@@ -601,13 +601,24 @@ class DeployView(APIView):
                 # show real byte-level progress, then trigger the deployment. The
                 # inference server's own pull during /run then becomes a cache hit.
                 # Best-effort: any failure here must never block a deploy (see image_pull.py).
-                image_name, image_tag = _split_image_version(impl.image_version)
+                #
+                # The image the inference server actually deploys comes from its own
+                # model_spec, which can differ from our static catalog (impl.image_version).
+                # Resolve the real ref so the pre-pull produces a genuine cache hit;
+                # fall back to impl.image_version if the server can't be reached.
+                deploy_image = resolve_deploy_image(impl.model_name, device) or impl.image_version
+                if deploy_image != impl.image_version:
+                    logger.info(
+                        f"Pre-pull image for {impl.model_name}: resolved {deploy_image} "
+                        f"(catalog had {impl.image_version})"
+                    )
+                image_name, image_tag = _split_image_version(deploy_image)
                 need_pull = False
                 if image_name:
                     try:
                         need_pull = not get_docker_client().image_exists(image_name, image_tag)
                     except Exception as e:
-                        logger.warning(f"image_exists check failed for {impl.image_version}: {e}")
+                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
                         need_pull = False
 
                 if need_pull:
@@ -679,7 +690,7 @@ class DeployView(APIView):
                         pull_id=pull_id,
                         image_name=image_name,
                         image_tag=image_tag,
-                        image_ref=impl.image_version,
+                        image_ref=deploy_image,
                         deploy_fn=deploy_fn,
                         heartbeat_fn=_refresh_placeholder,
                     )

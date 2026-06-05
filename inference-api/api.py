@@ -1080,9 +1080,13 @@ class ProgressHandler(logging.Handler):
             elif any(keyword in message.lower() for keyword in ["setup_host", "setting up python venv", "loaded environment"]):
                 stage = "setup"
                 progress = 15
-            elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download", "setup already completed"]):
+            elif "setup already completed" in message.lower():
+                stage = "setup"
+                progress = 16
+                message = "Environment ready..."
+            elif any(keyword in message.lower() for keyword in ["downloading model", "huggingface-cli download"]):
                 stage = "model_preparation"
-                progress = 40
+                progress = 28
             # HF metadata/config file fetch (e.g. "Fetching 15 files:  47%|...")
             elif "fetching" in message.lower() and "files" in message.lower():
                 stage = "model_preparation"
@@ -1105,23 +1109,34 @@ class ProgressHandler(logging.Handler):
                     self._pull_layers_complete += 1
                 if self._pull_layers_total > 0:
                     ratio = min(1.0, self._pull_layers_complete / self._pull_layers_total)
-                    progress = 30 + int(ratio * 30)  # ramp 30 -> 60 during pull
+                    progress = 20 + int(ratio * 12)  # ramp 20 -> 32 during pull
                     message = (
                         f"Pulling container image layers "
                         f"({self._pull_layers_complete}/{self._pull_layers_total})..."
                     )
                 else:
-                    progress = 30
+                    progress = 20
                     message = "Pulling container image layers..."
+            elif any(keyword in message.lower() for keyword in ["docker image pulled successfully", "docker image available locally"]):
+                stage = "image_ready"
+                progress = 34
+                message = "Container image ready."
             elif any(keyword in message.lower() for keyword in ["docker run command", "running docker container"]):
                 stage = "container_setup"
-                progress = 70
+                progress = 42
+                message = "Creating and starting the container..."
+            elif "created docker container id" in message.lower():
+                stage = "container_started"
+                progress = 60
+                message = "Container is running..."
             elif any(keyword in message.lower() for keyword in ["searching for container", "looking for container"]):
-                stage = "finalizing"
-                progress = 85
+                stage = "container_started"
+                progress = 64
+                message = "Locating the container..."
             elif any(keyword in message.lower() for keyword in ["connected container", "tt_studio_network"]):
-                stage = "finalizing"
-                progress = 90
+                stage = "network_setup"
+                progress = 84
+                message = "Connecting to the network..."
             elif "renamed container" in message.lower():
                 # This is the KEY indicator that deployment is complete!
                 stage = "complete"
@@ -1919,6 +1934,25 @@ async def run_inference(request: RunRequest):
                         "message": "Deployment completed successfully",
                     }
 
+                    # Advance the deploy-progress bar through the post-run milestones
+                    # (locate container → connect network → rename). Monotonic: never
+                    # lowers progress, never overrides a terminal status.
+                    def _advance(stage_name: str, pct: int, msg: str) -> None:
+                        with progress_lock:
+                            cur = progress_store.get(job_id)
+                            if not cur or cur.get("status") in ("completed", "failed", "cancelled", "error"):
+                                return
+                            cur.update({
+                                "status": "running",
+                                "stage": stage_name,
+                                "progress": max(cur.get("progress", 0), pct),
+                                "message": msg,
+                                "last_updated": time.time(),
+                            })
+
+                    # Container process is up; we're now locating it to wire up networking.
+                    _advance("container_started", 60, "Container started, locating it...")
+
                     # Best-effort: connect to tt_studio_network and rename container
                     try:
                         client = docker.from_env()
@@ -1960,11 +1994,13 @@ async def run_inference(request: RunRequest):
                             original_name = new_container.name
                             if new_container.id:
                                 response_data["container_id"] = new_container.id
+                            _advance("network_setup", 72, "Connecting to the network...")
                             try:
                                 network = client.networks.get("tt_studio_network")
                                 network.connect(new_container)
                             except Exception:
                                 pass
+                            _advance("network_setup", 84, "Network connected, finalizing...")
                             # Rename for easier identification
                             model_name = request.model.replace("/", "-")
                             if original_name != model_name:
@@ -1973,6 +2009,7 @@ async def run_inference(request: RunRequest):
                                     response_data["container_name"] = model_name
                                 except Exception:
                                     pass
+                            _advance("finalizing", 95, "Finalizing the deployment...")
                     except Exception as e:
                         logger.error(f"Job {job_id}: post-run docker ops failed: {e}")
 
@@ -2111,6 +2148,22 @@ async def run_inference(request: RunRequest):
         else:
             # If job_id wasn't created yet, raise HTTPException
             raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/resolve-image")
+async def resolve_image(model: str, device: str, impl: Optional[str] = None):
+    """Return the exact Docker image this server would deploy for (model, device).
+
+    The deployed image comes from the server's own model_spec (and may differ from
+    any image ref a client has cached), so callers that want to pre-pull the image
+    must resolve it here rather than guessing. Mirrors the CHAT /run path, which
+    passes no override and runs in release mode.
+    """
+    try:
+        model_spec, _, _ = get_runtime_model_spec(model, device, impl=impl)
+        return {"status": "success", "model": model, "device": device, "docker_image": model_spec.docker_image}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Could not resolve image for model={model}, device={device}: {e}")
+
 
 @app.get("/models")
 async def get_available_models():

@@ -46,11 +46,14 @@ interface DeploymentProgressProps {
  *  these can be noisy (e.g. the raw `docker run` command), so we describe the phase
  *  instead — the stage name is the headline, this is the reassuring detail. */
 const containerStartMessages: Record<string, string> = {
-  starting: 'Starting the container…',
-  initialization: 'Starting the container…',
-  setup: 'Preparing the container environment…',
+  starting: 'Starting deployment…',
+  initialization: 'Validating configuration…',
+  setup: 'Preparing the environment…',
+  image_ready: 'Container image ready — launching…',
   container_setup: 'Creating and starting the container…',
-  finalizing: 'Connecting to the network and finalizing…',
+  container_started: 'Container is running…',
+  network_setup: 'Connecting to the network…',
+  finalizing: 'Finalizing the deployment…',
 };
 
 const stageDisplayNames: Record<string, string> = {
@@ -64,7 +67,11 @@ const stageDisplayNames: Record<string, string> = {
   // Host-side Docker image pull that runs before the container starts (uncached
   // images only). Carries real byte/speed/ETA download details, like model_preparation.
   pulling_image: 'Pulling container image',
+  // Post-pull container-start milestones (the 50→100% half of the unified bar).
+  image_ready: 'Image ready',
   container_setup: 'Starting container',
+  container_started: 'Container running',
+  network_setup: 'Connecting to network',
   finalizing: 'Finalizing deployment',
   complete: 'Complete',
   error: 'Error',
@@ -80,7 +87,10 @@ const stageIcons: Record<string, string> = {
   setup: '🔧',
   model_preparation: '📦',
   pulling_image: '🐳',
+  image_ready: '📦',
   container_setup: '🐳',
+  container_started: '🚀',
+  network_setup: '🔗',
   finalizing: '🔗',
   complete: '✅',
   error: '❌',
@@ -196,16 +206,17 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   const isContainerStarting =
     !isError && !isComplete && !isStalled && !isCancelled && !isImagePull;
 
-  // Unified, forward-only percent for a pre-pull deploy: the image pull fills the
-  // first half (0–50%, smooth from real bytes) and the container-start milestones
-  // fill the second half (50–100%, from the backend's real stage progress). For any
-  // non-pull use of this component we keep the original per-stage behavior.
+  // Unified, forward-only percent for a pre-pull deploy. The image pull is the long
+  // part (real, multi-GB bytes) so it owns most of the bar (0–80%); the container
+  // start is a fast cache-hit tail, mapped into the last 80–100%. The tail is capped
+  // at 99% so a real tick to 100% only happens on actual completion. For any non-pull
+  // use of this component we keep the original per-stage behavior.
   const unifiedPullContext = isImagePull || imagePulled;
   const rawPercent = (() => {
     if (isError || isComplete) return 100;
     if (unifiedPullContext) {
-      if (isImagePull) return (downloadFraction ?? 0) * 50;
-      return 50 + Math.min(100, Math.max(0, progressPercent ?? 0)) * 0.5;
+      if (isImagePull) return (downloadFraction ?? 0) * 80;
+      return Math.min(99, 80 + Math.min(100, Math.max(0, progressPercent ?? 0)) * 0.2);
     }
     if (stage === 'model_preparation' && downloadFraction !== null) {
       return 15 + downloadFraction * 25;
