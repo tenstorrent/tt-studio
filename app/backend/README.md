@@ -1,5 +1,15 @@
 # API Backend
 
+Django REST API for TT-Studio. Handles model deployment, RAG, and metadata.
+
+## Docker access
+
+The backend **does not mount `/var/run/docker.sock`** and **does not run as root**. All Docker operations go through the [`docker-control-service`](../../docker-control-service/README.md) over HTTP with JWT auth (`DOCKER_CONTROL_SERVICE_URL`, `DOCKER_CONTROL_JWT_SECRET`).
+
+See [dev-docs/DOCKER_SOCKET_MIGRATION.md](../../dev-docs/DOCKER_SOCKET_MIGRATION.md) for the architecture and rationale. Older code paths in this directory that import the Docker SDK directly are being migrated — new code should call the control service.
+
+## API reference
+
 $api_host: on the host default is `0.0.0.0:8000`, on the Docker bridge network (within containers) this is is proxied through the frontend app which is defaulted to localhost:3000`.
 
 ### GET $api_host/docker/get_containers
