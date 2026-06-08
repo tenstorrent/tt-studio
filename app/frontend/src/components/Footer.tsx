@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { BugReportButton } from "./bug-report/BugReportButton";
 import { useGitHubReleases } from "../hooks/useGitHubReleases";
+import { getBuildInfo } from "../api/githubApi";
 import { HardwareIcon } from "./aiPlaygroundHome/HardwareIcon";
 import { cn } from "../lib/utils";
 import { useFooterVisibility } from "../hooks/useFooterVisibility";
@@ -76,6 +77,17 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
     error: releasesError,
     refetch,
   } = useGitHubReleases();
+
+  // Version shown in the footer reflects the build the user is running (injected
+  // from git at build time): the release tag for official builds, the branch name
+  // otherwise. Falls back to just "TT Studio" when neither is available.
+  const buildInfo = getBuildInfo();
+  const versionLabel = buildInfo.isOfficialRelease
+    ? buildInfo.label
+    : buildInfo.branch
+      ? `· ${buildInfo.branch}`
+      : "";
+  const appVersionText = `TT Studio${versionLabel ? ` ${versionLabel}` : ""}`;
 
   // Fetch only CPU/memory resources (board info comes from DeviceStateContext)
   const fetchSystemResources = async () => {
@@ -355,7 +367,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center space-x-4">
                 <span className={`text-sm ${textColor}`}>
-                  TT Studio {releaseInfo?.currentVersion || "0.3.11"}
+                  {appVersionText}
                 </span>
                 <Badge variant="default" className="text-xs">
                   Loading...
@@ -413,7 +425,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
                 onClick={() => setShowTTStudioModal(true)}
                 title="Click to view TT Studio information"
               >
-                <span>TT Studio 2.0.1</span>
+                <span>{appVersionText}</span>
                 <svg
                   width="14"
                   height="14"
@@ -750,7 +762,7 @@ const Footer: React.FC<FooterProps> = ({ className }) => {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    TT Studio {releaseInfo?.currentVersion || "2.0.1"}
+                    {appVersionText}
                   </h3>
                   <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
                     {releasesLoading

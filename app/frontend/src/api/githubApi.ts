@@ -77,8 +77,9 @@ export const fetchLatestRelease = async (): Promise<GitHubReleaseInfo> => {
     // Get current version from package.json or use a fallback
     const currentVersion = getCurrentVersion();
 
-    // Check if current version is the latest
-    const isLatest = latest.tag_name === currentVersion;
+    // Check if current version is the latest 
+    const isLatest =
+      !!currentVersion && normalizeVersion(latest.tag_name) === normalizeVersion(currentVersion);
 
     const releaseInfo: GitHubReleaseInfo = {
       latest,
@@ -122,24 +123,50 @@ export const fetchLatestRelease = async (): Promise<GitHubReleaseInfo> => {
 };
 
 /**
- * Get the current version of TT Studio
+ * Strip a leading "v" and surrounding whitespace so version strings compare
+ * consistently regardless of how the tag was written.
  */
-const getCurrentVersion = (): string => {
-  // Try to get version from environment variable
-  const envVersion = import.meta.env.VITE_APP_VERSION;
-  if (envVersion) {
-    return envVersion;
+const normalizeVersion = (version: string): string =>
+  version.trim().replace(/^v/i, "");
+
+export interface BuildInfo {
+  /** Official release tag (e.g. "v2.6.0") when this build sits on a tag, else "". */
+  version: string;
+  /** Git branch name (e.g. "dev") for unofficial builds, else "". */
+  branch: string;
+  /** True when this build was produced from an exact release tag. */
+  isOfficialRelease: boolean;
+  /** Display label for the footer: "v2.6.0" for releases, branch name otherwise, "" if unknown. */
+  label: string;
+}
+
+/**
+ * Resolve the version/branch of the build the user is actually running.
+ *
+ * Both values are injected at build time by run.py via git (see set_app_version_env):
+ *   - VITE_APP_VERSION    — the release tag, set only when HEAD is exactly on a tag
+ *   - VITE_APP_GIT_BRANCH — the branch name, used as the label for unofficial builds
+ */
+export const getBuildInfo = (): BuildInfo => {
+  const version = (import.meta.env.VITE_APP_VERSION || "").trim();
+  const branch = (import.meta.env.VITE_APP_GIT_BRANCH || "").trim();
+  const isOfficialRelease = version.length > 0;
+
+  let label = "";
+  if (isOfficialRelease) {
+    label = version.startsWith("v") ? version : `v${version}`;
+  } else if (branch) {
+    label = branch;
   }
 
-  // Try to get version from package.json (this will be replaced during build)
-  const packageVersion = import.meta.env.VITE_PACKAGE_VERSION;
-  if (packageVersion) {
-    return packageVersion;
-  }
-
-  // Fallback to hardcoded version
-  return "v2.0.1";
+  return { version, branch, isOfficialRelease, label };
 };
+
+/**
+ * Get the current release version of TT Studio (the injected git tag), or "" for
+ * unofficial builds. Used to compare against the latest published GitHub release.
+ */
+const getCurrentVersion = (): string => getBuildInfo().version;
 
 /**
  * Parse release notes from GitHub release body
