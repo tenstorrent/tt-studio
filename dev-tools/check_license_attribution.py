@@ -202,8 +202,10 @@ def check_new_deps(root: Path, base: str | None) -> bool:
     if not base_ref:
         print("  SKIP: could not resolve a base ref to diff against "
               "(pass --base <ref> or set GITHUB_BASE_REF).")
+        # In CI this is intended to be a gate; treat inability to diff as failure.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            return False
         return True
-    print(f"  Comparing against base: {base_ref}")
 
     license_blob = license_attribution_blob(root)
     tpl_blob = (root / THIRD_PARTY_LICENSES).read_text(
