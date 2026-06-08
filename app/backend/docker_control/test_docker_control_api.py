@@ -72,12 +72,17 @@ def verify_model_status(backend_host, container_id):
 
 
 def stop_model(backend_host, container_id):
-    route = f"{backend_host}docker/stop/"
+    route = f"{backend_host}docker/stop/stream/{container_id}/"
     logger.info(f"calling: {route}")
-    response = requests.post(route, json={"container_id": container_id})
-    data = response.json()
-    logger.info(f"response json:= {data}")
-    assert data["status"] == "success"
+    response = requests.get(route, stream=True)
+    final = None
+    for line in response.iter_lines():
+        if line and line.startswith(b"data: "):
+            event = json.loads(line[len(b"data: "):])
+            if event.get("type") == "complete":
+                final = event
+    logger.info(f"final event:= {final}")
+    assert final is not None and final["status"] == "success"
 
 
 def test_model_life_cycle():
