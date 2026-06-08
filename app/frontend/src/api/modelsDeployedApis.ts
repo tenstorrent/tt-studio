@@ -235,12 +235,13 @@ export interface SSEResult {
 
 /**
  * Consume a backend SSE stream until its `complete` event.
- * Calls onLog for each `log` line; resolves with the final status and full output.
- * Rejects on connection loss or a 3-minute timeout.
+ * Calls onLog per `log` line and onStep per `step` change; resolves with the
+ * final status and full output. Rejects on connection loss or a 3-minute timeout.
  */
 export const consumeSSE = (
   url: string,
   onLog?: (line: string) => void,
+  onStep?: (step: string) => void,
 ): Promise<SSEResult> =>
   new Promise((resolve, reject) => {
     const es = new EventSource(url, { withCredentials: true });
@@ -256,13 +257,15 @@ export const consumeSSE = (
     };
 
     es.onmessage = (event) => {
-      let data: { type?: string; status?: string; message?: string };
+      let data: { type?: string; step?: string; status?: string; message?: string };
       try {
         data = JSON.parse(event.data);
       } catch {
         return;
       }
-      if (data.type === "log" && data.message) {
+      if (data.type === "step" && data.step) {
+        onStep?.(data.step);
+      } else if (data.type === "log" && data.message) {
         output += `${data.message}\n`;
         onLog?.(data.message);
       } else if (data.type === "complete") {

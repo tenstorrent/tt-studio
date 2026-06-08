@@ -697,6 +697,19 @@ def _sync_chat_deployment_record(job_id: str, progress_data: dict) -> None:
         if job_status == "completed":
             real_container_id = progress_data.get("container_id")
             real_container_name = progress_data.get("container_name")
+            # User stopped/deleted this deployment mid-startup: don't resurrect it.
+            # Remove the container FastAPI just created and keep the record stopped.
+            if getattr(dep, "stopped_by_user", False):
+                if real_container_id:
+                    try:
+                        from docker_control.docker_utils import stop_container
+                        stop_container(real_container_id)
+                    except Exception as e:
+                        logger.warning(f"Cleanup of user-stopped job {job_id} failed: {e}")
+                dep.status = "stopped"
+                dep.save()
+                logger.info(f"Job {job_id} completed but was user-stopped; cleaned up")
+                return
             if real_container_id:
                 dep.container_id = real_container_id
                 if real_container_name:
