@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -36,6 +36,8 @@ import {
 interface DeployState {
   status: "idle" | "deploying" | "done" | "error";
   error?: string;
+  // Live sub-status shown while deploying (e.g. "Pulling image… 45%").
+  detail?: string;
 }
 
 interface OccupiedDevice {
@@ -76,7 +78,10 @@ const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPER
 // ---- helpers --------------------------------------------------------------
 
 
-async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
+async function pollDeployProgress(
+  jobId: string,
+  onUpdate?: (data: { stage?: string; progress?: number; message?: string }) => void
+): Promise<"done" | "error"> {
   const POLL_INTERVAL_MS = 5000;
   // Wait for terminal status so cards only mark as deployed after container startup.
   // Keep a long safety timeout so a stalled backend does not leave UI stuck forever.
@@ -88,15 +93,25 @@ async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
       const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
       if (resp.ok) {
         const data = await resp.json();
+        onUpdate?.(data);
         if (data.status === "completed") return "done";
         if (TERMINAL_ERRORS.includes(data.status)) return "error";
       }
-    } catch (_) {
+    } catch {
       // network hiccup — keep polling
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
   return "error";
+}
+
+/** Concise per-card sub-status from a progress poll (image pull shows real %). */
+function deployDetailFromProgress(data: { stage?: string; progress?: number }): string | undefined {
+  if (data.stage === "pulling_image") {
+    const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
+    return `Pulling image… ${pct}%`;
+  }
+  return undefined;
 }
 
 async function deployOneModel(
@@ -353,7 +368,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           return false;
         }
         if (pollProgress) {
-          const outcome = await pollDeployProgress(result.jobId);
+          const outcome = await pollDeployProgress(result.jobId, (data) =>
+            setState({ status: "deploying", detail: deployDetailFromProgress(data) })
+          );
           if (outcome === "error") {
             setState({ status: "error", error: "Deployment failed or timed out" });
             return false;
@@ -617,7 +634,7 @@ const ACCENT_IDLE: Record<CardAccent, { border: string; badge: string; icon: str
   green:  { border: "border-green-400/30 dark:border-green-500/30", badge: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", icon: "text-green-600 dark:text-green-400" },
 };
 
-function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapper: string; extra?: React.CSSProperties } {
+function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapper: string; extra?: CSSProperties } {
   switch (state) {
     case "deploying":
       return { wrapper: "border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/30 ring-offset-0 animate-pulse" };
@@ -697,7 +714,8 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
   }
   if (state.status === "deploying") return (
     <div className="flex items-center gap-1.5 text-xs text-blue-500">
-      <Loader2 className="w-3.5 h-3.5 animate-spin" />Deploying…
+      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      {state.detail ?? "Deploying…"}
     </div>
   );
   if (state.status === "done") return (
