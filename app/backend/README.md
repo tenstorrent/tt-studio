@@ -102,22 +102,22 @@ format: JSON
 }
 ```
 
-### POST $api_host/docker/stop
+### GET $api_host/docker/stop/stream/<container_id>/
 
-- **Description**: Stop a running container by container_id, the id can be found from `status` API call.
-- **Parameters**: container_id [str]: the docker container uuid.
+- **Description**: Stop and remove a running container by container_id (found from the `status` API call), streaming progress as Server-Sent Events. The chips the model occupied are reset unless `?skip_device_reset=true` is passed.
+- **Parameters**: container_id [str, path]: the docker container uuid. skip_device_reset [bool, query, optional]: stop only, leaving a later whole-board reset to run.
 - **Example request**:
 
 ```
-curl -X POST -H "Content-Type: application/json" -d '{"container_id":"1d1a274a712639ae3a1b3958ecbe13f81db8923a6f8b199373e431c35cd0e1e1"}' http://0.0.0.0:8000/docker/stop/
+curl -N http://0.0.0.0:8000/docker/stop/stream/1d1a274a712639ae3a1b3958ecbe13f81db8923a6f8b199373e431c35cd0e1e1/
 ```
 
 - **Response**:
-format: JSON
-```json
-{
-    "status": "success"
-}
+format: Server-Sent Events (`text/event-stream`). `log` events stream progress; a final `complete` event carries the outcome.
+```
+data: {"type": "step", "step": "deleting", "message": "Stopping model 1d1a274a7126…"}
+data: {"type": "log", "step": "deleting", "message": "Container removed"}
+data: {"type": "complete", "status": "success", "message": "Model deleted and device(s) 0 reset successfully"}
 ```
 ### POST $api_host/docker/redeploy
 
