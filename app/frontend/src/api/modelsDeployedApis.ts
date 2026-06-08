@@ -9,7 +9,6 @@ import { type Model } from "../contexts/ModelsContext";
 const dockerAPIURL = "/docker-api/";
 const modelAPIURL = "/models-api/";
 const statusURl = `${dockerAPIURL}status/`;
-const stopModelsURL = `${dockerAPIURL}stop/`;
 const deployedModelsURL = `${modelAPIURL}deployed/`;
 const deploymentsURL = `${dockerAPIURL}deployments/`;
 
@@ -35,18 +34,6 @@ interface ContainerData {
   device_ids?: number[];
   /** Set when status is enriched from deploy cache; used for navbar routing. */
   model_type?: string;
-}
-
-interface StopResponse {
-  status: string;
-  stop_response: {
-    status: string;
-    output?: string;
-  };
-  reset_response?: {
-    status: string;
-    output?: string;
-  };
 }
 
 interface DeployedModelInfo {
@@ -240,31 +227,70 @@ export const fetchModels = async (): Promise<Model[]> => {
   }
 };
 
+export interface SSEResult {
+  status: string;
+  output: string;
+  message: string;
+}
+
+/**
+ * Consume a backend SSE stream until its `complete` event.
+ * Calls onLog for each `log` line; resolves with the final status and full output.
+ * Rejects on connection loss or a 3-minute timeout.
+ */
+export const consumeSSE = (
+  url: string,
+  onLog?: (line: string) => void,
+): Promise<SSEResult> =>
+  new Promise((resolve, reject) => {
+    const es = new EventSource(url, { withCredentials: true });
+    let output = "";
+    const timer = window.setTimeout(() => {
+      es.close();
+      reject(new Error("Stream timed out — the backend may still be processing."));
+    }, 180_000);
+    const done = (fn: () => void) => {
+      window.clearTimeout(timer);
+      es.close();
+      fn();
+    };
+
+    es.onmessage = (event) => {
+      let data: { type?: string; status?: string; message?: string };
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      if (data.type === "log" && data.message) {
+        output += `${data.message}\n`;
+        onLog?.(data.message);
+      } else if (data.type === "complete") {
+        done(() =>
+          resolve({ status: data.status ?? "error", output, message: data.message ?? "" }),
+        );
+      }
+    };
+
+    es.onerror = () => done(() => reject(new Error("Connection to stream lost.")));
+  });
+
+/** Stream a board/device reset (`tt-smi -r`), forwarding log lines to onLog. */
+export const streamResetAction = consumeSSE;
+
+/**
+ * Stop (and optionally reset) a model via the streaming stop endpoint.
+ * Resolves once the stream completes; throws if the stop did not succeed.
+ */
 export const deleteModel = async (
   modelId: string,
   skipDeviceReset: boolean = false,
-): Promise<StopResponse> => {
-  //pass skip_device_reset as False by default to selectively reset devices
-  const payload = JSON.stringify({
-    container_id: modelId,
-    skip_device_reset: skipDeviceReset,
-  });
-
-  const response = await axios.post<StopResponse>(stopModelsURL, payload, {
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (
-    response.data.status !== "success" ||
-    !response.data.stop_response ||
-    response.data.stop_response.status !== "success"
-  ) {
-    throw new Error("Failed to stop the container");
+): Promise<void> => {
+  const url = `${dockerAPIURL}stop/stream/${modelId}/?skip_device_reset=${skipDeviceReset}`;
+  const { status, message } = await consumeSSE(url);
+  if (status !== "success") {
+    throw new Error(message || "Failed to stop the container");
   }
-
-  return response.data;
 };
 
 export const handleRedeploy = (modelName: string): void => {

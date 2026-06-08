@@ -278,9 +278,8 @@ class DeviceResetView(APIView):
     """
     POST /board-api/device-reset/
 
-    Dedicated board reset endpoint.  Separated from the Docker-coupled
-    /docker-api/reset_board/ for clarity; the old endpoint keeps working via
-    the same perform_reset() logic.
+    Dedicated board reset endpoint, separate from the Docker-coupled streaming
+    reset in docker_control. Uses perform_reset() directly.
     """
 
     def post(self, request, *args, **kwargs):

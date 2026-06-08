@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import React, { useState, useCallback, useEffect } from "react";
-import axios from "axios";
 import {
   CheckCircle,
   XCircle,
@@ -23,10 +22,11 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
-import { fetchModels, deleteModel } from "../api/modelsDeployedApis";
+import { fetchModels, deleteModel, streamResetAction } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
+import StreamingLogPanel from "./StreamingLogPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -311,6 +311,7 @@ function DeviceCard({
             sublabel="Running chip reset, may take 10–30s…"
             state={step2State}
           />
+          {step === "resetting" && cmdOutput && <StreamingLogPanel output={cmdOutput} />}
         </div>
       )}
 
@@ -411,29 +412,6 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
   const isAnyResetting = isAnyDeviceResetting || isBoardResetting;
   const isResettingContext = deviceStateName === "RESETTING";
 
-  // ── Helpers for streaming reset output ──────────────────────────────────────
-  const readStreamOutput = async (blob: Blob): Promise<{ output: string; success: boolean }> => {
-    const reader = blob.stream().getReader();
-    const decoder = new TextDecoder();
-    let output = "";
-    let success = true;
-    const failMarkers = ["Command failed", "No Tenstorrent devices detected", "Error"];
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      output += chunk;
-      if (failMarkers.some((m) => chunk.includes(m))) success = false;
-    }
-    const tail = decoder.decode();
-    if (tail) {
-      output += tail;
-      if (failMarkers.some((m) => tail.includes(m))) success = false;
-    }
-    return { output, success };
-  };
-
   // ── Individual device reset ──────────────────────────────────────────────────
   const executeDeviceReset = useCallback(
     async (slotId: number) => {
@@ -472,16 +450,18 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
           await refreshModels();
         }
 
-        // Step 2 — chip-level reset
+        // Step 2 — chip-level reset (stream tt-smi output live)
         patchDevice({ step: "resetting" });
-        const response = await axios.post<Blob>(
-          `/docker-api/reset_device/${slotId}/`,
-          null,
-          { responseType: "blob" }
+        let output = "";
+        const { status } = await streamResetAction(
+          `/docker-api/reset_device/stream/${slotId}/`,
+          (line) => {
+            output += `${line}\n`;
+            patchDevice({ cmdOutput: output });
+          },
         );
-        const { output, success } = await readStreamOutput(response.data);
 
-        if (!success) throw new Error("Chip reset failed. See command output for details.");
+        if (status !== "success") throw new Error("Chip reset failed. See command output for details.");
 
         patchDevice({ step: "done", cmdOutput: output });
         refreshDeviceState();
@@ -519,16 +499,15 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
       await refreshModels();
 
       setBoardStep("resetting");
-      const response = await axios.post<Blob>("/docker-api/reset_board/", null, {
-        responseType: "blob",
+      let output = "";
+      const { status } = await streamResetAction("/docker-api/reset_board/stream/", (line) => {
+        output += `${line}\n`;
+        setBoardOutput(output);
       });
-      const { output, success } = await readStreamOutput(response.data);
 
-      setBoardOutput(output);
-      if (!success) throw new Error("Board reset failed. See command output for details.");
+      if (status !== "success") throw new Error("Board reset failed. See command output for details.");
       setBoardStep("done");
 
-      // Run the global board reset.
       refreshDeviceState();
       fetchChipStatus();
       if (onReset) onReset();
@@ -703,6 +682,10 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                       : "pending"
                 }
               />
+
+              {boardStep === "resetting" && boardOutput && (
+                <StreamingLogPanel output={boardOutput} />
+              )}
 
               {boardStep === "failed" && boardError && (
                 <div className="flex items-start gap-3 p-3 bg-red-900/30 border border-red-500/40 rounded-lg">
