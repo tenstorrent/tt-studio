@@ -215,11 +215,20 @@ def check_new_deps(root: Path, base: str | None) -> bool:
 
     def is_attributed(name: str) -> bool:
         n = normalize(name)
-        raw = name.lower()
-        return (n in allowlist
-                or n in license_blob or raw in license_blob
-                or n in tpl_blob or raw in tpl_blob)
+        candidates = {name.strip().lower(), n}
+        if n in allowlist:
+            return True
 
+        # LICENSE entries are bullets: "- <Name> ..."
+        for cand in candidates:
+            if re.search(rf"(?m)^\s*-\s*{re.escape(cand)}(\b|\s|\()", license_blob):
+                return True
+
+        # third-party-licenses.txt can mention packages as " - <pkg>@<ver>" and/or "## <pkg>".
+        for cand in candidates:
+            if re.search(rf"(?m)^\s*-\s*{re.escape(cand)}@|^\s*##\s*{re.escape(cand)}\b", tpl_blob):
+                return True
+        return False
     violations: list[tuple[str, str]] = []  # (dep, source file)
 
     sources = [(f, parse_requirements) for f in REQUIREMENTS_FILES]
