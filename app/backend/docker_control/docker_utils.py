@@ -991,6 +991,8 @@ def get_canonical_deployments():
         # Stale: reconcile to stopped so the slot frees up.
         try:
             dep.status = "stopped"
+            if dep.stopped_at is None:
+                dep.stopped_at = now_utc
             dep.save()
             logger.info(
                 f"Auto-marked stale deployment {dep.container_id} "
