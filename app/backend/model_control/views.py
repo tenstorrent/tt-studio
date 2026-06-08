@@ -713,46 +713,16 @@ class VideoGenerationInferenceView(APIView):
                 django_response["Content-Disposition"] = "attachment; filename=video.mp4"
                 return django_response
 
-            # Async mode: server returned 202 with job_id — poll then download
+            # Async mode: server returned 202 with job_id — return it immediately so the
+            # frontend can poll status (see VideoGenerationStatusView) and then download
+            # (VideoGenerationDownloadView). The blocking poll loop used to live here.
             job_data = init_resp.json()
             job_id = job_data.get("job_id") or job_data.get("id")
             if not job_id:
                 logger.error(f"No job_id in async response: {job_data}")
                 return Response({"error": "No job_id in response"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            base_url = internal_url.replace("/v1/videos/generations", "").rstrip("/")
-            poll_url = f"{base_url}/v1/videos/generations/{job_id}"
-            download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
-
-            POLL_TIMEOUT_SECS = 900
-            POLL_INTERVAL_SECS = 2
-            elapsed = 0
-            while elapsed < POLL_TIMEOUT_SECS:
-                poll_resp = requests.get(poll_url, headers=headers, timeout=30)
-                if poll_resp.status_code == status.HTTP_200_OK:
-                    job_status = poll_resp.json().get("status", "").lower()
-                    logger.info(f"Video job {job_id} status: {job_status} (elapsed={elapsed}s)")
-                    if job_status in ("completed", "complete", "done", "success"):
-                        break
-                    if job_status in ("failed", "error"):
-                        return Response(
-                            {"error": f"Video generation failed: {poll_resp.json()}"},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        )
-                time.sleep(POLL_INTERVAL_SECS)
-                elapsed += POLL_INTERVAL_SECS
-            else:
-                return Response(
-                    {"error": f"Video generation timed out after {POLL_TIMEOUT_SECS}s"},
-                    status=status.HTTP_504_GATEWAY_TIMEOUT,
-                )
-
-            dl_resp = requests.get(download_url, headers=headers, timeout=60)
-            dl_resp.raise_for_status()
-            content_type = dl_resp.headers.get("Content-Type", "video/mp4")
-            django_response = HttpResponse(dl_resp.content, content_type=content_type)
-            django_response["Content-Disposition"] = "attachment; filename=video.mp4"
-            return django_response
+            return Response({"job_id": job_id}, status=status.HTTP_202_ACCEPTED)
 
         except requests.exceptions.HTTPError as http_err:
             logger.error(f"VideoGenerationInferenceView HTTP error: {http_err}")
@@ -767,6 +737,89 @@ class VideoGenerationInferenceView(APIView):
             return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as exc:
             logger.error(f"VideoGenerationInferenceView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _video_base_url(deploy_id):
+    """Resolve the tt-media-server base URL for a deployed video model."""
+    deploy = get_deploy_cache()[deploy_id]
+    internal_url = "http://" + deploy["internal_url"]
+    return internal_url.replace("/v1/videos/generations", "").rstrip("/")
+
+
+def _normalize_video_phase(raw_status):
+    """Map the tt-media-server status string to a coarse phase for the frontend."""
+    s = (raw_status or "").lower()
+    if s in ("completed", "complete", "done", "success"):
+        return "completed"
+    if s in ("failed", "error"):
+        return "failed"
+    if s in ("cancelled", "canceled", "cancelling", "canceling"):
+        return "cancelled"
+    if s in ("in_progress", "running", "processing"):
+        return "in_progress"
+    return "queued"
+
+
+class VideoGenerationStatusView(APIView):
+    """Proxy the tt-media-server video job status so the frontend can poll progress."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            poll_url = f"{base_url}/v1/videos/generations/{job_id}"
+            poll_resp = requests.get(poll_url, headers=headers, timeout=30)
+            poll_resp.raise_for_status()
+
+            phase = _normalize_video_phase(poll_resp.json().get("status"))
+            return Response({"phase": phase}, status=status.HTTP_200_OK)
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationStatusView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationStatusView unexpected error: {exc}")
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class VideoGenerationDownloadView(APIView):
+    """Proxy the finished video file from the tt-media-server."""
+
+    def get(self, request, job_id, *args, **kwargs):
+        deploy_id = request.query_params.get("deploy_id")
+        if not deploy_id:
+            return Response({"error": "deploy_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_url = _video_base_url(deploy_id)
+            headers = {"Authorization": f"Bearer {TTS_API_KEY}"}
+            download_url = f"{base_url}/v1/videos/generations/{job_id}/download"
+            dl_resp = requests.get(download_url, headers=headers, timeout=60)
+            dl_resp.raise_for_status()
+
+            content_type = dl_resp.headers.get("Content-Type", "video/mp4")
+            django_response = HttpResponse(dl_resp.content, content_type=content_type)
+            django_response["Content-Disposition"] = "attachment; filename=video.mp4"
+            return django_response
+
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"VideoGenerationDownloadView HTTP error: {http_err}")
+            try:
+                err_status = http_err.response.status_code
+            except AttributeError:
+                err_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response(status=err_status or status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as exc:
+            logger.error(f"VideoGenerationDownloadView unexpected error: {exc}")
             return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

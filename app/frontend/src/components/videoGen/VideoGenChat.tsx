@@ -6,10 +6,17 @@ import { useEffect } from "react";
 import * as ScrollArea from "@radix-ui/react-scroll-area";
 import { Button } from "../ui/button";
 import { User, Video, ChevronDown, Download, ArrowLeft } from "lucide-react";
-import { Skeleton } from "../ui/skeleton";
+import { Progress } from "../ui/progress";
 import VideoInputArea from "./VideoInputArea";
 import type { VideoGenChatProps } from "./types/chat";
 import { useVideoChat } from "./hooks/useVideoChat";
+
+const formatClock = (totalSeconds: number) => {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const mins = Math.floor(s / 60);
+  const secs = s % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
 
 const VideoGenChat: React.FC<VideoGenChatProps> = ({
   onBack,
@@ -21,6 +28,7 @@ const VideoGenChat: React.FC<VideoGenChatProps> = ({
     textInput,
     setTextInput,
     isGenerating,
+    progress,
     isScrollButtonVisible,
     setIsScrollButtonVisible,
     viewportRef,
@@ -137,7 +145,30 @@ const VideoGenChat: React.FC<VideoGenChatProps> = ({
                   <div className="h-8 w-8 bg-[#7C68FA] rounded-full flex items-center justify-center">
                     <Video className="h-5 w-5 text-white" />
                   </div>
-                  <Skeleton className="h-32 w-48 rounded-lg bg-gray-200 dark:bg-[#1a1c2a]" />
+                  <div className="bg-gray-100 dark:bg-TT-slate text-gray-900 dark:text-white p-3 rounded-lg w-64">
+                    <p className="text-sm font-medium">
+                      {!progress || progress.phase === "queued"
+                        ? "Queued…"
+                        : progress.percent >= 99
+                          ? "Finishing up…"
+                          : "Generating your video…"}
+                    </p>
+                    <Progress
+                      value={progress?.percent ?? 0}
+                      className="mt-2 bg-gray-300 dark:bg-[#1a1c2a]"
+                      indicatorClassName="bg-[#7C68FA]"
+                    />
+                    {progress && progress.phase === "in_progress" ? (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-white/60">
+                        {formatClock(progress.elapsedSeconds)} / ~
+                        {formatClock(progress.estimatedSeconds)}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-white/60">
+                        Waiting for the model…
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

@@ -13,3 +13,17 @@ export interface VideoGenChatProps {
   modelID: string;
   initialPrompt?: string;
 }
+
+export type VideoGenPhase =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface VideoGenProgress {
+  phase: VideoGenPhase;
+  elapsedSeconds: number;
+  estimatedSeconds: number;
+  percent: number;
+}

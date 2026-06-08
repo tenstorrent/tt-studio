@@ -16,6 +16,8 @@ urlpatterns = [
     path("image-generation/", views.ImageGenerationInferenceView.as_view()),
     path("image-generation-cloud/", views.ImageGenerationInferenceCloudView.as_view()),
     path("video-generation/", views.VideoGenerationInferenceView.as_view()),
+    path("video-generation/status/<str:job_id>/", views.VideoGenerationStatusView.as_view()),
+    path("video-generation/download/<str:job_id>/", views.VideoGenerationDownloadView.as_view()),
     path("object-detection/", views.ObjectDetectionInferenceView.as_view()),
     path("object-detection-cloud/", views.ObjectDetectionInferenceCloudView.as_view()),
     path("speech-recognition/", views.SpeechRecognitionInferenceView.as_view()),
