@@ -101,7 +101,11 @@ def _do_sync(job_id: str, progress_data: dict) -> None:
                 )
 
         elif job_status in ("error", "failed", "cancelled", "timeout", "not_found"):
+            from django.utils import timezone
+
             dep.status = "stopped"
+            if dep.stopped_at is None:
+                dep.stopped_at = timezone.now()
             dep.save()
             logger.info(
                 f"[deployment_sync] Marked ModelDeployment for {dep.model_name} as stopped "
