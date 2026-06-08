@@ -262,7 +262,7 @@ If a Tenstorrent device (`/dev/tenstorrent`) is detected, the script will prompt
 """
 
 TENSTORRENT_OVERVIEW = """
-Tenstorrent is a hardware company that designs and produces AI accelerators. Their products include the Grayskull and Wormhole architectures, 
+Tenstorrent is a hardware company that designs and produces AI accelerators. Their products include the Grayskull, Wormhole, and Blackhole architectures,
 designed for efficient AI and machine learning workloads. The company focuses on creating scalable solutions for AI computation.
 """
 
@@ -522,10 +522,116 @@ To try our pre-built models in `models/`, you must:
 ### Interested in Contributing?
 - For more information on development and contributing, visit Tenstorrent's [CONTRIBUTING.md page](https://github.com/tenstorrent/tt-metal/blob/main/CONTRIBUTING.md)."""
 
+TT_QUIETBOX_BH2 = """
+# TT-QuietBox 2 (Blackhole)
+
+The TT-QuietBox 2 is Tenstorrent's liquid-cooled desktop AI workstation built on the Blackhole ASIC.
+Headline: **Four Blackhole chips · 480 Tensix cores · 128 GB GDDR6 · no API keys required.** It ships
+with Ubuntu 24.04 and Tenstorrent's open-source software stack pre-installed, so AI models can be
+deployed locally with TT-Studio or served through the TT-Inference-Server, TT-Metalium, and TT-Forge
+SDKs. Data never leaves the machine.
+
+Documentation: https://docs.tenstorrent.com/systems/quietbox/quietbox-bh-2/index.html
+
+## What's in the Box
+- 1x TT-QuietBox 2 (Blackhole) workstation
+- 1x Power supply cord (C19 to NEMA 5-15P)
+- 1x AnkerWork S500 speakerphone
+
+User-supplied: keyboard, mouse, certified HDMI cable, and a monitor.
+
+## Specifications
+
+| Specification | Details |
+|---------------|---------|
+| Model | TW-04003 |
+| Operating System | Ubuntu 24.04.3 LTS |
+| CPU | Ryzen 7 9700X 65W Granite Ridge 3.8GHz |
+| Motherboard | ASRock B850M-C, mATX |
+| Memory | 256 GB (4x64 GB) DDR5-5600 UDIMM, CL46 |
+| Storage | 4TB WD Blue SN5000 NVMe SSD (3 M.2 slots available) |
+| Tenstorrent Processors | 2x liquid-cooled Blackhole cards (2 ASICs each, 240 Tensix cores, 64GB GDDR6, 600W each) — 4 ASICs / 480 Tensix cores / 128 GB GDDR6 total |
+| External I/O | 1x HDMI, 1x USB 3.2 Gen 2 Type-A, 1x USB 3.2 Gen 2 Type-C, 2x USB 3.2 Gen 1, 4x USB 2.0, HD Audio jacks |
+| Connectivity | Gigabit LAN (Realtek 8111H), 802.11ax WiFi 6, Bluetooth 5.3 |
+| Power Supply | 1600W Cooler Master V Platinum 1600 V2 |
+| Sound Level | 38 dBA (max load) |
+| Dimensions | 15.6"H × 9.1"W × 17.8"D (39.5 × 23.1 × 45.2 cm) |
+| Weight | 20 kg (44 lbs) ±1.5 lbs |
+
+### Power and Operating Conditions
+
+| Topic | Specification |
+|-------|---------------|
+| Peak Power Consumption | 1.5kW |
+| Operating Temperature | 50°F to 95°F (10°C to 35°C) |
+| Operating Humidity | 10% to 90% (non-condensing) |
+| Storage Temperature | -4°F to 140°F (-20°C to 60°C) |
+| Storage Humidity | 5% to 95% (non-condensing) |
+
+## Hardware and Software Setup
+
+1. **Placement**: Maintain 10 inches (25 cm) of clearance around the workstation and do not block the
+   heat exhaust. The PSU draws up to 1600W — use a dedicated circuit to avoid tripping a breaker.
+2. **Connect hardware**: Plug the power cord into a grounded, dedicated outlet; attach the HDMI
+   monitor, keyboard, and mouse to the rear ports; optionally connect Ethernet (recommended over
+   WiFi) or the speakerphone. Flip the rear PSU switch to "I" and press the front power button.
+3. **First login**: The default password is `ttuser`. Change it from a terminal (Ctrl+Alt+T) with
+   `passwd`.
+4. **Update the system**: `sudo apt update && sudo apt upgrade -y`.
+5. **Verify hardware**: Launch TT-SMI and confirm all four accelerators are recognized.
+6. **Model access**: Create a Hugging Face account and access token at
+   https://huggingface.co/settings/tokens.
+7. **Launch TT-Studio**: Run `tt-studio` in a terminal after pulling the latest from GitHub.
+
+## Pre-installed Tools
+
+| Tool | Function | Location |
+|------|----------|----------|
+| TT-SMI | Hardware telemetry | Pre-installed |
+| TT-Studio | Web GUI for AI model deployment | Pre-installed (`tt-studio`) |
+| TT-Inference-Server | OpenAI-compatible inference endpoint | ~/.local/lib/tt-inference-server |
+| TT-Toplike | Real-time hardware visualization | docs.tenstorrent.com/tt-toplike |
+| TT-Local-Generator | Video/image queue, gallery, kiosk mode | docs.tenstorrent.com/tt-local-generator |
+| TT-VSCode-Toolkit | Guided lessons | docs.tenstorrent.com/tt-vscode-toolkit |
+| TT-Forge | MLIR compiler for PyTorch/ONNX models | docs.tenstorrent.com/tt-forge |
+| TT-Metalium | Low-level (C++) programming | docs.tenstorrent.com |
+| TT-Blacksmith | Training and fine-tuning recipes | docs.tenstorrent.com/tt-blacksmith |
+
+## What You Can Do
+- **Chat with AI**: Private LLM inference for 32B and 70B models. Llama-3.3-70B (~14s/response) and
+  Llama-3.1-8B (fast) deploy one-click in TT-Studio, or via the TT-Inference-Server OpenAI-compatible
+  endpoint.
+- **Generate Video & Images**: Text-to-video, image-to-video, and stills. Wan 2.2-14B (~6 min per
+  5-second clip) for video and FLUX.1-dev for high-quality images, served via TT-Inference-Server and
+  managed with TT-Local-Generator.
+- **Build AI Agents**: Tool calling, multi-agent, and stateful pipelines (Llama-3.3-70B recommended)
+  using smolagents, CrewAI, or the OpenAI Agents SDK — entirely on-device.
+- **Hack the Hardware**: Boot tt-bh-linux on 16 RISC-V cores and write custom kernels with tt-lang
+  (Python DSL) or TT-Metalium (C++).
+- **Explore the Architecture**: Compile 100+ PyTorch/ONNX models with TT-Forge and visualize activity
+  with TT-Toplike.
+
+## FAQ and Troubleshooting
+- **Supported models**: Browse the Tenstorrent Developer Hub (https://tenstorrent.com/developers) and
+  filter by "TT-QuietBox 2".
+- **Maintenance**: Liquid cooling needs periodic coolant top-ups, roughly annually under typical
+  workloads.
+- **Noise**: 39.8 dBA under maximum operating load — comparable to a washing machine.
+- **Internet**: Not required locally, but recommended for downloads and model weights.
+- **Disable the welcome animation**: Run `/home/ttuser/scripts/tt-disable-demo-mode.sh`.
+- **Black monitor after power-on**: Verify the power cable and a grounded outlet, ensure the rear "I"
+  switch is on and the front power button was pressed, and check the HDMI connections. If only the
+  yellow DRAM light is on, the memory is retraining — wait up to 20 minutes and do not power off.
+- **Warranty**: 3-year limited warranty. Returns within 14 days of delivery via support@tenstorrent.com.
+- **Support**: https://tenstorrent.com/contact, support@tenstorrent.com, or the support portal at
+  https://tenstorrent.atlassian.net/servicedesk/customer/portal/1.
+"""
+
 # Define the internal knowledge base
 INTERNAL_KNOWLEDGE = [
     TT_INFERENCE_SERVER,
     TT_STUDIO_INFO,
     TENSTORRENT_OVERVIEW,
-    TT_METAL
+    TT_METAL,
+    TT_QUIETBOX_BH2
 ]
