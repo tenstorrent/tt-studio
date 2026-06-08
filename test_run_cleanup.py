@@ -354,5 +354,22 @@ class CleanupDockerSurfaceTests(unittest.TestCase):
         self.assertEqual(order[:3], ["deployments", "compose_down", "network_rm"])
 
 
+class TermsAcceptanceGateTests(unittest.TestCase):
+    def test_accepting_terms_persists_prefs_and_gates_off_first_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs = Path(tmp) / ".tt_studio_preferences.json"
+            with patch.object(run, "PREFS_FILE_PATH", str(prefs)):
+                # No prefs file → treated as first run (terms asked).
+                self.assertTrue(run.is_first_time_setup())
+
+                # Accepting terms writes the prefs file (the fix: in easy mode
+                # this was previously never created, so terms re-fired every run).
+                run.save_preference("terms_accepted", True)
+                self.assertTrue(prefs.exists())
+
+                # Prefs file now exists → no longer treated as first run.
+                self.assertFalse(run.is_first_time_setup())
+
+
 if __name__ == "__main__":
     unittest.main()
