@@ -1018,7 +1018,7 @@ class DeploymentProgressView(APIView):
                     else:
                         layers_total = pull_job.get("layers_total") or 0
                         layers_done = pull_job.get("layers_done") or 0
-                        msg = "Pulling model image — first run only; future deploys reuse the cache."
+                        msg = "Pulling model image..."
                         if layers_total:
                             msg += f" ({layers_done}/{layers_total} layers)"
                     return Response(
