@@ -21,6 +21,9 @@ export interface APIInfo {
     health: string;
     tt_studio_backend: string;
   };
+  // Set for non-LLM models (speech-to-text, TTS, image gen, object detection):
+  // the relative TT-Studio proxy route to call (frontend prepends its origin).
+  inference_route?: string;
   deploy_info: any;
 }
 

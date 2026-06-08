@@ -23,6 +23,7 @@ interface APIInfo {
     health: string;
     tt_studio_backend: string;
   };
+  inference_route?: string;
   deploy_info: any;
 }
 
@@ -136,6 +137,74 @@ const LanguageToggleCodeBlock: React.FC<LanguageToggleCodeBlockProps> = ({
   );
 };
 
+// Build a ready-to-run curl example for a non-LLM model, targeting the
+// TT-Studio proxy route (which handles container auth/payload internally).
+const buildNonLlmExamples = (
+  modelType: string,
+  url: string,
+  deployId: string
+): { name: string; language: string; code: string }[] => {
+  switch (modelType) {
+    case "speech_recognition":
+      return [
+        {
+          name: "cURL - Speech to Text",
+          language: "bash",
+          code: `curl -X POST "${url}" \\
+  -F "deploy_id=${deployId}" \\
+  -F "file=@/path/to/audio.wav"`,
+        },
+      ];
+    case "tts":
+      return [
+        {
+          name: "cURL - Text to Speech",
+          language: "bash",
+          code: `curl -X POST "${url}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "deploy_id": "${deployId}",
+    "text": "Hello from Tenstorrent"
+  }' \\
+  --output tts_output.wav`,
+        },
+      ];
+    case "image_generation":
+      return [
+        {
+          name: "cURL - Image Generation",
+          language: "bash",
+          code: `curl -X POST "${url}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "deploy_id": "${deployId}",
+    "prompt": "A beautiful sunset over mountains"
+  }' \\
+  --output image.jpg`,
+        },
+      ];
+    case "object_detection":
+      return [
+        {
+          name: "cURL - Object Detection",
+          language: "bash",
+          code: `curl -X POST "${url}" \\
+  -F "deploy_id=${deployId}" \\
+  -F "image=@/path/to/image.jpg"`,
+        },
+      ];
+    default:
+      return [
+        {
+          name: "cURL",
+          language: "bash",
+          code: `curl -X POST "${url}" \\
+  -F "deploy_id=${deployId}"`,
+        },
+      ];
+  }
+};
+
 interface ExamplesTabProps {
   apiInfo: APIInfo | null;
   modelId: string;
@@ -161,6 +230,17 @@ export default function ExamplesTab({
   }[] => {
     if (!apiInfo) {
       return [];
+    }
+
+    // Non-LLM models (speech-to-text, TTS, image gen, object detection) are not
+    // OpenAI chat-compatible; build a working curl against the TT-Studio proxy
+    // route instead of the chat/completions command (which would 404).
+    if (apiInfo.inference_route) {
+      return buildNonLlmExamples(
+        apiInfo.model_type,
+        `${window.location.origin}${apiInfo.inference_route}`,
+        modelId
+      );
     }
 
     const modelIdValue = apiInfo.hf_model_id || modelId;

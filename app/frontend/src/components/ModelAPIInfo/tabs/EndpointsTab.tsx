@@ -44,69 +44,107 @@ export const EndpointsTab: React.FC<EndpointsTabProps> = ({
 
         {/* Endpoint Grid */}
         <div className="space-y-4">
-          {/* Chat Completions Endpoint */}
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4">
-            <Label className="flex items-center gap-2 text-sm font-medium text-white mb-3 font-tt_a_mono">
-              <MessageSquare className="w-4 h-4 text-TT-purple" />
-              Chat Completions Endpoint
-            </Label>
-            <div className="group flex items-center gap-3 p-3 bg-zinc-800 border border-zinc-600 rounded-md hover:bg-zinc-750 transition-colors">
-              <div className="bg-blue-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full">
-                POST
+          {apiInfo.inference_route ? (
+            /* Inference Endpoint (non-LLM models: speech-to-text, TTS, image gen, object detection) */
+            (() => {
+              const inferenceEndpoint = `${window.location.origin}${apiInfo.inference_route}`;
+              return (
+                <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4">
+                  <Label className="flex items-center gap-2 text-sm font-medium text-white mb-3 font-tt_a_mono">
+                    <MessageSquare className="w-4 h-4 text-TT-purple" />
+                    Inference Endpoint
+                  </Label>
+                  <div className="group flex items-center gap-3 p-3 bg-zinc-800 border border-zinc-600 rounded-md hover:bg-zinc-750 transition-colors">
+                    <div className="bg-blue-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full">
+                      POST
+                    </div>
+                    <code className="flex-1 text-sm font-mono text-zinc-300">
+                      {inferenceEndpoint}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        copyToClipboard(inferenceEndpoint, "Inference Endpoint")
+                      }
+                      className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white hover:bg-zinc-700"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-2">
+                    TT-Studio inference endpoint for this model
+                  </p>
+                </div>
+              );
+            })()
+          ) : (
+            <>
+              {/* Chat Completions Endpoint */}
+              <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4">
+                <Label className="flex items-center gap-2 text-sm font-medium text-white mb-3 font-tt_a_mono">
+                  <MessageSquare className="w-4 h-4 text-TT-purple" />
+                  Chat Completions Endpoint
+                </Label>
+                <div className="group flex items-center gap-3 p-3 bg-zinc-800 border border-zinc-600 rounded-md hover:bg-zinc-750 transition-colors">
+                  <div className="bg-blue-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full">
+                    POST
+                  </div>
+                  <code className="flex-1 text-sm font-mono text-zinc-300">
+                    {apiInfo.endpoints.chat_completions}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      copyToClipboard(
+                        apiInfo.endpoints.chat_completions,
+                        "Chat Completions Endpoint"
+                      )
+                    }
+                    className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white hover:bg-zinc-700"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                <p className="text-xs text-zinc-500 mt-2">
+                  OpenAI-compatible chat completions API endpoint
+                </p>
               </div>
-              <code className="flex-1 text-sm font-mono text-zinc-300">
-                {apiInfo.endpoints.chat_completions}
-              </code>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  copyToClipboard(
-                    apiInfo.endpoints.chat_completions,
-                    "Chat Completions Endpoint"
-                  )
-                }
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white hover:bg-zinc-700"
-              >
-                <Copy className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            <p className="text-xs text-zinc-500 mt-2">
-              OpenAI-compatible chat completions API endpoint
-            </p>
-          </div>
 
-          {/* Completions Endpoint */}
-          <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4">
-            <Label className="flex items-center gap-2 text-sm font-medium text-white mb-3 font-tt_a_mono">
-              <FileText className="w-4 h-4 text-TT-purple" />
-              Completions Endpoint
-            </Label>
-            <div className="group flex items-center gap-3 p-3 bg-zinc-800 border border-zinc-600 rounded-md hover:bg-zinc-750 transition-colors">
-              <div className="bg-blue-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full">
-                POST
+              {/* Completions Endpoint */}
+              <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4">
+                <Label className="flex items-center gap-2 text-sm font-medium text-white mb-3 font-tt_a_mono">
+                  <FileText className="w-4 h-4 text-TT-purple" />
+                  Completions Endpoint
+                </Label>
+                <div className="group flex items-center gap-3 p-3 bg-zinc-800 border border-zinc-600 rounded-md hover:bg-zinc-750 transition-colors">
+                  <div className="bg-blue-500 text-white text-xs font-semibold px-3 py-1.5 rounded-full">
+                    POST
+                  </div>
+                  <code className="flex-1 text-sm font-mono text-zinc-300">
+                    {apiInfo.endpoints.completions}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      copyToClipboard(
+                        apiInfo.endpoints.completions,
+                        "Completions Endpoint"
+                      )
+                    }
+                    className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white hover:bg-zinc-700"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                <p className="text-xs text-zinc-500 mt-2">
+                  OpenAI-compatible completions API endpoint
+                </p>
               </div>
-              <code className="flex-1 text-sm font-mono text-zinc-300">
-                {apiInfo.endpoints.completions}
-              </code>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  copyToClipboard(
-                    apiInfo.endpoints.completions,
-                    "Completions Endpoint"
-                  )
-                }
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white hover:bg-zinc-700"
-              >
-                <Copy className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            <p className="text-xs text-zinc-500 mt-2">
-              OpenAI-compatible completions API endpoint
-            </p>
-          </div>
+            </>
+          )}
 
           {/* Health Endpoint */}
           <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-4">
