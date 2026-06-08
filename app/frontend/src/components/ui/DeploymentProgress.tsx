@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Progress } from './progress';
 
 /** Log / TT_PROGRESS lines when host setup finished or weights were already present (no long download). */
@@ -37,7 +37,24 @@ interface DeploymentProgressProps {
   onCancel?: () => void;
   onViewLogs?: () => void;
   startTime?: number;
+  /** True once the image has been pulled in this deploy. Drives the unified
+   *  0–50% (pull) / 50–100% (container start) bar and a "✓ Image ready" confirmation. */
+  imagePulled?: boolean;
 }
+
+/** Friendly, stable sub-text for the container-start stages. The backend message for
+ *  these can be noisy (e.g. the raw `docker run` command), so we describe the phase
+ *  instead — the stage name is the headline, this is the reassuring detail. */
+const containerStartMessages: Record<string, string> = {
+  starting: 'Starting deployment…',
+  initialization: 'Validating configuration…',
+  setup: 'Preparing the environment…',
+  image_ready: 'Container image ready — launching…',
+  container_setup: 'Creating and starting the container…',
+  container_started: 'Container is running…',
+  network_setup: 'Connecting to the network…',
+  finalizing: 'Finalizing the deployment…',
+};
 
 const stageDisplayNames: Record<string, string> = {
   initialization: 'Initializing',
@@ -47,7 +64,14 @@ const stageDisplayNames: Record<string, string> = {
   // and ModelPreparingBanner on /models-deployed. The byte/speed/ETA panel
   // below only lights up for the rare host-side download (--host-hf-cache).
   model_preparation: 'Preparing deployment',
+  // Host-side Docker image pull that runs before the container starts (uncached
+  // images only). Carries real byte/speed/ETA download details, like model_preparation.
+  pulling_image: 'Pulling container image',
+  // Post-pull container-start milestones (the 50→100% half of the unified bar).
+  image_ready: 'Image ready',
   container_setup: 'Starting container',
+  container_started: 'Container running',
+  network_setup: 'Connecting to network',
   finalizing: 'Finalizing deployment',
   complete: 'Complete',
   error: 'Error',
@@ -62,7 +86,11 @@ const stageIcons: Record<string, string> = {
   initialization: '⚙️',
   setup: '🔧',
   model_preparation: '📦',
+  pulling_image: '🐳',
+  image_ready: '📦',
   container_setup: '🐳',
+  container_started: '🚀',
+  network_setup: '🔗',
   finalizing: '🔗',
   complete: '✅',
   error: '❌',
@@ -77,7 +105,8 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
   onRetry,
   onCancel,
   onViewLogs,
-  startTime
+  startTime,
+  imagePulled = false
 }) => {
   const [elapsedTime, setElapsedTime] = useState(0);
 
@@ -132,8 +161,11 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
     return `~${hours} h ${mins} min left`;
   };
 
+  // The byte/speed/ETA detail block lights up both for the host-side image pull
+  // (stage 'pulling_image') and the in-container weights download ('model_preparation').
+  const isImagePull = stage === 'pulling_image';
   const weightsDetails =
-    stage === 'model_preparation' &&
+    (stage === 'model_preparation' || isImagePull) &&
     (progress.downloaded_bytes !== undefined ||
       progress.speed_bps !== undefined ||
       progress.eta_seconds !== undefined ||
@@ -171,14 +203,39 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
       ? Math.min(1, Math.max(0, downloadedBytes / totalBytes))
       : null;
 
-  const displayPercent = (() => {
-    if (isError) return 100;
-    if (isComplete) return 100;
+  const isContainerStarting =
+    !isError && !isComplete && !isStalled && !isCancelled && !isImagePull;
+
+  // Unified, forward-only percent for a pre-pull deploy. The image pull is the long
+  // part (real, multi-GB bytes) so it owns most of the bar (0–80%); the container
+  // start is a fast cache-hit tail, mapped into the last 80–100%. The tail is capped
+  // at 99% so a real tick to 100% only happens on actual completion. For any non-pull
+  // use of this component we keep the original per-stage behavior.
+  const unifiedPullContext = isImagePull || imagePulled;
+  const rawPercent = (() => {
+    if (isError || isComplete) return 100;
+    if (unifiedPullContext) {
+      if (isImagePull) return (downloadFraction ?? 0) * 80;
+      return Math.min(99, 80 + Math.min(100, Math.max(0, progressPercent ?? 0)) * 0.2);
+    }
     if (stage === 'model_preparation' && downloadFraction !== null) {
       return 15 + downloadFraction * 25;
     }
     return Math.min(100, Math.max(0, progressPercent ?? 0));
   })();
+
+  // Clamp monotonic so a noisy/coarse backend value can never make the bar jump
+  // backwards. The ref resets naturally — the panel unmounts at completion and
+  // remounts per deploy, so each deploy starts fresh at 0.
+  const maxPctRef = useRef(0);
+  const displayPercent = Math.max(rawPercent, maxPctRef.current);
+  maxPctRef.current = displayPercent;
+
+  // Container-start stages carry noisy backend messages (e.g. the raw `docker run`
+  // command), so describe the phase instead — the stage name is the headline.
+  const displayMessage = isContainerStarting
+    ? (containerStartMessages[stage] ?? message)
+    : message;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -233,11 +290,13 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
         </div>
       ) : (
         <p className={`text-xs leading-relaxed ${isError ? 'text-destructive' : 'text-muted-foreground'}`}>
-          {message}
+          {displayMessage}
         </p>
       )}
 
-      {/* Progress bar + weights download details */}
+      {/* Single forward-only bar: image pull fills 0–50% (smooth, real bytes),
+          container-start milestones fill 50–100% (real backend stage progress,
+          clamped monotonic so it never resets backwards). */}
       <div className="mb-3">
         <Progress
           value={displayPercent}
@@ -245,6 +304,14 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
           indicatorClassName={`${getProgressBarColor()} transition-[width] duration-300`}
         />
       </div>
+
+      {/* Confirm the pull finished while the container spins up. */}
+      {imagePulled && isContainerStarting && (
+        <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 mb-3">
+          <span aria-hidden="true">✓</span>
+          <span>Image ready</span>
+        </div>
+      )}
 
       {weightsDetails && (
         <div className="space-y-2 text-xs text-muted-foreground">
@@ -294,7 +361,7 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
               className="truncate"
               title={progress.weights_repo}
             >
-              Repo: {progress.weights_repo}
+              {isImagePull ? 'Image' : 'Repo'}: {progress.weights_repo}
             </div>
           ) : null}
 
@@ -302,9 +369,9 @@ export const DeploymentProgress: React.FC<DeploymentProgressProps> = ({
             <span className="font-medium text-foreground/80">
               Note:
             </span>{' '}
-            You can leave this page while the model downloads. The
-            download continues in the background, and future deploys
-            will reuse the cached weights.
+            {isImagePull
+              ? 'The container image is downloading. This only happens the first time — future deploys reuse the cached image.'
+              : 'You can leave this page while the model downloads. The download continues in the background, and future deploys will reuse the cached weights.'}
           </div>
         </div>
       )}

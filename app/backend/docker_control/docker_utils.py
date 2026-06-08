@@ -286,6 +286,25 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
+def infer_inference_server_device(impl, board_type=None):
+    """The inference-server device name (n150/p300/…) for `impl`. Single source of
+    truth shared by run_container and the pre-pull image resolver so they never
+    disagree on which model_spec (and therefore which image) the deploy uses."""
+    from shared_config.model_config import infer_chips_required
+    if board_type is None:
+        board_type = detect_board_type()
+    chips_required = infer_chips_required(impl.device_configurations)
+    if chips_required == 1:
+        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+    else:
+        device = map_board_type_to_device_name(board_type)
+    # Speech models need a single n150-class chip even on n300-based boards.
+    if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+        if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
+            device = "n150"
+    return device
+
+
 def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
     """Run a docker container.
 
@@ -307,25 +326,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         from shared_config.model_config import infer_chips_required
         board_type = detect_board_type()
         chips_required = infer_chips_required(impl.device_configurations)
-        if chips_required == 1:
-            device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-        else:
-            device = map_board_type_to_device_name(board_type)
+        device = infer_inference_server_device(impl, board_type)
         logger.info(
             f"Device name '{device}' for {impl.model_name} "
             f"(board={board_type}, chips_required={chips_required})"
         )
-
-        # Speech models (Whisper, TTS) only need a single N150-class chip.
-        # On multi-chip N300-based boards (T3K, etc.) the single-chip lookup
-        # returns "n300", but these models require "n150" to run correctly.
-        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
-            if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
-                device = "n150"
-                logger.info(
-                    f"Overriding device to 'n150' for speech model {impl.model_name} "
-                    f"on multi-chip board {board_type}"
-                )
 
         BASE_SERVICE_PORT = 7000
 
