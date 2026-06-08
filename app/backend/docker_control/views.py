@@ -33,12 +33,15 @@ from .docker_utils import (
     check_image_exists,
     detect_board_type,
     map_board_type_to_device_name,
+    infer_inference_server_device,
     _BOARD_TO_SINGLE_CHIP_DEVICE,
     update_deploy_cache,
     DEPLOYMENT_TIMEOUT_SECONDS,
 )
-from .tt_inference_client import start_chat_deployment
+from .tt_inference_client import start_chat_deployment, resolve_deploy_image
 from .docker_control_client import get_docker_client
+from .image_pull import start_prepull_and_deploy, get_pull_job, clamp_progress_pct
+from uuid import uuid4
 from shared_config.model_config import model_implmentations, infer_chips_required
 from shared_config.model_type_config import ModelTypes
 from .serializers import DeploymentSerializer
@@ -49,6 +52,19 @@ from board_control.services import SystemResourceService
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+
+def _split_image_version(image_version: str):
+    """Split an 'name:tag' image ref into (name, tag), defaulting tag to 'latest'.
+
+    ghcr refs have no registry port, so a single rsplit on ':' is safe.
+    """
+    if not image_version:
+        return "", "latest"
+    if ":" in image_version:
+        name, tag = image_version.rsplit(":", 1)
+        return name, tag
+    return image_version, "latest"
 
 # Build model_name → status lookup from catalog JSON
 _CATALOG_PATH = Path(__file__).parent.parent / "shared_config/models_from_inference_server.json"
@@ -486,7 +502,7 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
-                result = start_chat_deployment(
+                chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
                     device_id=inference_device_id,
@@ -496,6 +512,102 @@ class DeployView(APIView):
                     override_tt_config=override_tt_config,
                     dev_mode=False,
                 )
+
+                # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
+                # Resolve the real ref from inference-api so the pre-pull produces a genuine cache hit.
+                deploy_image = resolve_deploy_image(impl.model_name, device) or impl.image_version
+                if deploy_image != impl.image_version:
+                    logger.info(
+                        f"Pre-pull image for {impl.model_name}: resolved {deploy_image} "
+                        f"(catalog had {impl.image_version})"
+                    )
+                image_name, image_tag = _split_image_version(deploy_image)
+                need_pull = False
+                if image_name:
+                    try:
+                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                    except Exception as e:
+                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        need_pull = False
+
+                if need_pull:
+                    pull_id = f"imgpull_{uuid4().hex}"
+                    # Create temporary ModelDeployment record now (placeholder container_id = pull_id) so the chip slot reads IN USE during the pull.
+                    try:
+                        from docker_control.models import ModelDeployment
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=device,
+                            device_id=device_id,
+                            device_ids=device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
+
+                    def _refresh_placeholder(_pull_id=pull_id):
+                        # Keep the placeholder record's grace window fresh during the pull so get_canonical_deployments doesn't reconcile it to 'stopped' and free its chip slot.
+                        from datetime import datetime, timezone
+                        from docker_control.models import ModelDeployment
+                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                        if dep and dep.status == "starting":
+                            dep.deployed_at = datetime.now(timezone.utc)
+                            dep.save()
+
+                    def deploy_fn(_pull_id=pull_id, _kwargs=chat_deploy_kwargs):
+                        from datetime import datetime, timezone
+                        from docker_control.models import ModelDeployment
+                        from docker_control.deployment_sync import start_deployment_sync
+                        result = start_chat_deployment(**_kwargs)
+                        if result.status != "success" or not result.job_id:
+                            # Free the chip slot: mark the placeholder stopped.
+                            try:
+                                dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                                if dep:
+                                    dep.status = "stopped"
+                                    dep.save()
+                            except Exception:
+                                pass
+                            return None, (result.message or "TT Inference Server did not return a job_id")
+                        # Repoint the placeholder record at the real inference job_id so the record is equivalent to a fresh non-pre-pull deploy from here on.
+                        try:
+                            dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                            if dep:
+                                dep.container_id = result.job_id
+                                dep.status = "starting"
+                                dep.deployed_at = datetime.now(timezone.utc)
+                                dep.save()
+                        except Exception as e:
+                            logger.warning(f"Could not repoint ModelDeployment {_pull_id} -> {result.job_id}: {e}")
+                        try:
+                            start_deployment_sync(result.job_id)
+                        except Exception as e:
+                            logger.warning(f"Could not start deployment sync for job {result.job_id}: {e}")
+                        return result.job_id, None
+
+                    start_prepull_and_deploy(
+                        pull_id=pull_id,
+                        image_name=image_name,
+                        image_tag=image_tag,
+                        image_ref=deploy_image,
+                        deploy_fn=deploy_fn,
+                        heartbeat_fn=_refresh_placeholder,
+                    )
+                    return Response(
+                        {
+                            "status": "success",
+                            "job_id": pull_id,
+                            "message": "Pulling model image…",
+                            "allocated_device_id": device_id,
+                        },
+                        status=status.HTTP_201_CREATED,
+                    )
+
+                # Image already cached - deploy inline (fast path).
+                result = start_chat_deployment(**chat_deploy_kwargs)
                 if result.status != "success":
                     return Response(
                         {"status": "error", "message": result.message},
@@ -552,6 +664,46 @@ class DeployView(APIView):
             else:
                 # Continue with deployment using allocated device_id(s) and optional host_port
                 host_port = serializer.validated_data.get("host_port")
+
+                # Pre-pull the media image first so the UI shows real progress.
+                media_device = infer_inference_server_device(impl)
+                deploy_image = resolve_deploy_image(impl.model_name, media_device) or impl.image_version
+                image_name, image_tag = _split_image_version(deploy_image)
+                need_pull = False
+                if image_name:
+                    try:
+                        need_pull = not get_docker_client().image_exists(image_name, image_tag)
+                    except Exception as e:
+                        logger.warning(f"image_exists check failed for {deploy_image}: {e}")
+                        need_pull = False
+
+                if need_pull:
+                    pull_id = f"imgpull_{uuid4().hex}"
+
+                    def deploy_fn(_host_port=host_port):
+                        resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
+                        job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
+                        if resp.get("status") == "error" or not job_id:
+                            return None, resp.get("message", "Deployment failed")
+                        try:
+                            SystemResourceService.force_refresh_tt_smi_cache()
+                        except Exception:
+                            pass
+                        return job_id, None
+
+                    start_prepull_and_deploy(
+                        pull_id=pull_id,
+                        image_name=image_name,
+                        image_tag=image_tag,
+                        image_ref=deploy_image,
+                        deploy_fn=deploy_fn,
+                    )
+                    return Response(
+                        {"status": "success", "job_id": pull_id, "message": "Pulling model image…", "allocated_device_id": device_id},
+                        status=status.HTTP_201_CREATED,
+                    )
+
+                # Image already cached → deploy inline (existing path, unchanged).
                 response = run_container(impl, weights_id, device_id=device_ids_str, host_port=host_port, use_image_override=use_image_override)
 
                 # Add allocated_device_id to response
@@ -746,6 +898,56 @@ class DeploymentProgressView(APIView):
 
         try:
             logger.info(f"Fetching deployment progress for job_id: {job_id}")
+
+            # Image pre-pull phase: if this job_id is a tracked image pull, report
+            # byte-level pull progress until the real deployment is dispatched, then
+            # hand off to the FastAPI proxy below using the real inference job_id.
+            pull_job = get_pull_job(job_id)
+            if pull_job is not None:
+                real_job_id = pull_job.get("real_job_id")
+                if real_job_id:
+                    # Pull finished and /run dispatched — track the real job from here on.
+                    job_id = real_job_id
+                elif pull_job.get("status") == "error":
+                    return Response(
+                        {
+                            "status": "error",
+                            "stage": "error",
+                            "progress": 0,
+                            "message": pull_job.get("message") or "Image pull failed",
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                else:
+                    downloaded = pull_job.get("downloaded_bytes") or 0
+                    total = pull_job.get("total_bytes") or 0
+                    pct = int(round(downloaded / total * 100)) if total > 0 else 0
+                    pct = max(0, min(99, pct))  # reserve 100% for the actual deploy handoff
+                    # Docker reveals layers incrementally, so `total` grows mid-pull and the
+                    # raw ratio can dip. Clamp to the running peak so the % never regresses.
+                    pct = clamp_progress_pct(job_id, pct)
+                    if pull_job.get("status") == "success":
+                        msg = "Image ready — starting container…"
+                    else:
+                        layers_total = pull_job.get("layers_total") or 0
+                        layers_done = pull_job.get("layers_done") or 0
+                        msg = "Pulling model image..."
+                        if layers_total:
+                            msg += f" ({layers_done}/{layers_total} layers)"
+                    return Response(
+                        {
+                            "status": "running",
+                            "stage": "pulling_image",
+                            "progress": pct,
+                            "message": msg,
+                            "downloaded_bytes": downloaded,
+                            "total_bytes": total or None,
+                            "speed_bps": pull_job.get("speed_bps"),
+                            "eta_seconds": pull_job.get("eta_seconds"),
+                            "weights_repo": pull_job.get("image_ref"),
+                        },
+                        status=status.HTTP_200_OK,
+                    )
 
             # Track deployment start time if not already tracked
             if job_id not in deployment_start_times:
