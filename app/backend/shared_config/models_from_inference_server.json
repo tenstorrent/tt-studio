@@ -3,40 +3,8 @@
     "artifact_version": "0.14.0",
     "generated_at": "2026-05-20T16:49:35.390566+00:00"
   },
-  "total_models": 65,
+  "total_models": 57,
   "models": [
-    {
-      "model_name": "DeepSeek-R1-Distill-Llama-70B",
-      "model_type": "CHAT",
-      "display_model_type": "LLM",
-      "device_configurations": [
-        "GALAXY",
-        "GALAXY_T3K",
-        "P150X4",
-        "P150X8",
-        "P300x2",
-        "T3K"
-      ],
-      "hf_model_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
-      "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "COMPLETE",
-      "version": "0.10.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e867533-8f36910",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1"
-      },
-      "param_count": 70
-    },
     {
       "model_name": "distil-large-v3",
       "model_type": "SPEECH_RECOGNITION",
@@ -648,65 +616,6 @@
       "param_count": null
     },
     {
-      "model_name": "Wan2.2-I2V-A14B-Diffusers",
-      "model_type": "VIDEO",
-      "display_model_type": "VIDEO",
-      "device_configurations": [
-        "GALAXY",
-        "P150X4",
-        "P150X8",
-        "P300x2",
-        "T3K"
-      ],
-      "hf_model_id": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
-      "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "COMPLETE",
-      "version": "0.10.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.10.0-555f240",
-      "service_route": "/enqueue",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1"
-      },
-      "param_count": 14
-    },
-    {
-      "model_name": "Wan2.2-T2V-A14B-Diffusers",
-      "model_type": "VIDEO",
-      "display_model_type": "VIDEO",
-      "device_configurations": [
-        "GALAXY",
-        "T3K"
-      ],
-      "hf_model_id": "Wan-AI/Wan2.2-T2V-A14B-Diffusers",
-      "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "COMPLETE",
-      "version": "0.14.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.14.0-80180b9",
-      "service_route": "/enqueue",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1"
-      },
-      "param_count": 14
-    },
-    {
       "model_name": "whisper-large-v3",
       "model_type": "SPEECH_RECOGNITION",
       "display_model_type": "AUDIO",
@@ -1155,35 +1064,6 @@
       "param_count": 8
     },
     {
-      "model_name": "Qwen3-VL-32B-Instruct",
-      "model_type": "VLM",
-      "display_model_type": "VLM",
-      "device_configurations": [
-        "T3K"
-      ],
-      "hf_model_id": "Qwen/Qwen3-VL-32B-Instruct",
-      "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
-      "status": "FUNCTIONAL",
-      "version": "0.14.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1",
-        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
-      },
-      "param_count": 32
-    },
-    {
       "model_name": "QwQ-32B",
       "model_type": "CHAT",
       "display_model_type": "LLM",
@@ -1330,69 +1210,6 @@
         "VLLM__MAX_NUM_SEQS": "8",
         "MAX_BATCH_SIZE": "8",
         "DEFAULT_THROTTLE_LEVEL": "0"
-      },
-      "param_count": null
-    },
-    {
-      "model_name": "bge-m3",
-      "model_type": "EMBEDDING",
-      "display_model_type": "EMBEDDING",
-      "device_configurations": [
-        "GALAXY",
-        "N150",
-        "N300",
-        "T3K"
-      ],
-      "hf_model_id": "BAAI/bge-m3",
-      "inference_engine": "media",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "EXPERIMENTAL",
-      "version": "0.14.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.14.0-ec28d12",
-      "service_route": "/enqueue",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1",
-        "VLLM__MAX_NUM_BATCHED_TOKENS": "262144",
-        "VLLM__MAX_MODEL_LENGTH": "8192",
-        "VLLM__MIN_CONTEXT_LENGTH": "32",
-        "VLLM__MAX_NUM_SEQS": "32",
-        "MAX_BATCH_SIZE": "32",
-        "DEFAULT_THROTTLE_LEVEL": "0"
-      },
-      "param_count": null
-    },
-    {
-      "model_name": "DeepSeek-R1-0528",
-      "model_type": "CHAT",
-      "display_model_type": "LLM",
-      "device_configurations": [
-        "GALAXY"
-      ],
-      "hf_model_id": "deepseek-ai/DeepSeek-R1-0528",
-      "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "EXPERIMENTAL",
-      "version": "0.12.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.12.0-805f43d-a45c614",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1"
       },
       "param_count": null
     },
@@ -1631,35 +1448,6 @@
       "param_count": 4
     },
     {
-      "model_name": "Mistral-Small-3.1-24B-Instruct-2503",
-      "model_type": "VLM",
-      "display_model_type": "VLM",
-      "device_configurations": [
-        "T3K"
-      ],
-      "hf_model_id": "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
-      "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text",
-        "image"
-      ],
-      "status": "EXPERIMENTAL",
-      "version": "0.14.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-9e3b1b3-1d0aa18",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1",
-        "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
-      },
-      "param_count": 24
-    },
-    {
       "model_name": "Qwen2.5-7B",
       "model_type": "CHAT",
       "display_model_type": "LLM",
@@ -1833,37 +1621,6 @@
         "VLLM_ALLOW_LONG_MAX_MODEL_LEN": 1
       },
       "param_count": 7
-    },
-    {
-      "model_name": "Qwen3-4B",
-      "model_type": "CHAT",
-      "display_model_type": "LLM",
-      "device_configurations": [
-        "N150",
-        "N300"
-      ],
-      "hf_model_id": "Qwen/Qwen3-4B",
-      "inference_engine": "forge",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "EXPERIMENTAL",
-      "version": "0.14.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-media-inference-server:0.2.0-2496be4518bca0a7a5b497a4cda3cfe7e2f59756",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1",
-        "VLLM__MAX_NUM_BATCHED_TOKENS": "2048",
-        "VLLM__MAX_MODEL_LENGTH": "2048",
-        "VLLM__MIN_MODEL_LENGTH": "32"
-      },
-      "param_count": 4
     },
     {
       "model_name": "Qwen3-Embedding-4B",
