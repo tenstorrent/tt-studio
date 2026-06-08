@@ -173,7 +173,7 @@ def check_frontend(root: Path) -> bool:
         tmp_path = tmp.name
     try:
         proc = subprocess.run(
-            [npx, "--yes", f"generate-license-file@{GENERATE_LICENSE_FILE_VERSION}",
+            [npx, "--no-install", "generate-license-file",
              "--input", "package.json", "--output", tmp_path,
              "--overwrite", "--no-spinner"],
             cwd=str(root / FRONTEND_DIR), capture_output=True, text=True,
