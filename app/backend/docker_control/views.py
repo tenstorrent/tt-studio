@@ -2349,9 +2349,25 @@ async def _astream_stop_remove_container(container_id, truncated):
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return "No deployment record found — continuing"
+        # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
+        # The only reliable signal is whether the container is actually alive right now.
+        alive = False
+        try:
+            info = get_docker_client().get_container(container_id)
+            alive = (info or {}).get("status") in ("running", "restarting")
+        except Exception:
+            alive = False  # container gone / 404 → it died unexpectedly
+
+        # Acknowledge so the Models Deployed page hides the row
         deployment.stopped_by_user = True
-        deployment.status = "stopped"
-        deployment.stopped_at = timezone.now()
+        if alive:
+            # The user stopped a still-running model.
+            deployment.status = "stopped"
+        elif deployment.status not in ("exited", "dead", "failed"):
+            # It terminated on its own but the status doesn't already reflect a death. Record it as dead so Deployment History shows "Died Unexpectedly" rather than "Stopped by User".
+            deployment.status = "dead"
+        if not deployment.stopped_at:
+            deployment.stopped_at = timezone.now()
         deployment.save()
         return f"Marked deployment {truncated} as stopped in database"
 
