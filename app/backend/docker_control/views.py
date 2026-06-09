@@ -89,9 +89,19 @@ except Exception:
 deployment_start_times = {}  # {job_id: timestamp} - Track when deployment started
 
 
-def _is_llama31_8b_model(model_name: str) -> bool:
-    token = (model_name or "").lower().replace("_", "").replace(" ", "")
-    return "llama-3.1-8b" in token or "llama3.18b" in token
+# 8B-class chat models (Llama-3.1-8B and similar) fit on a single P300 card
+# (2 chips). param_count is in billions; the band keeps it to ~8B-scale LLMs.
+PAIR_PARAM_MIN = 6
+PAIR_PARAM_MAX = 9
+
+
+def _is_pair_class_chat(impl) -> bool:
+    """True for ~8B chat LLMs that should default to a 2-chip card on P300x2."""
+    return (
+        impl.model_type == ModelTypes.CHAT
+        and impl.param_count is not None
+        and PAIR_PARAM_MIN <= impl.param_count <= PAIR_PARAM_MAX
+    )
 
 def _lookup_deployment_device_ids(container_id):
     """Return the list of device slot ids associated with a deployment, or []."""
@@ -332,10 +342,9 @@ class DeployView(APIView):
             chips_required = infer_chips_required(impl.device_configurations)
             board_type = detect_board_type() if impl.model_type == ModelTypes.CHAT else None
             should_force_full_board_llama = (
-                impl.model_type == ModelTypes.CHAT
-                and force_full_board_requested
+                force_full_board_requested
                 and board_type == "P300x2"
-                and _is_llama31_8b_model(impl.model_name)
+                and _is_pair_class_chat(impl)
             )
             if force_full_board_requested and not should_force_full_board_llama:
                 logger.info(
@@ -343,6 +352,17 @@ class DeployView(APIView):
                     impl.model_name,
                     board_type,
                 )
+            # Default for ~8B chat models on P300x2: auto-place on a free 2-chip
+            # card instead of the whole board. Full-board stays available via the
+            # explicit force_full_board (Advanced) path above. Explicit device_id
+            # selection (Advanced single/pair) takes precedence over auto-pairing.
+            should_use_llama_pair = (
+                board_type == "P300x2"
+                and _is_pair_class_chat(impl)
+                and not should_force_full_board_llama
+                and manual_device_id is None
+                and len(requested_device_ids) <= 1
+            )
 
             # Stop and clean up any existing starting/running deployments of this
             # model before deploying a new instance. Prevents stale records with
@@ -388,6 +408,10 @@ class DeployView(APIView):
                         )
                     device_id = 0
                     device_ids = list(range(min(4, allocator.total_slots)))
+                elif should_use_llama_pair:
+                    # Default ~8B chat path on P300x2: take one free 2-chip card.
+                    device_ids = allocator.allocate_chip_pair()
+                    device_id = device_ids[0]
                 else:
                     device_id = allocator.allocate_chip_slot(
                         impl.model_name,
@@ -433,6 +457,9 @@ class DeployView(APIView):
                 if should_force_full_board_llama:
                     # Forced full-board Llama takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
+                elif should_use_llama_pair:
+                    # 8B-class card pair occupies exactly its two allocated slots.
+                    occupied_device_ids = device_ids
                 elif chips_required > 1:
                     # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id), clamped to the board size
                     occupied_device_ids = list(
@@ -481,12 +508,20 @@ class DeployView(APIView):
                         device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
                     else:
                         device = map_board_type_to_device_name(board_type)
-                    # QB2 Voice/paired-chip path: Llama-3.1-8B with --device-id 0,1
-                    # should run with --tt-device p300 (not p150).
+                    # QB2 paired-chip path: an ~8B chat model on a single P300
+                    # card ([0,1] or [2,3]) should run with --tt-device p300
+                    # (not p150). Covers both the auto-pair default and an
+                    # explicit Advanced pair selection.
+                    sorted_ids = sorted(device_ids)
+                    is_card_pair = (
+                        len(sorted_ids) == 2
+                        and sorted_ids[0] % 2 == 0
+                        and sorted_ids[1] == sorted_ids[0] + 1
+                    )
                     if (
                         board_type == "P300x2"
-                        and _is_llama31_8b_model(impl.model_name)
-                        and sorted(device_ids) == [0, 1]
+                        and _is_pair_class_chat(impl)
+                        and is_card_pair
                     ):
                         device = "p300"
                     # For P300x2 with the whole-board p300x2 device, the inference

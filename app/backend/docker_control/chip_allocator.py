@@ -258,6 +258,34 @@ class ChipSlotAllocator:
 
         return 0  # Multi-chip models always use device_id=0
 
+    def allocate_chip_pair(self) -> List[int]:
+        """
+        Auto-allocate a free, card-aligned 2-chip pair (one P300 card on P300x2).
+
+        Pairs are aligned to physical cards: [0, 1] or [2, 3]. Returns the first
+        pair whose both slots are free, so an 8B-class model lands on whichever
+        card is vacant without requiring the whole board.
+
+        Returns:
+            List of two contiguous slot IDs, e.g. [0, 1] or [2, 3]
+
+        Raises:
+            AllocationError: If no full 2-chip card is free
+        """
+        with self._lock:
+            occupied_slots = self._get_occupied_slots()
+
+            for base in range(0, self.total_slots, 2):
+                pair = [base, base + 1]
+                if all(slot < self.total_slots and slot not in occupied_slots for slot in pair):
+                    logger.info(f"Auto-allocated chip pair: device_ids={pair}")
+                    return pair
+
+            raise AllocationError(
+                "No free 2-chip card available. "
+                "Stop a model to free up a full card (two adjacent slots)."
+            )
+
     def _validate_manual_allocation(self, device_id: int, chips_required: int, model_name: str) -> Dict:
         """
         Validate manual chip slot selection in advanced mode.

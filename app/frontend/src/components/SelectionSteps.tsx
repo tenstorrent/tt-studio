@@ -13,11 +13,7 @@ import { DeployModelStep } from "./DeployModelStep";
 import { FirstStepForm } from "./FirstStepForm";
 import { ChipConfigStep } from "./ChipConfigStep";
 import { VoiceAgentSolutionStep } from "./VoiceAgentSolutionStep";
-import {
-  isLlama31_8BModel,
-  isP300x2Board,
-  pickPreferredAvailablePair,
-} from "../utils/p300x2Placement";
+import { isP300x2Board } from "../utils/p300x2Placement";
 
 const dockerAPIURL = "/docker-api/";
 const deployUrl = `${dockerAPIURL}deploy/`;
@@ -238,37 +234,27 @@ export default function StepperDemo() {
     const weights_id = ""; // Always use default weights
 
     let resolvedDeviceId = options?.device_id;
-    const isP300x2Llama31_8B =
+    // Advanced "All chips" on P300x2 is an explicit full-board override, kept as a
+    // power-user option. The default (non-advanced) path sends neither device_id
+    // nor force_full_board, so the backend auto-allocates: a free 2-chip card for
+    // ~8B chat models, and a single free chip for everything else.
+    const useFullBoardOverride =
       isP300x2Board(chipStatus?.board_type) &&
-      isLlama31_8BModel(selectedModelName ?? selectedModel ?? "");
-    const shouldUseFullBoardLlamaFlow =
-      isP300x2Llama31_8B && !useHardwareConfigStep;
-    const shouldForceLlamaPair =
-      isP300x2Llama31_8B && !shouldUseFullBoardLlamaFlow;
-    if (shouldForceLlamaPair) {
-      const pair = pickPreferredAvailablePair(chipStatus?.slots);
-      if (!pair) {
-        customToast.error(
-          "Llama 3.1 8B on P300x2 needs both devices 0 and 1 free."
-        );
-        return { success: false };
-      }
-      resolvedDeviceId = pair.join(",");
-    }
-    if (shouldUseFullBoardLlamaFlow) {
-      // Simplified full-model flow runs Llama 3.1 8B as full-board p300x2.
+      useHardwareConfigStep &&
+      chipMode === "multi";
+    if (useFullBoardOverride) {
       resolvedDeviceId = undefined;
     }
 
     // Only include device_id when explicitly provided — omitting it lets the backend
-    // auto-allocate the best slot (required for QB2 simplified flow).
+    // auto-allocate the best slot(s) (required for the QB2 simplified flow).
     const payloadObj: Record<string, unknown> = {
       model_id,
       weights_id,
       host_port: options?.host_port ?? null,
       use_image_override: useImageOverride,
     };
-    if (shouldUseFullBoardLlamaFlow) {
+    if (useFullBoardOverride) {
       payloadObj.force_full_board = true;
     }
     if (resolvedDeviceId !== undefined) {
@@ -534,6 +520,10 @@ export default function StepperDemo() {
           <ArrowLeft className="w-3.5 h-3.5" />Back to deployment options
         </button>
         <Stepper
+          // Remount when the flow shape changes (e.g. toggling Advanced hardware
+          // config) so the stepper resets to Step 1 instead of stranding the user
+          // on a step index that no longer matches the new step list.
+          key={useHardwareConfigStep ? "hw-config" : "simplified"}
           variant="circle-alt"
           initialStep={0}
           steps={steps}
