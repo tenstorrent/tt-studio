@@ -27,10 +27,41 @@ from vector_db_control.chroma import (
 )
 from vector_db_control.singletons import ChromaClient
 from vector_db_control.documents import chunk_document
-from vector_db_control.data import INTERNAL_KNOWLEDGE
 
 logger = get_logger(__name__)
 logger.info(f"importing {__name__}")
+
+# Shared collection holding the Tenstorrent documentation corpus. It is populated
+# once at startup (see apps.py) and merged into per-collection query results so the
+# corpus does not need to be re-embedded into every user collection.
+INTERNAL_KNOWLEDGE_COLLECTION = "tenstorrent_internal_knowledge"
+
+
+def _merge_query_results(primary, secondary, limit):
+    """Merge two Chroma query result dicts (single query), keeping the closest matches.
+
+    Preserves Chroma's ``{ids, documents, metadatas, distances}`` shape with one inner
+    list per query so the response contract is unchanged.
+    """
+    combined = []
+    for result in (primary, secondary):
+        if not result or not result.get("documents") or not result["documents"][0]:
+            continue
+        documents = result["documents"][0]
+        ids = result["ids"][0]
+        metadatas = result["metadatas"][0] if result.get("metadatas") else [None] * len(documents)
+        distances = result["distances"][0] if result.get("distances") else [None] * len(documents)
+        for i in range(len(documents)):
+            combined.append((distances[i], ids[i], documents[i], metadatas[i]))
+
+    combined.sort(key=lambda item: item[0] if item[0] is not None else float("inf"))
+    combined = combined[:limit]
+    return {
+        "ids": [[item[1] for item in combined]],
+        "documents": [[item[2] for item in combined]],
+        "metadatas": [[item[3] for item in combined]],
+        "distances": [[item[0] for item in combined]],
+    }
 
 class VectorCollectionsAPIView(ViewSet):
     EMBED_MODEL = None
@@ -154,18 +185,9 @@ class VectorCollectionsAPIView(ViewSet):
                 embedding_func_name=self.EMBED_MODEL,
             )
 
-            # Load internal knowledge into the collection
-            logger.info(f"Loading internal knowledge into collection {name}")
-            ids = [f"internal_{i}" for i in range(len(INTERNAL_KNOWLEDGE))]
-            insert_to_chroma_collection(
-                collection_name=name,
-                documents=INTERNAL_KNOWLEDGE,
-                ids=ids,
-                metadatas=[{"source": "internal_knowledge", "type": "documentation"} for _ in INTERNAL_KNOWLEDGE],
-                embedding_func_name=self.EMBED_MODEL,
-            )
-            logger.info(f"Internal knowledge loaded successfully into {name}")
-            
+            # Internal knowledge lives once in the shared INTERNAL_KNOWLEDGE_COLLECTION
+            # and is merged in at query time, so we no longer re-embed the whole corpus
+            # into every new collection.
             logger.info(f"Collection created successfully: {collection.name}")
             serialized = serialize_collection(collection)
             logger.info(f"Serialized response: {serialized}")
@@ -480,6 +502,21 @@ class VectorCollectionsAPIView(ViewSet):
             n_results=self.query_results_limit,
             embedding_func_name=self.EMBED_MODEL,
         )
+
+        # Merge in the shared Tenstorrent knowledge so single-collection queries still
+        # surface documentation, without copying the corpus into every collection.
+        if pk != INTERNAL_KNOWLEDGE_COLLECTION:
+            try:
+                internal_results = query_collection(
+                    collection_name=INTERNAL_KNOWLEDGE_COLLECTION,
+                    query_texts=[query_text],
+                    n_results=self.query_results_limit,
+                    embedding_func_name=self.EMBED_MODEL,
+                )
+                results = _merge_query_results(results, internal_results, self.query_results_limit)
+            except Exception as e:
+                logger.error(f"Error merging internal knowledge into query for {pk}: {e}")
+
         return Response(results)
 
     @action(methods=["GET"], detail=False, url_path="query-all")
