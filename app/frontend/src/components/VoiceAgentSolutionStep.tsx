@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
+import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -80,7 +80,8 @@ const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPER
 
 async function pollDeployProgress(
   jobId: string,
-  onUpdate?: (data: { stage?: string; progress?: number; message?: string }) => void
+  onUpdate?: (data: { stage?: string; progress?: number; message?: string }) => void,
+  signal?: AbortSignal
 ): Promise<"done" | "error"> {
   const POLL_INTERVAL_MS = 5000;
   // Wait for terminal status so cards only mark as deployed after container startup.
@@ -89,8 +90,11 @@ async function pollDeployProgress(
   const deadline = Date.now() + SAFETY_TIMEOUT_MS;
   const TERMINAL_ERRORS = ["error", "failed", "cancelled", "timeout", "not_found"];
   while (Date.now() < deadline) {
+    // Component unmounted / user navigated away: stop polling. Deployment itself
+    // is backend-owned and continues regardless — we only abandon the UI poll.
+    if (signal?.aborted) return "error";
     try {
-      const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
+      const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`, { signal });
       if (resp.ok) {
         const data = await resp.json();
         onUpdate?.(data);
@@ -98,6 +102,7 @@ async function pollDeployProgress(
         if (TERMINAL_ERRORS.includes(data.status)) return "error";
       }
     } catch {
+      if (signal?.aborted) return "error";
       // network hiccup — keep polling
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -116,12 +121,14 @@ function deployDetailFromProgress(data: { stage?: string; progress?: number }): 
 
 async function deployOneModel(
   modelId: string,
-  deviceId: number | string
+  deviceId: number | string,
+  signal?: AbortSignal
 ): Promise<{ jobId?: string; error?: string }> {
   const resp = await fetch("/docker-api/deploy/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model_id: modelId, weights_id: "", device_id: deviceId }),
+    signal,
   });
   const data = await resp.json();
   if (data.status === "error") return { error: data.message || "Deployment failed" };
@@ -204,6 +211,12 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const [isDeploying, setIsDeploying] = useState(false);
   const [allDone, setAllDone] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_REDIRECT_MS / 1000);
+
+  // Aborts the in-flight deploy/progress fetches when the user navigates away or
+  // the component unmounts. The deployment itself is backend-owned and keeps
+  // running — this only stops the orphaned UI polling and setState-after-unmount.
+  const deployAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => deployAbortRef.current?.abort(), []);
 
   useEffect(() => {
     const loadModels = fetch(getModelsUrl)
@@ -350,6 +363,11 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     }
     setIsDeploying(true);
 
+    // Fresh controller per deploy attempt; aborted on unmount (see effect above).
+    const controller = new AbortController();
+    deployAbortRef.current = controller;
+    const signal = controller.signal;
+
     const submitOne = async (
       modelId: string,
       deviceId: number | string,
@@ -362,15 +380,18 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       if (currentState.status === "done") return true;
       setState({ status: "deploying" });
       try {
-        const result = await deployOneModel(modelId, deviceId);
+        const result = await deployOneModel(modelId, deviceId, signal);
         if (result.error || !result.jobId) {
           setState({ status: "error", error: result.error ?? "No job ID returned" });
           return false;
         }
         if (pollProgress) {
-          const outcome = await pollDeployProgress(result.jobId, (data) =>
-            setState({ status: "deploying", detail: deployDetailFromProgress(data) })
+          const outcome = await pollDeployProgress(
+            result.jobId,
+            (data) => setState({ status: "deploying", detail: deployDetailFromProgress(data) }),
+            signal
           );
+          if (signal.aborted) return false;
           if (outcome === "error") {
             setState({ status: "error", error: "Deployment failed or timed out" });
             return false;
@@ -379,6 +400,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         setState({ status: "done" });
         return true;
       } catch (error) {
+        // Navigated away mid-request: deployment continues on the backend, so don't
+        // surface a UI error for the abort.
+        if (signal.aborted) return false;
         const message = error instanceof Error ? error.message : "Deployment request failed";
         setState({ status: "error", error: message });
         return false;
@@ -397,6 +421,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
         ok: await submitOne(modelId, deviceId, setState, currentState, label, poll),
       }))
     );
+
+    // Unmounted mid-deploy: skip all UI updates (deployment is backend-owned).
+    if (signal.aborted) return;
 
     const failures = results.filter((r) => !r.ok);
     setIsDeploying(false);

@@ -2692,6 +2692,48 @@ def configure_inference_server_artifact(dev_mode=False, easy_mode=False, force_r
                         print(f"{C_YELLOW}⚠️  Could not remove with sudo either. Will attempt to continue anyway...{C_RESET}")
                 print(f"{C_CYAN}📝 Configuration changed - will re-download artifact{C_RESET}")
 
+def _patch_artifact_container_restart_policy(artifact_dir):
+    """Give deployed model containers a restart policy so they survive a docker
+    daemon / machine restart (and overnight host maintenance — the most likely
+    cause of the "models die after ~12h" reports).
+
+    The upstream tt-inference-server launches every model container with
+    `docker run --rm` and no restart policy (workflows/run_docker_server.py), so
+    any daemon restart destroys the container permanently. `--rm` and `--restart`
+    are mutually exclusive, so we swap `--rm` for `--restart unless-stopped`.
+
+    This runs on every freshly extracted artifact (the .artifacts tree is
+    gitignored and regenerated, so the change can't be committed there). Idempotent.
+    Tracked upstream — remove once tt-inference-server carries the restart policy.
+    """
+    import re
+    target = os.path.join(artifact_dir, "workflows", "run_docker_server.py")
+    if not os.path.exists(target):
+        return
+    try:
+        with open(target, "r") as f:
+            content = f.read()
+        if '"--restart"' in content and '"unless-stopped"' in content:
+            return  # already patched
+        # Swap the `"--rm",` that immediately follows `"run",` in the docker run
+        # command list, preserving its indentation.
+        new_content, n = re.subn(
+            r'("run",\s*\n)(\s*)"--rm",',
+            r'\1\2"--restart", "unless-stopped",',
+            content,
+        )
+        if n == 0:
+            print(f"{C_YELLOW}⚠️  Could not apply container restart-policy patch "
+                  f"(unexpected layout in {target}); model containers will not "
+                  f"survive a docker/machine restart.{C_RESET}")
+            return
+        with open(target, "w") as f:
+            f.write(new_content)
+        print(f"✅ Patched model container restart policy in {target}")
+    except Exception as e:
+        print(f"{C_YELLOW}⚠️  Could not patch container restart policy: {e}{C_RESET}")
+
+
 def _set_artifact_environment_variables(artifact_dir):
     """Set environment variables for artifact directory."""
     os.environ["TT_INFERENCE_ARTIFACT_PATH"] = artifact_dir
@@ -2699,6 +2741,8 @@ def _set_artifact_environment_variables(artifact_dir):
     benchmark_file = os.path.join(artifact_dir, "benchmarking", "benchmark_targets", "model_performance_reference.json")
     if os.path.exists(benchmark_file):
         os.environ["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
+    # Ensure deployed model containers survive docker/machine restarts.
+    _patch_artifact_container_restart_policy(artifact_dir)
 
 def fetch_branch_commit_sha(branch):
     """Fetch the latest commit SHA for a branch from the GitHub API (unauthenticated)."""

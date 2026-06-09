@@ -679,12 +679,58 @@ class DeployView(APIView):
 
                 if need_pull:
                     pull_id = f"imgpull_{uuid4().hex}"
+                    # Create temporary ModelDeployment record now (placeholder
+                    # container_id = pull_id) so the chip slot reads IN USE during the
+                    # pull. Without this the media pull window holds no record, so
+                    # reconciliation can free the slot and a concurrent deploy can steal
+                    # the chip if the user navigates away mid-pull. Mirrors the CHAT path.
+                    try:
+                        from docker_control.models import ModelDeployment
+                        ModelDeployment.objects.create(
+                            container_id=pull_id,
+                            container_name=impl.model_name,
+                            model_name=impl.model_name,
+                            device=media_device,
+                            device_id=device_id,
+                            device_ids=occupied_device_ids,
+                            status="starting",
+                            port=service_port,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not create placeholder ModelDeployment for {pull_id}: {e}")
 
-                    def deploy_fn(_host_port=host_port):
+                    def _refresh_placeholder(_pull_id=pull_id):
+                        # Keep the placeholder record's grace window fresh during the pull
+                        # so get_canonical_deployments doesn't reconcile it to 'stopped'
+                        # and free its chip slot.
+                        from datetime import datetime, timezone
+                        from docker_control.models import ModelDeployment
+                        dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                        if dep and dep.status == "starting":
+                            dep.deployed_at = datetime.now(timezone.utc)
+                            dep.save()
+
+                    def deploy_fn(_host_port=host_port, _pull_id=pull_id):
+                        from docker_control.models import ModelDeployment
                         resp = run_container(impl, weights_id, device_id=device_ids_str, host_port=_host_port, use_image_override=use_image_override)
                         job_id = resp.get("job_id") or resp.get("container_id") or resp.get("container_name")
                         if resp.get("status") == "error" or not job_id:
+                            # Free the chip slot: mark the placeholder stopped.
+                            try:
+                                dep = ModelDeployment.objects.filter(container_id=_pull_id).first()
+                                if dep:
+                                    dep.status = "stopped"
+                                    dep.save()
+                            except Exception:
+                                pass
                             return None, resp.get("message", "Deployment failed")
+                        # run_container created the real deployment record (with its own
+                        # sync thread); drop the placeholder so we don't leave a duplicate
+                        # 'starting' record holding a phantom slot.
+                        try:
+                            ModelDeployment.objects.filter(container_id=_pull_id).delete()
+                        except Exception:
+                            pass
                         try:
                             SystemResourceService.force_refresh_tt_smi_cache()
                         except Exception:
@@ -697,6 +743,7 @@ class DeployView(APIView):
                         image_tag=image_tag,
                         image_ref=deploy_image,
                         deploy_fn=deploy_fn,
+                        heartbeat_fn=_refresh_placeholder,
                     )
                     return Response(
                         {"status": "success", "job_id": pull_id, "message": "Pulling model image…", "allocated_device_id": device_id},
