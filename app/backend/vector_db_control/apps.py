@@ -22,6 +22,7 @@ class VectorDbConfig(AppConfig):
             insert_to_chroma_collection,
         )
         from vector_db_control.data import INTERNAL_KNOWLEDGE
+        from vector_db_control.documents import chunk_texts
 
         logger.info(f"{__name__} ready.")
         # Preload the singleton to initialize the model at startup
@@ -53,17 +54,26 @@ class VectorDbConfig(AppConfig):
                     embedding_func_name=settings.CHROMA_DB_EMBED_MODEL,
                 )
                 
-                # Load internal knowledge into the collection
+                # Chunk before loading: the embedding model truncates long inputs,
+                # so the large documentation corpus must be split to be searchable.
                 logger.info(f"Loading internal knowledge into {internal_collection_name}")
-                ids = [f"internal_{i}" for i in range(len(INTERNAL_KNOWLEDGE))]
-                insert_to_chroma_collection(
-                    collection_name=internal_collection_name,
-                    documents=INTERNAL_KNOWLEDGE,
-                    ids=ids,
+                chunks = chunk_texts(
+                    INTERNAL_KNOWLEDGE,
                     metadatas=[
-                        {"source": "internal_knowledge", "type": "documentation"} 
+                        {"source": "internal_knowledge", "type": "documentation"}
                         for _ in INTERNAL_KNOWLEDGE
                     ],
+                )
+                documents = [chunk.page_content for chunk in chunks]
+                ids = [f"internal_{i}" for i in range(len(documents))]
+                logger.info(
+                    f"Chunked {len(INTERNAL_KNOWLEDGE)} documents into {len(documents)} chunks"
+                )
+                insert_to_chroma_collection(
+                    collection_name=internal_collection_name,
+                    documents=documents,
+                    ids=ids,
+                    metadatas=[chunk.metadata for chunk in chunks],
                     embedding_func_name=settings.CHROMA_DB_EMBED_MODEL,
                 )
                 
