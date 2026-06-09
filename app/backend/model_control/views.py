@@ -1419,7 +1419,14 @@ class ModelAPIInfoView(APIView):
                 # Create curl examples for both chat completions and completions APIs
                 chat_curl_example = self._get_chat_curl_example(chat_completions_url, encoded_jwt, deploy_info)
                 completions_curl_example = self._get_completions_curl_example(completions_url, encoded_jwt, deploy_info)
-                
+
+                # For non-LLM models the container does not serve /v1/chat/completions,
+                # so expose the matching TT-Studio backend proxy route instead. The route
+                # is relative (the frontend prepends its own origin) because behind the
+                # proxy the backend cannot resolve a host-reachable absolute URL.
+                proxy_path = self._get_endpoint_path(model_type)
+                inference_route = f"/models-api{proxy_path}" if proxy_path else None
+
                 api_info[deploy_id] = {
                     "model_name": model_name,
                     "model_type": model_type,
@@ -1437,6 +1444,7 @@ class ModelAPIInfoView(APIView):
                         "health": health_endpoint_url,
                         "tt_studio_backend": f"{base_url}/models-api/inference/"
                     },
+                    "inference_route": inference_route,
                     "deploy_info": {
                         "model_impl": {
                             "model_name": getattr(model_impl, "model_name", None) if model_impl else None,
@@ -1458,15 +1466,19 @@ class ModelAPIInfoView(APIView):
             )
     
     def _get_endpoint_path(self, model_type):
-        """Get the appropriate endpoint path based on model type"""
+        """Get the backend proxy route for a non-LLM model type.
+
+        Keys are ModelTypes enum values. Returns None for chat-like models
+        (chat/vlm/mock), which keep the direct-container chat/completions flow.
+        """
         endpoint_map = {
-            "ChatModel": "/inference/",
-            "ImageGeneration": "/image-generation/",
-            "ObjectDetectionModel": "/object-detection/",
-            "SpeechRecognitionModel": "/speech-recognition/"
+            "image_generation": "/image-generation/",
+            "object_detection": "/object-detection/",
+            "speech_recognition": "/speech-recognition/",
+            "tts": "/tts/",
         }
-        return endpoint_map.get(model_type, "/inference/")
-    
+        return endpoint_map.get(model_type)
+
     def _get_example_payload(self, model_type, deploy_info):
         """Get example payload based on model type"""
         # Get the actual deploy_id for this specific model
