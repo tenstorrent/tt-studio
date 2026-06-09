@@ -23945,7 +23945,7 @@ A concrete example:
 ttnn/cpp/ttnn/operations/examples/example/example\\_nanobind.hpp
 
 ```
- 1// SPDX-FileCopyrightText: © 2025 Tenstorrent USA, Inc.
+ 1// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
  2//
  3// SPDX-License-Identifier: Apache-2.0
  4
@@ -23962,7 +23962,7 @@ ttnn/cpp/ttnn/operations/examples/example/example\\_nanobind.hpp
 ttnn/cpp/ttnn/operations/examples/examples\\_nanobind.hpp
 
 ```
- 1// SPDX-FileCopyrightText: © 2025 Tenstorrent USA, Inc.
+ 1// SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
  2//
  3// SPDX-License-Identifier: Apache-2.0
  4
@@ -81648,7 +81648,7 @@ TT Studio requires all source files to include SPDX license headers:
 
 ```javascript
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 ```
 
 We provide **two complementary approaches** to ensure headers are added:
