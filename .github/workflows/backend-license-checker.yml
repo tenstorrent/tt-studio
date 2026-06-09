@@ -139,7 +139,7 @@ jobs:
             echo ""
             echo "# SPDX-License-Identifier: Apache-2.0"
             echo "#"
-            echo "# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+            echo "# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC"
           else
             echo "✅ All changed files have proper SPDX headers"
           fi
