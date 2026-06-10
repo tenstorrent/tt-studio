@@ -26,34 +26,6 @@ interface ChipConfigStepProps {
   onConfirm: (mode: "single" | "multi", slotIds: number[]) => void;
 }
 
-// Board-specific labels and example models for the chip config cards.
-const BOARD_LABELS: Record<
-  string,
-  {
-    singleChipSubtitle: string;
-    multiChipTitle: string;
-    multiChipSubtitle: string;
-    singleChipExamples: string[];
-    multiChipExamples: string[];
-  }
-> = {
-  P300x2: {
-    singleChipSubtitle: "P300",
-    multiChipTitle: "All Chips (P300x2)",
-    multiChipSubtitle: "4 × chips",
-    singleChipExamples: ["Llama-3.1-8B"],
-    multiChipExamples: ["Llama-3.3-70B", "Qwen3-32B"],
-  },
-};
-
-const DEFAULT_BOARD_LABELS = {
-  singleChipSubtitle: "N150 / N300",
-  multiChipTitle: "All Chips (T3K)",
-  multiChipSubtitle: "4 × chips",
-  singleChipExamples: ["Llama-3.1-8B", "Mistral-7B", "Qwen-2.5"],
-  multiChipExamples: ["Llama-3.1-70B", "DeepSeek-R1-70B", "FLUX.1"],
-};
-
 export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
   const { nextStep } = useStepper();
   const [selectedMode, setSelectedMode] = useState<"single" | "multi" | null>(
@@ -77,9 +49,6 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
     const interval = setInterval(fetchChipStatus, 7 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
-
-  const boardLabels =
-    (chipStatus && BOARD_LABELS[chipStatus.board_type]) || DEFAULT_BOARD_LABELS;
 
   const handleModeSelect = (mode: "single" | "multi") => {
     setSelectedMode(mode);
@@ -113,17 +82,17 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
       {/* Header */}
       <div>
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">
-          Choose Chip Configuration
+          Choose Device Configuration
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Select how many chips to use. This determines which models are
+          Select how many devices to use. This determines which models are
           available in the next step.
         </p>
       </div>
 
       {/* Mode selection cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* 1 Chip card */}
+        {/* 1 Device card */}
         <button
           type="button"
           onClick={() => handleModeSelect("single")}
@@ -151,29 +120,16 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
               <div
                 className={`font-mono font-bold text-base ${selectedMode === "single" ? "text-TT-purple" : "text-gray-200"}`}
               >
-                1 Chip
-              </div>
-              <div className="text-xs text-gray-500 font-mono">
-                {boardLabels.singleChipSubtitle}
+                1 Device
               </div>
             </div>
           </div>
           <p className="text-sm text-gray-400 leading-relaxed">
-            Deploy on a single chip. Best for 8B–13B parameter models.
+            Deploy on a single device. Best for 8B–13B parameter models.
           </p>
-          <div className="mt-3 flex flex-wrap gap-1">
-            {boardLabels.singleChipExamples.map((tag) => (
-              <span
-                key={tag}
-                className="text-xs px-2 py-0.5 bg-gray-800 text-gray-400 rounded font-mono"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
         </button>
 
-        {/* All Chips / T3K card */}
+        {/* All Devices card */}
         <button
           type="button"
           onClick={() => handleModeSelect("multi")}
@@ -201,37 +157,27 @@ export function ChipConfigStep({ onConfirm }: ChipConfigStepProps) {
               <div
                 className={`font-mono font-bold text-base ${selectedMode === "multi" ? "text-TT-purple" : "text-gray-200"}`}
               >
-                {boardLabels.multiChipTitle}
+                All Devices
               </div>
               <div className="text-xs text-gray-500 font-mono">
-                {boardLabels.multiChipSubtitle}
+                4 × devices
               </div>
             </div>
           </div>
           <p className="text-sm text-gray-400 leading-relaxed">
-            Deploy across all 4 chips. Required for 70B+ large models.
+            Deploy across all 4 devices. Required for 70B+ large models.
           </p>
-          <div className="mt-3 flex flex-wrap gap-1">
-            {boardLabels.multiChipExamples.map((tag) => (
-              <span
-                key={tag}
-                className="text-xs px-2 py-0.5 bg-gray-800 text-gray-400 rounded font-mono"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
         </button>
       </div>
 
-      {/* Slot picker — only shown when "1 Chip" is selected on a multi-slot board */}
+      {/* Slot picker — only shown when "1 Device" is selected on a multi-slot board */}
       {needsSlotPicker && chipStatus && (
         <div>
           <h3 className="text-sm font-mono font-semibold text-gray-400 uppercase tracking-widest mb-1">
             Select Device(s)
           </h3>
           <p className="text-xs text-gray-500 font-mono mb-3">
-            Select one or more chips — they will be passed as{" "}
+            Select one or more devices — they will be passed as{" "}
             <code className="bg-gray-800 px-1 rounded">--device-id {selectedSlots.length > 0 ? selectedSlots.slice().sort((a,b)=>a-b).join(",") : "…"}</code>
           </p>
           <div className="flex flex-row justify-center gap-3 flex-wrap">

@@ -109,7 +109,7 @@ async function pollDeployProgress(
 function deployDetailFromProgress(data: { stage?: string; progress?: number }): string | undefined {
   if (data.stage === "pulling_image") {
     const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
-    return `Pulling image… ${pct}%`;
+    return `Pulling Docker image… ${pct}%`;
   }
   return undefined;
 }

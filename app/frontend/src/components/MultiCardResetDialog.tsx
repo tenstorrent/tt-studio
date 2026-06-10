@@ -291,7 +291,7 @@ function UnitCard({
             <span className="font-medium break-words min-w-0">
               {unit.model.name}
               {slots.length > 1 && (
-                <span className="text-stone-400 font-normal"> · all {slots.length} chips</span>
+                <span className="text-stone-400 font-normal"> · all {slots.length} devices</span>
               )}
             </span>
           </div>
@@ -319,8 +319,8 @@ function UnitCard({
           <StepRow
             number={isModel ? 2 : 1}
             icon={<RotateCcw className="w-3 h-3" />}
-            label={`Reset chip${slots.length > 1 ? "s" : ""} (tt-smi -r ${resetArgs})`}
-            sublabel="Running chip reset, may take 10–30s…"
+            label={`Reset device${slots.length > 1 ? "s" : ""} (tt-smi -r ${resetArgs})`}
+            sublabel="Running device reset, may take 10–30s…"
             state={resetState}
           />
           {isActive && cmdOutput && <StreamingLogPanel output={cmdOutput} />}
@@ -554,7 +554,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                   {isBoardResetting
                     ? boardStep === "deleting"
                       ? "Removing all deployed models…"
-                      : "Resetting all chips…"
+                      : "Resetting all devices…"
                     : boardStep === "done"
                       ? "Full board reset complete"
                       : boardStep === "failed"
@@ -562,7 +562,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                         : "Reset Card"}
                 </DialogTitle>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  {totalSlots} chip{totalSlots !== 1 ? "s" : ""} detected — reset individually or all at once
+                  {totalSlots} device{totalSlots !== 1 ? "s" : ""} detected — reset individually or all at once
                 </p>
               </div>
             </div>
@@ -651,7 +651,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
               <StepRow
                 number={2}
                 icon={<RotateCcw className="w-3.5 h-3.5" />}
-                label="Reset all chips (tt-smi -r)"
+                label="Reset all devices (tt-smi -r)"
                 sublabel="Running full board reset, may take 10–30 seconds…"
                 state={
                   boardStep === "resetting"
@@ -708,7 +708,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                 <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
                 <span>
                   <strong className="text-red-300">Warning:</strong> Resetting interrupts any
-                  ongoing processes on the affected chips. Multi-chip models are stopped and reset
+                  ongoing processes on the affected devices. Multi-device models are stopped and reset
                   as a whole.
                 </span>
               </div>
@@ -716,10 +716,10 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
               <div className="flex items-start gap-2 p-3 bg-orange-950/40 border border-orange-500/25 rounded-lg text-orange-200 text-sm">
                 <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
                 <span>
-                  <strong className="text-orange-300">Reset All Chips</strong> will stop{" "}
+                  <strong className="text-orange-300">Reset All Devices</strong> will stop{" "}
                   <strong className="text-orange-300">every deployed model</strong> and interrupt{" "}
                   <strong className="text-orange-300">all processes</strong> across all{" "}
-                  {totalSlots} chip{totalSlots !== 1 ? "s" : ""} simultaneously.
+                  {totalSlots} device{totalSlots !== 1 ? "s" : ""} simultaneously.
                 </span>
               </div>
             </div>
@@ -737,7 +737,7 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
                 className="border-red-700/50 text-red-300 hover:bg-red-900/30 hover:text-red-200 disabled:opacity-40"
               >
                 <RotateCcw className="w-4 h-4 mr-2" />
-                Reset All Chips
+                Reset All Devices
               </Button>
             )}
           </div>
