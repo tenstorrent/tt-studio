@@ -192,6 +192,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const [allModels, setAllModels] = useState<Model[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [occupiedDevices, setOccupiedDevices] = useState<OccupiedDevice[]>([]);
+  const [totalSlots, setTotalSlots] = useState<number | null>(null);
 
   const [selectedLlmId, setSelectedLlmId] = useState<string>("");
   const [selectedWhisperId, setSelectedWhisperId] = useState<string>("");
@@ -269,7 +270,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       })
       .catch(() => { /* non-fatal — just no pre-flight warnings */ });
 
-    Promise.all([loadModels, loadSlots]).finally(() => setLoadingModels(false));
+    // Board slot count for the device pre-flight check.
+    const loadSlotCount = fetch("/docker-api/chip-status/")
+      .then((r) => r.json())
+      .then((d: { total_slots?: number }) =>
+        setTotalSlots(typeof d.total_slots === "number" ? d.total_slots : null)
+      )
+      .catch(() => { /* non-fatal */ });
+
+    Promise.all([loadModels, loadSlots, loadSlotCount]).finally(() => setLoadingModels(false));
   }, []);
 
   // Auto-redirect countdown after all done
@@ -298,6 +307,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const llmDeviceId: number | string = useLlamaCardPair ? "0,1" : 0;
   const whisperDeviceId = useLlamaCardPair ? 2 : 1;
   const ttsDeviceId = useLlamaCardPair ? 3 : 2;
+
+  // Pre-flight: the pipeline pins fixed slots, so the board must expose enough of them.
+  const requiredSlots = useLlamaCardPair ? 4 : 3;
+  const insufficientDevices = totalSlots !== null && totalSlots < requiredSlots;
 
   const hasErrors =
     llmState.status === "error" ||
@@ -339,6 +352,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     !isDeploying &&
     !allDone &&
     !hasConflicts &&
+    !insufficientDevices &&
     !!selectedLlmId &&
     !!selectedWhisperId &&
     !!speechT5Id;
@@ -502,6 +516,16 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 )}
               </ModelCard>
             </div>
+
+            {insufficientDevices && !isDeploying && !allDone && (
+              <div className="flex items-start gap-3 rounded-lg border border-red-300/50 dark:border-red-700/50 bg-red-50/80 dark:bg-red-900/20 px-4 py-3">
+                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                <div className="flex-1 text-sm text-red-800 dark:text-red-300 leading-relaxed">
+                  <span className="font-semibold">Not enough devices.</span>{" "}
+                  This board reports {totalSlots} device{totalSlots === 1 ? "" : "s"}, but the Voice Agent needs {requiredSlots}. If your hardware has more, they may not be detected — check the board state.
+                </div>
+              </div>
+            )}
 
             {hasConflicts && !isDeploying && !allDone && (
               <div className="rounded-lg border border-amber-500/20 bg-gradient-to-br from-amber-500/[0.04] to-amber-500/[0.02] px-4 py-3">
