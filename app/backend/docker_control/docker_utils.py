@@ -387,6 +387,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         }:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
 
+        # Wan T2V requires 0.15.0 image: carries MODEL_WEIGHTS_DIR fix (#4107) and
+        # WanPipeline kwargs compatible with tt-metal 8574aad (post-#44201 pipeline refactor)
+        if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
+            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.15.0-8574aad-mwdfix"
+
         logger.info(f"API payload: {payload}")
 
         # Make POST request to TT Inference Server API
