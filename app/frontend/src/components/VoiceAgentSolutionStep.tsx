@@ -431,10 +431,18 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     <>
       {/* Keyframes */}
       <style>{`
-        @keyframes va-pop { 0%,100%{transform:scale(1)} 50%{transform:scale(1.025)} }
-        @keyframes va-shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
+        @keyframes va-pop { 0%,100%{transform:scale(1)} 50%{transform:scale(1.015)} }
+        @keyframes va-shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-2.5px)} 75%{transform:translateX(2.5px)} }
         @keyframes va-shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
-        @keyframes va-glow-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0)} 50%{box-shadow:0 0 20px 4px rgba(74,222,128,0.35)} }
+        @keyframes va-glow-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0)} 50%{box-shadow:0 0 12px 2px rgba(74,222,128,0.2)} }
+        @keyframes va-active {
+          0%,100% { box-shadow:0 0 0 1px rgba(96,165,250,0.35); transform:scale(1); }
+          50%     { box-shadow:0 0 0 1px rgba(96,165,250,0.6), 0 0 18px 2px rgba(96,165,250,0.3); transform:scale(1.012); }
+        }
+        @keyframes va-breathe { 0%,100%{opacity:0.4} 50%{opacity:1} }
+        @media (prefers-reduced-motion: reduce) {
+          *[style*="va-"] { animation: none !important; }
+        }
       `}</style>
 
       <div className="flex flex-col gap-6">
@@ -599,7 +607,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                   <Button
                     onClick={() => navigate("/models-deployed")}
                     className="flex items-center gap-2"
-                    style={{ animation: "va-glow-pulse 1.6s ease-in-out 2" }}
+                    style={{ animation: "va-glow-pulse 2.4s ease-in-out 2" }}
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     View Models Deployed
@@ -625,10 +633,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                       : ""
                   }`}
                   style={isDeploying ? {
-                    background: "linear-gradient(90deg, var(--tw-gradient-stops))",
-                    backgroundImage: "linear-gradient(90deg, #7c68fa 0%, #a78bfa 40%, #7c68fa 60%, #6d55f5 100%)",
+                    backgroundImage: "linear-gradient(90deg, #6d55f5 0%, #a78bfa 50%, #6d55f5 100%)",
                     backgroundSize: "200% auto",
-                    animation: "va-shimmer 1.8s linear infinite",
+                    animation: "va-shimmer 2.6s linear infinite",
                   } : undefined}
                 >
                   {isDeploying && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -661,9 +668,9 @@ const ACCENT_IDLE: Record<CardAccent, { border: string; badge: string; icon: str
 function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapper: string; extra?: CSSProperties } {
   switch (state) {
     case "deploying":
-      return { wrapper: "border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/30 ring-offset-0 animate-pulse" };
+      return { wrapper: "border-blue-400/50 bg-blue-500/[0.04]", extra: { animation: "va-active 2.4s ease-in-out infinite" } };
     case "done":
-      return { wrapper: "border-green-400/70 bg-green-500/[0.07] dark:bg-green-500/10", extra: { animation: "va-pop 0.35s ease" } };
+      return { wrapper: "border-green-400/70 bg-green-500/[0.07] dark:bg-green-500/10", extra: { animation: "va-pop 0.5s ease" } };
     case "error":
       return { wrapper: "border-red-400/60 bg-red-500/5", extra: { animation: "va-shake 0.4s ease" } };
     default:
@@ -712,9 +719,8 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
     if (occupants && occupants.length > 0) return (
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
-          <span className="relative flex items-center justify-center w-2 h-2 shrink-0">
-            <span className="absolute inset-0 rounded-full bg-amber-400/40 animate-ping" />
-            <span className="relative w-1.5 h-1.5 rounded-full bg-amber-400" />
+          <span className="flex items-center justify-center w-2 h-2 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" style={{ animation: "va-breathe 2.2s ease-in-out infinite" }} />
           </span>
           <span className="text-[10px] uppercase tracking-[0.14em] text-amber-300/80 font-semibold">In use</span>
         </div>
