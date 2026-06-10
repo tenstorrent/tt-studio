@@ -600,7 +600,7 @@ class DeployView(APIView):
                         {
                             "status": "success",
                             "job_id": pull_id,
-                            "message": "Pulling model image…",
+                            "message": "Pulling Docker Image…",
                             "allocated_device_id": device_id,
                         },
                         status=status.HTTP_201_CREATED,
@@ -699,7 +699,7 @@ class DeployView(APIView):
                         deploy_fn=deploy_fn,
                     )
                     return Response(
-                        {"status": "success", "job_id": pull_id, "message": "Pulling model image…", "allocated_device_id": device_id},
+                        {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
                         status=status.HTTP_201_CREATED,
                     )
 
@@ -931,7 +931,7 @@ class DeploymentProgressView(APIView):
                     else:
                         layers_total = pull_job.get("layers_total") or 0
                         layers_done = pull_job.get("layers_done") or 0
-                        msg = "Pulling model image..."
+                        msg = "Pulling Docker Image..."
                         if layers_total:
                             msg += f" ({layers_done}/{layers_total} layers)"
                     return Response(

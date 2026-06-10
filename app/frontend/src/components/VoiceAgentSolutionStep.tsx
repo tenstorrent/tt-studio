@@ -36,7 +36,7 @@ import {
 interface DeployState {
   status: "idle" | "deploying" | "done" | "error";
   error?: string;
-  // Live sub-status shown while deploying (e.g. "Pulling image… 45%").
+  // Live sub-status shown while deploying (e.g. "Pulling Docker Image… 45%").
   detail?: string;
 }
 
@@ -109,7 +109,7 @@ async function pollDeployProgress(
 function deployDetailFromProgress(data: { stage?: string; progress?: number }): string | undefined {
   if (data.stage === "pulling_image") {
     const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
-    return `Pulling Docker image… ${pct}%`;
+    return `Pulling Docker Image… ${pct}%`;
   }
   return undefined;
 }
