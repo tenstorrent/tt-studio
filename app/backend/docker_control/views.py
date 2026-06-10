@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from django.shortcuts import render
 from django.http import StreamingHttpResponse
@@ -434,9 +434,9 @@ class DeployView(APIView):
                     # Forced full-board Llama takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
-                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id), clamped to the board size
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
                     occupied_device_ids = list(
-                        range(device_id, min(device_id + chips_required, allocator.total_slots))
+                        range(device_id, device_id + chips_required)
                     )
                 else:
                     # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
@@ -2349,9 +2349,25 @@ async def _astream_stop_remove_container(container_id, truncated):
         deployment = ModelDeployment.objects.filter(container_id=container_id).first()
         if not deployment:
             return "No deployment record found — continuing"
+        # Decide whether this is a user-initiated stop or the removal of a model that already died. The stored status can't be trusted: a model
+        # The only reliable signal is whether the container is actually alive right now.
+        alive = False
+        try:
+            info = get_docker_client().get_container(container_id)
+            alive = (info or {}).get("status") in ("running", "restarting")
+        except Exception:
+            alive = False  # container gone / 404 → it died unexpectedly
+
+        # Acknowledge so the Models Deployed page hides the row
         deployment.stopped_by_user = True
-        deployment.status = "stopped"
-        deployment.stopped_at = timezone.now()
+        if alive:
+            # The user stopped a still-running model.
+            deployment.status = "stopped"
+        elif deployment.status not in ("exited", "dead", "failed"):
+            # It terminated on its own but the status doesn't already reflect a death. Record it as dead so Deployment History shows "Died Unexpectedly" rather than "Stopped by User".
+            deployment.status = "dead"
+        if not deployment.stopped_at:
+            deployment.stopped_at = timezone.now()
         deployment.save()
         return f"Marked deployment {truncated} as stopped in database"
 
