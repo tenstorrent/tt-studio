@@ -179,12 +179,18 @@ function PhaseTrack({
   const visiblePhases = hideDownload
     ? allPhases.filter((p) => p.key !== "downloading_weights")
     : allPhases;
-  const currentIdx = visiblePhases.findIndex((p) => p.key === phaseKey);
+
+  // A cached download is effectively  finished, so advance the highlight to the next real phase
+  let activeFullIdx = allPhases.findIndex((p) => p.key === phaseKey);
+  if (hideDownload && phaseKey === "downloading_weights" && activeFullIdx >= 0) {
+    activeFullIdx += 1;
+  }
   return (
     <div className="flex items-center gap-1 mt-3 overflow-x-auto pb-1 -mx-0.5 px-0.5">
-      {visiblePhases.map((p, i) => {
-        const done = currentIdx >= 0 && i < currentIdx;
-        const active = i === currentIdx;
+      {visiblePhases.map((p) => {
+        const pFullIdx = allPhases.findIndex((x) => x.key === p.key);
+        const done = activeFullIdx >= 0 && pFullIdx < activeFullIdx;
+        const active = pFullIdx === activeFullIdx;
         return (
           <div
             key={p.key}
