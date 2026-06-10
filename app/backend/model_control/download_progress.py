@@ -174,15 +174,13 @@ def compute_download_progress(
     if total is not None:
         out["total_bytes"] = int(total)
 
-    # If the cache directory already holds (nearly) all the bytes the HF API
-    # claims, the weights are effectively cached — even if no explicit
-    # "cached" log line fired (the media runners' transformers.from_pretrained
-    # path emits the same `Loading HuggingFace model:` line for both cases).
-    # Threshold at 95% to tolerate harmless extras like .lock/.metadata files
-    # not counted by the HF tree API.
+    # A (nearly) full cache dir means pre-cached only if we never tracked this deploy downloading
     if not cached and total is not None and total > 0 and downloaded >= total * 0.95:
-        cached = True
-        out["weights_cached"] = True
+        with _state_lock:
+            tracked_download = deploy_id in _state
+        if not tracked_download:
+            cached = True
+            out["weights_cached"] = True
 
     if cached:
         # Skip the speed/ETA dance — the file just appeared. Pin to 100%.
