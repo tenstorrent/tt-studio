@@ -2439,6 +2439,7 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
     label = ", ".join(id_args) if id_args else "board"
     command = " ".join(["tt-smi", "-r", *id_args])
     line_timeout = max(90, 30 * len(device_ids))  # allow longer gaps on bigger boards
+    heartbeat = 15  # emit a keepalive at least this often while tt-smi is quiet
 
     await asyncio.to_thread(SystemResourceService.set_resetting_state)
 
@@ -2454,8 +2455,22 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
                 stdin=asyncio.subprocess.DEVNULL,
             )
             try:
+                waited = 0.0
                 while True:
-                    raw = await asyncio.wait_for(proc.stdout.readline(), timeout=line_timeout)
+                    try:
+                        raw = await asyncio.wait_for(proc.stdout.readline(), timeout=heartbeat)
+                    except asyncio.TimeoutError:
+                        # tt-smi -r is silent for long stretches while it re-inits
+                        # the boards. Emit a heartbeat so the SSE connection is never
+                        # idle long enough for a proxy/browser to drop it (which the
+                        # frontend surfaces as "Connection to stream lost."). Escalate
+                        # to a real stall only after the full line_timeout of silence.
+                        waited += heartbeat
+                        if waited >= line_timeout:
+                            raise
+                        yield ("heartbeat", None)
+                        continue
+                    waited = 0.0
                     if not raw:
                         break
                     line = ansi_re.sub("", raw.decode("utf-8", errors="replace")).strip()
@@ -2498,6 +2513,8 @@ async def _astream_reset_phase(device_ids, *, force_refresh, success_msg, partia
     async for kind, payload in _astream_tt_smi_reset(device_ids, force_refresh=force_refresh):
         if kind == "log":
             yield _sse_event({"type": "log", "step": "resetting", "message": payload})
+        elif kind == "heartbeat":
+            yield ":keepalive\n\n"  # SSE comment: ignored by EventSource, keeps the socket live
         else:
             reset_ok = payload
     yield _sse_event({
