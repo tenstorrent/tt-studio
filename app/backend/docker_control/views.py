@@ -434,9 +434,9 @@ class DeployView(APIView):
                     # Forced full-board Llama takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
-                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id), clamped to the board size
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
                     occupied_device_ids = list(
-                        range(device_id, min(device_id + chips_required, allocator.total_slots))
+                        range(device_id, device_id + chips_required)
                     )
                 else:
                     # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
