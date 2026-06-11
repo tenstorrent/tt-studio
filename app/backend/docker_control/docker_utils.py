@@ -392,20 +392,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
-        # These models use v0.14.0 image (P300X2 compatible)
-        if impl.model_name in {
-            "Llama-3.1-8B",
-            "Llama-3.1-8B-Instruct",
-            "Llama-3.1-70B",
-            "Llama-3.1-70B-Instruct",
-            "Llama-3.3-70B-Instruct",
-        }:
-            payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
-
         # Wan T2V requires 0.15.0 image: carries MODEL_WEIGHTS_DIR fix (#4107) and
         # WanPipeline kwargs compatible with tt-metal 8574aad (post-#44201 pipeline refactor)
         if impl.model_name in {"Wan2.2-T2V-A14B-Diffusers"}:
             payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:0.15.0-8574aad-mwdfix"
+
 
         logger.info(f"API payload: {payload}")
 

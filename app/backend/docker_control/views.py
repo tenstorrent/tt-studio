@@ -434,9 +434,9 @@ class DeployView(APIView):
                     # Forced full-board Llama takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
                 elif chips_required > 1:
-                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id), clamped to the board size
+                    # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot (device_id).
                     occupied_device_ids = list(
-                        range(device_id, min(device_id + chips_required, allocator.total_slots))
+                        range(device_id, device_id + chips_required)
                     )
                 else:
                     # Single-chip (including explicit multi-slot requests) — the exact allocated/requested slot list is already correct
@@ -502,6 +502,17 @@ class DeployView(APIView):
                 qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
                 if qwen32b_p300x2:
                     override_tt_config = '{"trace_region_size": 53000000}'
+                # Some Llama models need a newer image than the inference server's model_spec default 
+                # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
+                override_docker_image = None
+                if impl.model_name in {
+                    "Llama-3.1-8B",
+                    "Llama-3.1-8B-Instruct",
+                    "Llama-3.1-70B",
+                    "Llama-3.1-70B-Instruct",
+                    "Llama-3.3-70B-Instruct",
+                }:
+                    override_docker_image = "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.14.0-80180b9-7678b70"
                 chat_deploy_kwargs = dict(
                     model_name=impl.model_name,
                     device=device,
@@ -510,12 +521,13 @@ class DeployView(APIView):
                     timeout_seconds=30,
                     skip_system_sw_validation=True,
                     override_tt_config=override_tt_config,
+                    override_docker_image=override_docker_image,
                     dev_mode=False,
                 )
 
                 # If the image isn't cached yet, pull it here first so the UI can show real byte-level progress, then trigger the deployment
                 # Resolve the real ref from inference-api so the pre-pull produces a genuine cache hit.
-                deploy_image = resolve_deploy_image(impl.model_name, device) or impl.image_version
+                deploy_image = override_docker_image or resolve_deploy_image(impl.model_name, device) or impl.image_version
                 if deploy_image != impl.image_version:
                     logger.info(
                         f"Pre-pull image for {impl.model_name}: resolved {deploy_image} "
@@ -600,7 +612,7 @@ class DeployView(APIView):
                         {
                             "status": "success",
                             "job_id": pull_id,
-                            "message": "Pulling model image…",
+                            "message": "Pulling Docker Image…",
                             "allocated_device_id": device_id,
                         },
                         status=status.HTTP_201_CREATED,
@@ -699,7 +711,7 @@ class DeployView(APIView):
                         deploy_fn=deploy_fn,
                     )
                     return Response(
-                        {"status": "success", "job_id": pull_id, "message": "Pulling model image…", "allocated_device_id": device_id},
+                        {"status": "success", "job_id": pull_id, "message": "Pulling Docker Image…", "allocated_device_id": device_id},
                         status=status.HTTP_201_CREATED,
                     )
 
@@ -931,7 +943,7 @@ class DeploymentProgressView(APIView):
                     else:
                         layers_total = pull_job.get("layers_total") or 0
                         layers_done = pull_job.get("layers_done") or 0
-                        msg = "Pulling model image..."
+                        msg = "Pulling Docker Image..."
                         if layers_total:
                             msg += f" ({layers_done}/{layers_total} layers)"
                     return Response(

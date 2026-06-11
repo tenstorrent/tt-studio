@@ -71,6 +71,7 @@ def start_chat_deployment(
     dev_mode: bool = False,
     skip_system_sw_validation: bool = True,
     override_tt_config: Optional[str] = None,
+    override_docker_image: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -91,6 +92,8 @@ def start_chat_deployment(
         payload["device_id"] = str(device_id)
     if override_tt_config is not None:
         payload["override_tt_config"] = override_tt_config
+    if override_docker_image is not None:
+        payload["override_docker_image"] = override_docker_image
 
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)
