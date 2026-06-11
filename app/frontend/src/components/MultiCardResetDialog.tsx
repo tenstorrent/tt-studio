@@ -125,12 +125,12 @@ function StepRow({
   return (
     <div
       className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${state === "active"
-          ? "bg-blue-900/30 border-blue-500/40"
-          : state === "done"
-            ? "bg-green-900/20 border-green-600/30"
-            : state === "skipped"
-              ? "bg-stone-800/30 border-stone-700/30"
-              : "bg-stone-800/50 border-stone-700/40"
+        ? "bg-blue-900/30 border-blue-500/40"
+        : state === "done"
+          ? "bg-green-900/20 border-green-600/30"
+          : state === "skipped"
+            ? "bg-stone-800/30 border-stone-700/30"
+            : "bg-stone-800/50 border-stone-700/40"
         }`}
     >
       <div className="w-7 h-7 flex items-center justify-center shrink-0 mt-0.5">
@@ -243,12 +243,12 @@ function UnitCard({
         <div className="flex items-center gap-2">
           <div
             className={`w-8 h-8 rounded-full flex items-center justify-center ${isActive
-                ? "bg-blue-900/50"
-                : isDone
-                  ? "bg-green-900/50"
-                  : isFailed
-                    ? "bg-red-900/50"
-                    : "bg-stone-700/50"
+              ? "bg-blue-900/50"
+              : isDone
+                ? "bg-green-900/50"
+                : isFailed
+                  ? "bg-red-900/50"
+                  : "bg-stone-700/50"
               }`}
           >
             {isActive ? (
@@ -531,12 +531,12 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
             <div className="flex items-center gap-3">
               <div
                 className={`w-9 h-9 rounded-full flex items-center justify-center ${isBoardResetting || isAnyUnitResetting
-                    ? "bg-blue-900/50"
-                    : boardStep === "done" || allUnitsDone
-                      ? "bg-green-900/50"
-                      : boardStep === "failed"
-                        ? "bg-red-900/50"
-                        : "bg-yellow-900/50"
+                  ? "bg-blue-900/50"
+                  : boardStep === "done" || allUnitsDone
+                    ? "bg-green-900/50"
+                    : boardStep === "failed"
+                      ? "bg-red-900/50"
+                      : "bg-yellow-900/50"
                   }`}
               >
                 {isBoardResetting || isAnyUnitResetting ? (
@@ -608,8 +608,8 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
             </button>
           </div>
 
-          {/* ── Already resetting banner ── */}
-          {isResettingContext && (
+          {/* ── Already resetting banner -─ Only when the board is being reset *elsewhere* (another tab/user).*/}
+          {isResettingContext && !isAnyResetting && boardStep === null && (
             <div className="flex items-center gap-3 p-3 bg-blue-900/30 border border-blue-500/40 rounded-lg text-blue-200 text-sm">
               <Loader2 className="h-4 w-4 text-blue-400 animate-spin shrink-0" />
               <span>Board is already resetting…</span>
