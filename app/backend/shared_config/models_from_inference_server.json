@@ -95,38 +95,6 @@
       "param_count": null
     },
     {
-      "model_name": "Llama-3.1-70B-Instruct",
-      "model_type": "CHAT",
-      "display_model_type": "LLM",
-      "device_configurations": [
-        "GALAXY",
-        "GALAXY_T3K",
-        "P150X4",
-        "P150X8",
-        "P300x2",
-        "T3K"
-      ],
-      "hf_model_id": "meta-llama/Llama-3.1-70B-Instruct",
-      "inference_engine": "vLLM",
-      "supported_modalities": [
-        "text"
-      ],
-      "status": "COMPLETE",
-      "version": "0.10.0",
-      "docker_image": "ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.10.0-e867533-8f36910",
-      "service_route": "/v1/chat/completions",
-      "health_route": "/health",
-      "shm_size": "32G",
-      "setup_type": "TT_INFERENCE_SERVER",
-      "env_vars": {
-        "VLLM_CONFIGURE_LOGGING": "1",
-        "VLLM_RPC_TIMEOUT": "900000",
-        "VLLM_TARGET_DEVICE": "tt",
-        "TORCHDYNAMO_DISABLE": "1"
-      },
-      "param_count": 70
-    },
-    {
       "model_name": "Llama-3.1-8B-Instruct",
       "model_type": "CHAT",
       "display_model_type": "LLM",
