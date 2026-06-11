@@ -66,7 +66,7 @@ const stageDisplayNames: Record<string, string> = {
   model_preparation: 'Preparing deployment',
   // Host-side Docker image pull that runs before the container starts (uncached
   // images only). Carries real byte/speed/ETA download details, like model_preparation.
-  pulling_image: 'Pulling container image',
+  pulling_image: 'Pulling Docker Image',
   // Post-pull container-start milestones (the 50→100% half of the unified bar).
   image_ready: 'Image ready',
   container_setup: 'Starting container',
