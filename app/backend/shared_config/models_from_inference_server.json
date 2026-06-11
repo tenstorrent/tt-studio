@@ -44,6 +44,10 @@
       "display_model_type": "IMAGE",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-dev",
@@ -72,6 +76,10 @@
       "display_model_type": "IMAGE",
       "device_configurations": [
         "GALAXY",
+        "P150X4",
+        "P150X8",
+        "P300",
+        "P300x2",
         "T3K"
       ],
       "hf_model_id": "black-forest-labs/FLUX.1-schnell",
