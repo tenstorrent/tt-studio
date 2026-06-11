@@ -457,7 +457,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           <h2 className="text-lg font-semibold mb-1">Voice Agent Solution</h2>
           <p className="text-sm text-muted-foreground">
             {useLlamaCardPair
-              ? "Deploys the full voice pipeline: Llama 8B on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
+              ? "Deploys the full voice pipeline: Llama 8B Instruct on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
               : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
           </p>
         </div>
