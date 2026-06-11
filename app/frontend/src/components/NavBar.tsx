@@ -171,9 +171,8 @@ const ButtonNavItem: React.FC<ButtonNavItemProps> = ({
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
-          className={`${getNavLinkClass(isActive, label === "Chat UI")} ${
-            isDisabled ? "opacity-50 cursor-not-allowed" : ""
-          } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
+          className={`${getNavLinkClass(isActive, label === "Chat UI")} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""
+            } flex ${isChatUI ? "justify-center" : "justify-start"} items-center w-full`}
         >
           <Icon
             className={`${isChatUI || isMobile ? "" : "mr-2"} ${iconColor} transition-colors duration-300 ease-in-out hover:text-TT-purple`}
@@ -203,7 +202,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
       return onClick ? (
         <ResetIcon onReset={onClick} />
       ) : (
-        <ResetIcon onReset={() => {}} />
+        <ResetIcon onReset={() => { }} />
       );
       // HelpIcon handling removed
     } else {
@@ -256,6 +255,7 @@ interface ActionButtonType {
 export default function NavBar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
   const { theme, setTheme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
   const { models, refreshModels, hasDeployedModels } = useModels();
@@ -367,9 +367,8 @@ export default function NavBar() {
   const navLinkClass = `flex items-center justify-center px-2 py-2 rounded-md text-sm font-medium ${textColor} transition-all duration-300 ease-in-out`;
 
   const getNavLinkClass = (isActive: boolean): string => {
-    return `${navLinkClass} ${
-      isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
-    } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
+    return `${navLinkClass} ${isActive ? `border-2 ${activeBorderColor}` : "border-transparent"
+      } ${hoverTextColor} ${hoverBackgroundColor} hover:border-4 hover:scale-105 hover:shadow-lg dark:hover:shadow-TT-dark-shadow dark:hover:border-TT-light-border transition-all duration-300 ease-in-out`;
   };
 
   const handleReset = (): void => {
@@ -490,14 +489,14 @@ export default function NavBar() {
     // Voice Agent is only shown when all three voice-stack models are deployed
     ...(isVoiceAgentReady
       ? [
-          {
-            type: "link" as const,
-            to: "/voice-agent",
-            icon: Mic,
-            label: "Voice Agent",
-            tooltip: "Full conversational AI interface with voice chat",
-          },
-        ]
+        {
+          type: "link" as const,
+          to: "/voice-agent",
+          icon: Mic,
+          label: "Voice Agent",
+          tooltip: "Full conversational AI interface with voice chat",
+        },
+      ]
       : []),
   ];
 
@@ -620,19 +619,15 @@ export default function NavBar() {
     //   tooltipText: "Toggle Dark/Light Mode",
     //   onClick: null, // ModeToggle handles its own click
     // },
-    // Hide the board reset button while any model is deployed. Resetting
-    // interrupts running deployments, and the reset path is unreliable on
-    // some machines while a model is active, so only expose it when the
-    // board is idle (no deployed models).
-    ...(isDeployedEnabled || hasDeployedModels
+    ...(isDeployedEnabled
       ? []
       : [
-          {
-            icon: ResetIcon,
-            tooltipText: "Reset Board",
-            onClick: handleReset,
-          },
-        ]),
+        {
+          icon: ResetIcon,
+          tooltipText: "Reset Board",
+          onClick: handleReset,
+        },
+      ]),
   ];
 
   // Render vertical navbar for chat UI mode or image generation (regardless of device)
