@@ -249,14 +249,14 @@ export default function StepperDemo() {
       const pair = pickPreferredAvailablePair(chipStatus?.slots);
       if (!pair) {
         customToast.error(
-          "Llama 3.1 8B on P300x2 needs both devices 0 and 1 free."
+          "Llama 3.1 8B Instruct on P300x2 needs both devices 0 and 1 free."
         );
         return { success: false };
       }
       resolvedDeviceId = pair.join(",");
     }
     if (shouldUseFullBoardLlamaFlow) {
-      // Simplified full-model flow runs Llama 3.1 8B as full-board p300x2.
+      // Simplified full-model flow runs Llama 3.1 8B Instruct as full-board p300x2.
       resolvedDeviceId = undefined;
     }
 
