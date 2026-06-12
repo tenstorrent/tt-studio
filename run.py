@@ -3636,7 +3636,15 @@ def start_fastapi_server(no_sudo=False, dev_mode=False):
         benchmark_file = os.path.join(INFERENCE_ARTIFACT_DIR, "benchmarking", "benchmark_targets", "model_performance_reference.json")
         if os.path.exists(benchmark_file):
             env["OVERRIDE_BENCHMARK_TARGETS"] = benchmark_file
-    
+
+    # STOPGAP (excise when prod catalog is uplifted): pin the dev model-spec catalog so
+    # media models (e.g. Wan2.2-T2V) receive TT_DIT_CACHE_DIR. prod/video.yaml currently
+    # lacks the env_vars block; dev/video.yaml has it. Without this, an inference-api
+    # restart defaults to prod and Wan deploys uncached (and hang). Respects an explicit
+    # operator override. Real fix: add TT_DIT_CACHE_DIR to tt-inference-server
+    # prod/video.yaml (and land it on main), then delete this block.
+    env["MODEL_SPECS_ENV"] = os.getenv("MODEL_SPECS_ENV", "dev")
+
     # Start the server - use inference-api/main.py
     venv_uvicorn = os.path.join(INFERENCE_API_DIR, ".venv", "bin", "uvicorn")
     if OS_NAME == "Windows":
