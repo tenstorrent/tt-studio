@@ -7,7 +7,7 @@
 # See: https://docs.github.com/articles/about-code-owners
 
 # ---------------------------------------------------------------------------
-# Default — Anirudh owns everything not matched by a more specific rule below.
+# Default
 # ---------------------------------------------------------------------------
 *                                       @anirudTT
 
@@ -33,7 +33,7 @@
 # Inference server API
 # ---------------------------------------------------------------------------
 /inference-api/                         @anirudTT @rnabeelTT @stisiTT
-/app/agent/                             @anirudTT @rnabeelTT 
+/app/agent/                             @anirudTT @jashansinghTT 
 
 # ---------------------------------------------------------------------------
 # Deployment / image-pull progress bar — Raahem
@@ -46,3 +46,32 @@
 /app/frontend/src/components/ui/progress.tsx                 @anirudTT @rnabeelTT
 /app/frontend/src/components/ui/scroll-progress-bar.tsx      @anirudTT @rnabeelTT
 /app/frontend/src/components/models/ModelPreparingBanner.tsx @anirudTT @rnabeelTT
+
+# ---------------------------------------------------------------------------
+# RAG (vector DB backend + RAG UI) — Anirudh & Jashan
+# ---------------------------------------------------------------------------
+/app/backend/vector_db_control/                          @anirudTT @jashansinghTT
+/app/frontend/src/components/rag/                        @anirudTT @jashansinghTT
+/app/frontend/src/pages/RagAdminPage.tsx                 @anirudTT @jashansinghTT
+/app/frontend/src/components/chatui/getRagContext.ts     @anirudTT @jashansinghTT
+
+# ---------------------------------------------------------------------------
+# Model catalog from inference server — critical config, whole team
+# ---------------------------------------------------------------------------
+/app/backend/shared_config/models_from_inference_server.json @anirudTT @jashansinghTT @rnabeelTT @stisiTT
+
+# ---------------------------------------------------------------------------
+# Docs & README — whole team
+# ---------------------------------------------------------------------------
+/README.md                              @anirudTT @jashansinghTT @rnabeelTT @stisiTT @housTT
+/dev-docs/                              @anirudTT @jashansinghTT @rnabeelTT @stisiTT @housTT
+
+# ---------------------------------------------------------------------------
+# Hosted landing page (GitHub Pages, served from docs/ root) — Adam
+# ---------------------------------------------------------------------------
+/docs/                                  @anirudTT @housTT
+
+# ---------------------------------------------------------------------------
+# Model license compliance — Adam
+# ---------------------------------------------------------------------------
+/models/licenses/                       @anirudTT @housTT
