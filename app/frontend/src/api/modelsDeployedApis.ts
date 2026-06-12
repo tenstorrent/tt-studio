@@ -244,8 +244,14 @@ export const consumeSSE = (
   onStep?: (step: string) => void,
 ): Promise<SSEResult> =>
   new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const ts = () => `+${((Date.now() - t0) / 1000).toFixed(1)}s`;
+    console.log(`[sse-debug] OPEN ${url}`);
     const es = new EventSource(url, { withCredentials: true });
     let output = "";
+    let lastEventAt = Date.now();
+    let gotAnyEvent = false;
+    let completed = false;
     const timer = window.setTimeout(() => {
       es.close();
       reject(new Error("Stream timed out — the backend may still be processing."));
@@ -256,26 +262,43 @@ export const consumeSSE = (
       fn();
     };
 
+    es.onopen = () => console.log(`[sse-debug] ${ts()} onopen ${url} readyState=${es.readyState}`);
+
     es.onmessage = (event) => {
+      lastEventAt = Date.now();
+      gotAnyEvent = true;
       let data: { type?: string; step?: string; status?: string; message?: string };
       try {
         data = JSON.parse(event.data);
       } catch {
+        console.log(`[sse-debug] ${ts()} non-JSON event:`, event.data);
         return;
       }
+      console.log(`[sse-debug] ${ts()} event`, data);
       if (data.type === "step" && data.step) {
         onStep?.(data.step);
       } else if (data.type === "log" && data.message) {
         output += `${data.message}\n`;
         onLog?.(data.message);
       } else if (data.type === "complete") {
+        completed = true;
         done(() =>
           resolve({ status: data.status ?? "error", output, message: data.message ?? "" }),
         );
       }
     };
 
-    es.onerror = () => done(() => reject(new Error("Connection to stream lost.")));
+    es.onerror = (ev) => {
+      const sinceLast = ((Date.now() - lastEventAt) / 1000).toFixed(1);
+      // readyState 0 (CONNECTING) after an error = browser auto-reconnecting, usually
+      // because the server/proxy closed the stream; 2 (CLOSED) = it gave up entirely.
+      console.error(
+        `[sse-debug] ${ts()} ONERROR ${url} readyState=${es.readyState} ` +
+          `gotAnyEvent=${gotAnyEvent} completed=${completed} sinceLastEvent=${sinceLast}s`,
+        ev,
+      );
+      done(() => reject(new Error("Connection to stream lost.")));
+    };
   });
 
 /** Stream a board/device reset (`tt-smi -r`), forwarding log lines to onLog. */

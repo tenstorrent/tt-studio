@@ -62,7 +62,14 @@ class DockerControlClient:
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
-            logger.error(f"Docker Control Service request failed: {method} {url} - {e}")
+            # A 404 usually means the resource is already gone (e.g. removing a container
+            # that a prior stop-stream already auto-removed). That is a routine,
+            # caller-handled condition, not an error — log it quietly but still raise.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 404:
+                logger.warning(f"Docker Control Service: {method} {url} - 404 Not Found (resource already gone)")
+            else:
+                logger.error(f"Docker Control Service request failed: {method} {url} - {e}")
             raise
 
     # Container operations

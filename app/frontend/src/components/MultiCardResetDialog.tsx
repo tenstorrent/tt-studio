@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
-import { fetchModels, deleteModel, streamResetAction } from "../api/modelsDeployedApis";
+import { fetchModels, streamResetAction } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import type { Model } from "../contexts/ModelsContext";
@@ -490,17 +490,20 @@ const MultiCardResetDialog: React.FC<MultiCardResetDialogProps> = ({
     setShowBoardOutput(false);
 
     try {
-      // Stop every model (no per-model reset), then reset the whole board once.
-      const currentModels = await fetchModels();
-      await Promise.all(currentModels.map((m) => deleteModel(m.id, true)));
-      await refreshModels();
-
-      setBoardStep("resetting");
+      // Single SSE stream stops every model then resets the whole board. Doing it in one
+      // connection (instead of Promise.all of N stop-streams + a separate reset-stream)
+      // avoids exhausting the browser's 6-connection-per-origin limit, which previously
+      // dropped the reset stream as "Connection to stream lost."
       let output = "";
-      const { status } = await streamResetAction("/docker-api/reset_board/stream/", (line) => {
-        output += `${line}\n`;
-        setBoardOutput(output);
-      });
+      const { status } = await streamResetAction(
+        "/docker-api/reset_all/stream/",
+        (line) => {
+          output += `${line}\n`;
+          setBoardOutput(output);
+        },
+        (step) => setBoardStep(step as "deleting" | "resetting"), // backend drives "deleting" → "resetting"
+      );
+      await refreshModels();
 
       if (status !== "success") throw new Error("Board reset failed. See command output for details.");
       setBoardStep("done");

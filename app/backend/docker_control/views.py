@@ -2441,12 +2441,14 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
     line_timeout = max(90, 30 * len(device_ids))  # allow longer gaps on bigger boards
     heartbeat = 15  # emit a keepalive at least this often while tt-smi is quiet
 
+    logger.info(f"[reset-debug] _astream_tt_smi_reset entered: command={command!r} label={label} force_refresh={force_refresh}")
     await asyncio.to_thread(SystemResourceService.set_resetting_state)
 
     MAX_ATTEMPTS = 2
     reset_ok = False
     for attempt in range(1, MAX_ATTEMPTS + 1):
         yield ("log", f"Running {command} (attempt {attempt}/{MAX_ATTEMPTS})…")
+        logger.info(f"[reset-debug] launching subprocess (attempt {attempt}/{MAX_ATTEMPTS}): {command!r}")
         try:
             proc = await asyncio.create_subprocess_exec(
                 "tt-smi", "-r", *id_args,
@@ -2490,12 +2492,14 @@ async def _astream_tt_smi_reset(device_ids, *, force_refresh):
             yield ("log", str(exc))
             returncode = -1
 
+        logger.info(f"[reset-debug] attempt {attempt} finished: returncode={returncode}")
         if returncode == 0:
             reset_ok = True
             yield ("log", f"Device(s) {label} reset succeeded on attempt {attempt}")
             break
         yield ("log", f"Reset of {label} attempt {attempt} failed (exit code {returncode})")
 
+    logger.info(f"[reset-debug] reset loop done: reset_ok={reset_ok}; clearing device state cache")
     await asyncio.to_thread(SystemResourceService.clear_device_state_cache)
     if reset_ok and force_refresh:
         try:
@@ -2587,17 +2591,146 @@ class ResetStreamView(View):
     async def get(self, request, device_id=None, *args, **kwargs):
         device_ids = [device_id] if device_id is not None else []
         label = ", ".join(str(d) for d in device_ids) if device_ids else "board"
+        logger.info(f"[reset-debug] ResetStreamView.get ENTER: label={label} device_ids={device_ids} client={request.META.get('REMOTE_ADDR')}")
 
         async def generate():
-            yield "retry: 1000\n\n"
-            yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
-            async for event in _astream_reset_phase(
-                device_ids,
-                force_refresh=False,
-                success_msg=f"Reset of {label} completed successfully",
-                partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
-            ):
-                yield event
+            try:
+                yield "retry: 1000\n\n"
+                yield _sse_event({"type": "step", "step": "resetting", "message": f"Resetting {label}…"})
+                logger.info(f"[reset-debug] generate(): sent 'step:resetting' for {label}, entering reset phase")
+                async for event in _astream_reset_phase(
+                    device_ids,
+                    force_refresh=False,
+                    success_msg=f"Reset of {label} completed successfully",
+                    partial_msg=f"Reset of {label} did not complete successfully. Manual intervention may be required.",
+                ):
+                    yield event
+                logger.info(f"[reset-debug] generate(): reset phase complete for {label}, stream finished normally")
+            except asyncio.CancelledError:
+                # The client (browser EventSource) disconnected mid-stream. This is
+                # exactly what surfaces as "Connection to stream lost." in the UI.
+                logger.warning(f"[reset-debug] generate(): CLIENT DISCONNECTED (CancelledError) during reset of {label}")
+                raise
+            except Exception:
+                logger.exception(f"[reset-debug] generate(): UNHANDLED EXCEPTION during reset of {label}")
+                raise
+
+        return _sse_response(generate())
+
+
+# In-flight whole-board reset, shared across requests. The reset runs in a DETACHED task
+# (not tied to any single SSE connection) so that a client disconnect cannot abandon a
+# board reset mid-flight — an un-reset board strands the hardware and makes the next deploy's
+# init_device fail ("Try resetting the board"). The task pushes framed SSE strings onto the
+# shared queue; the active SSE connection drains it. A reconnecting client attaches to the
+# same queue, and a second concurrent request never starts a second `tt-smi -r`.
+_reset_all_task = None       # type: ignore[var-annotated]  # asyncio.Task | None
+_reset_all_queue = None      # type: ignore[var-annotated]  # asyncio.Queue | None
+
+# Sentinel pushed onto the queue when the reset worker has finished.
+_RESET_ALL_DONE = object()
+
+
+async def _run_reset_all(queue):
+    """Stop every deployed model, then reset the whole board, pushing SSE strings onto `queue`.
+
+    Runs as a detached task so it survives a client disconnect. Reuses the building blocks
+    StopStreamView composes:
+      Phase 1 (step "deleting"):  _astream_stop_remove_container per model
+      Phase 2 (step "resetting"): _astream_reset_phase for the whole-board tt-smi -r
+    """
+    try:
+        # Phase 1: stop & remove every currently-deployed model container.
+        container_ids = await asyncio.to_thread(lambda: list(get_container_status().keys()))
+        logger.info(f"[reset-debug] reset_all: stopping {len(container_ids)} container(s): {[c[:12] for c in container_ids]}")
+        await queue.put(_sse_event({
+            "type": "step",
+            "step": "deleting",
+            "message": f"Stopping {len(container_ids)} deployed model(s)…",
+        }))
+        for container_id in container_ids:
+            truncated = container_id[:12]
+            try:
+                async for msg in _astream_stop_remove_container(container_id, truncated):
+                    await queue.put(_sse_event({"type": "log", "step": "deleting", "message": msg}))
+            except _StopFailed as e:
+                # One stuck container must not abort the board reset — log and continue.
+                logger.warning(f"[reset-debug] reset_all: stop failed for {truncated}: {e}")
+                await queue.put(_sse_event({"type": "log", "step": "deleting", "message": str(e)}))
+
+        # Phase 2: reset the whole board.
+        await queue.put(_sse_event({"type": "step", "step": "resetting", "message": "Resetting board…"}))
+        logger.info("[reset-debug] reset_all: all models stopped, entering board reset phase")
+        async for event in _astream_reset_phase(
+            [],
+            force_refresh=True,
+            success_msg="All models stopped and board reset completed successfully",
+            partial_msg="All models stopped, but the board reset did not complete successfully. Manual intervention may be required.",
+        ):
+            await queue.put(event)
+        logger.info("[reset-debug] reset_all: worker finished normally")
+    except Exception:
+        logger.exception("[reset-debug] reset_all: worker FAILED")
+        await queue.put(_sse_event({
+            "type": "complete",
+            "status": "error",
+            "message": "Board reset failed unexpectedly. Check backend logs.",
+        }))
+    finally:
+        await queue.put(_RESET_ALL_DONE)
+
+
+class ResetAllStreamView(View):
+    """Stop every deployed model, then reset the whole board — as ONE SSE stream.
+
+    This replaces the frontend's old "N stop-streams (Promise.all) + 1 reset-stream"
+    orchestration, which opened several concurrent EventSource connections and tripped
+    the browser's 6-connection-per-origin HTTP/1.1 limit. When no connection slot was
+    free, the reset stream errored before it was ever sent — surfacing as
+    "Connection to stream lost." Collapsing everything into a single stream means the
+    browser only ever opens one connection for the whole operation.
+
+    The actual work runs in a detached background task (see `_run_reset_all`) so it always
+    completes even if the browser disconnects; this connection just relays its progress and
+    emits a periodic keepalive so the connection never goes idle during the silent `docker
+    stop` / `tt-smi -r` stretches.
+    """
+
+    HEARTBEAT = 10  # emit a keepalive at least this often while the worker is quiet
+
+    async def get(self, request, *args, **kwargs):
+        global _reset_all_task, _reset_all_queue
+        logger.info(f"[reset-debug] ResetAllStreamView.get ENTER: client={request.META.get('REMOTE_ADDR')}")
+
+        # Start a detached worker if none is running; otherwise relay the in-flight one
+        # (handles EventSource auto-reconnect after a drop without launching a second reset).
+        if _reset_all_task is None or _reset_all_task.done():
+            _reset_all_queue = asyncio.Queue()
+            _reset_all_task = asyncio.create_task(_run_reset_all(_reset_all_queue))
+        else:
+            logger.info("[reset-debug] reset_all: a reset is already running; relaying its stream")
+        queue = _reset_all_queue
+
+        async def generate():
+            try:
+                yield "retry: 1000\n\n"
+                while True:
+                    try:
+                        item = await asyncio.wait_for(queue.get(), timeout=self.HEARTBEAT)
+                    except asyncio.TimeoutError:
+                        # The worker is busy in a blocking `docker stop` / `tt-smi -r`; keep the
+                        # SSE connection alive so a proxy/browser never drops it as idle.
+                        yield ":keepalive\n\n"
+                        continue
+                    if item is _RESET_ALL_DONE:
+                        break
+                    yield item
+                logger.info("[reset-debug] reset_all: relay finished (worker done)")
+            except asyncio.CancelledError:
+                # The client disconnected. The detached worker keeps running, so the board
+                # reset still completes — we just stop relaying to this (gone) connection.
+                logger.warning("[reset-debug] reset_all: client disconnected; board reset continues in background")
+                raise
 
         return _sse_response(generate())
 

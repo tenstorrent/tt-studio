@@ -24,7 +24,7 @@ import {
   DialogTrigger,
 } from "./ui/dialog";
 import { ScrollArea } from "./ui/scroll-area";
-import { fetchModels, deleteModel, streamResetAction } from "../api/modelsDeployedApis";
+import { streamResetAction } from "../api/modelsDeployedApis";
 import { useModels } from "../hooks/useModels";
 import { useDeviceState } from "../hooks/useDeviceState";
 import BoardBadge from "./BoardBadge";
@@ -216,19 +216,21 @@ const ResetIcon: React.FC<ResetIconProps> = ({ onReset, forceOpen }) => {
     setShowOutput(false);
 
     try {
-      // Pass skip_device_reset to only stop containers, leaving whole board reset to run later.
+      // Single SSE stream stops every model then resets the whole board. Doing it in one
+      // connection (instead of Promise.all of N stop-streams + a separate reset-stream)
+      // avoids exhausting the browser's 6-connection-per-origin limit, which previously
+      // dropped the reset stream as "Connection to stream lost."
       setResetStep("deleting");
-      const currentModels = await fetchModels();
-      await Promise.all(currentModels.map((m) => deleteModel(m.id, true)));
-      await refreshModels();
-
-      // Run the global board reset (stream tt-smi output live).
-      setResetStep("resetting");
       let output = "";
-      const { status } = await streamResetAction("/docker-api/reset_board/stream/", (line) => {
-        output += `${line}\n`;
-        setCmdOutput(output);
-      });
+      const { status } = await streamResetAction(
+        "/docker-api/reset_all/stream/",
+        (line) => {
+          output += `${line}\n`;
+          setCmdOutput(output);
+        },
+        (step) => setResetStep(step as ResetStep), // backend drives "deleting" → "resetting"
+      );
+      await refreshModels();
 
       if (status !== "success") {
         throw new Error("Board reset failed. See command output for details.");
