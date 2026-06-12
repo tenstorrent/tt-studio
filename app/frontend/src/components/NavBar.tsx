@@ -259,7 +259,7 @@ export default function NavBar() {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
-  const { models, refreshModels } = useModels();
+  const { models, refreshModels, hasDeployedModels } = useModels();
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -622,7 +622,11 @@ export default function NavBar() {
     //   tooltipText: "Toggle Dark/Light Mode",
     //   onClick: null, // ModeToggle handles its own click
     // },
-    ...(isDeployedEnabled
+    // Hide the board reset button while any model is deployed. Resetting
+    // interrupts running deployments, and the reset path is unreliable on
+    // some machines while a model is active, so only expose it when the
+    // board is idle (no deployed models).
+    ...(isDeployedEnabled || hasDeployedModels
       ? []
       : [
           {
