@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   fetchDeployments,
   fetchModels,
@@ -91,6 +91,17 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     }
   }, [setUserStoppedModel]);
+
+  // Keep deployed-model state fresh app-wide. UI that reacts to it (e.g. the
+  // navbar hides the board reset button while a model is deployed) should
+  // update on its own after a deploy or stop, without a manual refresh or a
+  // container restart, so poll the canonical deployments endpoint on a light
+  // interval in addition to the on-demand refreshes triggered elsewhere.
+  useEffect(() => {
+    refreshModels();
+    const intervalId = setInterval(refreshModels, 5000);
+    return () => clearInterval(intervalId);
+  }, [refreshModels]);
 
   return (
     <ModelsContext.Provider
