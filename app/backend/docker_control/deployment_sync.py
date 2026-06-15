@@ -26,11 +26,12 @@ import time
 
 import requests as _requests
 
+from shared_config.backend_config import backend_config
 from shared_config.logger_config import get_logger
 
 logger = get_logger(__name__)
 
-_FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+_FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 _POLL_INTERVAL_SECONDS = 5
 _SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 

@@ -969,7 +969,9 @@ class DeploymentProgressView(APIView):
 
             # First, try to get progress from FastAPI inference server
             try:
-                fastapi_url = "http://172.18.0.1:8001/run/progress/" + job_id
+                fastapi_url = (
+                    f"{backend_config.tt_inference_api_url}/run/progress/{job_id}"
+                )
                 response = requests.get(fastapi_url, timeout=5)
 
                 if response.status_code == 200:
@@ -1277,7 +1279,9 @@ class DeploymentLogsView(APIView):
             
             # Try to get logs from FastAPI inference server
             try:
-                fastapi_url = f"http://172.18.0.1:8001/run/logs/{job_id}"
+                fastapi_url = (
+                    f"{backend_config.tt_inference_api_url}/run/logs/{job_id}"
+                )
                 response = requests.get(fastapi_url, timeout=5)
                 
                 if response.status_code == 200:
@@ -1316,7 +1320,9 @@ class DeploymentProgressStreamView(APIView):
             """Generator that forwards SSE events from FastAPI to frontend"""
             try:
                 # Connect to FastAPI inference server SSE endpoint
-                fastapi_url = f"http://172.18.0.1:8001/run/stream/{job_id}"
+                fastapi_url = (
+                    f"{backend_config.tt_inference_api_url}/run/stream/{job_id}"
+                )
                 logger.info(f"Connecting to FastAPI SSE endpoint: {fastapi_url}")
                 
                 # Stream the response

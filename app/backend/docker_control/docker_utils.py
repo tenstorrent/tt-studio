@@ -27,7 +27,7 @@ logger.info(f"importing {__name__}")
 # Deployment timeout: 5 hours to allow for large model downloads
 DEPLOYMENT_TIMEOUT_SECONDS = 5 * 60 * 60  # 5 hours
 
-FASTAPI_BASE_URL = "http://172.18.0.1:8001"
+FASTAPI_BASE_URL = backend_config.tt_inference_api_url
 
 
 def _poll_deployment_to_completion(job_id: str, timeout_seconds: int = DEPLOYMENT_TIMEOUT_SECONDS) -> dict:
