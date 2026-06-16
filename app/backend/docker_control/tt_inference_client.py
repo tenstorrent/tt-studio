@@ -83,7 +83,9 @@ def start_chat_deployment(
     This endpoint is expected to return quickly with a job_id so the UI can poll
     /run/progress/<job_id> and display explicit weights download progress.
     """
-    fastapi_run_url = fastapi_run_url or f"{backend_config.tt_inference_api_url}/run"
+    fastapi_run_url = (
+        fastapi_run_url or f"{backend_config.tt_inference_api_url}/run"
+    ).strip().rstrip("/")
     payload: Dict[str, Any] = {
         "model": model_name,
         "workflow": "server",
