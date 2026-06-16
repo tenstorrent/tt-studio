@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Optional
 
 
+# NOTE: "host.docker.internal" requires the extra_hosts mapping in
+# docker-compose.yml ("host.docker.internal:host-gateway") to resolve
+# on Linux. This is already configured in app/docker-compose.yml.
 DEFAULT_TT_INFERENCE_API_URL = "http://host.docker.internal:8001"
 
 
