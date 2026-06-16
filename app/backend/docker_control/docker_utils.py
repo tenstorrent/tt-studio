@@ -103,8 +103,8 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     # Multi-chip Blackhole boards → constituent single-chip device
     "P150X4":  "p150",
     "P150X8":  "p150",
-    "P300Cx2": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
-    "P300Cx4": "p150",  # single-chip mode only: each P300c card uses --tt-device p150
+    "P300x2": "p150",   # single-chip mode only: each P300 card uses --tt-device p150
+    "P300Cx4": "p150",  # single-chip mode only: each P300 card uses --tt-device p150
     # Galaxy (N300-based)
     "GALAXY":     "n300",
     "GALAXY_T3K": "n300",
@@ -114,7 +114,7 @@ _BOARD_TO_SINGLE_CHIP_DEVICE = {
     "E150":  "e150",
     "P100":  "p100",
     "P150":  "p150",
-    "P300c": "p300c",
+    "P300": "p300",
     "unknown": "cpu",
 }
 
@@ -135,12 +135,12 @@ def map_board_type_to_device_name(board_type):
         # Blackhole devices
         "P100": "p100",
         "P150": "p150",
-        "P300c": "p300c",
-        
+        "P300": "p300",
+
         # Blackhole multi-device
         "P150X4": "p150x4",
         "P150X8": "p150x8",
-        "P300Cx2": "p300x2",  # 2 cards (4 chips)
+        "P300x2": "p300x2",   # 2 cards (4 chips)
         "P300Cx4": "p300cx4",  # 4 cards (8 chips)
         
         # Galaxy systems
@@ -286,6 +286,25 @@ def _run_direct_container(impl, weights_id, device_id=0, host_port=None):
         return {"status": "error", "message": error_msg}
 
 
+def infer_inference_server_device(impl, board_type=None):
+    """The inference-server device name (n150/p300/…) for `impl`. Single source of
+    truth shared by run_container and the pre-pull image resolver so they never
+    disagree on which model_spec (and therefore which image) the deploy uses."""
+    from shared_config.model_config import infer_chips_required
+    if board_type is None:
+        board_type = detect_board_type()
+    chips_required = infer_chips_required(impl.device_configurations)
+    if chips_required == 1:
+        device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
+    else:
+        device = map_board_type_to_device_name(board_type)
+    # Speech models need a single n150-class chip even on n300-based boards.
+    if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
+        if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
+            device = "n150"
+    return device
+
+
 def run_container(impl, weights_id, device_id=0, host_port=None, use_image_override=True):
     """Run a docker container.
 
@@ -307,25 +326,11 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         from shared_config.model_config import infer_chips_required
         board_type = detect_board_type()
         chips_required = infer_chips_required(impl.device_configurations)
-        if chips_required == 1:
-            device = _BOARD_TO_SINGLE_CHIP_DEVICE.get(board_type, "cpu")
-        else:
-            device = map_board_type_to_device_name(board_type)
+        device = infer_inference_server_device(impl, board_type)
         logger.info(
             f"Device name '{device}' for {impl.model_name} "
             f"(board={board_type}, chips_required={chips_required})"
         )
-
-        # Speech models (Whisper, TTS) only need a single N150-class chip.
-        # On multi-chip N300-based boards (T3K, etc.) the single-chip lookup
-        # returns "n300", but these models require "n150" to run correctly.
-        if impl.model_type in [ModelTypes.TTS, ModelTypes.SPEECH_RECOGNITION]:
-            if device == "n300" and board_type in {"T3K", "T3000", "N300x4", "GALAXY", "GALAXY_T3K"}:
-                device = "n150"
-                logger.info(
-                    f"Overriding device to 'n150' for speech model {impl.model_name} "
-                    f"on multi-chip board {board_type}"
-                )
 
         BASE_SERVICE_PORT = 7000
 
@@ -351,7 +356,6 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
         if impl.model_name == "Qwen3-32B" and device == "p300x2":
             payload["override_tt_config"] = '{"trace_region_size": 53000000}'
-            payload["dev_mode"] = True
 
         # media/forge models require skipping hw validation; vLLM models do not
         if impl.model_type != ModelTypes.CHAT:
@@ -362,7 +366,7 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
         #     payload["dev_mode"] = True
 
         # TEMP: disabled — do not override docker image for QB2 media models
-        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300Cx2":
+        # if use_image_override and impl.model_name in {"whisper-large-v3", "speecht5_tts"} and board_type == "P300x2":
         #     payload["override_docker_image"] = "ghcr.io/tenstorrent/tt-media-inference-server:qb2_launch-6900b0c-dev"
 
         logger.info(f"API payload: {payload}")
@@ -390,7 +394,17 @@ def run_container(impl, weights_id, device_id=0, host_port=None, use_image_overr
 
             if job_id:
                 try:
-                    deployment_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
+                    # Record the full set of chip slots the model occupies but only the primary slot is passed to inference server
+                    explicit_device_ids = [int(x.strip()) for x in str(device_id).split(",")]
+                    if len(explicit_device_ids) > 1:
+                        # Caller passed an explicit multi-slot list — respect it as-is.
+                        deployment_device_ids = explicit_device_ids
+                    elif chips_required > 1:
+                        # Multi-chip models occupy `chips_required` contiguous slots starting at the allocated base slot.
+                        base_slot = explicit_device_ids[0]
+                        deployment_device_ids = list(range(base_slot, base_slot + chips_required))
+                    else:
+                        deployment_device_ids = explicit_device_ids
                     ModelDeployment.objects.create(
                         container_id=job_id,
                         container_name=impl.model_name,
@@ -516,7 +530,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.N300_WH_ARCH_YAML,
         DeviceConfigurations.P100,
         DeviceConfigurations.P150,
-        DeviceConfigurations.P300c,
+        DeviceConfigurations.P300,
     }
 
     # Multi-chip configurations manage their own chip allocation; expose full directory
@@ -542,7 +556,7 @@ def get_devices_mounts(impl, device_id=0):
         DeviceConfigurations.T3K_LINE,
         DeviceConfigurations.P150X4,
         DeviceConfigurations.P150X8,
-        DeviceConfigurations.P300Cx2,
+        DeviceConfigurations.P300x2,
         DeviceConfigurations.P300Cx4,
         DeviceConfigurations.GALAXY,
         DeviceConfigurations.GALAXY_T3K,
@@ -743,153 +757,330 @@ def get_container_status():
     return data
 
 
+def _enrich_container_with_model_impl(con, con_id):
+    """Resolve ``model_impl`` for a live Docker container and populate the
+    derived fields (``model_id``, ``weights_id``, ``model_impl``,
+    ``internal_url``, ``health_url``) directly on the ``con`` dict.
+
+    Returns True if a ``model_impl`` was matched and the container is on the
+    tt-studio network (URLs are now set). Returns False otherwise — callers
+    decide whether to keep the partial entry or skip it.
+
+    This is the matching logic previously inline in ``update_deploy_cache``.
+    It is now reusable from both that function and ``get_canonical_deployments``.
+    """
+    con_model_id = con['env_vars'].get("MODEL_ID")
+    model_impl = model_implmentations.get(con_model_id)
+    if not model_impl:
+        # TT Inference Server containers identify themselves via cache env vars.
+        is_tt_inference_container = (
+            "CACHE_ROOT" in con['env_vars']
+            or "TT_CACHE_PATH" in con['env_vars']
+        )
+
+        if is_tt_inference_container:
+            logger.info(
+                f"Detected TT Inference Server container: {con['name']} (ID: {con_id})"
+            )
+
+            # Try the deployment_store first (its model_name is authoritative).
+            deployment_found = False
+            try:
+                from docker_control.models import ModelDeployment
+                deployment = ModelDeployment.objects.filter(container_id=con_id).first()
+
+                if deployment:
+                    for _k, v in model_implmentations.items():
+                        if v.model_name == deployment.model_name:
+                            model_impl = v
+                            logger.info(
+                                f"Matched TT Inference Server container to model_impl: {model_impl.model_name}"
+                            )
+                            deployment_found = True
+                            break
+                    if not model_impl:
+                        logger.warning(
+                            f"Could not find model_impl for {deployment.model_name} in container {con['name']}"
+                        )
+                else:
+                    logger.debug(
+                        f"No deployment record found for TT Inference Server container {con_id}"
+                    )
+            except Exception as e:
+                error_str = str(e).lower()
+                if "no such table" in error_str or "operationalerror" in error_str:
+                    logger.warning(
+                        f"Database table not found for container {con_id} (migrations may not be applied). Using fallback logic."
+                    )
+                else:
+                    logger.error(
+                        f"Error looking up deployment record for container {con_id}: {e}"
+                    )
+
+            if not deployment_found:
+                # Fallback: exact container-name match against catalog
+                for _k, v in model_implmentations.items():
+                    if v.model_name == con["name"]:
+                        model_impl = v
+                        logger.info(
+                            f"Matched container by exact name to model_impl: {model_impl.model_name}"
+                        )
+                        break
+
+                # Fallback: longest-substring match — prevents "Llama-3.1-8B"
+                # winning over "Llama-3.1-8B-Instruct" on the same name.
+                if not model_impl:
+                    best_match_len = 0
+                    for _k, v in model_implmentations.items():
+                        if v.model_name in con["name"] and len(v.model_name) > best_match_len:
+                            model_impl = v
+                            best_match_len = len(v.model_name)
+                    if model_impl:
+                        logger.info(
+                            f"Matched container by name substring to model_impl: {model_impl.model_name}"
+                        )
+
+                if not model_impl:
+                    logger.warning(
+                        f"Could not match TT Inference Server container {con['name']} to any model_impl."
+                    )
+                    return False
+        else:
+            # Legacy containers: match by container name then by image version.
+            candidates = [
+                v for _k, v in model_implmentations.items()
+                if v.model_name == con["name"]
+            ]
+            if not candidates:
+                candidates = [
+                    v for _k, v in model_implmentations.items()
+                    if v.image_version == con["image_name"]
+                ]
+            if not candidates:
+                logger.warning(
+                    f"Cannot find model_impl for container {con['name']} with image {con['image_name']}"
+                )
+                return False
+            model_impl = candidates[0]
+
+    con["model_id"] = model_impl.model_id
+    con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
+    con["model_impl"] = model_impl
+
+    if backend_config.docker_bridge_network_name in con["networks"].keys():
+        hostname = con["networks"][backend_config.docker_bridge_network_name]["DNSNames"][0]
+        # Resolve the real bound port (slot-based 7000+device_id) instead of
+        # the static catalog service_port.
+        actual_port = model_impl.service_port
+        port_bindings = con.get("port_bindings", {})
+        if port_bindings:
+            container_port_key = next(iter(port_bindings.keys()), None)
+            if container_port_key:
+                try:
+                    actual_port = int(container_port_key.split("/")[0])
+                except (ValueError, IndexError):
+                    pass
+        con["internal_url"] = f"{hostname}:{actual_port}{model_impl.service_route}"
+        con["health_url"] = f"{hostname}:{actual_port}{model_impl.health_route}"
+        return True
+
+    return False
+
+
+# Mirrors ChipSlotAllocator._STARTING_GRACE_SECONDS. Records younger than this are trusted during the placeholder
+# window between Django creating the row and deployment_sync swapping in the real container_id.
+_CANONICAL_STARTING_GRACE_SECONDS = 60
+
+
+def get_canonical_deployments():
+    """Single source of truth for current deployed models.
+
+    Joins DB records with live Docker container information by matching on container_id OR container_name. 
+    The name match fallback is load-bearing for the CHAT-model placeholder window: until
+    deployment_sync swaps the real container_id in, the store's container_id is the FastAPI job_id, but the actual container exists under its name.
+    Records with status="running" or status="starting" beyond the grace window that have no matching live container are reconciled to status="stopped".
+    """
+    from datetime import datetime as _dt
+    from datetime import timezone as _dt_timezone
+
+    live_containers = get_container_status()
+    live_by_name = {
+        data.get("name"): (cid, data)
+        for cid, data in live_containers.items()
+        if data.get("name")
+    }
+
+    try:
+        from docker_control.models import ModelDeployment
+        active_deployments = list(
+            ModelDeployment.objects.filter(status__in=["starting", "running"])
+        )
+    except Exception as e:
+        logger.warning(f"get_canonical_deployments: deployment_store unavailable: {e}")
+        active_deployments = []
+
+    result = {}
+    matched_live_ids = set()
+    now_utc = _dt.now(_dt_timezone.utc)
+
+    for dep in active_deployments:
+        full_id = dep.container_id or ""
+        short_id = full_id[:12]
+
+        match_id = None
+        match_data = None
+        if full_id and full_id in live_containers:
+            match_id, match_data = full_id, live_containers[full_id]
+        elif short_id and short_id in live_containers:
+            match_id, match_data = short_id, live_containers[short_id]
+        elif dep.container_name and dep.container_name in live_by_name:
+            match_id, match_data = live_by_name[dep.container_name]
+
+        if match_data is not None:
+            matched_live_ids.add(match_id)
+            entry = dict(match_data)  # shallow copy so we don't mutate the original
+            enriched = _enrich_container_with_model_impl(entry, match_id)
+            entry["source"] = "managed"
+            entry["is_pending"] = False
+            entry["deployed_at"] = dep.deployed_at.isoformat() if dep.deployed_at else None
+            entry["stopped_by_user"] = bool(getattr(dep, "stopped_by_user", False))
+            entry["deployment_id"] = dep.id
+            entry["deployment_model_name"] = dep.model_name
+            if not enriched:
+                # Container is alive but we can't resolve a model_impl. Keep it in the canonical view so the allocator sees the slot is occupied.
+                entry.setdefault("model_impl", None)
+            result[match_id] = entry
+            continue
+
+        # No live container — placeholder window or ghost?
+        if dep.status == "starting" and dep.deployed_at is not None:
+            age = (now_utc - dep.deployed_at).total_seconds()
+            if age < _CANONICAL_STARTING_GRACE_SECONDS:
+                # Legitimate placeholder window — surface but flag as pending.
+                result[full_id or f"pending-{dep.id}"] = {
+                    "name": dep.container_name,
+                    "status": "starting",
+                    "health": "unknown",
+                    "image_id": None,
+                    "image_name": None,
+                    "port_bindings": {},
+                    "networks": {},
+                    "env_vars": {},
+                    "device_id": dep.device_id,
+                    "device_ids": list(getattr(dep, "device_ids", None) or [])
+                                  or ([dep.device_id] if dep.device_id is not None else None),
+                    "model_impl": None,
+                    "model_id": None,
+                    "weights_id": None,
+                    "internal_url": None,
+                    "health_url": None,
+                    "source": "managed",
+                    "is_pending": True,
+                    "deployed_at": dep.deployed_at.isoformat() if dep.deployed_at else None,
+                    "stopped_by_user": False,
+                    "deployment_id": dep.id,
+                    "deployment_model_name": dep.model_name,
+                }
+                continue
+
+        # Stale: reconcile to stopped so the slot frees up.
+        try:
+            dep.status = "stopped"
+            if dep.stopped_at is None:
+                dep.stopped_at = now_utc
+            dep.save()
+            logger.info(
+                f"Auto-marked stale deployment {dep.container_id} "
+                f"({dep.model_name}) as stopped: not found in Docker (canonical reconcile)"
+            )
+        except Exception as upd_err:
+            logger.warning(
+                f"Could not reconcile stale deployment {dep.container_id}: {upd_err}"
+            )
+
+    # Surface unmatched live containers under source="docker_only" so the allocator sees them, even though they're not registered in the store.
+    for cid, data in live_containers.items():
+        if cid in matched_live_ids:
+            continue
+        entry = dict(data)
+        _enrich_container_with_model_impl(entry, cid)
+        entry["source"] = "docker_only"
+        entry["is_pending"] = False
+        entry.setdefault("model_impl", None)
+        result[cid] = entry
+
+    return result
+
+
+def serialize_canonical_entry_for_http(entry):
+    """JSON-friendly view of a single canonical entry.
+
+    The in-process record keeps model_impl as the Python ModelImpl
+    object so callers like _resolve_model_identity can read attributes off
+    it. For HTTP responses we serialize and strip env_vars /docker_config for security.
+    """
+    out = {k: v for k, v in entry.items() if k != "env_vars"}
+
+    model_impl = entry.get("model_impl")
+    if model_impl is None:
+        out["model_impl"] = None
+        out.setdefault("model_type", None)
+    else:
+        try:
+            impl_dict = model_impl.asdict()
+        except Exception:
+            impl_dict = {}
+        # device_configurations is a list of enums — render names
+        if "device_configurations" in impl_dict and impl_dict["device_configurations"] is not None:
+            impl_dict["device_configurations"] = [
+                getattr(e, "name", str(e)) for e in impl_dict["device_configurations"]
+            ]
+        for enum_key in ("model_type", "setup_type"):
+            v = impl_dict.get(enum_key)
+            if v is not None and hasattr(v, "value"):
+                impl_dict[enum_key] = v.value
+        # Drop sensitive nested values
+        impl_dict.pop("docker_config", None)
+        out["model_impl"] = impl_dict
+        # Top-level model_type echo for navbar routing
+        mt = impl_dict.get("model_type")
+        out["model_type"] = mt if mt is not None else None
+
+    return out
+
+
 def update_deploy_cache():
-    # Get current running containers
-    data = get_container_status()
+    """Materialize get_canonical_deployments() into the LocMemCache.
+
+    Only running, fully-enriched "managed" deployments (those with a resolved model_impl and an internal_url) are written. 
+    This preserves the existing semantics callers of get_deploy_cache() rely on: every cached entry has a Python-object model_impl they can read attributes off.
+    """
+    canonical = get_canonical_deployments()
     cache = caches[backend_config.django_deploy_cache_name]
 
-    # Get all cached container IDs (need to strip version tag)
     cached_container_ids = set()
     for key in cache._cache.keys():
-        # Strip the version tag to get the actual container ID
         clean_key = key.replace(":version:", "")
         cached_container_ids.add(clean_key)
 
-    # Get current running container IDs
-    current_container_ids = set(data.keys())
-    # logger.info(f"!!! current_container_ids:= {current_container_ids}")  # Temporarily hidden
+    keepable_ids = {
+        con_id for con_id, entry in canonical.items()
+        if entry.get("source") == "managed"
+        and entry.get("model_impl") is not None
+        and entry.get("internal_url")
+    }
 
-    # Remove containers from cache that are no longer running
-    containers_to_remove = cached_container_ids - current_container_ids
-    for container_id in containers_to_remove:
-        logger.info(f"Removing stopped container from deploy cache: {container_id}")
-        cache.delete(container_id)
+    for stale_id in cached_container_ids - keepable_ids:
+        logger.info(f"Removing stopped container from deploy cache: {stale_id}")
+        cache.delete(stale_id)
 
-    # Add/update current running containers in cache
-    # logger.info(f"!!! data.items():= {data.items()}")  # Temporarily hidden
-    for con_id, con in data.items():
-        con_model_id = con['env_vars'].get("MODEL_ID")
-        # logger.info(f"!!! con_model_id:= {con_model_id}")  # Temporarily hidden
-        model_impl = model_implmentations.get(con_model_id)
-        if not model_impl:
-            # Check if this is a TT Inference Server container by checking for specific env vars
-            is_tt_inference_container = (
-                "CACHE_ROOT" in con['env_vars'] or 
-                "TT_CACHE_PATH" in con['env_vars']
-            )
-            
-            if is_tt_inference_container:
-                logger.info(f"Detected TT Inference Server container: {con['name']} (ID: {con_id})")
-                
-                # Try to find the model implementation from the deployment store
-                deployment_found = False
-                try:
-                    from docker_control.models import ModelDeployment
-                    deployment = ModelDeployment.objects.filter(container_id=con_id).first()
-
-                    if deployment:
-                        # Find the model implementation by model name
-                        model_impl = None
-                        for k, v in model_implmentations.items():
-                            if v.model_name == deployment.model_name:
-                                model_impl = v
-                                logger.info(f"Matched TT Inference Server container to model_impl: {model_impl.model_name}")
-                                deployment_found = True
-                                break
-
-                        if not model_impl:
-                            logger.warning(f"Could not find model_impl for {deployment.model_name} in container {con['name']}")
-                    else:
-                        # No record by container_id — could be a pre-existing container or still starting up
-                        logger.debug(f"No deployment record found for TT Inference Server container {con_id}")
-                except Exception as e:
-                    # Check if this is a migration/database issue
-                    error_str = str(e).lower()
-                    if "no such table" in error_str or "operationalerror" in error_str:
-                        logger.warning(f"Database table not found for container {con_id} (migrations may not be applied). Using fallback logic.")
-                    else:
-                        logger.error(f"Error looking up deployment record for container {con_id}: {e}")
-                
-                # If database lookup failed or no deployment found, use fallback logic
-                if not deployment_found:
-                    logger.info(f"Using fallback logic to match container {con['name']}")
-                    # Try to match by container name
-                    # First try exact match
-                    model_impl = None
-                    for k, v in model_implmentations.items():
-                        if v.model_name == con["name"]:
-                            model_impl = v
-                            logger.info(f"Matched container by exact name to model_impl: {model_impl.model_name}")
-                            break
-
-                    # Fall back to longest-substring match (prevents short names like "Llama-3.1-8B"
-                    # from beating "Llama-3.1-8B-Instruct" on container name "Llama-3.1-8B-Instruct")
-                    if not model_impl:
-                        best_match_len = 0
-                        for k, v in model_implmentations.items():
-                            if v.model_name in con["name"] and len(v.model_name) > best_match_len:
-                                model_impl = v
-                                best_match_len = len(v.model_name)
-                        if model_impl:
-                            logger.info(f"Matched container by name substring to model_impl: {model_impl.model_name}")
-
-                    if not model_impl:
-                        logger.warning(f"Could not match TT Inference Server container {con['name']} to any model_impl. Skipping.")
-                        continue
-            else:
-                # Original fallback logic for legacy containers
-                # find first impl that uses that container name
-                model_impl = [
-                    v
-                    for k, v in model_implmentations.items()
-                    if v.model_name == con["name"]
-                ]
-                if len(model_impl) == 0:
-                    # fallback to finding first impl that uses that container image
-                    model_impl = [
-                        v
-                        for k, v in model_implmentations.items()
-                        if v.image_version == con["image_name"]
-                    ]
-                # logger.info(f"Container image name: {con['name']}")  # Temporarily hidden
-                # logger.info("Available model implementations:")  # Temporarily hidden
-                # for k, v in model_implmentations.items():  # Temporarily hidden
-                #     logger.info(f"Model ID: {k}, Image Version: {v.model_name}")  # Temporarily hidden
-                if len(model_impl) == 0:
-                    logger.warning(f"Cannot find model_impl for container {con['name']} with image {con['image_name']}")
-                    continue
-                
-                model_impl = model_impl[0]
-        con["model_id"] = model_impl.model_id
-        con["weights_id"] = con["env_vars"].get("MODEL_WEIGHTS_ID")
-        con["model_impl"] = model_impl
-        # logger.info(f"con['networks']={con["networks"]}")  # Temporarily hidden
-        # handle containers not running within the tt-studio network
-        if backend_config.docker_bridge_network_name in con["networks"].keys():
-            hostname = con["networks"][backend_config.docker_bridge_network_name][
-                "DNSNames"
-            ][0]
-            # Use the actual container port from port bindings instead of the
-            # static model_impl.service_port (which is always 7000).  All deployments
-            # now use slot-based ports (7000+device_id), so we must resolve the real port.
-            actual_port = model_impl.service_port  # default fallback
-            port_bindings = con.get("port_bindings", {})
-            if port_bindings:
-                container_port_key = next(iter(port_bindings.keys()), None)
-                if container_port_key:
-                    try:
-                        actual_port = int(container_port_key.split("/")[0])
-                    except (ValueError, IndexError):
-                        pass
-            con["internal_url"] = (
-                f"{hostname}:{actual_port}{model_impl.service_route}"
-            )
-            con["health_url"] = (
-                f"{hostname}:{actual_port}{model_impl.health_route}"
-            )
-            cache.set(con_id, con, timeout=None)
-            logger.info(f"Added container {con['name']} (ID: {con_id[:12]}) to deploy cache")
-            # TODO: validation
+    for con_id, entry in canonical.items():
+        if con_id not in keepable_ids:
+            continue
+        cache.set(con_id, entry, timeout=None)
+        logger.info(
+            f"Added container {entry.get('name')} (ID: {con_id[:12]}) to deploy cache"
+        )
 
 
 def get_model_weights_path(weights_dir_path, weights_id):
@@ -1082,6 +1273,177 @@ def perform_device_reset(device_id: int):
             "message": str(e),
             "attempts_used": 0,
             "output": "",
+            "http_status": 500,
+        }
+
+
+def perform_devices_reset(device_ids):
+    """
+    Reset a set of TT chips/devices in a single tt-smi invocation:
+    ``tt-smi -r <id1> <id2> ...``. This calls ``full_lds_reset`` once with
+    the full PCI-interface list, which on multi-chip boards coordinates the
+    PCIe secondary-bus reset and ethernet bring-up across all chips at once.
+    Calling ``tt-smi -r <id>`` per chip in a Python loop disturbs the
+    neighbouring chips' links on every invocation and is strictly worse.
+
+    Returns the same dict shape ``_reset_devices`` previously assembled,
+    including a synthesised ``device_results`` list so existing callers
+    keep working.
+    """
+    # Normalise & dedupe while preserving order
+    ids = []
+    seen = set()
+    for d in device_ids or []:
+        try:
+            i = int(d)
+        except (TypeError, ValueError):
+            continue
+        if i not in seen:
+            seen.add(i)
+            ids.append(i)
+
+    if not ids:
+        return {
+            "status": "success",
+            "message": "No devices to reset",
+            "output": "",
+            "device_results": [],
+            "http_status": 200,
+        }
+
+    id_args = [str(i) for i in ids]
+    pretty = " ".join(id_args)
+
+    try:
+        logger.info(f"Starting batched chip reset — running tt-smi -r {pretty}")
+
+        SystemResourceService.set_resetting_state()
+
+        MAX_ATTEMPTS = 2
+        # Per-chip timeout headroom, with a sensible floor; batched resets are
+        # roughly constant-time but allow extra slack for larger boards.
+        timeout_s = max(30, 15 * len(ids))
+        last_output = ""
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.info(
+                f"Batched reset attempt {attempt} of {MAX_ATTEMPTS} for devices {pretty} "
+                f"(timeout {timeout_s}s)"
+            )
+            try:
+                process = subprocess.Popen(
+                    ["tt-smi", "-r", *id_args],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    preexec_fn=os.setsid,
+                )
+
+                try:
+                    stdout, _ = process.communicate(timeout=timeout_s)
+                    last_output = stdout
+                    logger.info(
+                        f"tt-smi -r {pretty} attempt {attempt} output: {stdout.strip()!r:.200}"
+                    )
+
+                    if process.returncode == 0:
+                        logger.info(
+                            f"Batched reset of devices {pretty} succeeded on attempt {attempt}"
+                        )
+                        SystemResourceService.clear_device_state_cache()
+                        per_device = [
+                            {
+                                "device_id": i,
+                                "status": "success",
+                                "message": f"Device {i} reset successfully (batched)",
+                                "attempts_used": attempt,
+                                "output": stdout,
+                                "http_status": 200,
+                            }
+                            for i in ids
+                        ]
+                        return {
+                            "status": "success",
+                            "message": f"Devices {pretty} reset successfully after {attempt} attempt(s)",
+                            "output": stdout,
+                            "device_results": per_device,
+                            "http_status": 200,
+                        }
+
+                    logger.warning(
+                        f"Batched reset attempt {attempt} for devices {pretty} failed: "
+                        f"exit code {process.returncode}"
+                    )
+
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        f"Batched reset attempt {attempt} for devices {pretty} "
+                        f"timed out after {timeout_s}s"
+                    )
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                        except Exception:
+                            pass
+                    last_output = "(timeout)"
+
+            except Exception as exc:
+                logger.error(
+                    f"Batched reset attempt {attempt} for devices {pretty} raised exception: {exc}"
+                )
+                last_output = str(exc)
+
+        logger.error(
+            f"All {MAX_ATTEMPTS} batched reset attempts for devices {pretty} failed"
+        )
+        SystemResourceService.clear_device_state_cache()
+        per_device = [
+            {
+                "device_id": i,
+                "status": "error",
+                "message": f"Device {i} did not recover after {MAX_ATTEMPTS} batched reset attempt(s)",
+                "attempts_used": MAX_ATTEMPTS,
+                "output": last_output,
+                "http_status": 500,
+            }
+            for i in ids
+        ]
+        return {
+            "status": "error",
+            "message": (
+                f"Devices {pretty} did not recover after {MAX_ATTEMPTS} batched reset attempts. "
+                "Manual intervention may be required."
+            ),
+            "output": last_output,
+            "device_results": per_device,
+            "http_status": 500,
+        }
+
+    except Exception as e:
+        logger.exception(
+            f"Unexpected error during batched reset of devices {pretty}"
+        )
+        SystemResourceService.clear_device_state_cache()
+        per_device = [
+            {
+                "device_id": i,
+                "status": "error",
+                "message": str(e),
+                "attempts_used": 0,
+                "output": "",
+                "http_status": 500,
+            }
+            for i in ids
+        ]
+        return {
+            "status": "error",
+            "message": str(e),
+            "output": "",
+            "device_results": per_device,
             "http_status": 500,
         }
 

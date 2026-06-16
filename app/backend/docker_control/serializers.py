@@ -48,7 +48,3 @@ class DeploymentSerializer(serializers.Serializer):
                     f"The specified weights_path={weights_path} does not exist or is not a directory."
                 )
         return data
-
-
-class StopSerializer(serializers.Serializer):
-    container_id = serializers.CharField(required=True)

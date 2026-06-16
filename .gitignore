@@ -55,6 +55,9 @@ app/frontend/src/assets/*
 fastapi.pid
 fastapi.log
 
+# Browser cleanup sentinel armed by run.py --cleanup-all
+app/frontend/public/.cleanup-pending
+
 # Artifacts
 .artifacts/
 *.tar.gz
@@ -64,8 +67,10 @@ fastapi.log
 inference-api/.venv/
 inference-api/__pycache__/
 
-# Agent working directory (temporary files only)
+# Agent working directory (temporary files only), except committed skills
 .claude/**/*
+!.claude/skills/
+!.claude/skills/**
 .cursor/agent/**/*
 CLAUDE.md
 docs/RAG_PRODUCTIONIZATION_PLAN.md
@@ -79,3 +84,6 @@ output.wav
 app/backend/core.*
 .workflow_venvs/.venv_bootstrap_uv
 speech.wav
+
+# Superpowers brainstorming mockups
+.superpowers/

@@ -1,12 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
+  fetchDeployments,
   fetchModels,
-  fetchDeployedModelsInfo,
+  type CanonicalDeployment,
 } from "../api/modelsDeployedApis";
 import { ModelsContext, type Model } from "../contexts/ModelsContext";
+
+/** Format Docker port_bindings into the "host:port->container/proto" string the UI expects. */
+function formatPortBindings(bindings: CanonicalDeployment["port_bindings"]): string {
+  if (!bindings || Object.keys(bindings).length === 0) return "No ports";
+  return Object.keys(bindings)
+    .map((containerPort) => {
+      const bindList = bindings[containerPort];
+      if (!bindList || bindList.length === 0) return `${containerPort} (unbound)`;
+      const b = bindList[0];
+      return `${b.HostIp}:${b.HostPort}->${containerPort}`;
+    })
+    .join(", ");
+}
+
+function canonicalToModel(d: CanonicalDeployment): Model {
+  return {
+    id: d.id,
+    name: d.deployment_model_name ?? d.model_impl?.model_name ?? d.name ?? "Unnamed",
+    image: d.image_name ?? "Unknown image",
+    status: d.status ?? "unknown",
+    health: d.health ?? "unknown",
+    ports: formatPortBindings(d.port_bindings),
+    device_id: d.device_id ?? null,
+    device_ids: d.device_ids ?? undefined,
+    model_type: d.model_type ?? undefined,
+  };
+}
 
 export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -16,6 +44,7 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [userStoppedModel, setUserStoppedModelState] = useState<boolean>(
     () => sessionStorage.getItem("userStoppedModel") === "true"
   );
+  const [isDeleteInFlight, setIsDeleteInFlight] = useState<boolean>(false);
 
   const setUserStoppedModel = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
     setUserStoppedModelState((prev) => {
@@ -27,49 +56,30 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const refreshModels = useCallback(async () => {
     try {
-      // Fetch deployed models info and Docker container info in parallel
-      const [deployedModelsInfo, dockerModels] = await Promise.all([
-        fetchDeployedModelsInfo(),
-        fetchModels(),
-      ]);
+      const deployments = await fetchDeployments();
 
-      if (deployedModelsInfo.length > 0) {
+      // Only fully-resolved managed deployments with a model_impl are visible. Pending starts and discovered-only Docker containers are hidden.
+      const visible = deployments.filter(
+        (d) =>
+          d.source === "managed" &&
+          !d.is_pending &&
+          d.model_impl !== null,
+      );
+
+      if (visible.length > 0) {
         setUserStoppedModel(false);
         localStorage.setItem("hasEverDeployed", "true");
-        // Merge the deployed models info with Docker container info.
-        // model_type from deployed API is required for correct navbar routing (e.g. Speech Recognition -> /speech-to-text).
-        const mergedModels = deployedModelsInfo.map((deployedModel) => {
-          // Find corresponding Docker container
-          const dockerModel = dockerModels.find(
-            (docker) =>
-              docker.name.includes(deployedModel.modelName.toLowerCase()) ||
-              docker.id === deployedModel.id
-          );
-
-          return {
-            id: deployedModel.id,
-            name: deployedModel.modelName,
-            image: dockerModel?.image || "Unknown image",
-            status: dockerModel?.status || "deployed",
-            health: dockerModel?.health || "unknown",
-            ports: dockerModel?.ports || "No ports",
-            device_id: dockerModel?.device_id ?? null,
-            device_ids: dockerModel?.device_ids,
-            model_type: deployedModel.model_type,
-          };
-        });
-
-        setModels(mergedModels);
+        setModels(visible.map(canonicalToModel));
         setHasDeployedModels(true);
       } else {
-        // Docker-only fallback: no model_type available; navbar uses name/image-based type inference.
-        const dockerModels = await fetchModels();
-        setModels(dockerModels);
+        setModels([]);
         setHasDeployedModels(false);
       }
     } catch (error) {
-      console.error("Error refreshing models:", error);
-      // Fallback to Docker API if deployed models API fails (Docker-only mode; no model_type).
+      console.error("Error refreshing models from /docker-api/deployments/:", error);
+      // Conservative fallback: the legacy /docker-api/status/ endpoint is now
+      // itself a shim over the same canonical computation, so this only
+      // helps if the canonical endpoint is unroutable (e.g. older backend).
       try {
         const dockerModels = await fetchModels();
         setModels(dockerModels);
@@ -82,9 +92,20 @@ export const ModelsProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [setUserStoppedModel]);
 
+  // Keep deployed-model state fresh app-wide. UI that reacts to it (e.g. the
+  // navbar hides the board reset button while a model is deployed) should
+  // update on its own after a deploy or stop, without a manual refresh or a
+  // container restart, so poll the canonical deployments endpoint on a light
+  // interval in addition to the on-demand refreshes triggered elsewhere.
+  useEffect(() => {
+    refreshModels();
+    const intervalId = setInterval(refreshModels, 5000);
+    return () => clearInterval(intervalId);
+  }, [refreshModels]);
+
   return (
     <ModelsContext.Provider
-      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel }}
+      value={{ models, setModels, refreshModels, hasDeployedModels, userStoppedModel, setUserStoppedModel, isDeleteInFlight, setIsDeleteInFlight }}
     >
       {children}
     </ModelsContext.Provider>

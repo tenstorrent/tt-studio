@@ -35,8 +35,8 @@ export interface Model {
   chips_required?: number; // Number of chips required (1 or 4)
 }
 
-// QB2 (P300Cx2) uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
-const QB2_BOARD_TYPES = new Set(["P300Cx2"]);
+// P300x2 uses a simplified 2-step flow by default; hardware config is hidden behind a toggle.
+const QB2_BOARD_TYPES = new Set(["P300x2"]);
 
 export default function StepperDemo() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -116,7 +116,7 @@ export default function StepperDemo() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<number[]>([]);
-  const [useImageOverride, setUseImageOverride] = useState(true);
+  const [useImageOverride, setUseImageOverride] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState(false);
   const [isAutoDeploying, setIsAutoDeploying] = useState(false);
@@ -124,10 +124,10 @@ export default function StepperDemo() {
   // Once the user confirms hardware config, show a summary on the completed Step 1 node.
   const hardwareConfigSummary = chipMode
     ? chipMode === "multi"
-      ? "All chips"
+      ? "All devices"
       : selectedDeviceIds.length > 0
         ? `Single · Device${selectedDeviceIds.length > 1 ? "s" : ""} ${selectedDeviceIds.slice().sort((a, b) => a - b).join(", ")}`
-        : "Single chip"
+        : "Single device"
     : "Hardware Configuration";
 
   const steps = useHardwareConfigStep
@@ -249,14 +249,14 @@ export default function StepperDemo() {
       const pair = pickPreferredAvailablePair(chipStatus?.slots);
       if (!pair) {
         customToast.error(
-          "Llama 3.1 8B on P300Cx2 needs both devices 0 and 1 free."
+          "Llama 3.1 8B Instruct on P300x2 needs both devices 0 and 1 free."
         );
         return { success: false };
       }
       resolvedDeviceId = pair.join(",");
     }
     if (shouldUseFullBoardLlamaFlow) {
-      // Simplified full-model flow runs Llama 3.1 8B as full-board p300x2.
+      // Simplified full-model flow runs Llama 3.1 8B Instruct as full-board p300x2.
       resolvedDeviceId = undefined;
     }
 
@@ -322,7 +322,7 @@ export default function StepperDemo() {
         if (errorType === 'multi_chip_conflict') {
           // Multi-chip conflict with detailed information
           const conflicts = errorData?.conflicts || [];
-          const message = errorData?.message || 'Multi-chip model requires all slots to be free';
+          const message = errorData?.message || 'Multi-device model requires all slots to be free';
 
           const conflictsSummary =
             conflicts.length > 0
@@ -330,13 +330,13 @@ export default function StepperDemo() {
                 .map((c: { model?: string; slot?: number }) => `${c.model ?? "Unknown"} (device ${c.slot ?? "?"})`)
                 .join(", ")}.`
               : "";
-          customToast.error(`Multi-chip Deployment Conflict: ${message}.${conflictsSummary}`);
+          customToast.error(`Multi-device Deployment Conflict: ${message}.${conflictsSummary}`);
 
           return { success: false };
         } else if (errorType === 'allocation_failed') {
           // General allocation failure (all slots occupied)
           const message = errorData?.message || 'All devices are occupied';
-          customToast.error(`Chip Allocation Failed: ${message}`);
+          customToast.error(`Device Allocation Failed: ${message}`);
           return { success: false };
         }
       }
@@ -405,7 +405,7 @@ export default function StepperDemo() {
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   Deploy individual models one at a time. Supports hardware configuration
-                  for multi-chip boards.
+                  for multi-device boards.
                 </p>
                 <span className="text-xs font-medium text-muted-foreground mt-1">
                   Full control →
@@ -449,7 +449,7 @@ export default function StepperDemo() {
         hover
         className="h-auto py-4 px-8 md:px-12 lg:px-16"
       >
-        {/* QB2 image override toggle — only shown on P300Cx2 for whisper/speecht5 */}
+        {/* QB2 image override toggle — only shown on P300x2 for whisper/speecht5 */}
         {isQB2 && (selectedModelName === "whisper-large-v3" || selectedModelName === "speecht5_tts") && (
           <div className="flex items-center justify-end gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
             <span className="text-xs font-mono text-gray-500 select-none">
@@ -477,38 +477,55 @@ export default function StepperDemo() {
           </div>
         )}
 
-        {/* TODO: Re-enable this when we want to support hardware configuration for multi-chip boards */}
-        {/* QB2 hardware config toggle — only shown on P300Cx2 boards */}
-        {/* {isQB2 && (
-          <div className="flex items-center justify-between gap-2 pb-2 pt-1 border-b border-gray-800 mb-2">
-            <span className="text-sm font-mono text-gray-300 select-none">
-              Advanced: Configure Hardware
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showHardwareConfig}
-              onClick={() => {
-                setShowHardwareConfig((v: boolean) => !v);
-                // Reset chip mode when toggling off
-                if (showHardwareConfig) setChipMode(null);
-              }}
-              className={`
-                relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent
-                transition-colors duration-200 focus:outline-none
-                ${showHardwareConfig ? "bg-TT-purple-accent" : "bg-gray-700"}
-              `}
+        {/* QB2 hardware config toggle — only shown on P300x2 boards */}
+        {isQB2 && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showHardwareConfig}
+            onClick={() => {
+              setShowHardwareConfig((v: boolean) => !v);
+              // Reset chip mode when toggling off
+              if (showHardwareConfig) setChipMode(null);
+            }}
+            className={`group flex items-center justify-between gap-3 w-full px-4 py-3 mb-4 rounded-lg border transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-TT-purple-accent/50 ${
+              showHardwareConfig
+                ? "border-TT-purple-accent/70 bg-TT-purple/10 hover:bg-TT-purple/15 shadow-[0_0_18px_rgba(124,104,250,0.15)]"
+                : "border-TT-purple-accent/30 bg-TT-purple/5 hover:border-TT-purple-accent/60 hover:bg-TT-purple/10"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={`p-2 rounded-md transition-colors ${
+                  showHardwareConfig
+                    ? "bg-TT-purple-accent/20 text-TT-purple-accent"
+                    : "bg-TT-purple/10 text-TT-purple-accent/80 group-hover:bg-TT-purple-accent/20 group-hover:text-TT-purple-accent"
+                }`}
+              >
+                <Cpu className="w-4 h-4" />
+              </div>
+              <div className="text-left min-w-0">
+                <div className="text-sm font-semibold text-foreground leading-tight">
+                  Advanced: Configure Hardware
+                </div>
+                <div className="text-xs text-muted-foreground leading-tight mt-0.5">
+                  Manually choose which devices this model deploys to
+                </div>
+              </div>
+            </div>
+            <span
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${
+                showHardwareConfig ? "bg-TT-purple-accent" : "bg-gray-700"
+              }`}
             >
               <span
-                className={`
-                  pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform
-                  transition-transform duration-200
-                  ${showHardwareConfig ? "translate-x-4" : "translate-x-0"}
-                `}
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${
+                  showHardwareConfig ? "translate-x-4" : "translate-x-0"
+                }`}
               />
-            </button>
-          </div>
-        )} */}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setDeployMode(null)}
