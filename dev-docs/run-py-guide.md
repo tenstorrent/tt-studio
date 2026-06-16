@@ -28,12 +28,6 @@ The script will guide you through all configuration options and set up everythin
 - TAVILY_API_KEY for search functionality (optional)
 - Other optional configuration options
 
-> **Note**: The setup script automatically handles submoduling of the TT Inference Server. If submodule initialization fails during setup, you can manually initialize the submodules using:
-> ```bash
-> git submodule update --init --recursive
-> ```
-> This will clone the TT Inference Server repository as a submodule, which is required for running vLLM based models on a Tenstorrent device.
-
 ---
 
 ## Command-Line Options
@@ -51,7 +45,7 @@ The script will guide you through all configuration options and set up everythin
 
 > **Important**: The `--skip-fastapi` option disables chat-based language models (LLMs) functionality. Only computer vision models (YOLO), image generation models (Stable Diffusion), and speech recognition models (Whisper) will be available for deployment and inference.
 
-> **AI Playground Mode**: To use TT-Studio as a frontend for all model types (LLMs, YOLO, Whisper, Stable Diffusion), set `VITE_ENABLE_DEPLOYED=true` in your `.env` file and configure the corresponding model endpoints. See the [Model Interface Guide](../docs/model-interface.md) for details.
+> **AI Playground Mode**: To use TT-Studio as a frontend for all model types (LLMs, YOLO, Whisper, Stable Diffusion), set `VITE_ENABLE_DEPLOYED=true` in your `.env` file and configure the corresponding model endpoints. See the [Model Interface Guide](../dev-docs/model-interface.md) for details.
 
 To display the same help section in the terminal, run:
 

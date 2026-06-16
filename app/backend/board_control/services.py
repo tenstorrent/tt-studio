@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 import subprocess
 import json
@@ -153,16 +153,16 @@ class SystemResourceService:
                                 else:
                                     board_type = "N300"
                             
-                            # Blackhole devices (P300c has 2 chips per card)
+                            # Blackhole devices (P300 has 2 chips per card)
                             elif "p300" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P300Cx4"  # 8 chips = 4 cards
                                 elif num_devices >= 4:
-                                    board_type = "P300Cx2"  # 4 chips = 2 cards
+                                    board_type = "P300x2"   # 4 chips = 2 cards
                                 elif num_devices == 2:
-                                    board_type = "P300c"    # 2 chips = 1 card
+                                    board_type = "P300"     # 2 chips = 1 card
                                 else:
-                                    board_type = "P300c"    # Single chip fallback
+                                    board_type = "P300"     # Single chip fallback
                             elif "p150" in raw_lower:
                                 if num_devices >= 8:
                                     board_type = "P150X8"
@@ -278,7 +278,7 @@ class SystemResourceService:
                         
                         system_status["devices"] = devices
                         
-                        # Determine primary board name using detected board type (supports P300Cx2/X4)
+                        # Determine primary board name using detected board type (supports P300x2/P300Cx4)
                         detected_board_type = SystemResourceService.get_board_type()
                         system_status["board_name"] = detected_board_type
                 else:
@@ -461,8 +461,8 @@ class SystemResourceService:
             if num_devices >= 8:
                 return "P300Cx4"
             if num_devices >= 4:
-                return "P300Cx2"
-            return "P300c"
+                return "P300x2"
+            return "P300"
         if "p150" in raw_lower:
             if num_devices >= 8:
                 return "P150X8"

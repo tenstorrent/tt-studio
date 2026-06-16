@@ -22,7 +22,7 @@ class _FakeDeployment:
 
 class ChipAllocatorDeviceIdsTests(TestCase):
     def _make_allocator(self) -> ChipSlotAllocator:
-        with patch.object(ChipSlotAllocator, "_detect_board_type", return_value="P300Cx2"):
+        with patch.object(ChipSlotAllocator, "_detect_board_type", return_value="P300x2"):
             return ChipSlotAllocator()
 
     def test_get_chip_status_marks_all_device_ids_occupied(self):

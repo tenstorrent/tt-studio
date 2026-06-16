@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot,
@@ -36,6 +36,8 @@ import {
 interface DeployState {
   status: "idle" | "deploying" | "done" | "error";
   error?: string;
+  // Live sub-status shown while deploying (e.g. "Pulling Docker Image… 45%").
+  detail?: string;
 }
 
 interface OccupiedDevice {
@@ -76,7 +78,10 @@ const STATUS_ORDER: Record<string, number> = { COMPLETE: 3, FUNCTIONAL: 2, EXPER
 // ---- helpers --------------------------------------------------------------
 
 
-async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
+async function pollDeployProgress(
+  jobId: string,
+  onUpdate?: (data: { stage?: string; progress?: number; message?: string }) => void
+): Promise<"done" | "error"> {
   const POLL_INTERVAL_MS = 5000;
   // Wait for terminal status so cards only mark as deployed after container startup.
   // Keep a long safety timeout so a stalled backend does not leave UI stuck forever.
@@ -88,15 +93,25 @@ async function pollDeployProgress(jobId: string): Promise<"done" | "error"> {
       const resp = await fetch(`/docker-api/deploy/progress/${jobId}/`);
       if (resp.ok) {
         const data = await resp.json();
+        onUpdate?.(data);
         if (data.status === "completed") return "done";
         if (TERMINAL_ERRORS.includes(data.status)) return "error";
       }
-    } catch (_) {
+    } catch {
       // network hiccup — keep polling
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
   return "error";
+}
+
+/** Concise per-card sub-status from a progress poll (image pull shows real %). */
+function deployDetailFromProgress(data: { stage?: string; progress?: number }): string | undefined {
+  if (data.stage === "pulling_image") {
+    const pct = typeof data.progress === "number" ? Math.round(data.progress) : 0;
+    return `Pulling Docker Image… ${pct}%`;
+  }
+  return undefined;
 }
 
 async function deployOneModel(
@@ -177,6 +192,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const [allModels, setAllModels] = useState<Model[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [occupiedDevices, setOccupiedDevices] = useState<OccupiedDevice[]>([]);
+  const [totalSlots, setTotalSlots] = useState<number | null>(null);
 
   const [selectedLlmId, setSelectedLlmId] = useState<string>("");
   const [selectedWhisperId, setSelectedWhisperId] = useState<string>("");
@@ -254,7 +270,15 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
       })
       .catch(() => { /* non-fatal — just no pre-flight warnings */ });
 
-    Promise.all([loadModels, loadSlots]).finally(() => setLoadingModels(false));
+    // Board slot count for the device pre-flight check.
+    const loadSlotCount = fetch("/docker-api/chip-status/")
+      .then((r) => r.json())
+      .then((d: { total_slots?: number }) =>
+        setTotalSlots(typeof d.total_slots === "number" ? d.total_slots : null)
+      )
+      .catch(() => { /* non-fatal */ });
+
+    Promise.all([loadModels, loadSlots, loadSlotCount]).finally(() => setLoadingModels(false));
   }, []);
 
   // Auto-redirect countdown after all done
@@ -283,6 +307,10 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
   const llmDeviceId: number | string = useLlamaCardPair ? "0,1" : 0;
   const whisperDeviceId = useLlamaCardPair ? 2 : 1;
   const ttsDeviceId = useLlamaCardPair ? 3 : 2;
+
+  // Pre-flight: the pipeline pins fixed slots, so the board must expose enough of them.
+  const requiredSlots = useLlamaCardPair ? 4 : 3;
+  const insufficientDevices = totalSlots !== null && totalSlots < requiredSlots;
 
   const hasErrors =
     llmState.status === "error" ||
@@ -324,6 +352,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     !isDeploying &&
     !allDone &&
     !hasConflicts &&
+    !insufficientDevices &&
     !!selectedLlmId &&
     !!selectedWhisperId &&
     !!speechT5Id;
@@ -353,7 +382,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           return false;
         }
         if (pollProgress) {
-          const outcome = await pollDeployProgress(result.jobId);
+          const outcome = await pollDeployProgress(result.jobId, (data) =>
+            setState({ status: "deploying", detail: deployDetailFromProgress(data) })
+          );
           if (outcome === "error") {
             setState({ status: "error", error: "Deployment failed or timed out" });
             return false;
@@ -400,10 +431,18 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
     <>
       {/* Keyframes */}
       <style>{`
-        @keyframes va-pop { 0%,100%{transform:scale(1)} 50%{transform:scale(1.025)} }
-        @keyframes va-shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
+        @keyframes va-pop { 0%,100%{transform:scale(1)} 50%{transform:scale(1.015)} }
+        @keyframes va-shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-2.5px)} 75%{transform:translateX(2.5px)} }
         @keyframes va-shimmer { 0%{background-position:200% center} 100%{background-position:-200% center} }
-        @keyframes va-glow-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0)} 50%{box-shadow:0 0 20px 4px rgba(74,222,128,0.35)} }
+        @keyframes va-glow-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0)} 50%{box-shadow:0 0 12px 2px rgba(74,222,128,0.2)} }
+        @keyframes va-active {
+          0%,100% { box-shadow:0 0 0 1px rgba(96,165,250,0.35); transform:scale(1); }
+          50%     { box-shadow:0 0 0 1px rgba(96,165,250,0.6), 0 0 18px 2px rgba(96,165,250,0.3); transform:scale(1.012); }
+        }
+        @keyframes va-breathe { 0%,100%{opacity:0.4} 50%{opacity:1} }
+        @media (prefers-reduced-motion: reduce) {
+          *[style*="va-"] { animation: none !important; }
+        }
       `}</style>
 
       <div className="flex flex-col gap-6">
@@ -418,7 +457,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
           <h2 className="text-lg font-semibold mb-1">Voice Agent Solution</h2>
           <p className="text-sm text-muted-foreground">
             {useLlamaCardPair
-              ? "Deploys the full voice pipeline: Llama 8B on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
+              ? "Deploys the full voice pipeline: Llama 8B Instruct on devices 0,1, Whisper on device 2, SpeechT5 on device 3."
               : "Deploys the full voice pipeline: LLM on device 0, Whisper on device 1, SpeechT5 on device 2."}
           </p>
         </div>
@@ -485,6 +524,16 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                 )}
               </ModelCard>
             </div>
+
+            {insufficientDevices && !isDeploying && !allDone && (
+              <div className="flex items-start gap-3 rounded-lg border border-red-300/50 dark:border-red-700/50 bg-red-50/80 dark:bg-red-900/20 px-4 py-3">
+                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                <div className="flex-1 text-sm text-red-800 dark:text-red-300 leading-relaxed">
+                  <span className="font-semibold">Not enough devices.</span>{" "}
+                  This board reports {totalSlots} device{totalSlots === 1 ? "" : "s"}, but the Voice Agent needs {requiredSlots}. If your hardware has more, they may not be detected — check the board state.
+                </div>
+              </div>
+            )}
 
             {hasConflicts && !isDeploying && !allDone && (
               <div className="rounded-lg border border-amber-500/20 bg-gradient-to-br from-amber-500/[0.04] to-amber-500/[0.02] px-4 py-3">
@@ -558,7 +607,7 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                   <Button
                     onClick={() => navigate("/models-deployed")}
                     className="flex items-center gap-2"
-                    style={{ animation: "va-glow-pulse 1.6s ease-in-out 2" }}
+                    style={{ animation: "va-glow-pulse 2.4s ease-in-out 2" }}
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     View Models Deployed
@@ -584,10 +633,9 @@ export function VoiceAgentSolutionStep({ onBack }: VoiceAgentSolutionStepProps) 
                       : ""
                   }`}
                   style={isDeploying ? {
-                    background: "linear-gradient(90deg, var(--tw-gradient-stops))",
-                    backgroundImage: "linear-gradient(90deg, #7c68fa 0%, #a78bfa 40%, #7c68fa 60%, #6d55f5 100%)",
+                    backgroundImage: "linear-gradient(90deg, #6d55f5 0%, #a78bfa 50%, #6d55f5 100%)",
                     backgroundSize: "200% auto",
-                    animation: "va-shimmer 1.8s linear infinite",
+                    animation: "va-shimmer 2.6s linear infinite",
                   } : undefined}
                 >
                   {isDeploying && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -617,12 +665,12 @@ const ACCENT_IDLE: Record<CardAccent, { border: string; badge: string; icon: str
   green:  { border: "border-green-400/30 dark:border-green-500/30", badge: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", icon: "text-green-600 dark:text-green-400" },
 };
 
-function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapper: string; extra?: React.CSSProperties } {
+function stateClasses(state: DeployState["status"], accent: CardAccent): { wrapper: string; extra?: CSSProperties } {
   switch (state) {
     case "deploying":
-      return { wrapper: "border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/30 ring-offset-0 animate-pulse" };
+      return { wrapper: "border-blue-400/50 bg-blue-500/[0.04]", extra: { animation: "va-active 2.4s ease-in-out infinite" } };
     case "done":
-      return { wrapper: "border-green-400/70 bg-green-500/[0.07] dark:bg-green-500/10", extra: { animation: "va-pop 0.35s ease" } };
+      return { wrapper: "border-green-400/70 bg-green-500/[0.07] dark:bg-green-500/10", extra: { animation: "va-pop 0.5s ease" } };
     case "error":
       return { wrapper: "border-red-400/60 bg-red-500/5", extra: { animation: "va-shake 0.4s ease" } };
     default:
@@ -671,9 +719,8 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
     if (occupants && occupants.length > 0) return (
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
-          <span className="relative flex items-center justify-center w-2 h-2 shrink-0">
-            <span className="absolute inset-0 rounded-full bg-amber-400/40 animate-ping" />
-            <span className="relative w-1.5 h-1.5 rounded-full bg-amber-400" />
+          <span className="flex items-center justify-center w-2 h-2 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" style={{ animation: "va-breathe 2.2s ease-in-out infinite" }} />
           </span>
           <span className="text-[10px] uppercase tracking-[0.14em] text-amber-300/80 font-semibold">In use</span>
         </div>
@@ -697,7 +744,8 @@ function DeployStatusIndicator({ state, occupants }: { state: DeployState; occup
   }
   if (state.status === "deploying") return (
     <div className="flex items-center gap-1.5 text-xs text-blue-500">
-      <Loader2 className="w-3.5 h-3.5 animate-spin" />Deploying…
+      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      {state.detail ?? "Deploying…"}
     </div>
   );
   if (state.status === "done") return (

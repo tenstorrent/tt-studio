@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 """
 Sync script: reads ../../tt-inference-server/model_specs_output.json and
@@ -25,11 +25,13 @@ OUTPUT_JSON = SCRIPT_DIR / "models_from_inference_server.json"
 #   1. Explicit --source CLI argument
 #   2. TT_INFERENCE_ARTIFACT_PATH env var (set by run.py after artifact download)
 #   3. .artifacts/tt-inference-server/ next to repo root (artifact default location)
-#   4. tt-inference-server/ next to repo root (legacy submodule path)
+#   4. tt-inference-server/ next to repo root (manual local dev checkout)
 _REPO_ROOT = SCRIPT_DIR / "../../.."
 _CANDIDATE_SOURCES = [
     _REPO_ROOT / ".artifacts/tt-inference-server/model_specs_output.json",
+    _REPO_ROOT / ".artifacts/tt-inference-server/model_spec.json",
     _REPO_ROOT / "tt-inference-server/model_specs_output.json",
+    _REPO_ROOT / "tt-inference-server/model_spec.json",
 ]
 
 
@@ -135,7 +137,10 @@ def map_service_route(inference_engine: str, hf_model_id: str = "", raw_model_ty
         # Speech recognition models use OpenAI-compatible /v1/audio/transcriptions endpoint
         if raw_model_type in ("AUDIO", "SPEECH_RECOGNITION"):
             return "/v1/audio/transcriptions"
-        # Other media models (image gen, video, embedding, etc.) use enqueue
+        # Image generation models use the OpenAI-compatible synchronous endpoint
+        if raw_model_type in ("IMAGE", "IMAGE_GENERATION"):
+            return "/v1/images/generations"
+        # Other media models (video, embedding, etc.) use enqueue
         return "/enqueue"
     if inference_engine == "forge":
         return "/v1/chat/completions"
@@ -168,13 +173,29 @@ def pick_higher_status(current: str | None, candidate: str) -> str:
     return current if STATUS_ORDER.get(current, 0) >= STATUS_ORDER.get(candidate, 0) else candidate
 
 
+def _iter_v1_entries(model_specs: dict):
+    """Flatten schema_version=0.1.0 nested structure to leaf entry dicts."""
+    for _hf_id, by_device in model_specs.items():
+        for _device_type, by_engine in by_device.items():
+            for _engine, by_impl in by_engine.items():
+                for _impl_name, entry in by_impl.items():
+                    if isinstance(entry, dict):
+                        yield entry
+
+
 def normalize(source_path: Path) -> list[dict]:
     with open(source_path) as f:
         raw = json.load(f)
 
+    # Handle v0.1.0 schema (model_spec.json) vs legacy flat format (model_specs_output.json)
+    if isinstance(raw, dict) and "model_specs" in raw:
+        entries = list(_iter_v1_entries(raw["model_specs"]))
+    else:
+        entries = [v for v in raw.values() if isinstance(v, dict)]
+
     # group by model_name, skipping GPU entries
     by_model: dict[str, list[dict]] = {}
-    for entry in raw.values():
+    for entry in entries:
         if entry.get("device_type") == "GPU":
             continue
         name = entry["model_name"]
