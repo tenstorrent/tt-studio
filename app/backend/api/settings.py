@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "board_control",
     "channels",
     "wakeword_control",
+    "training_control",
 ]
 
 MIDDLEWARE = [
