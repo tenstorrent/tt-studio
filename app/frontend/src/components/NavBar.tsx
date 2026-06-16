@@ -17,6 +17,7 @@ import {
   ScanFace,
   ChevronRight,
   ChevronLeft,
+  GraduationCap,
   type LucideIcon,
   History,
 } from "lucide-react";
@@ -419,6 +420,8 @@ export default function NavBar() {
         return ScanFace;
       case ModelType.TTS:
         return Volume2;
+      case ModelType.Training:
+        return GraduationCap;
       default:
         return BotMessageSquare;
     }
@@ -446,6 +449,8 @@ export default function NavBar() {
         return "Text to Speech";
       case ModelType.Embedding:
         return "Chat UI";
+      case ModelType.Training:
+        return "Training";
       default:
         return "Model";
     }
