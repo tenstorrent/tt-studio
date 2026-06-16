@@ -141,6 +141,7 @@ export default function TrainingJobDetailPage() {
   const [logs, setLogs] = useState<TrainingLogEntry[]>([]);
   const [checkpoints, setCheckpoints] = useState<TrainingCheckpoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -160,19 +161,33 @@ export default function TrainingJobDetailPage() {
       setMetrics(m);
       setLogs(l);
       setCheckpoints(c);
-    } catch (err) {
-      console.error("Failed to load job details:", err);
-      customToast.error("Failed to load job details");
+      setConnectionError(null);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const msg = err?.response?.data?.error;
+      if (status === 502 || status === 504) {
+        setConnectionError(
+          "Training container is not reachable. It may have stopped or restarted.",
+        );
+      } else if (status === 404 && msg?.includes("No running training container")) {
+        setConnectionError(
+          "Training container is no longer running. The job data is unavailable.",
+        );
+      } else if (!job) {
+        console.error("Failed to load job details:", err);
+        customToast.error("Failed to load job details");
+      }
     } finally {
       setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, job]);
 
   useEffect(() => {
     loadAll();
-    const id = setInterval(loadAll, 4000);
+    if (!isActive && job !== null) return;
+    const id = setInterval(loadAll, 5_000);
     return () => clearInterval(id);
-  }, [loadAll]);
+  }, [loadAll, isActive, job]);
 
   useEffect(() => {
     if (autoScroll && logsEndRef.current) {
@@ -233,6 +248,16 @@ export default function TrainingJobDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Connection error banner */}
+        {connectionError && (
+          <div className="flex items-center gap-3 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-700 dark:bg-red-900/20">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-red-500" />
+            <p className="text-sm font-medium text-red-800 dark:text-red-200">
+              {connectionError}
+            </p>
+          </div>
+        )}
 
         {/* A. Job Info Card */}
         <Card>

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   Plus,
   RefreshCw,
@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Clock,
   Ban,
+  ServerOff,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -80,23 +81,42 @@ export default function TrainingPage() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [noContainer, setNoContainer] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
     try {
       const data = await fetchTrainingJobs();
       setJobs(data);
-    } catch (err) {
-      console.error("Failed to fetch training jobs:", err);
+      setNoContainer(false);
+      setApiError(null);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const msg = err?.response?.data?.error;
+      if (status === 404 && msg?.includes("No running training container")) {
+        setNoContainer(true);
+        setApiError(null);
+      } else if (status === 502) {
+        setApiError("Training container is not reachable. It may be starting up or has stopped.");
+      } else {
+        console.error("Failed to fetch training jobs:", err);
+        setApiError(msg || "Failed to connect to training service.");
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const hasActiveJobs = jobs.some(
+    (j) => j.status === "queued" || j.status === "in_progress",
+  );
+
   useEffect(() => {
     loadJobs();
-    const id = setInterval(loadJobs, 5000);
+    const interval = hasActiveJobs ? 10_000 : 30_000;
+    const id = setInterval(loadJobs, interval);
     return () => clearInterval(id);
-  }, [loadJobs]);
+  }, [loadJobs, hasActiveJobs]);
 
   const handleCancel = async (jobId: string) => {
     try {
@@ -138,6 +158,46 @@ export default function TrainingPage() {
             </Button>
           </div>
         </div>
+
+        {/* No training container deployed */}
+        {noContainer && (
+          <Card className="border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20">
+            <CardContent className="flex items-center gap-4 py-6">
+              <ServerOff className="h-8 w-8 shrink-0 text-amber-500" />
+              <div>
+                <p className="font-medium text-amber-800 dark:text-amber-200">
+                  No training container is running
+                </p>
+                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                  Deploy a training model first to start fine-tuning jobs.{" "}
+                  <Link
+                    to="/models-deployed"
+                    className="underline font-medium hover:text-amber-900 dark:hover:text-amber-100"
+                  >
+                    Go to Models Deployed
+                  </Link>
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* API connectivity error */}
+        {apiError && !noContainer && (
+          <Card className="border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20">
+            <CardContent className="flex items-center gap-4 py-6">
+              <AlertTriangle className="h-8 w-8 shrink-0 text-red-500" />
+              <div>
+                <p className="font-medium text-red-800 dark:text-red-200">
+                  Training service unavailable
+                </p>
+                <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                  {apiError}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Jobs table */}
         <Card>
