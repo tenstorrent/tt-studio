@@ -429,7 +429,7 @@ class DeployView(APIView):
                     else:
                         device_ids = [device_id]
                 device_ids_str = ",".join(str(d) for d in device_ids)
-                # Full set of chip slots this model actually occupies, even though only the primary slot is passed to the inference server via device_ids_str
+                # Full set of chip slots this model actually occupies
                 if should_force_full_board_llama:
                     # Forced full-board Llama takes over every slot on the board.
                     occupied_device_ids = list(range(allocator.total_slots))
@@ -495,13 +495,11 @@ class DeployView(APIView):
                     # lands on its allocated slot(s).
                     if board_type == "P300x2" and device == "p300x2":
                         inference_device_id = None
-                    else:
-                        inference_device_id = device_ids_str
+                    else:   
+                        inference_device_id = ",".join(str(d) for d in occupied_device_ids)  
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
-                qwen32b_p300x2 = impl.model_name == "Qwen3-32B" and device == "p300x2"
-                if qwen32b_p300x2:
-                    override_tt_config = '{"trace_region_size": 53000000}'
+                
                 # Some Llama models need a newer image than the inference server's model_spec default 
                 # e.g. Llama-3.3-70B-Instruct@P300X2 defaults to a v0.10.0 image which inference server will reject.
                 override_docker_image = None
