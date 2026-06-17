@@ -28,6 +28,12 @@ services:
       dockerfile: Dockerfile.dev
       # No build args needed for dev mode since we use runtime env vars
 
+    # Reconcile node_modules with the live-mounted package.json on every dev
+    # container start, then launch Vite. The node_modules anonymous volume is
+    # only seeded once at creation, so newly added deps in the bind-mounted
+    # package.json would otherwise never be installed without a full rebuild.
+    command: sh -c "npm install --no-audit --no-fund && npm run dev"
+
     # Override ports for Vite dev server
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
