@@ -137,7 +137,8 @@ services:
 
   tt_studio_litellm:
     hostname: tt-studio-litellm
-    image: ghcr.io/berriai/litellm:main-stable
+    # Pinned by digest for reproducibility; bump intentionally (current: main-stable)
+    image: ghcr.io/berriai/litellm:main-stable@sha256:89ccaccfda9083f7693777597ca27f8ffca12045e4fa9277155fb7c5f06e68b2
     container_name: tt_studio_litellm
     networks:
       - tt_studio_network

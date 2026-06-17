@@ -32,6 +32,7 @@ import platform
 import argparse
 import shutil
 import re
+import secrets
 import getpass
 import webbrowser
 import socket
@@ -829,6 +830,7 @@ def is_placeholder(value):
         'django-insecure-default', 'tvly-xxx', 'hf_***',
         'tt-studio-rag-admin-password', 'cloud llama chat ui url',
         'cloud llama chat ui auth token', 'test-456',
+        'sk-tt-studio-local-change-me', 'sk-tt-studio-REPLACE-ME', 'change-me-internal',
         '<PATH_TO_ROOT_OF_REPO>', 'true or false to enable deployed mode',
         'true or false to enable RAG admin'
     ]
@@ -1340,11 +1342,12 @@ def configure_environment_sequentially(dev_mode=False, force_reconfigure=False, 
     write_env_var("INTERNAL_PERSISTENT_STORAGE_VOLUME", "/tt_studio_persistent_volume", quote_value=False)
     write_env_var("BACKEND_API_HOSTNAME", "tt-studio-backend-api")
 
-    # LiteLLM auto-configured with safe local defaults so existing .env files pick up the new keys on the next run / --reconfigure.
+    # LiteLLM gateway: generate strong random keys so the network-published port
+    # is never protected by a predictable shared secret.
     if should_configure_var("LITELLM_MASTER_KEY", get_env_var("LITELLM_MASTER_KEY")):
-        write_env_var("LITELLM_MASTER_KEY", "sk-tt-studio-local-change-me", quote_value=False)
+        write_env_var("LITELLM_MASTER_KEY", f"sk-tt-studio-{secrets.token_urlsafe(32)}", quote_value=False)
     if should_configure_var("LITELLM_UPSTREAM_KEY", get_env_var("LITELLM_UPSTREAM_KEY")):
-        write_env_var("LITELLM_UPSTREAM_KEY", "change-me-internal", quote_value=False)
+        write_env_var("LITELLM_UPSTREAM_KEY", secrets.token_urlsafe(32), quote_value=False)
     if should_configure_var("LITELLM_PORT", get_env_var("LITELLM_PORT")):
         write_env_var("LITELLM_PORT", "4000", quote_value=False)
 

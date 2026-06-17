@@ -53,14 +53,15 @@ export default function CodingAgentsPage() {
     };
   }, []);
 
-  // Host-aware URLs so port-forwarded / remote access works (never hardcode localhost).
+  // Host- and protocol-aware URLs so port-forwarded / remote / HTTPS access works
   const { anthropicBase, openaiBase, firstModel } = useMemo(() => {
+    const scheme = window.location.protocol === "https:" ? "https" : "http";
     const host = window.location.hostname;
     const port = info?.gateway_port ?? 4000;
     const basePath = info?.openai_base_path ?? "/v1";
     return {
-      anthropicBase: `http://${host}:${port}`,
-      openaiBase: `http://${host}:${port}${basePath}`,
+      anthropicBase: `${scheme}://${host}:${port}`,
+      openaiBase: `${scheme}://${host}:${port}${basePath}`,
       firstModel: info?.models?.[0]?.name ?? PLACEHOLDER_MODEL,
     };
   }, [info]);

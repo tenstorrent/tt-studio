@@ -9,7 +9,6 @@ from typing import Optional
 import asyncio
 import base64
 import threading
-import httpx
 import requests
 from PIL import Image
 import io
@@ -119,6 +118,7 @@ def _drop_phase_latch(deploy_id: str) -> None:
         _phase_latch.pop(deploy_id, None)
 from model_control.model_utils import (
     encoded_jwt,
+    _vllm_client,
     get_deploy_cache,
     get_model_name_from_container,
     get_max_tokens_limit,
@@ -1626,6 +1626,7 @@ _CODING_AGENT_ELIGIBLE_MODELS = {
     "Qwen3-32B",
     "Llama-3.1-8B-Instruct",
     "Llama-3.1-8B",
+    "Llama-3.3-70B-Instruct",
 }
 
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
@@ -1765,12 +1766,11 @@ class OpenAIChatCompletionsView(View):
             response["X-Accel-Buffering"] = "no"
             return response
 
-        # Non-streaming: proxy the JSON response from vLLM verbatim.
+        # Non-streaming: proxy the JSON response from vLLM verbatim via the shared
+        # pooled client (avoids a fresh connection pool per request).
         headers = {"Authorization": f"Bearer {encoded_jwt}"}
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=None,
-                                                               write=10.0, pool=5.0)) as client:
-                upstream = await client.post(internal_url, json=data, headers=headers)
+            upstream = await _vllm_client.post(internal_url, json=data, headers=headers)
             return JsonResponse(upstream.json(), status=upstream.status_code, safe=False)
         except Exception as e:
             logger.error(f"OpenAIChatCompletionsView non-stream error: {e}")

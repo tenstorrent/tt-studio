@@ -293,6 +293,7 @@ export default function NavBar() {
       "Qwen3-32B",
       "Llama-3.1-8B-Instruct",
       "Llama-3.1-8B",
+      "Llama-3.3-70B-Instruct",
     ];
     return models.some((m) =>
       CODING_AGENT_ELIGIBLE_MODELS.some((name) => m.name?.includes(name))
