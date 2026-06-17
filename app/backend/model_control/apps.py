@@ -20,3 +20,6 @@ class ModelControlConfig(AppConfig):
         logger.info("Initializing models API")
         for model_id, impl in model_implmentations.items():
             impl.setup()
+
+        from model_control.connection_warmer import start_connection_warmer
+        start_connection_warmer()
