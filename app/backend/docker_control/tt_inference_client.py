@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 
 from __future__ import annotations
 
@@ -42,6 +42,45 @@ def tool_call_parser_for(model_name: str = "", hf_model_id: str = "") -> Optiona
     return None
 
 
+def resolve_deploy_image(
+    model_name: str,
+    device: Optional[str] = None,
+    *,
+    fastapi_base_url: str = "http://172.18.0.1:8001",
+    timeout_seconds: int = 5,
+) -> Optional[str]:
+    """Ask the TT Inference Server which Docker image it will actually deploy for
+    a model. Returns the image ref, or None if it can't be resolved. `device` is an
+    optional hint; the server falls back to a per-model lookup when it's omitted.
+
+    The deployed image is chosen by the server's own model_spec, which can differ
+    from tt-studio's static catalog (impl.image_version). Pre-pulling must use this
+    ref to produce a real cache hit; callers fall back to impl.image_version on None.
+    """
+    try:
+        params = {"model": model_name}
+        if device:
+            params["device"] = device
+        r = requests.get(
+            f"{fastapi_base_url}/resolve-image",
+            params=params,
+            timeout=timeout_seconds,
+        )
+        if r.status_code != 200:
+            logger.warning(
+                f"resolve-image for model={model_name} device={device} returned HTTP {r.status_code}: {r.text[:200]}"
+            )
+            return None
+        image = (r.json() or {}).get("docker_image")
+        return image or None
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"resolve-image request failed for model={model_name}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"resolve-image parse failed for model={model_name}: {e}")
+        return None
+
+
 def start_chat_deployment(
     *,
     model_name: str,
@@ -54,6 +93,7 @@ def start_chat_deployment(
     skip_system_sw_validation: bool = True,
     override_tt_config: Optional[str] = None,
     vllm_override_args: Optional[str] = None,
+    override_docker_image: Optional[str] = None,
 ) -> TTInferenceRunResult:
     """Start a chat model deployment via TT Inference Server (/run).
 
@@ -76,6 +116,8 @@ def start_chat_deployment(
         payload["override_tt_config"] = override_tt_config
     if vllm_override_args is not None:
         payload["vllm_override_args"] = vllm_override_args
+    if override_docker_image is not None:
+        payload["override_docker_image"] = override_docker_image
 
     try:
         r = requests.post(fastapi_run_url, json=payload, timeout=timeout_seconds)

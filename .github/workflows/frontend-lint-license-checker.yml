@@ -223,7 +223,7 @@ jobs:
             fi
             echo ""
             echo "✅ To fix: Add these lines to the top of each file:"
-            echo "// SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC"
+            echo "// SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC"
             echo "// SPDX-License-Identifier: Apache-2.0"
             echo ""
             echo "=================================================="

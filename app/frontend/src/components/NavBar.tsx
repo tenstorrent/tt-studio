@@ -256,9 +256,9 @@ interface ActionButtonType {
 export default function NavBar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
-  const { models, refreshModels } = useModels();
+  const { models, refreshModels, hasDeployedModels } = useModels();
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -350,6 +350,13 @@ export default function NavBar() {
   useEffect(() => {
     refreshModels();
   }, [refreshModels, refreshTrigger]);
+
+  // Dark/light mode toggle is disabled; force dark mode.
+  useEffect(() => {
+    if (theme !== "dark") {
+      setTheme("dark");
+    }
+  }, [theme, setTheme]);
 
   const isMobile = windowWidth < 640;
 
@@ -633,12 +640,17 @@ export default function NavBar() {
 
   // Define action buttons based on deployment state - include HelpIcon
   const actionButtons: ActionButtonType[] = [
-    {
-      icon: ModeToggle,
-      tooltipText: "Toggle Dark/Light Mode",
-      onClick: null, // ModeToggle handles its own click
-    },
-    ...(isDeployedEnabled
+    // Dark/light mode toggle disabled — app stays in dark mode.
+    // {
+    //   icon: ModeToggle,
+    //   tooltipText: "Toggle Dark/Light Mode",
+    //   onClick: null, // ModeToggle handles its own click
+    // },
+    // Hide the board reset button while any model is deployed. Resetting
+    // interrupts running deployments, and the reset path is unreliable on
+    // some machines while a model is active, so only expose it when the
+    // board is idle (no deployed models).
+    ...(isDeployedEnabled || hasDeployedModels
       ? []
       : [
         {
