@@ -286,19 +286,12 @@ export default function NavBar() {
   }, [models]);
 
   // Coding Agents (Claude Code / OpenAI clients) requires a deployed model that
-  // supports native tool calling. Keep this list in sync with the backend's
-  // _CODING_AGENT_ELIGIBLE_MODELS.
-  const isCodingAgentReady = useMemo(() => {
-    const CODING_AGENT_ELIGIBLE_MODELS = [
-      "Qwen3-32B",
-      "Llama-3.1-8B-Instruct",
-      "Llama-3.1-8B",
-      "Llama-3.3-70B-Instruct",
-    ];
-    return models.some((m) =>
-      CODING_AGENT_ELIGIBLE_MODELS.some((name) => m.name?.includes(name))
-    );
-  }, [models]);
+  // supports native tool calling. Eligibility is decided by the backend (SSOT:
+  // shared_config.coding_agent_config) and surfaced per-deployment as a flag.
+  const isCodingAgentReady = useMemo(
+    () => models.some((m) => m.coding_agent_eligible),
+    [models],
+  );
 
   // Check if we're in Chat UI or Image Generation mode
   const isChatUI = location.pathname === "/chat";

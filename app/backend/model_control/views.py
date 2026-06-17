@@ -1612,22 +1612,9 @@ class ModelAPIInfoView(APIView):
 """
 
 
-# Coding-agent gateway support (LiteLLM)
-from shared_config.model_type_config import ModelTypes  # noqa: E402
-
-# Model types coding agents can talk to (text chat surfaces).
-_CODING_AGENT_MODEL_TYPES = (ModelTypes.CHAT, ModelTypes.VLM)
-
-# Models eligible for the coding-agent gateway. Native tool calling (required by
-# Claude Code / Cursor) only works on models deployed with vLLM tool-calling
-# enabled. Expand this set as the tt-inference-server tool-calling fix is
-# validated for more models.
-_CODING_AGENT_ELIGIBLE_MODELS = {
-    "Qwen3-32B",
-    "Llama-3.1-8B-Instruct",
-    "Llama-3.1-8B",
-    "Llama-3.3-70B-Instruct",
-}
+# Coding-agent gateway support (LiteLLM). Eligibility (the model allowlist + rule)
+# is the SSOT in shared_config.coding_agent_config.
+from shared_config.coding_agent_config import is_coding_agent_eligible  # noqa: E402
 
 LITELLM_UPSTREAM_KEY = os.environ.get("LITELLM_UPSTREAM_KEY", "")
 LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
@@ -1642,10 +1629,9 @@ _rr_counters: dict[str, int] = {}
 def _running_coding_agent_deploys() -> list[tuple[str, dict]]:
     """Return [(deploy_id, entry), ...] for running, coding-agent-eligible deployments.
 
-    Eligible = a chat-capable model (CHAT/VLM) whose name is in
-    _CODING_AGENT_ELIGIBLE_MODELS. Resilient to deploy-cache failures (e.g.
-    docker-control-service down): logs and returns an empty list so callers
-    degrade gracefully instead of 500ing.
+    Eligibility is decided by is_coding_agent_eligible (shared_config SSOT).
+    Resilient to deploy-cache failures (e.g. docker-control-service down): logs
+    and returns an empty list so callers degrade gracefully instead of 500ing.
     """
     out = []
     try:
@@ -1655,11 +1641,7 @@ def _running_coding_agent_deploys() -> list[tuple[str, dict]]:
         return out
     for deploy_id, entry in cache.items():
         impl = entry.get("model_impl")
-        if impl is None or not entry.get("internal_url"):
-            continue
-        if getattr(impl, "model_type", None) not in _CODING_AGENT_MODEL_TYPES:
-            continue
-        if getattr(impl, "model_name", None) not in _CODING_AGENT_ELIGIBLE_MODELS:
+        if not entry.get("internal_url") or not is_coding_agent_eligible(impl):
             continue
         out.append((deploy_id, entry))
     return out

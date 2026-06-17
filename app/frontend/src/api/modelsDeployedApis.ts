@@ -115,6 +115,7 @@ export interface CanonicalDeployment {
   device_id: number | null;
   device_ids: number[] | null;
   model_type: string | null;  // Top-level echo of model_impl.model_type.value for navbar routing.
+  coding_agent_eligible?: boolean;  // Backend SSOT: usable via the coding-agent gateway.
   model_impl: {
     model_name?: string;
     hf_model_id?: string;
