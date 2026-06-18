@@ -258,7 +258,7 @@ export default function NavBar() {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
   const { triggerRefresh, refreshTrigger } = useRefresh();
-  const { models, refreshModels, hasDeployedModels } = useModels();
+  const { models, refreshModels } = useModels();
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -620,19 +620,11 @@ export default function NavBar() {
     //   tooltipText: "Toggle Dark/Light Mode",
     //   onClick: null, // ModeToggle handles its own click
     // },
-    // Hide the board reset button while any model is deployed. Resetting
-    // interrupts running deployments, and the reset path is unreliable on
-    // some machines while a model is active, so only expose it when the
-    // board is idle (no deployed models).
-    ...(isDeployedEnabled || hasDeployedModels
-      ? []
-      : [
-          {
-            icon: ResetIcon,
-            tooltipText: "Reset Board",
-            onClick: handleReset,
-          },
-        ]),
+    {
+      icon: ResetIcon,
+      tooltipText: "Reset Board",
+      onClick: handleReset,
+    },
   ];
 
   // Render vertical navbar for chat UI mode or image generation (regardless of device)
