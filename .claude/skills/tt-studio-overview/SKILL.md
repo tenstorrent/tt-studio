@@ -25,17 +25,17 @@ Important notes:
 ## Docs
 
 - [Main README](README.md): Complete overview, setup instructions, and quick start guide
-- [Setup Guide](docs/run-py-guide.md): Complete installation & configuration using run.py
-- [FAQ](docs/FAQ.md): Quick answers to common questions about TT-Studio
-- [Model Interface Guide](docs/model-interface.md): Using TT-Studio as AI playground (Chat, Vision, Speech, Images)
-- [Troubleshooting Guide](docs/troubleshooting.md): Solutions for common setup and runtime issues
+- [Setup Guide](dev-docs/run-py-guide.md): Complete installation & configuration using run.py
+- [FAQ](dev-docs/FAQ.md): Quick answers to common questions about TT-Studio
+- [Model Interface Guide](dev-docs/model-interface.md): Using TT-Studio as AI playground (Chat, Vision, Speech, Images)
+- [Troubleshooting Guide](dev-docs/troubleshooting.md): Solutions for common setup and runtime issues
 - [Contributing Guide](CONTRIBUTING.md): How to contribute code to the project
-- [Development Setup](docs/development.md): Development environment configuration
+- [Development Setup](dev-docs/development.md): Development environment configuration
 
 ## Examples
 
-- [AI Model Interface](docs/model-interface.md): Complete examples of using Chat, Vision, Speech, and Image models
-- [vLLM Models Guide](docs/HowToRun_vLLM_Models.md): Specific examples for running vLLM models
+- [AI Model Interface](dev-docs/model-interface.md): Complete examples of using Chat, Vision, Speech, and Image models
+- [vLLM Models Guide](dev-docs/HowToRun_vLLM_Models.md): Specific examples for running vLLM models
 - [AI Agent Setup](app/agent/README.md): Setting up and using the AI assistant functionality
 
 ## Key Components
