@@ -1,3 +1,13 @@
+---
+name: tt-studio-overview
+description: >-
+  Project map for TT-Studio — what the platform is, where its docs live, its
+  key components (React frontend, Django backend, FastAPI inference server,
+  Docker), and the AI model types it supports. Use when you need a high-level
+  orientation of the repo, want to know which doc covers a topic, or are trying
+  to locate where a component or capability lives before diving into code.
+---
+
 # TT-Studio
 
 > TT-Studio is an easy-to-use web interface for running AI models on Tenstorrent hardware.
@@ -31,7 +41,7 @@ Important notes:
 ## Key Components
 
 - **Frontend Interface**: Modern React-based UI for model interaction and management
-- **Backend API**: Django-based service for model management, deployment, and API endpoints  
+- **Backend API**: Django-based service for model management, deployment, and API endpoints
 - **TT Inference Server**: FastAPI server for handling model inference requests
 - **Docker Containers**: Complete containerization for isolation and easy deployment
 - **Automatic Hardware Detection**: Seamless integration and auto-mounting of Tenstorrent devices (/dev/tenstorrent)
