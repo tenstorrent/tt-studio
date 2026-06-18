@@ -495,8 +495,8 @@ class DeployView(APIView):
                     # lands on its allocated slot(s).
                     if board_type == "P300x2" and device == "p300x2":
                         inference_device_id = None
-                    else:   
-                        inference_device_id = ",".join(str(d) for d in occupied_device_ids)  
+                    else:
+                        inference_device_id = ",".join(str(d) for d in occupied_device_ids)
                 # Qwen3-32B on p300x2 exceeds the 50MB default trace region size
                 override_tt_config = None
                 
