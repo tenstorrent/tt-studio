@@ -94,7 +94,12 @@ INFERENCE_ARTIFACT_URL = None  # Will be set after get_env_var is defined
 # they don't clutter the repo root. Created eagerly because StartupLogger opens
 # startup.log at import time (below).
 LOGS_DIR = os.path.join(TT_STUDIO_ROOT, "logs")
-os.makedirs(LOGS_DIR, exist_ok=True)
+try:
+    os.makedirs(LOGS_DIR, exist_ok=True)
+except OSError:
+    # Keep run.py importable even if logs/ can't be created.
+    LOGS_DIR = TT_STUDIO_ROOT
+
 FASTAPI_PID_FILE = os.path.join(LOGS_DIR, "fastapi.pid")
 FASTAPI_LOG_FILE = os.path.join(LOGS_DIR, "fastapi.log")
 FASTAPI_DEPLOYMENT_LOGS_DIR = os.path.join(LOGS_DIR, "fastapi_logs")
