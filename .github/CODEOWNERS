@@ -1,0 +1,77 @@
+# CODEOWNERS for TT-Studio
+#
+# GitHub matches the LAST matching pattern only (rules are not additive), so
+# @anirudTT — the main/default owner — is listed on every rule to remain an
+# owner across the whole repo. More specific rules appear later and win.
+#
+# See: https://docs.github.com/articles/about-code-owners
+
+# ---------------------------------------------------------------------------
+# Default
+# ---------------------------------------------------------------------------
+*                                       @anirudTT
+
+# ---------------------------------------------------------------------------
+# Launcher & setup harness 
+# ---------------------------------------------------------------------------
+/run.py                                 @anirudTT @jashansinghTT
+/test_run_cleanup.py                    @anirudTT @jashansinghTT
+/startup_checks.py                      @anirudTT @jashansinghTT
+
+# ---------------------------------------------------------------------------
+# Frontend
+# ---------------------------------------------------------------------------
+/app/frontend/                          @anirudTT @jashansinghTT
+
+# ---------------------------------------------------------------------------
+# Backend 
+# ---------------------------------------------------------------------------
+/app/backend/                           @anirudTT @rnabeelTT @stisiTT
+/docker-control-service/                @anirudTT @rnabeelTT @stisiTT
+
+# ---------------------------------------------------------------------------
+# Inference server API
+# ---------------------------------------------------------------------------
+/inference-api/                         @anirudTT @rnabeelTT @stisiTT
+/app/agent/                             @anirudTT @jashansinghTT 
+
+# ---------------------------------------------------------------------------
+# Deployment / image-pull progress bar — Raahem
+# (frontend pieces; the backend container-start tracking lives under
+#  /app/backend/ above, already owned by Raahem & Sam)
+# ---------------------------------------------------------------------------
+/app/frontend/src/hooks/useDeploymentProgress.ts             @anirudTT @rnabeelTT
+/app/frontend/src/components/ui/DeploymentProgress.tsx       @anirudTT @rnabeelTT
+/app/frontend/src/components/ui/SimpleDeploymentProgress.tsx @anirudTT @rnabeelTT
+/app/frontend/src/components/ui/progress.tsx                 @anirudTT @rnabeelTT
+/app/frontend/src/components/ui/scroll-progress-bar.tsx      @anirudTT @rnabeelTT
+/app/frontend/src/components/models/ModelPreparingBanner.tsx @anirudTT @rnabeelTT
+
+# ---------------------------------------------------------------------------
+# RAG (vector DB backend + RAG UI) — Anirudh & Jashan
+# ---------------------------------------------------------------------------
+/app/backend/vector_db_control/                          @anirudTT @jashansinghTT
+/app/frontend/src/components/rag/                        @anirudTT @jashansinghTT
+/app/frontend/src/pages/RagAdminPage.tsx                 @anirudTT @jashansinghTT
+/app/frontend/src/components/chatui/getRagContext.ts     @anirudTT @jashansinghTT
+
+# ---------------------------------------------------------------------------
+# Model catalog from inference server — critical config, whole team
+# ---------------------------------------------------------------------------
+/app/backend/shared_config/models_from_inference_server.json @anirudTT @jashansinghTT @rnabeelTT @stisiTT
+
+# ---------------------------------------------------------------------------
+# Docs & README — whole team
+# ---------------------------------------------------------------------------
+/README.md                              @anirudTT @jashansinghTT @rnabeelTT @stisiTT @housTT
+/dev-docs/                              @anirudTT @jashansinghTT @rnabeelTT @stisiTT @housTT
+
+# ---------------------------------------------------------------------------
+# Hosted landing page (GitHub Pages, served from docs/ root) — Adam
+# ---------------------------------------------------------------------------
+/docs/                                  @anirudTT @housTT
+
+# ---------------------------------------------------------------------------
+# Model license compliance — Adam
+# ---------------------------------------------------------------------------
+/models/licenses/                       @anirudTT @housTT
